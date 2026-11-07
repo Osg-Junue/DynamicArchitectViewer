@@ -1,0 +1,105 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "DynamicArchitectViewer DSL",
+  "scopeName": "source.dav",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#directives" },
+    { "include": "#keywords" },
+    { "include": "#booleans" },
+    { "include": "#arrows" },
+    { "include": "#colors" },
+    { "include": "#numbers" },
+    { "include": "#strings" },
+    { "include": "#attributes" },
+    { "include": "#identifiers" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.dav",
+          "match": "//.*$"
+        }
+      ]
+    },
+    "directives": {
+      "patterns": [
+        {
+          "name": "storage.modifier.directive.dav",
+          "match": "@(?:pos|size)\\b"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.dav",
+          "match": "\\b(?:dav|title|group|node|step|desc|focus|state|animate)\\b"
+        }
+      ]
+    },
+    "booleans": {
+      "patterns": [
+        {
+          "name": "constant.language.boolean.dav",
+          "match": "\\b(?:true|false)\\b"
+        }
+      ]
+    },
+    "arrows": {
+      "patterns": [
+        {
+          "name": "keyword.operator.arrow.dav",
+          "match": "<-->|<-\\.->|-->|-\\.->"
+        }
+      ]
+    },
+    "colors": {
+      "patterns": [
+        {
+          "name": "constant.other.color.rgb-value.dav",
+          "match": "#[0-9a-fA-F]{6}\\b"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.dav",
+          "match": "-?\\b\\d+(?:\\.\\d+)?\\b"
+        }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.dav",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.dav",
+          "match": "\\\\[\\\\\"nt]"
+        }
+      ]
+    },
+    "attributes": {
+      "patterns": [
+        {
+          "match": "\\b(icon|sub|status|badge|color|visible|parallel|id|label)\\s*(:)",
+          "captures": {
+            "1": { "name": "variable.other.property.dav" },
+            "2": { "name": "punctuation.separator.key-value.dav" }
+          }
+        }
+      ]
+    },
+    "identifiers": {
+      "patterns": [
+        {
+          "name": "variable.other.readwrite.dav",
+          "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b"
+        }
+      ]
+    }
+  }
+}

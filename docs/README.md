@@ -9,11 +9,11 @@ DynamicArchitectViewer（動的インフラ構成図・画面遷移図フレー�
 | カテゴリ | ドキュメント | 概要 |
 | :--- | :--- | :--- |
 | **01. コンセプト** | [01-concept/vision-and-goals.md](./01-concept/vision-and-goals.md) | 解決する課題、コアバリュー、AIエージェント×人間GUIの協調ワークフロー |
-| **02. アーキテクチャ** | [02-architecture/dsl-core.md](./02-architecture/dsl-core.md) | DSL コア（パーサー・検証・非破壊編集・フォーマッタ）の設計 |
+| **02. アーキテクチャ** | [02-architecture/dsl-core.md](./02-architecture/dsl-core.md) | DSL コア（パーサー・検証・補完・非破壊編集・フォーマッタ）の設計 |
 | **02. アーキテクチャ** | [02-architecture/single-file-html.md](./02-architecture/single-file-html.md) | 統一レンダリング・単一HTMLバンドル構造・ラウンドトリップ再編集の設計 |
+| **02. アーキテクチャ** | [02-architecture/vscode-extension.md](./02-architecture/vscode-extension.md) | VS Code 拡張機能（LSP相当機能・Webview双方向同期・インタラクティブキャンバス）の設計 |
 | **03. 仕様** | [03-specification/dsl-v1.md](./03-specification/dsl-v1.md) | DSL v1 言語仕様（文法 EBNF・意味規則・属性・アイコン） |
-| **04. 運用** | [04-operations/cloud-run-deploy.md](./04-operations/cloud-run-deploy.md) | Cloud Run / Terraform によるインフラ管理、デプロイ、ロールバック |
-| **05. ロードマップ** | [05-roadmap/productization-strategy.md](./05-roadmap/productization-strategy.md) | 製品化方針、製品原則、マイルストーン M0〜M5 |
+| **05. ロードマップ** | [05-roadmap/productization-strategy.md](./05-roadmap/productization-strategy.md) | 製品化方針、製品原則、マイルストーン |
 | **参考: プロトタイプ** | [prototype/](./prototype/) | 凍結済みプロトタイプのシステム構成と旧 DSL 仕様（製品版とは互換性なし） |
 
 ---
@@ -24,32 +24,28 @@ DynamicArchitectViewer（動的インフラ構成図・画面遷移図フレー�
 DynamicArchitectViewer/
 ├── package.json                 # モノレポルート (npm workspaces) / Biome / check スクリプト
 ├── biome.json                   # Lint + Format 設定（apps/prototype は対象外）
-├── Dockerfile                   # Cloud Run 用コンテナ（nginx-unprivileged で静的配信）
-├── deploy/nginx/                # nginx 設定（SPA フォールバック・キャッシュ・セキュリティヘッダ）
-├── infra/terraform/             # GCP（Cloud Run 等）と GitHub 設定の Terraform
-├── .github/workflows/ci.yml     # CI（check / build / コンテナスモークテスト）+ Cloud Run デプロイ
-├── .node-version                # Node.js 26.13.0
+├── .vscode/launch.json          # VS Code Extension Development Host 起動設定 (F5)
+├── .github/workflows/ci.yml     # CI（lint / typecheck / unit & property tests / build）
+├── .node-version                # Node.js バージョン指定
 ├── apps/
-│   ├── web/                     # 製品版 Web アプリ
+│   ├── vscode/                  # 製品版 VS Code 拡張機能パッケージ
+│   │   ├── package.json         # VS Code 拡張マニフェスト
+│   │   ├── syntaxes/            # .dav TextMate 文法定義
 │   │   └── src/
 │   │       ├── model/           # AST 型・内蔵アイコンカタログ
-│   │       ├── dsl/             # Lezer パーサー・検証・非破壊編集・フォーマッタ
+│   │       ├── dsl/             # Lezer パーサー・検証・補完・非破壊編集・フォーマッタ
 │   │       ├── layout/          # 自動レイアウト + 明示座標 (@pos/@size) 解決
 │   │       ├── scene/           # ステップ状態解決・幾何計算・DOM非依存シーン構築
-│   │       ├── runtime/         # 共通プレイヤーランタイム (Webアプリ & 単一HTML共用)
+│   │       ├── runtime/         # 共通プレイヤーランタイム (Webview & 単一HTML共用)
 │   │       ├── exporter/        # SHA-256 CSP 付単一HTML出力 & 再インポート
-│   │       └── editor/          # Web オーサリング UI
+│   │       ├── protocol/        # Extension Host ⇄ Webview メッセージ型定義
+│   │       ├── extension/       # VS Code Extension Host (診断・補完・整形・Webview管理)
+│   │       └── editor/          # Webview UI (インタラクティブキャンバス・インスペクタ)
 │   └── prototype/               # 凍結済みプロトタイプ（挙動の参照実装。変更しない）
-│       └── src/
-│           ├── core/            # DSLパーサー、双方向シリアライザ、自動レイアウト、アイコン定義
-│           ├── viewer/          # ステップ状態解決・3次ベジェ曲線・アニメーション計算
-│           ├── exporter/        # 単一HTML出力（Exporter）＆ 再読込（Importer）
-│           └── editor/          # WebオーサリングUI（DSLエディタ / SVGキャンバス / インスペクタ）
 └── docs/                        # 本ドキュメント群
     ├── 01-concept/
     ├── 02-architecture/
     ├── 03-specification/
-    ├── 04-operations/
     ├── 05-roadmap/
     └── prototype/
 ```

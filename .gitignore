@@ -5,6 +5,7 @@ node_modules/
 dist/
 coverage/
 *.tsbuildinfo
+*.vsix
 
 # Test artifacts
 test-results/
@@ -19,18 +20,11 @@ npm-debug.log*
 .env.*
 !.env.example
 
-# Terraform (keep .terraform.lock.hcl committed)
-**/.terraform/
-*.tfstate
-*.tfstate.*
-*.tfplan
-crash.log
-
 # Editors / OS
 .vs/
 .idea/
 .DS_Store
 Thumbs.db
 
-# Generated runtime bundle (built by apps/web build:runtime)
-apps/web/src/runtime/generated/
+# Generated runtime bundle (built by apps/vscode build:runtime)
+apps/vscode/src/runtime/generated/
