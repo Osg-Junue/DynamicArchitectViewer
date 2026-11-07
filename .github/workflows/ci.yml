@@ -31,7 +31,7 @@ jobs:
           test -f apps/vscode/dist/webview/assets/webview.js
           test -f apps/vscode/dist/webview/assets/webview.css
           test -f apps/vscode/dist/dynamic-architect-viewer.vsix
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: dynamic-architect-viewer-vsix
           path: apps/vscode/dist/dynamic-architect-viewer.vsix
