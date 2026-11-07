@@ -1,0 +1,267 @@
+/* DynamicArchitectViewer player styles (shared by the web app and exported HTML). */
+.dav-app {
+  --dav-bg: #0b0f19;
+  --dav-panel: rgba(15, 23, 42, 0.96);
+  --dav-border: #1e293b;
+  --dav-text: #f1f5f9;
+  --dav-muted: #94a3b8;
+  --dav-accent: #60a5fa;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background: var(--dav-bg);
+  color: var(--dav-text);
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Hiragino Sans", "Noto Sans JP",
+    sans-serif;
+  outline: none;
+}
+.dav-app *,
+.dav-app *::before,
+.dav-app *::after {
+  box-sizing: border-box;
+}
+.dav-app:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--dav-accent);
+}
+
+.dav-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--dav-panel);
+  border-bottom: 1px solid var(--dav-border);
+}
+.dav-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dav-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.dav-zoom-label {
+  min-width: 44px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--dav-muted);
+}
+
+.dav-btn {
+  background: #1e293b;
+  color: #e2e8f0;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 6px 11px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+.dav-btn:hover {
+  background: #334155;
+  border-color: #475569;
+}
+.dav-btn:focus-visible,
+.dav-pill:focus-visible {
+  outline: 2px solid var(--dav-accent);
+  outline-offset: 2px;
+}
+.dav-btn-primary {
+  background: #2563eb;
+  border-color: #3b82f6;
+  color: #ffffff;
+}
+.dav-btn-primary:hover {
+  background: #1d4ed8;
+}
+.dav-btn[hidden] {
+  display: none;
+}
+
+.dav-viewport {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+  background-color: var(--dav-bg);
+  background-image: radial-gradient(#1e293b 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+.dav-viewport.dav-dragging {
+  cursor: grabbing;
+}
+.dav-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  user-select: none;
+}
+
+.dav-dock {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 16px;
+  background: var(--dav-panel);
+  border-top: 1px solid var(--dav-border);
+}
+.dav-step-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--dav-accent);
+  margin-bottom: 4px;
+}
+.dav-step-desc {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #cbd5e1;
+  white-space: pre-line;
+  min-height: 1.5em;
+}
+.dav-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px 16px;
+  flex-wrap: wrap;
+}
+.dav-pills {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  flex: 1;
+}
+.dav-pill {
+  background: #1e293b;
+  color: var(--dav-muted);
+  border: 1px solid #334155;
+  border-radius: 999px;
+  padding: 4px 11px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dav-pill:hover {
+  color: var(--dav-text);
+  border-color: #475569;
+}
+.dav-pill.dav-active {
+  background: rgba(37, 99, 235, 0.25);
+  color: var(--dav-accent);
+  border-color: #3b82f6;
+}
+.dav-hint {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.dav-dialog {
+  width: min(820px, calc(100vw - 32px));
+  max-height: 82vh;
+  padding: 0;
+  border: 1px solid #334155;
+  border-radius: 12px;
+  background: #0f172a;
+  color: var(--dav-text);
+}
+.dav-dialog::backdrop {
+  background: rgba(2, 6, 23, 0.75);
+}
+.dav-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--dav-border);
+  font-size: 13px;
+  font-weight: 600;
+}
+.dav-source {
+  margin: 0;
+  padding: 16px;
+  max-height: calc(82vh - 60px);
+  overflow: auto;
+  background: #020617;
+  color: #e2e8f0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre;
+}
+
+/* SVG scene */
+.dav-canvas text {
+  font-family: inherit;
+}
+.dav-node-label,
+.dav-group-label,
+.dav-packet-label {
+  font-weight: 600;
+}
+.dav-node,
+.dav-edge,
+.dav-edge-label,
+.dav-group {
+  transition: opacity 0.35s ease;
+}
+.dav-dimmed {
+  opacity: 0.22;
+}
+.dav-status-muted {
+  opacity: 0.6;
+}
+.dav-status-muted.dav-dimmed {
+  opacity: 0.18;
+}
+.dav-flow {
+  stroke-dasharray: 8 10;
+  animation: dav-dash 0.9s linear infinite;
+  opacity: 0.9;
+}
+.dav-halo {
+  animation: dav-pulse 1.8s ease-in-out infinite;
+}
+@keyframes dav-dash {
+  to {
+    stroke-dashoffset: -18;
+  }
+}
+@keyframes dav-pulse {
+  50% {
+    stroke-opacity: 0.12;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dav-flow,
+  .dav-halo {
+    animation: none;
+  }
+  .dav-node,
+  .dav-edge,
+  .dav-edge-label,
+  .dav-group {
+    transition: none;
+  }
+}

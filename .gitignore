@@ -31,3 +31,6 @@ crash.log
 .idea/
 .DS_Store
 Thumbs.db
+
+# Generated runtime bundle (built by apps/web build:runtime)
+apps/web/src/runtime/generated/

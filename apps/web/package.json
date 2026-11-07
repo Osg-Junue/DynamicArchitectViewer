@@ -7,11 +7,12 @@
     "node": ">=26.13.0"
   },
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "build:runtime": "vite build --config vite.runtime.config.ts --logLevel warn",
+    "dev": "npm run build:runtime && vite",
+    "build": "npm run build:runtime && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "npm run build:runtime && vitest run --passWithNoTests"
   },
   "dependencies": {
     "@lezer/common": "^1.5.5",
@@ -21,6 +22,7 @@
   },
   "devDependencies": {
     "@lezer/generator": "^1.8.1",
+    "@playwright/test": "^1.65.0",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.2.1",

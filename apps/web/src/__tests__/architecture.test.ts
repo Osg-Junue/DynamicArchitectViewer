@@ -4,15 +4,29 @@ import { describe, expect, it } from 'vitest';
 
 /**
  * Enforces the dependency direction from docs/05-roadmap/productization-strategy.md:
- *   model  -> (nothing)
- *   dsl    -> model
- * Neither may depend on React or the DOM-facing layers.
+ *   model -> (nothing); dsl, layout -> model; scene -> layout, model;
+ *   runtime -> scene, layout, model; exporter -> dsl, layout, model, runtime.
+ * Only the editor may depend on React.
  */
 const SRC = resolve(__dirname, '..');
 
 const RULES: Record<string, { allowedLayers: string[]; forbiddenPackages: RegExp }> = {
   model: { allowedLayers: ['model'], forbiddenPackages: /^(react|react-dom|@lezer\/)/ },
-  dsl: { allowedLayers: ['dsl', 'model', 'samples'], forbiddenPackages: /^(react|react-dom)/ },
+  dsl: { allowedLayers: ['dsl', 'model'], forbiddenPackages: /^(react|react-dom)/ },
+  layout: { allowedLayers: ['layout', 'model'], forbiddenPackages: /^(react|react-dom|@lezer\/)/ },
+  scene: {
+    allowedLayers: ['scene', 'layout', 'model'],
+    forbiddenPackages: /^(react|react-dom|@lezer\/)/,
+  },
+  // The runtime is inlined into exported HTML: it must not pull in the parser or React.
+  runtime: {
+    allowedLayers: ['runtime', 'scene', 'layout', 'model'],
+    forbiddenPackages: /^(react|react-dom|@lezer\/)/,
+  },
+  exporter: {
+    allowedLayers: ['exporter', 'dsl', 'layout', 'model', 'runtime'],
+    forbiddenPackages: /^(react|react-dom)/,
+  },
 };
 
 function sourceFiles(dir: string): string[] {
@@ -34,7 +48,10 @@ describe('architecture: layer boundaries', () => {
           if (!spec) continue;
           if (spec.startsWith('.')) {
             const target = relative(SRC, resolve(join(file, '..'), spec)).split(/[\\/]/)[0] ?? '';
-            const allowed = isTest ? [...rule.allowedLayers, 'samples'] : rule.allowedLayers;
+            // Tests may build fixtures with the parser and samples.
+            const allowed = isTest
+              ? [...rule.allowedLayers, 'samples', 'dsl', 'layout']
+              : rule.allowedLayers;
             if (!allowed.includes(target) && !target.endsWith('.grammar')) {
               violations.push(`${relative(SRC, file)} -> ${spec}`);
             }
