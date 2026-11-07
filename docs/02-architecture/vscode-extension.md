@@ -1,9 +1,9 @@
-# VS Code 拡張機能アーキテクチャ (M3)
+# VS Code 拡張機能アーキテクチャ
 
 ## 1. 概要
 
-DynamicArchitectViewer は VS Code 拡張機能（`apps/vscode`）として提供されます。
-AI エージェント（Claude Code / Antigravity / GitHub Copilot 等）や人間がワークスペース内の `.dav` ファイルを編集すると、VS Code ネイティブの言語サポートと横分割のインタラクティブキャンバス Webview がリアルタイムに双方向同期します。
+DynamicArchitectViewer は軽量な VS Code 拡張機能（`apps/vscode`）として提供されます。
+AI エージェント（Claude Code / Antigravity / GitHub Copilot 等）や人間がワークスペース内の `.dav` ファイルを記述・編集すると、VS Code ネイティブの言語サポートと横分割のライブプレビュー Webview がリアルタイムに連携します。
 
 ---
 
@@ -11,20 +11,21 @@ AI エージェント（Claude Code / Antigravity / GitHub Copilot 等）や人�
 
 ```text
 apps/vscode/
-├── package.json                 # VS Code 拡張マニフェスト (contributes: languages, grammars, commands, menus, keybindings)
+├── package.json                 # VS Code 拡張マニフェスト (Node >=26.0.0)
 ├── language-configuration.json  # コメント (//)・括弧・折りたたみ設定
 ├── syntaxes/
 │   └── dav.tmLanguage.json      # TextMate シンタックスハイライト定義
 └── src/
-    ├── model/                   # AST 型・内蔵アイコンカタログ
-    ├── dsl/                     # Lezer パーサー・検証・補完計算・非破壊編集・フォーマッタ
-    ├── layout/                  # 自動レイアウト + 明示座標 (@pos/@size) 解決
+    ├── model/                   # AST 型・内蔵アイコンカタログ (18種)
+    ├── dsl/                     # Lezer パーサー・検証・補完計算・フォーマッタ
+    ├── layout/                  # トポロジ & グループ階層からの 100% 自動レイアウト
     ├── scene/                   # ステップ状態解決・幾何計算・DOM非依存シーン構築
-    ├── runtime/                 # 共通プレイヤーランタイム (Webview & 単一HTML共用)
+    ├── runtime/                 # 共通プレイヤーランタイム (上部再生バー・SVG描画)
     ├── exporter/                # SHA-256 CSP 付単一HTML出力 & 再インポート
+    ├── prompt/                  # AI エージェント用 DSL v1 仕様プロンプト生成
     ├── protocol/                # Extension Host ⇄ Webview 間の型付きメッセージ定義
     ├── extension/               # VS Code Extension Host (Node.js)
-    └── editor/                  # Webview 側インタラクティブキャンバス + インスペクタ UI
+    └── editor/                  # Vanilla TS 製 Webview UI (ゼロ React 依存)
 ```
 
 ---
@@ -36,25 +37,25 @@ apps/vscode/
 2. **Quick Fix (`CodeActionProvider`)**:
    - アイコン名やステータスのタイポ等で `d.suggestion` が存在する場合、`Ctrl+.`（`⌘.`）で1クリック修正アクションを提供します。
 3. **コンテキスト認識補完 (`CompletionItemProvider`)**:
-   - `computeCompletions(text, offset, true)` により、定義済みノード/グループ ID、キーワード、属性名、アイコン名（14種）、ステータス値（5種）を補完します。
+   - `computeCompletions(text, offset, true)` により、定義済みノード/グループ ID、キーワード、属性名、アイコン名（18種）、ステータス値（5種）を補完します。
 4. **ドキュメント整形 (`DocumentFormattingEditProvider`)**:
    - `Shift+Alt+F` または保存時フォーマットにより、コメントを保持したまま `format(text)` で `.dav` ファイルを整形します。
 5. **アウトライン・パンくずリスト (`DocumentSymbolProvider`)**:
    - グループ、ノード、ステップを VS Code の Outline ビューおよびエディタ上部の Breadcrumbs に表示します。
 6. **コマンド**:
-   - `dav.openPreview`: アクティブな `.dav` エディタの横にインタラクティブキャンバス Webview を開く（`Ctrl+Shift+V` / `Cmd+Shift+V` またはエディタ右上のプレビューアイコン）。
+   - `dav.openPreview`: アクティブな `.dav` エディタの横にライブプレビュー Webview を開く（`Ctrl+Shift+V` / `Cmd+Shift+V` またはエディタ右上のプレビューアイコン）。
    - `dav.exportHtml`: 現在の `.dav` からゼロ外部依存・SHA-256 CSP 付の単一 `.html` ファイルを出力。
    - `dav.importHtml`: 出力済み `.html` ファイルから埋め込み `.dav` DSL を抽出して新規エディタで開く。
    - `dav.newFromTemplate`: 内蔵サンプルテンプレートから新規 `.dav` 図を作成。
+   - `dav.copyAiPrompt`: AI エージェント用 DSL v1 仕様プロンプトをクリップボードにコピー。
 
 ---
 
-## 4. Extension Host ⇄ Webview 双方向同期プロトコル (`src/protocol/messages.ts`)
+## 4. Extension Host ⇄ Webview 連携プロトコル (`src/protocol/messages.ts`)
 
 - **エディタ → Webview (`HostToWebviewMessage`)**:
-  - `docChanged`: エディタ（または AI エージェントによるファイル書き換え）で `.dav` テキストが変化した際に Webview のキャンバスとインスペクタを即時更新。
+  - `docChanged`: エディタ（または AI エージェントによるファイル書き換え）で `.dav` テキストが変化した際に Webview の自動レイアウトとプレビューを即時更新。
   - `cursorMoved`: エディタ内のカーソル位置オフセットを通知。`findAtOffset(sourceMap, offset)` によりカーソル下のノード/グループをキャンバス上で破線ハイライトし、ステップブロック内にいる場合は自動的にそのステップへ切り替えます。
 - **Webview → エディタ (`WebviewToHostMessage`)**:
-  - `updateDsl`: キャンバス上でのドラッグ移動・リサイズ・エッジ接続やインスペクタでの属性・ステップ編集結果を `vscode.WorkspaceEdit` として `TextDocument` に適用。VS Code 本体の Undo/Redo スタックと統合されます。
-  - `revealRange`: キャンバス上の要素のダブルクリックや「コードへ移動」ボタンから、該当する DSL 定義行へエディタをジャンプ・選択します。
-  - `exportHtml` / `formatDocument`: Webview ツールバーから単一HTML出力やフォーマットを実行します。
+  - `revealRange`: キャンバス上の要素のダブルクリックから、該当する DSL 定義行へエディタをジャンプ・選択します。
+  - `exportHtml` / `formatDocument`: Webview 上部ツールバーから単一HTML出力やフォーマットを実行します。

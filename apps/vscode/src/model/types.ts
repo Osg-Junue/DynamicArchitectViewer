@@ -36,19 +36,12 @@ export interface Point {
   y: number;
 }
 
-export interface Size {
-  width: number;
-  height: number;
-}
-
 export interface DavGroup {
   id: string;
   label: string;
   color?: string;
   /** Enclosing group ID (nested groups). */
   parentId?: string;
-  pos?: Point;
-  size?: Size;
 }
 
 export interface DavNode {
@@ -62,8 +55,6 @@ export interface DavNode {
   color?: string;
   /** Enclosing group ID. */
   parentId?: string;
-  pos?: Point;
-  size?: Size;
 }
 
 export interface DavEdge {
@@ -85,8 +76,6 @@ export interface StateOverride {
   badge?: string;
   visible?: boolean;
   color?: string;
-  label?: string;
-  sub?: string;
 }
 
 export interface Animation {
@@ -100,8 +89,6 @@ export interface Animation {
 }
 
 export interface DavStep {
-  /** Optional explicit step ID. */
-  id?: string;
   /** Zero-based position in the document. */
   index: number;
   title: string;

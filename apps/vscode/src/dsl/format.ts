@@ -104,16 +104,11 @@ class Printer {
   /** Renders a statement's tokens on one line with canonical spacing. */
   private inline(node: SyntaxNode, include: (child: SyntaxNode) => boolean): string {
     const parts: string[] = [];
-    const placements: string[] = [];
     for (const child of childNodes(node)) {
       if (!include(child)) continue;
       switch (child.name) {
         case 'Attributes':
           parts.push(this.attributes(child));
-          break;
-        case 'Pos':
-        case 'Size':
-          placements.push(this.placement(child));
           break;
         case 'EdgeLabel': {
           const str = child.getChild('String');
@@ -131,9 +126,7 @@ class Printer {
           parts.push(sliceOf(this.text, child));
       }
     }
-    // Canonical order: @pos before @size.
-    placements.sort((a, b) => Number(a.startsWith('@size')) - Number(b.startsWith('@size')));
-    return [...parts, ...placements].join(' ');
+    return parts.join(' ');
   }
 
   private attributes(node: SyntaxNode): string {
@@ -143,12 +136,6 @@ class Printer {
       return `${name ? sliceOf(this.text, name) : ''}: ${value ? sliceOf(this.text, value) : ''}`;
     });
     return `[${items.join(', ')}]`;
-  }
-
-  private placement(node: SyntaxNode): string {
-    const nums = node.getChildren('Number').map((n) => sliceOf(this.text, n));
-    const keyword = node.name === 'Pos' ? '@pos' : '@size';
-    return `${keyword}(${nums.join(', ')})`;
   }
 
   private verbatim(node: SyntaxNode, indent: string): void {

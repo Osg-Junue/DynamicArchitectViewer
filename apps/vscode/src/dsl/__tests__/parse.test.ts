@@ -21,8 +21,8 @@ describe('parse: model', () => {
   const text = `dav 1
 title "T \\"quoted\\"\\nline2"
 
-group vpc "VPC" [color: #3B82F6] @pos(10, 20) @size(300, 200) {
-  node a "A" [icon: database, sub: "s", status: active, badge: "B", visible: false, color: #abc] @pos(1, 2)
+group vpc "VPC" [color: #3B82F6] {
+  node a "A" [icon: database, sub: "s", status: active, badge: "B", visible: false, color: #abc]
   group sub {
     node b
   }
@@ -38,13 +38,13 @@ step "First" {
   desc "line1"
   desc "line2"
   focus a, vpc, bc
-  state a [status: error, badge: "DOWN", label: "A!"]
+  state a [status: error, badge: "DOWN"]
   state bc [visible: true]
   animate a --> b : "go" [color: #f00]
   animate b --> c [parallel: true]
 }
 
-step s2 "Second" {}
+step "Second" {}
 `;
   const { document: doc, diagnostics, sourceMap } = parse(text);
 
@@ -63,8 +63,6 @@ step s2 "Second" {}
         id: 'vpc',
         label: 'VPC',
         color: '#3b82f6',
-        pos: { x: 10, y: 20 },
-        size: { width: 300, height: 200 },
       },
       { id: 'sub', label: 'sub', parentId: 'vpc' },
     ]);
@@ -81,7 +79,6 @@ step s2 "Second" {}
       visible: false,
       color: '#abc',
       parentId: 'vpc',
-      pos: { x: 1, y: 2 },
     });
     expect(doc.nodes[1]).toEqual({
       id: 'b',
@@ -112,7 +109,7 @@ step s2 "Second" {}
       description: 'line1\nline2',
       focus: ['a', 'vpc', 'bc'],
       states: [
-        { target: 'a', status: 'error', badge: 'DOWN', label: 'A!' },
+        { target: 'a', status: 'error', badge: 'DOWN' },
         { target: 'bc', visible: true },
       ],
       animations: [
@@ -128,7 +125,7 @@ step s2 "Second" {}
         { from: 'b', to: 'c', style: 'solid', direction: 'forward', parallel: true },
       ],
     });
-    expect(second).toMatchObject({ id: 's2', index: 1, title: 'Second' });
+    expect(second).toMatchObject({ index: 1, title: 'Second' });
   });
 
   it('records source ranges', () => {
@@ -152,7 +149,7 @@ describe('parse: diagnostics', () => {
     ['unsupported version', 'dav 2', ['unsupported-version']],
     ['duplicate title', 'dav 1\ntitle "a"\ntitle "b"', ['duplicate-title']],
     ['duplicate node id', 'dav 1\nnode a\nnode a', ['duplicate-id']],
-    ['id shared across kinds', 'dav 1\nnode a\nstep a "s" {}', ['duplicate-id']],
+    ['id shared across kinds', 'dav 1\nnode a\ngroup a {}', ['duplicate-id']],
     ['duplicate implicit edge', 'dav 1\nnode a\nnode b\na --> b\na -.-> b', ['duplicate-edge']],
     ['explicit id resolves duplicate', 'dav 1\nnode a\nnode b\na --> b\na -.-> b [id: e2]', []],
     ['undefined edge endpoint', 'dav 1\nnode a\na --> b', ['undefined-reference']],
@@ -168,7 +165,6 @@ describe('parse: diagnostics', () => {
       'dav 1\nnode a\ngroup g {}\nstep "s" { animate a --> g }',
       ['reference-kind-mismatch'],
     ],
-    ['focus on step', 'dav 1\nstep s1 "s" { focus s1 }', ['reference-kind-mismatch']],
     ['implicit edge not referable', 'dav 1\nnode a\nnode b\na --> b\nstep "s" { focus a }', []],
     ['unknown attribute', 'dav 1\nnode a [shape: box]', ['unknown-attribute']],
     ['duplicate attribute', 'dav 1\nnode a [sub: "x", sub: "y"]', ['duplicate-attribute']],
@@ -179,8 +175,6 @@ describe('parse: diagnostics', () => {
     ['invalid color', 'dav 1\nnode a [color: #12345]', ['invalid-color']],
     ['color type', 'dav 1\nnode a [color: red]', ['invalid-attribute-value']],
     ['invalid escape', 'dav 1\ntitle "a\\qb"', ['invalid-escape']],
-    ['duplicate pos', 'dav 1\nnode a @pos(1, 2) @pos(3, 4)', ['duplicate-placement']],
-    ['invalid size', 'dav 1\nnode a @size(0, 10)', ['invalid-size']],
     [
       'state attr not applicable',
       'dav 1\nnode a\nnode b\na --> b [id: e]\nstep "s" { state e [status: error] }',

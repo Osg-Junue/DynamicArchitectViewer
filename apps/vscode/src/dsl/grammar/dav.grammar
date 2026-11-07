@@ -11,21 +11,17 @@ statement { Title | Group | Node | Edge | Step }
 
 Title { kw<"title"> String }
 
-Group { kw<"group"> Identifier Label? Attributes? placement* GroupBody }
+Group { kw<"group"> Identifier Label? Attributes? GroupBody }
 GroupBody { "{" (Group | Node)* "}" }
 
-Node { kw<"node"> Identifier Label? Attributes? placement* }
+Node { kw<"node"> Identifier Label? Attributes? }
 
 Label { String }
-
-placement { Pos | Size }
-Pos { "@pos" "(" Number "," Number ")" }
-Size { "@size" "(" Number "," Number ")" }
 
 Edge { Identifier Arrow Identifier EdgeLabel? Attributes? }
 EdgeLabel { ":" String }
 
-Step { kw<"step"> Identifier? String StepBody }
+Step { kw<"step"> String StepBody }
 StepBody { "{" stepStatement* "}" }
 
 stepStatement { Desc | Focus | State | Animate }
@@ -50,8 +46,7 @@ kw<term> { @specialize[@name={term}]<Identifier, term> }
   Color { "#" $[0-9a-zA-Z]+ }
   String { '"' (!["\\\n] | "\\" _)* '"' }
   Arrow { "-->" | "-.->" | "<-->" | "<-.->" }
-  "@pos" "@size"
-  "{" "}" "[" "]" "(" ")" "," ":"
+  "{" "}" "[" "]" "," ":"
 }
 
 @detectDelim

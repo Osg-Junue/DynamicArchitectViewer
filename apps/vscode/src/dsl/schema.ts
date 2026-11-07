@@ -25,8 +25,6 @@ export const ATTRIBUTE_SCHEMA: Record<AttrOwner, Readonly<Record<string, AttrTyp
     badge: 'string',
     visible: 'bool',
     color: 'color',
-    label: 'string',
-    sub: 'string',
   },
   animate: {
     color: 'color',
@@ -36,9 +34,9 @@ export const ATTRIBUTE_SCHEMA: Record<AttrOwner, Readonly<Record<string, AttrTyp
 
 /** Which `state` attributes are meaningful for each target kind. */
 export const STATE_ATTRIBUTES_BY_TARGET: Record<'node' | 'group' | 'edge', ReadonlySet<string>> = {
-  node: new Set(['status', 'badge', 'visible', 'color', 'label', 'sub']),
-  group: new Set(['color', 'label']),
-  edge: new Set(['visible', 'color', 'label']),
+  node: new Set(['status', 'badge', 'visible', 'color']),
+  group: new Set(['color']),
+  edge: new Set(['visible', 'color']),
 };
 
 export const IDENTIFIER_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;

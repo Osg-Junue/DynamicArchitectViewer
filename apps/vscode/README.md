@@ -1,6 +1,6 @@
 # DynamicArchitectViewer (`dav 1`)
 
-DynamicArchitectViewer is a VS Code extension for authoring **time-stepped architecture & screen-transition diagrams** with a concise text DSL (`.dav`), a two-way interactive SVG canvas & inspector, and **zero-dependency single-file HTML export** with round-trip re-import.
+DynamicArchitectViewer is a lightweight VS Code extension for authoring **time-stepped architecture & screen-transition diagrams** with a compact, code-only text DSL (`.dav`), 100% deterministic auto-layout, a modern live preview with Visual Studio-style top playback controls, and **zero-dependency single-file HTML export** with round-trip re-import.
 
 ## Features
 
@@ -9,11 +9,11 @@ DynamicArchitectViewer is a VS Code extension for authoring **time-stepped archi
   - Real-time diagnostics with Quick Fix suggestions (`Ctrl+.` / `⌘.`)
   - Context-aware autocomplete for node/group IDs, keywords, attributes, 18 built-in icons, and 5 node statuses
   - Comment-preserving formatter (`Shift+Alt+F`) and Document Outline / Breadcrumbs
-- **Interactive Canvas & Inspector (`Ctrl+Shift+V` / `⌘⇧V`)**:
-  - Drag to position (`@pos`) with 10px grid snap and smart alignment guides
-  - Resize handles (`@size`), port drag to connect edges (`-->`), and multi-selection alignment
-  - Element Inspector & Step Timeline Inspector powered by non-destructive text edits (preserves comments and formatting)
-  - Cursor-to-canvas highlight and double-click jump to code
+- **Code-Only Auto-Layout & Modern Live Preview (`Ctrl+Shift+V` / `⌘⇧V`)**:
+  - 100% deterministic automatic layout from topology and group hierarchy — no manual coordinate (`@pos` / `@size`) maintenance
+  - Pure Vanilla TypeScript DOM runtime (zero React dependency) for instant startup and minimal memory footprint
+  - Visual Studio-style top playback toolbar (`▶ Play` / `❚❚ Pause`, Step Prev/Next, `0.5x`–`2x` speed)
+  - Cursor-to-canvas highlight and double-click jump from canvas node/group to `.dav` source line
 - **AI Agent Ready**:
   - Run **DynamicArchitectViewer: Copy AI Prompt Template (DSL v1 Spec)** to copy a self-contained specification prompt for Claude Code, Antigravity, ChatGPT, or Copilot.
 - **Zero-Dependency Single-File HTML Export**:

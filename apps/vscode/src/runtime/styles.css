@@ -1,11 +1,15 @@
 /* DynamicArchitectViewer player styles (shared by the web app and exported HTML). */
+:root,
 .dav-app {
-  --dav-bg: #0b0f19;
-  --dav-panel: rgba(15, 23, 42, 0.96);
-  --dav-border: #1e293b;
+  --dav-bg: #070b14;
+  --dav-panel: rgba(13, 20, 36, 0.92);
+  --dav-border: rgba(51, 65, 85, 0.65);
   --dav-text: #f1f5f9;
   --dav-muted: #94a3b8;
   --dav-accent: #60a5fa;
+}
+
+.dav-app {
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -15,7 +19,7 @@
   background: var(--dav-bg);
   color: var(--dav-text);
   font-family:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Hiragino Sans", "Noto Sans JP",
+    "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Hiragino Sans", "Noto Sans JP",
     sans-serif;
   outline: none;
 }
@@ -32,15 +36,22 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 10px 16px;
-  background: var(--dav-panel);
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  min-height: 42px;
+  padding: 6px 16px;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.95) 0%, rgba(11, 17, 32, 0.95) 100%);
   border-bottom: 1px solid var(--dav-border);
+  backdrop-filter: blur(10px);
 }
 .dav-title {
   margin: 0;
-  font-size: 15px;
+  flex: 1 1 160px;
+  min-width: 0;
+  font-size: 13.5px;
   font-weight: 600;
+  letter-spacing: -0.01em;
+  color: #e2e8f0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -48,33 +59,80 @@
 .dav-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
+}
+.dav-zoom-group {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-left: auto;
+  gap: 4px;
+  padding: 2px 4px;
+  background: rgba(2, 6, 23, 0.55);
+  border: 1px solid rgba(51, 65, 85, 0.6);
+  border-radius: 8px;
 }
 .dav-zoom-label {
   min-width: 44px;
   text-align: center;
-  font-size: 12px;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
   color: var(--dav-muted);
 }
 
+/* Visual Studio-style Top Playback / Start Bar */
+.dav-playback-bar {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 4px;
+  padding: 3px 5px;
+  background: rgba(2, 6, 23, 0.72);
+  border: 1px solid rgba(71, 85, 105, 0.7);
+  border-radius: 9px;
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.4),
+    0 1px 0 rgba(255, 255, 255, 0.04);
+}
+.dav-toolbar-sep {
+  width: 1px;
+  height: 16px;
+  background: rgba(71, 85, 105, 0.55);
+  margin: 0 2px;
+}
+
 .dav-btn {
-  background: #1e293b;
+  background: rgba(30, 41, 59, 0.85);
   color: #e2e8f0;
-  border: 1px solid #334155;
+  border: 1px solid rgba(71, 85, 105, 0.65);
   border-radius: 6px;
-  padding: 6px 11px;
+  padding: 4px 10px;
   font: inherit;
   font-size: 12px;
   font-weight: 500;
+  line-height: 1.35;
+  white-space: nowrap;
+  flex-shrink: 0;
   cursor: pointer;
   transition:
     background 0.15s ease,
-    border-color 0.15s ease;
+    border-color 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.1s ease;
 }
-.dav-btn:hover {
-  background: #334155;
-  border-color: #475569;
+.dav-btn:hover:not(:disabled) {
+  background: rgba(51, 65, 85, 0.9);
+  border-color: rgba(100, 116, 139, 0.85);
+  color: #ffffff;
+}
+.dav-btn:active:not(:disabled) {
+  transform: translateY(0.5px);
+}
+.dav-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 .dav-btn:focus-visible,
 .dav-pill:focus-visible {
@@ -82,12 +140,79 @@
   outline-offset: 2px;
 }
 .dav-btn-primary {
-  background: #2563eb;
-  border-color: #3b82f6;
+  background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
+  border-color: #60a5fa;
   color: #ffffff;
+  font-weight: 600;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15);
 }
-.dav-btn-primary:hover {
-  background: #1d4ed8;
+.dav-btn-primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
+  border-color: #93c5fd;
+}
+
+/* Visual Studio Start / Play Hero Button */
+.dav-btn-play {
+  min-width: 88px;
+  padding: 4px 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  background: linear-gradient(180deg, rgba(16, 185, 129, 0.28) 0%, rgba(5, 150, 105, 0.18) 100%);
+  border-color: rgba(16, 185, 129, 0.65);
+  color: #ecfdf5;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+.dav-btn-play:hover:not(:disabled) {
+  background: linear-gradient(180deg, rgba(16, 185, 129, 0.4) 0%, rgba(5, 150, 105, 0.28) 100%);
+  border-color: #34d399;
+  color: #ffffff;
+  box-shadow:
+    0 0 12px rgba(16, 185, 129, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+.dav-btn-play[aria-pressed="true"] {
+  background: linear-gradient(180deg, rgba(37, 99, 235, 0.42) 0%, rgba(29, 78, 216, 0.28) 100%);
+  border-color: #60a5fa;
+  color: #eff6ff;
+  box-shadow:
+    0 0 14px rgba(59, 130, 246, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+}
+.dav-btn-play[aria-pressed="true"]:hover:not(:disabled) {
+  background: linear-gradient(180deg, rgba(59, 130, 246, 0.5) 0%, rgba(37, 99, 235, 0.36) 100%);
+  border-color: #93c5fd;
+}
+
+.dav-btn-step {
+  background: transparent;
+  border-color: transparent;
+  color: #cbd5e1;
+  padding: 4px 9px;
+}
+.dav-btn-step:hover:not(:disabled) {
+  background: rgba(51, 65, 85, 0.65);
+  border-color: rgba(71, 85, 105, 0.7);
+  color: #f8fafc;
+}
+.dav-speed-select {
+  background: rgba(15, 23, 42, 0.85);
+  border-color: rgba(71, 85, 105, 0.55);
+  color: #cbd5e1;
+  padding: 3px 8px;
+  font-variant-numeric: tabular-nums;
+}
+.dav-zoom-group .dav-btn {
+  background: transparent;
+  border-color: transparent;
+  padding: 3px 8px;
+}
+.dav-zoom-group .dav-btn:hover:not(:disabled) {
+  background: rgba(51, 65, 85, 0.65);
+  border-color: rgba(71, 85, 105, 0.6);
 }
 .dav-btn[hidden] {
   display: none;
@@ -101,8 +226,12 @@
   cursor: grab;
   touch-action: none;
   background-color: var(--dav-bg);
-  background-image: radial-gradient(#1e293b 1px, transparent 1px);
-  background-size: 24px 24px;
+  background-image:
+    radial-gradient(ellipse at 50% 0%, rgba(37, 99, 235, 0.08) 0%, transparent 65%),
+    radial-gradient(rgba(51, 65, 85, 0.55) 1px, transparent 1px);
+  background-size:
+    100% 100%,
+    24px 24px;
 }
 .dav-viewport.dav-dragging {
   cursor: grabbing;
@@ -118,18 +247,30 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 12px 16px;
-  background: var(--dav-panel);
+  padding: 12px 18px;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.94) 0%, rgba(9, 14, 26, 0.98) 100%);
   border-top: 1px solid var(--dav-border);
+  backdrop-filter: blur(12px);
+}
+.dav-dock-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.dav-step-info {
+  flex: 1;
+  min-width: 0;
 }
 .dav-step-title {
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 700;
+  letter-spacing: -0.01em;
   color: var(--dav-accent);
-  margin-bottom: 4px;
+  margin-bottom: 3px;
 }
 .dav-step-desc {
-  font-size: 13px;
+  font-size: 12.5px;
   line-height: 1.5;
   color: #cbd5e1;
   white-space: pre-line;
@@ -138,7 +279,7 @@
 .dav-controls {
   display: flex;
   align-items: center;
-  gap: 12px 16px;
+  gap: 10px 14px;
   flex-wrap: wrap;
 }
 .dav-pills {
@@ -148,11 +289,11 @@
   flex: 1;
 }
 .dav-pill {
-  background: #1e293b;
+  background: rgba(30, 41, 59, 0.7);
   color: var(--dav-muted);
-  border: 1px solid #334155;
+  border: 1px solid rgba(51, 65, 85, 0.75);
   border-radius: 999px;
-  padding: 4px 11px;
+  padding: 4px 12px;
   font: inherit;
   font-size: 12px;
   font-weight: 600;
@@ -161,32 +302,46 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 .dav-pill:hover {
   color: var(--dav-text);
-  border-color: #475569;
+  background: rgba(51, 65, 85, 0.65);
+  border-color: #64748b;
 }
 .dav-pill.dav-active {
-  background: rgba(37, 99, 235, 0.25);
-  color: var(--dav-accent);
+  background: linear-gradient(180deg, rgba(37, 99, 235, 0.32) 0%, rgba(29, 78, 216, 0.2) 100%);
+  color: #93c5fd;
   border-color: #3b82f6;
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.22);
 }
 .dav-hint {
   font-size: 11px;
   color: #64748b;
+  background: rgba(2, 6, 23, 0.5);
+  border: 1px solid rgba(51, 65, 85, 0.45);
+  border-radius: 6px;
+  padding: 3px 8px;
+  white-space: nowrap;
 }
 
 .dav-dialog {
   width: min(820px, calc(100vw - 32px));
   max-height: 82vh;
   padding: 0;
-  border: 1px solid #334155;
+  border: 1px solid rgba(71, 85, 105, 0.75);
   border-radius: 12px;
   background: #0f172a;
   color: var(--dav-text);
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.65);
 }
 .dav-dialog::backdrop {
   background: rgba(2, 6, 23, 0.75);
+  backdrop-filter: blur(4px);
 }
 .dav-dialog-header {
   display: flex;

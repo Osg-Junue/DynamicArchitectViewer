@@ -14,8 +14,6 @@ import {
   type LineStyle,
   NODE_STATUSES,
   type NodeStatus,
-  type Point,
-  type Size,
   type StateOverride,
 } from '../model/types';
 import type { Diagnostic, DiagnosticCode, Severity } from './diagnostics';
@@ -28,7 +26,7 @@ import {
 } from './schema';
 import { childNodes, parseTree, sliceOf, unescapeString } from './syntax';
 
-export type ElementKind = 'node' | 'group' | 'edge' | 'step';
+export type ElementKind = 'node' | 'group' | 'edge';
 
 export interface SourceRange {
   from: number;
@@ -58,7 +56,7 @@ export interface ParseResult {
 interface Reference {
   id: string;
   range: SourceRange;
-  allowed: ReadonlyArray<Exclude<ElementKind, 'step'>>;
+  allowed: ReadonlyArray<ElementKind>;
 }
 
 interface PendingStateCheck {
@@ -219,14 +217,11 @@ class Analyzer {
     if (!idNode) return;
     const id = sliceOf(this.text, idNode);
     const attrs = this.readAttributes(node.getChild('Attributes'), 'group');
-    const { pos, size } = this.readPlacements(node);
 
     const group: DavGroup = { id, label: this.readLabel(node) ?? id };
     if (parentId) group.parentId = parentId;
     const color = attrs.get('color')?.value;
     if (typeof color === 'string') group.color = color;
-    if (pos) group.pos = pos;
-    if (size) group.size = size;
 
     this.declare({ kind: 'group', id, from: node.from, to: node.to, idRange: rangeOf(idNode) });
     this.doc.groups.push(group);
@@ -244,7 +239,6 @@ class Analyzer {
     if (!idNode) return;
     const id = sliceOf(this.text, idNode);
     const attrs = this.readAttributes(node.getChild('Attributes'), 'node');
-    const { pos, size } = this.readPlacements(node);
 
     const result: DavNode = {
       id,
@@ -257,8 +251,6 @@ class Analyzer {
     assignString(result, 'sub', attrs);
     assignString(result, 'badge', attrs);
     assignString(result, 'color', attrs);
-    if (pos) result.pos = pos;
-    if (size) result.size = size;
 
     this.declare({ kind: 'node', id, from: node.from, to: node.to, idRange: rangeOf(idNode) });
     this.doc.nodes.push(result);
@@ -310,7 +302,6 @@ class Analyzer {
   }
 
   private readStep(node: SyntaxNode): void {
-    const idNode = node.getChild('Identifier');
     const titleNode = node.getChild('String');
     const step: DavStep = {
       index: this.doc.steps.length,
@@ -320,16 +311,6 @@ class Analyzer {
       states: [],
       animations: [],
     };
-    if (idNode) {
-      step.id = sliceOf(this.text, idNode);
-      this.declare({
-        kind: 'step',
-        id: step.id,
-        from: node.from,
-        to: node.to,
-        idRange: rangeOf(idNode),
-      });
-    }
 
     const descriptions: string[] = [];
     const body = node.getChild('StepBody');
@@ -378,8 +359,6 @@ class Analyzer {
     if (typeof visible === 'boolean') override.visible = visible;
     assignString(override, 'badge', attrs);
     assignString(override, 'color', attrs);
-    assignString(override, 'label', attrs);
-    assignString(override, 'sub', attrs);
 
     step.states.push(override);
     this.references.push({
@@ -441,28 +420,6 @@ class Analyzer {
   private readEdgeLabel(node: SyntaxNode): string | undefined {
     const str = node.getChild('EdgeLabel')?.getChild('String');
     return str ? this.readString(str) : undefined;
-  }
-
-  private readPlacements(node: SyntaxNode): { pos?: Point; size?: Size } {
-    const result: { pos?: Point; size?: Size } = {};
-    for (const p of node.getChildren('Pos')) {
-      const nums = p.getChildren('Number').map((n) => Number(sliceOf(this.text, n)));
-      if (nums.length !== 2) continue;
-      if (result.pos) this.report('duplicate-placement', 'warning', p, { name: '@pos' });
-      result.pos = { x: nums[0] ?? 0, y: nums[1] ?? 0 };
-    }
-    for (const s of node.getChildren('Size')) {
-      const nums = s.getChildren('Number').map((n) => Number(sliceOf(this.text, n)));
-      if (nums.length !== 2) continue;
-      if (result.size) this.report('duplicate-placement', 'warning', s, { name: '@size' });
-      const [width = 0, height = 0] = nums;
-      if (width <= 0 || height <= 0) {
-        this.report('invalid-size', 'error', s);
-        continue;
-      }
-      result.size = { width, height };
-    }
-    return result;
   }
 
   /** Reads and validates an attribute list. Invalid entries are reported and omitted. */
@@ -556,7 +513,7 @@ class Analyzer {
       const target = this.elements.get(ref.id);
       if (!target) {
         this.report('undefined-reference', 'error', ref.range, { id: ref.id });
-      } else if (target.kind === 'step' || !ref.allowed.includes(target.kind)) {
+      } else if (!ref.allowed.includes(target.kind)) {
         this.report('reference-kind-mismatch', 'error', ref.range, {
           id: ref.id,
           actual: target.kind,
@@ -567,7 +524,7 @@ class Analyzer {
 
     for (const check of this.stateChecks) {
       const target = this.elements.get(check.target);
-      if (!target || target.kind === 'step') continue;
+      if (!target) continue;
       const applicable = STATE_ATTRIBUTES_BY_TARGET[target.kind];
       for (const [name, attr] of check.attrs) {
         if (!applicable.has(name)) {
@@ -654,7 +611,6 @@ export function findAtOffset(
 
   let best: ElementSource | null = null;
   for (const el of sourceMap.elements.values()) {
-    if (el.kind === 'step') continue;
     if (el.from <= offset && offset <= el.to) {
       if (!best || el.to - el.from < best.to - best.from) {
         best = el;

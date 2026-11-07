@@ -11,92 +11,82 @@ function watchErrors(page: Page): string[] {
   return errors;
 }
 
-test.describe('authoring canvas & inspector (M3)', () => {
-  test('renders the sample diagram in the shared player', async ({ page }) => {
+test.describe('code-only authoring & live preview', () => {
+  test('renders the sample diagram in the shared player with top playback controls', async ({
+    page,
+  }) => {
     const errors = watchErrors(page);
     await page.goto('/');
     await expect(page.locator('.dav-node')).not.toHaveCount(0);
     await expect(page.locator('.dav-title')).toHaveText(/AWS/);
     await expect(page.locator('.problems .ok')).toBeVisible();
+
+    // Playback controls (Play/Start, Prev, Next, Speed) are mounted in the top toolbar (Visual Studio style)
+    const topPlayBtn = page.locator('header.toolbar [data-testid="btn-play"]');
+    await expect(topPlayBtn).toBeVisible();
+    await expect(topPlayBtn).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.locator('footer.dav-dock [data-testid="btn-play"]')).toHaveCount(0);
+
+    // Step navigation from the top toolbar
+    await expect(page.locator('.dav-step-title')).toContainText('1 / 4');
+    await page.locator('header.toolbar [data-testid="btn-step-next"]').click();
+    await expect(page.locator('.dav-step-title')).toContainText('2 / 4');
+    await page.locator('header.toolbar [data-testid="btn-step-prev"]').click();
+    await expect(page.locator('.dav-step-title')).toContainText('1 / 4');
+
+    // Toggle play/pause from top toolbar and verify accessible label/title updates
+    const pausedLabel = await topPlayBtn.getAttribute('aria-label');
+    await topPlayBtn.click();
+    await expect(topPlayBtn).toHaveAttribute('aria-pressed', 'true');
+    const playingLabel = await topPlayBtn.getAttribute('aria-label');
+    expect(playingLabel).not.toBe(pausedLabel);
+    await expect(topPlayBtn).toHaveAttribute('title', playingLabel ?? '');
+    await topPlayBtn.click();
+    await expect(topPlayBtn).toHaveAttribute('aria-pressed', 'false');
+    await expect(topPlayBtn).toHaveAttribute('aria-label', pausedLabel ?? '');
+
+    // Global keyboard shortcuts work from document.body without manual focus on .dav-app,
+    // while modifier combinations (e.g. Alt+ArrowLeft) are ignored.
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.keyboard.press('ArrowRight');
+    await expect(page.locator('.dav-step-title')).toContainText('2 / 4');
+    await page.keyboard.press('Alt+ArrowLeft');
+    await expect(page.locator('.dav-step-title')).toContainText('2 / 4');
+    await page.keyboard.press('Home');
+    await expect(page.locator('.dav-pill[data-index="overview"]')).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+
     expect(errors).toEqual([]);
   });
 
-  test('updates the preview and reports problems while typing', async ({ page }) => {
+  test('updates the preview, reports diagnostics, and formats DSL code', async ({ page }) => {
+    const errors = watchErrors(page);
     await page.goto('/');
     const input = page.locator('textarea.dsl-input');
     await input.fill('dav 1\ntitle "Typed"\nnode a [icon: databse]\nnode b\na --> b');
     await expect(page.locator('.dav-title')).toHaveText('Typed');
     await expect(page.locator('.dav-node')).toHaveCount(2);
     await expect(page.locator('.problems .error')).toContainText('database');
-  });
 
-  test('edits elements via canvas selection, drag, inspector, and undo/redo', async ({ page }) => {
-    const errors = watchErrors(page);
-    await page.goto('/');
-    const input = page.locator('textarea.dsl-input');
+    // Diagram with 0 steps disables playback transport controls and keeps play button unpressed
+    await expect(page.getByTestId('btn-play')).toBeDisabled();
+    await expect(page.getByTestId('btn-play')).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.getByTestId('btn-step-prev')).toBeDisabled();
+    await expect(page.getByTestId('btn-step-next')).toBeDisabled();
+    await expect(page.getByTestId('select-speed')).toBeDisabled();
+
+    // Fix typo and format
     await input.fill(
-      '// Preserved header comment\ndav 1\ntitle "Edit Test"\nnode web "Web"\nnode db "DB"\nweb --> db\n',
+      'dav   1\ntitle   "Formatted"\ngroup g{\nnode a "A"[icon:database]\nnode b\n}\na-->b\n',
     );
-
-    // Select node `web` on the canvas
-    const webNode = page.locator('.dav-node[data-id="web"]');
-    await webNode.click();
-    await expect(page.locator('.editor-selection-box[data-selected-id="web"]')).toBeVisible();
-    await expect(page.getByTestId('element-inspector')).toBeVisible();
-
-    // Edit label and badge via ElementInspector
-    await page.getByTestId('inspector-label-input').fill('Frontend Web');
-    await page.getByTestId('inspector-badge-input').fill('v2');
-    await expect(input).toHaveValue(/node web "Frontend Web"/);
-    await expect(input).toHaveValue(/badge: "v2"/);
-    // Comment is preserved
-    await expect(input).toHaveValue(/\/\/ Preserved header comment/);
-
-    // Drag node `web` on canvas -> writes @pos(...)
-    const box = await webNode.boundingBox();
-    expect(box).not.toBeNull();
-    if (box) {
-      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-      await page.mouse.down();
-      await page.mouse.move(box.x + box.width / 2 + 80, box.y + box.height / 2 + 40, { steps: 4 });
-      await page.mouse.up();
-    }
-    await expect(input).toHaveValue(/@pos\(/);
-
-    // Undo reverts the drag placement, Redo restores it
-    await page.getByTestId('btn-undo').click();
-    await expect(input).not.toHaveValue(/@pos\(/);
-    await page.getByTestId('btn-redo').click();
-    await expect(input).toHaveValue(/@pos\(/);
-
-    // Add a new node via toolbar button
-    await page.getByTestId('btn-add-node').click();
-    await expect(page.locator('.dav-node')).toHaveCount(3);
-
+    await page.getByTestId('btn-format').click();
+    await expect(input).toHaveValue(
+      'dav 1\ntitle "Formatted"\ngroup g {\n  node a "A" [icon: database]\n  node b\n}\na --> b\n',
+    );
+    await expect(page.locator('.problems .ok')).toBeVisible();
     expect(errors).toEqual([]);
-  });
-
-  test('supports multi-selection alignment and step inspector editing', async ({ page }) => {
-    await page.goto('/');
-    const input = page.locator('textarea.dsl-input');
-    await input.fill(
-      'dav 1\ntitle "Multi"\nnode a "A" @pos(40, 40)\nnode b "B" @pos(240, 140)\na --> b\n',
-    );
-
-    await page.locator('.dav-node[data-id="a"]').click();
-    await page.locator('.dav-node[data-id="b"]').click({ modifiers: ['Shift'] });
-    await expect(page.getByTestId('multi-inspector')).toBeVisible();
-    await page.getByTestId('align-left').click();
-    await expect(input).toHaveValue(/node b "B" @pos\(40, 140\)/);
-
-    // Switch to Steps tab, add a step, and add an animation
-    await page.getByTestId('tab-steps').click();
-    await page.getByTestId('btn-add-step').click();
-    await expect(input).toHaveValue(/step "Step 1"/);
-
-    await page.getByTestId('new-anim-label').fill('Ping');
-    await page.getByTestId('btn-add-anim').click();
-    await expect(input).toHaveValue(/animate a --> b : "Ping"/);
   });
 
   test('communicates with VS Code Extension Host via acquireVsCodeApi protocol', async ({
@@ -124,41 +114,86 @@ test.describe('authoring canvas & inspector (M3)', () => {
     expect(postedReady.some((m) => m.type === 'ready')).toBe(true);
 
     // Simulate Extension Host sending `docChanged`
-    await page.evaluate(() => {
+    const dsl =
+      'dav 1\ntitle "From VS Code"\nnode api "API"\nnode db "DB"\napi --> db\nstep "S1" {\n  focus api\n}\nstep "S2" {\n  focus db\n}\n';
+    await page.evaluate((text) => {
       window.postMessage(
         {
           type: 'docChanged',
-          dsl: 'dav 1\ntitle "From VS Code"\nnode api "API"\nnode db "DB"\napi --> db\n',
+          dsl: text,
         },
         '*',
       );
-    });
+    }, dsl);
     await expect(page.locator('.dav-title')).toHaveText('From VS Code');
     await expect(page.locator('.dav-node')).toHaveCount(2);
 
-    // Edit via Webview Inspector -> posts `updateDsl` back to Extension Host
-    await page.locator('.dav-node[data-id="api"]').click();
-    await page.getByTestId('inspector-label-input').fill('Gateway API');
+    // Simulate Extension Host sending `cursorMoved` on `node api` -> highlights node
+    const apiOffset = dsl.indexOf('node api') + 5;
+    await page.evaluate((offset) => {
+      window.postMessage({ type: 'cursorMoved', offset }, '*');
+    }, apiOffset);
+    await expect(page.locator('.editor-cursor-highlight')).toHaveCount(1);
 
-    const lastUpdate = await page.evaluate(() => {
+    // Simulate Extension Host sending `cursorMoved` inside `step "S2"` -> switches player to step 2
+    const s2Offset = dsl.indexOf('focus db') + 2;
+    await page.evaluate((offset) => {
+      window.postMessage({ type: 'cursorMoved', offset }, '*');
+    }, s2Offset);
+    await expect(page.locator('.dav-step-title')).toContainText('2 / 2');
+
+    // Double-clicking a canvas node posts `revealRange` to Extension Host
+    await page.locator('.dav-node[data-id="api"]').dblclick();
+    const revealMsg = await page.evaluate(() => {
       const msgs = (
-        window as unknown as { __postedMessages: Array<{ type: string; dsl?: string }> }
+        window as unknown as {
+          __postedMessages: Array<{ type: string; from?: number; to?: number }>;
+        }
       ).__postedMessages;
-      return msgs.filter((m) => m.type === 'updateDsl').pop();
+      return msgs.filter((m) => m.type === 'revealRange').pop();
     });
-    expect(lastUpdate?.dsl).toContain('node api "Gateway API"');
+    expect(revealMsg?.from).toBe(dsl.indexOf('node api "API"'));
+
+    // Format button posts `formatDocument` to Extension Host
+    await page.getByTestId('btn-format').click();
+    const formatMsg = await page.evaluate(() => {
+      const msgs = (window as unknown as { __postedMessages: Array<{ type: string }> })
+        .__postedMessages;
+      return msgs.some((m) => m.type === 'formatDocument');
+    });
+    expect(formatMsg).toBe(true);
   });
 
-  test('opens AI Prompt & DSL Reference modal and toggles JA/EN locale (M4)', async ({ page }) => {
+  test('opens AI Prompt & DSL Reference modal, preserves playback state across JA/EN locale toggle, and wraps cleanly on narrow viewports', async ({
+    page,
+  }) => {
     const errors = watchErrors(page);
     await page.goto('/');
 
-    // Toggle locale between EN and JA
+    // Select Overview tab, toggle locale, and verify Overview tab remains selected
+    await page.locator('.dav-pill[data-index="overview"]').click();
+    await expect(page.locator('.dav-pill[data-index="overview"]')).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
     const localeBtn = page.getByTestId('btn-locale-toggle');
     const initialLocale = await localeBtn.textContent();
     await localeBtn.click();
     const nextLocale = await localeBtn.textContent();
     expect(nextLocale).not.toBe(initialLocale);
+    await expect(page.locator('.dav-pill[data-index="overview"]')).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+
+    // Start playing at 2x speed, toggle locale back, and verify playing state & speed are preserved
+    await page.getByTestId('select-speed').selectOption('2');
+    await page.getByTestId('btn-play').click();
+    await expect(page.getByTestId('btn-play')).toHaveAttribute('aria-pressed', 'true');
+    await localeBtn.click();
+    await expect(page.getByTestId('btn-play')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('select-speed')).toHaveValue('2');
+    await page.getByTestId('btn-play').click();
 
     // Open AI Prompt & DSL Reference dialog
     await page.getByTestId('btn-open-help').click();
@@ -174,6 +209,17 @@ test.describe('authoring canvas & inspector (M3)', () => {
     await expect(page.getByTestId('ref-icon-catalog').locator('.icon-card')).toHaveCount(18);
 
     await page.getByTestId('help-close-btn').click();
+
+    // Narrow split-pane viewport (600px wide): toolbar wraps cleanly without horizontal overflow
+    await page.setViewportSize({ width: 600, height: 800 });
+    const toolbarOverflow = await page.locator('header.toolbar').evaluate((el) => ({
+      scrollWidth: el.scrollWidth,
+      clientWidth: el.clientWidth,
+    }));
+    expect(toolbarOverflow.scrollWidth).toBeLessThanOrEqual(toolbarOverflow.clientWidth);
+    await expect(page.locator('header.toolbar [data-testid="btn-play"]')).toBeVisible();
+    await expect(page.getByTestId('btn-export-html')).toBeVisible();
+
     expect(errors).toEqual([]);
   });
 });
@@ -197,6 +243,8 @@ test.describe('exported HTML', () => {
     await expect(viewer.locator('.dav-node')).toHaveCount(8);
     await expect(viewer.locator('.dav-pill')).toHaveCount(5);
     await expect(viewer.locator('.dav-step-title')).toContainText('1 / 4');
+    await expect(viewer.locator('header.dav-topbar [data-testid="btn-play"]')).toBeVisible();
+    await expect(viewer.locator('footer.dav-dock [data-testid="btn-play"]')).toHaveCount(0);
 
     // Packets animate along paths.
     await expect(viewer.locator('.dav-packet')).not.toHaveCount(0);

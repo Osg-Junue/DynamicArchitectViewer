@@ -1,17 +1,17 @@
 dav 1
 title "ECアプリ 画面遷移 & バックエンドAPI連携シーケンス"
 
-group frontend "フロントエンド画面遷移 (SPA)" @pos(40, 40) @size(890, 240) {
-  node scr_login "ログイン画面" [icon: screen, sub: "/login | ID・PW入力フォーム"] @pos(70, 100)
-  node scr_catalog "商品一覧・カート画面" [icon: screen, sub: "/catalog | カート追加・在庫表示"] @pos(300, 100)
-  node mod_pay "決済確認モーダル" [icon: modal, sub: "Modal | クレジットカード確認", visible: false] @pos(530, 100)
-  node scr_done "注文完了画面" [icon: screen, sub: "/complete | 注文番号表示", status: muted] @pos(720, 100)
+group frontend "フロントエンド画面遷移 (SPA)" {
+  node scr_login "ログイン画面" [icon: screen, sub: "/login | ID・PW入力フォーム"]
+  node scr_catalog "商品一覧・カート画面" [icon: screen, sub: "/catalog | カート追加・在庫表示"]
+  node mod_pay "決済確認モーダル" [icon: modal, sub: "Modal | クレジットカード確認", visible: false]
+  node scr_done "注文完了画面" [icon: screen, sub: "/complete | 注文番号表示", status: muted]
 }
 
-group backend "バックエンド & 外部連携" @pos(140, 330) @size(720, 170) {
-  node auth_api "Auth Service" [icon: firewall, sub: "JWT発行 / OAuth"] @pos(180, 390)
-  node shop_api "Checkout API" [icon: server, sub: "在庫引当・注文管理"] @pos(420, 390)
-  node stripe "Stripe決済GW" [icon: external, sub: "External Payment API"] @pos(650, 390)
+group backend "バックエンド & 外部連携" {
+  node auth_api "Auth Service" [icon: firewall, sub: "JWT発行 / OAuth"]
+  node shop_api "Checkout API" [icon: server, sub: "在庫引当・注文管理"]
+  node stripe "Stripe決済GW" [icon: external, sub: "External Payment API"]
 }
 
 scr_login --> scr_catalog : "認証成功後遷移"

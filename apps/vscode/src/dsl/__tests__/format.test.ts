@@ -3,17 +3,17 @@ import { SAMPLE_TEMPLATES } from '../../samples';
 import { format, parse } from '../index';
 
 describe('format', () => {
-  it('normalizes spacing, indentation and placement order', () => {
+  it('normalizes spacing and indentation', () => {
     const input = `dav   1
 title    "T"
-group   g "G"   [color:#fff ,  ]  @size(10,20)   @pos( 1 ,2 ) {
+group   g "G"   [color:#fff ,  ]   {
 node a "A"[icon:server,sub:"x"]
       group inner{
  node b
 }
 }
 a-->b:"L"[ id : e1 ]
-step   s "S"{
+step   "S"{
 desc "d"
 focus a,b
 state a[ status:error ]
@@ -22,14 +22,14 @@ animate a  -.->  b :"x"[parallel:true]
 `;
     expect(format(input)).toBe(`dav 1
 title "T"
-group g "G" [color: #fff] @pos(1, 2) @size(10, 20) {
+group g "G" [color: #fff] {
   node a "A" [icon: server, sub: "x"]
   group inner {
     node b
   }
 }
 a --> b : "L" [id: e1]
-step s "S" {
+step "S" {
   desc "d"
   focus a, b
   state a [status: error]

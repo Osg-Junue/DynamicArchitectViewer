@@ -88,8 +88,6 @@ export function resolveView(
     badge: string;
     visible: boolean;
     color: string;
-    label: string;
-    sub: string;
   }>;
   const overrides = new Map<string, Override>();
   if (index !== null) {
@@ -132,7 +130,7 @@ export function resolveView(
     const focused = focus.has(n.id) || inFocusedGroup(n.parentId);
     const node: ResolvedNode = {
       id: n.id,
-      label: ov.label ?? n.label,
+      label: n.label,
       icon: n.icon,
       status: ov.status ?? n.status,
       accent: ov.color ?? n.color ?? ICON_META[n.icon].accentColor,
@@ -141,8 +139,7 @@ export function resolveView(
       focused: step !== undefined && focused,
       dimmed: filtering && !focused,
     };
-    const sub = ov.sub ?? n.sub;
-    if (sub) node.sub = sub;
+    if (n.sub) node.sub = n.sub;
     const badge = ov.badge ?? n.badge;
     if (badge) node.badge = badge;
     nodes.push(node);
@@ -167,7 +164,7 @@ export function resolveView(
     const ov = overrides.get(g.id) ?? {};
     const group: ResolvedGroup = {
       id: g.id,
-      label: ov.label ?? g.label,
+      label: g.label,
       rect,
       depth: ancestorsOf(g.parentId).length,
       dimmed: filtering && !focusedGroups.has(g.id),
@@ -231,8 +228,7 @@ export function resolveView(
       active: activeColor !== undefined,
       dimmed: filtering && !focused,
     };
-    const label = ov.label ?? e.label;
-    if (label) edge.label = label;
+    if (e.label) edge.label = e.label;
     edges.push(edge);
   }
 

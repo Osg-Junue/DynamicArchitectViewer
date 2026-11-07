@@ -19,17 +19,9 @@ const contains = (outer: Rect, inner: Rect) =>
   inner.y + inner.height <= outer.y + outer.height;
 
 describe('layout', () => {
-  it('respects explicit positions and sizes', () => {
-    const { layout } = layoutOf(
-      'dav 1\nnode a @pos(10, 20)\nnode s [icon: screen] @pos(5, 6) @size(300, 200)\ngroup g @pos(0, 0) @size(50, 60) {}',
-    );
-    expect(layout.nodes.a).toEqual({ x: 10, y: 20, ...NODE_SIZE });
-    expect(layout.nodes.s).toEqual({ x: 5, y: 6, width: 300, height: 200 });
-    expect(layout.groups.g).toEqual({ x: 0, y: 0, width: 50, height: 60 });
-  });
-
-  it('uses larger default size for screens', () => {
-    const { layout } = layoutOf('dav 1\nnode s [icon: modal]');
+  it('uses default node sizes and larger default size for screens', () => {
+    const { layout } = layoutOf('dav 1\nnode a\nnode s [icon: modal]');
+    expect(layout.nodes.a).toMatchObject(NODE_SIZE);
     expect(layout.nodes.s).toMatchObject(SCREEN_NODE_SIZE);
   });
 
@@ -38,6 +30,37 @@ describe('layout', () => {
     const x = (id: string) => layout.nodes[id]?.x ?? Number.NaN;
     expect(x('a')).toBeLessThan(x('b'));
     expect(x('b')).toBeLessThan(x('c'));
+  });
+
+  it('places disjoint-rank groups side-by-side horizontally and stacks overlapping-rank groups vertically', () => {
+    const { layout: sideBySide } = layoutOf(`dav 1
+node client
+group edge_net {
+  node cdn
+}
+group vpc {
+  node alb
+}
+client --> cdn
+cdn --> alb`);
+    expect(sideBySide.groups.edge_net?.y).toBe(sideBySide.groups.vpc?.y);
+    expect(sideBySide.groups.edge_net?.x).toBeLessThan(sideBySide.groups.vpc?.x ?? 0);
+
+    const { layout: stacked } = layoutOf(`dav 1
+group frontend {
+  node login
+  node catalog
+}
+group backend {
+  node auth
+  node shop
+}
+login --> catalog
+login --> auth
+catalog --> shop`);
+    expect(stacked.groups.backend?.y).toBeGreaterThan(
+      (stacked.groups.frontend?.y ?? 0) + (stacked.groups.frontend?.height ?? 0),
+    );
   });
 
   it('terminates on cycles', () => {
@@ -64,11 +87,6 @@ api --> cache`);
     }
     expect(contains(layout.groups.vpc as Rect, layout.groups.data as Rect)).toBe(true);
     expect(overlaps(layout.groups.vpc as Rect, layout.nodes.client as Rect)).toBe(false);
-  });
-
-  it('places auto nodes below explicitly positioned content', () => {
-    const { layout } = layoutOf('dav 1\nnode a @pos(0, 0)\nnode b');
-    expect(layout.nodes.b?.y).toBeGreaterThan((layout.nodes.a?.y ?? 0) + NODE_SIZE.height);
   });
 
   it.each(SAMPLE_TEMPLATES.map((s) => [s.id, s.dsl] as const))(

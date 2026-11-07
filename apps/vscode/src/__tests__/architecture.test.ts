@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
  * Enforces the dependency direction from docs/05-roadmap/productization-strategy.md:
  *   model -> (nothing); dsl, layout -> model; scene -> layout, model;
  *   runtime -> scene, layout, model; exporter -> dsl, layout, model, runtime.
- * Only the editor may depend on React.
+ * No layer may depend on React.
  */
 const SRC = resolve(__dirname, '..');
 
@@ -34,6 +34,21 @@ const RULES: Record<string, { allowedLayers: string[]; forbiddenPackages: RegExp
   prompt: {
     allowedLayers: ['prompt', 'model'],
     forbiddenPackages: /^(react|react-dom|vscode|@lezer\/)/,
+  },
+  editor: {
+    allowedLayers: [
+      'editor',
+      'dsl',
+      'exporter',
+      'layout',
+      'model',
+      'prompt',
+      'protocol',
+      'runtime',
+      'samples',
+      'scene',
+    ],
+    forbiddenPackages: /^(react|react-dom|vscode)/,
   },
   extension: {
     allowedLayers: [

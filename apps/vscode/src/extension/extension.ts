@@ -117,7 +117,6 @@ export function activate(context: vscode.ExtensionContext): void {
         },
       },
       ':',
-      '@',
       '[',
       ' ',
     ),
@@ -257,7 +256,6 @@ export function deactivate(): void {}
 class CanvasPanelManager {
   private panel: vscode.WebviewPanel | null = null;
   activeDocument: vscode.TextDocument | null = null;
-  private applyingFromWebview = false;
   private disposables: vscode.Disposable[] = [];
 
   constructor(private readonly extensionUri: vscode.Uri) {}
@@ -299,7 +297,6 @@ class CanvasPanelManager {
         void this.onWebviewMessage(msg);
       }),
       vscode.workspace.onDidChangeTextDocument((e) => {
-        if (this.applyingFromWebview) return;
         if (
           this.activeDocument &&
           e.document.uri.toString() === this.activeDocument.uri.toString()
@@ -352,21 +349,6 @@ class CanvasPanelManager {
           uri: doc.uri.toString(),
         });
         break;
-
-      case 'updateDsl': {
-        const current = doc.getText();
-        if (current === msg.dsl) return;
-        const edit = new vscode.WorkspaceEdit();
-        const fullRange = new vscode.Range(doc.positionAt(0), doc.positionAt(current.length));
-        edit.replace(doc.uri, fullRange, msg.dsl);
-        this.applyingFromWebview = true;
-        try {
-          await vscode.workspace.applyEdit(edit);
-        } finally {
-          this.applyingFromWebview = false;
-        }
-        break;
-      }
 
       case 'revealRange': {
         const editor = await vscode.window.showTextDocument(doc, vscode.ViewColumn.One, false);

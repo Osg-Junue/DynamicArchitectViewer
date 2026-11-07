@@ -16,8 +16,6 @@ export type DiagnosticCode =
   | 'unknown-icon'
   | 'invalid-color'
   | 'invalid-escape'
-  | 'duplicate-placement'
-  | 'invalid-size'
   | 'attribute-not-applicable'
   | 'empty-state';
 
@@ -51,8 +49,6 @@ const MESSAGES: Record<Locale, Record<DiagnosticCode, string>> = {
     'unknown-icon': 'アイコン "{icon}" は存在しません{suggestion}',
     'invalid-color': '色 "{value}" は不正です（#rgb または #rrggbb）',
     'invalid-escape': 'エスケープシーケンス "{sequence}" は使えません（使用可: \\" \\\\ \\n \\t）',
-    'duplicate-placement': '"{name}" が重複しています（後の値が使われます）',
-    'invalid-size': '@size の幅と高さは正の数で指定してください',
     'attribute-not-applicable': '属性 "{name}" は{kind}には適用されません',
     'empty-state': 'state に属性が指定されていません',
   },
@@ -73,8 +69,6 @@ const MESSAGES: Record<Locale, Record<DiagnosticCode, string>> = {
     'unknown-icon': 'Unknown icon "{icon}"{suggestion}',
     'invalid-color': 'Invalid color "{value}" (use #rgb or #rrggbb)',
     'invalid-escape': 'Invalid escape sequence "{sequence}" (allowed: \\" \\\\ \\n \\t)',
-    'duplicate-placement': 'Duplicate "{name}" (the last value wins)',
-    'invalid-size': '@size width and height must be positive',
     'attribute-not-applicable': 'Attribute "{name}" does not apply to a {kind}',
     'empty-state': 'state has no attributes',
   },
@@ -85,7 +79,6 @@ const KIND_LABELS: Record<Locale, Record<string, string>> = {
     node: 'ノード',
     group: 'グループ',
     edge: 'エッジ',
-    step: 'ステップ',
     state: 'state',
     animate: 'animate',
   },
@@ -93,7 +86,6 @@ const KIND_LABELS: Record<Locale, Record<string, string>> = {
     node: 'node',
     group: 'group',
     edge: 'edge',
-    step: 'step',
     state: 'state',
     animate: 'animate',
   },

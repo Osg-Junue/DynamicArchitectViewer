@@ -24,8 +24,14 @@ export interface PlayerOptions {
   locale?: ViewerLocale;
   /** Start playing automatically (ignored when the user prefers reduced motion). */
   autoplay?: boolean;
+  /** Initial playback speed multiplier (default: 1). */
+  speed?: number;
+  /** Initial step index (`null` for overview; defaults to 0 when steps exist). */
+  initialStep?: number | null;
   /** Listen to keyboard events on the whole window instead of the player root only. */
   globalKeyboard?: boolean;
+  /** Optional external toolbar container to mount the playback controls into. */
+  playbackSlot?: HTMLElement;
   /** Notified whenever the active step index changes. */
   onStepChange?: (stepIndex: number | null) => void;
 }
@@ -62,6 +68,7 @@ export class Player {
   private userMoved = false;
 
   private readonly root: HTMLElement;
+  private readonly playbackBar: HTMLElement;
   private readonly svgEl: SVGSVGElement;
   private readonly world: SVGGElement;
   private readonly sceneLayer: SVGGElement;
@@ -71,6 +78,9 @@ export class Player {
   private readonly stepDescEl: HTMLElement;
   private readonly pillsEl: HTMLElement;
   private readonly playBtn: HTMLButtonElement;
+  private readonly prevBtn: HTMLButtonElement;
+  private readonly nextBtn: HTMLButtonElement;
+  private readonly speedSelect: HTMLSelectElement;
   private readonly zoomLabel: HTMLElement;
   private readonly sourceBtn: HTMLButtonElement;
   private readonly dialog: HTMLDialogElement;
@@ -84,8 +94,19 @@ export class Player {
     this.strings = VIEWER_STRINGS[options.locale ?? detectLocale()];
     this.reducedMotion =
       typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-    this.stepIndex = data.document.steps.length > 0 ? 0 : null;
-    this.playing = (options.autoplay ?? true) && !this.reducedMotion;
+    const hasSteps = data.document.steps.length > 0;
+    this.stepIndex =
+      options.initialStep !== undefined
+        ? hasSteps && options.initialStep !== null
+          ? Math.max(0, Math.min(options.initialStep, data.document.steps.length - 1))
+          : null
+        : hasSteps
+          ? 0
+          : null;
+    this.playing = hasSteps && (options.autoplay ?? true) && !this.reducedMotion;
+    if (options.speed !== undefined && SPEEDS.includes(options.speed as (typeof SPEEDS)[number])) {
+      this.speed = options.speed;
+    }
 
     const s = this.strings;
     this.svgEl = svg('svg', { class: 'dav-canvas', role: 'img' });
@@ -101,15 +122,55 @@ export class Player {
     this.stepTitleEl = html('div', { class: 'dav-step-title' });
     this.stepDescEl = html('div', { class: 'dav-step-desc' });
     this.pillsEl = html('div', { class: 'dav-pills', role: 'tablist' });
-    this.playBtn = this.button(s.play, s.play, () => this.togglePlay(), 'dav-btn dav-btn-primary');
+    this.playBtn = this.button(
+      s.play,
+      s.play,
+      () => this.togglePlay(),
+      'dav-btn dav-btn-primary dav-btn-play',
+    );
+    this.playBtn.dataset.testid = 'btn-play';
 
-    const speedSelect = html('select', { class: 'dav-btn', 'aria-label': s.speed, title: s.speed });
-    for (const v of SPEEDS) {
-      speedSelect.append(html('option', { value: String(v), selected: v === 1 }, `${v}x`));
-    }
-    speedSelect.addEventListener('change', () => {
-      this.speed = Number(speedSelect.value) || 1;
+    this.prevBtn = this.button(`◀ ${s.prev}`, s.prev, () => this.prev(), 'dav-btn dav-btn-step');
+    this.prevBtn.dataset.testid = 'btn-step-prev';
+
+    this.nextBtn = this.button(`${s.next} ▶`, s.next, () => this.next(), 'dav-btn dav-btn-step');
+    this.nextBtn.dataset.testid = 'btn-step-next';
+
+    this.speedSelect = html('select', {
+      class: 'dav-btn dav-speed-select',
+      'aria-label': s.speed,
+      title: s.speed,
+      'data-testid': 'select-speed',
     });
+    for (const v of SPEEDS) {
+      this.speedSelect.append(
+        html('option', { value: String(v), selected: v === this.speed }, `${v}x`),
+      );
+    }
+    this.speedSelect.addEventListener('change', () => {
+      this.speed = Number(this.speedSelect.value) || 1;
+    });
+
+    this.playbackBar = html(
+      'div',
+      {
+        class: 'dav-playback-bar',
+        role: 'toolbar',
+        'aria-label': s.speed,
+        'data-testid': 'playback-toolbar',
+      },
+      this.playBtn,
+      html('span', { class: 'dav-toolbar-sep', 'aria-hidden': 'true' }),
+      this.prevBtn,
+      this.nextBtn,
+      html('span', { class: 'dav-toolbar-sep', 'aria-hidden': 'true' }),
+      this.speedSelect,
+    );
+
+    if (options.playbackSlot) {
+      clear(options.playbackSlot);
+      options.playbackSlot.append(this.playbackBar);
+    }
 
     this.sourcePre = html('pre', { class: 'dav-source' });
     const copyBtn = this.button(
@@ -143,9 +204,10 @@ export class Player {
         'header',
         { class: 'dav-topbar' },
         this.titleEl,
+        !options.playbackSlot && this.playbackBar,
         html(
           'div',
-          { class: 'dav-row' },
+          { class: 'dav-row dav-zoom-group' },
           this.button('−', s.zoomOut, () => this.zoomBy(1 / 1.2)),
           this.zoomLabel,
           this.button('+', s.zoomIn, () => this.zoomBy(1.2)),
@@ -159,24 +221,16 @@ export class Player {
         { class: 'dav-dock' },
         html(
           'div',
-          { class: 'dav-step-info', 'aria-live': 'polite' },
-          this.stepTitleEl,
-          this.stepDescEl,
-        ),
-        html(
-          'div',
-          { class: 'dav-controls' },
+          { class: 'dav-dock-header' },
           html(
             'div',
-            { class: 'dav-row' },
-            this.button(`◀ ${s.prev}`, s.prev, () => this.prev()),
-            this.playBtn,
-            this.button(`${s.next} ▶`, s.next, () => this.next()),
-            speedSelect,
+            { class: 'dav-step-info', 'aria-live': 'polite' },
+            this.stepTitleEl,
+            this.stepDescEl,
           ),
-          this.pillsEl,
           html('div', { class: 'dav-hint' }, s.hint),
         ),
+        html('div', { class: 'dav-controls' }, this.pillsEl),
       ),
       this.dialog,
     );
@@ -201,6 +255,9 @@ export class Player {
   update(data: PlayerData): void {
     this.data = data;
     const count = data.document.steps.length;
+    if (count === 0 && this.playing) {
+      this.playing = false;
+    }
     const index =
       this.stepIndex === null ? null : count === 0 ? null : Math.min(this.stepIndex, count - 1);
     this.renderChrome();
@@ -211,6 +268,7 @@ export class Player {
   destroy(): void {
     cancelAnimationFrame(this.frame);
     for (const c of this.cleanups) c();
+    this.playbackBar.remove();
     this.root.remove();
   }
 
@@ -232,6 +290,14 @@ export class Player {
 
   getStepIndex(): number | null {
     return this.stepIndex;
+  }
+
+  isPlaying(): boolean {
+    return this.playing;
+  }
+
+  getSpeed(): number {
+    return this.speed;
   }
 
   clientToWorld(clientX: number, clientY: number): { x: number; y: number } {
@@ -256,6 +322,7 @@ export class Player {
   }
 
   togglePlay(): void {
+    if (this.data.document.steps.length === 0) return;
     this.playing = !this.playing;
     if (this.playing && this.stepIndex === null) this.showStep(0);
     this.updatePlayButton();
@@ -271,6 +338,11 @@ export class Player {
     this.titleEl.textContent = doc.title;
     this.svgEl.setAttribute('aria-label', doc.title);
     this.sourceBtn.hidden = dsl === undefined;
+    const noSteps = doc.steps.length === 0;
+    this.playBtn.disabled = noSteps;
+    this.prevBtn.disabled = noSteps;
+    this.nextBtn.disabled = noSteps;
+    this.speedSelect.disabled = noSteps;
     clear(this.pillsEl);
     this.pillsEl.append(this.pill(this.strings.overview, null));
     doc.steps.forEach((step, i) => {
@@ -286,8 +358,8 @@ export class Player {
   }
 
   private showStep(index: number | null, opts: { keepPhase?: boolean } = {}): void {
-    this.stepIndex = index;
     this.view = resolveView(this.data.document, this.data.layout, index);
+    this.stepIndex = this.view.stepIndex;
     clear(this.sceneLayer);
     this.sceneLayer.append(renderSvg(buildScene(this.view)));
     if (!opts.keepPhase || this.phase >= this.view.phases.length) {
@@ -346,8 +418,11 @@ export class Player {
   }
 
   private updatePlayButton(): void {
-    const label = this.playing ? `❚❚ ${this.strings.pause}` : `▶ ${this.strings.play}`;
+    const action = this.playing ? this.strings.pause : this.strings.play;
+    const label = this.playing ? `❚❚ ${action}` : `▶ ${action}`;
     this.playBtn.textContent = label;
+    this.playBtn.title = action;
+    this.playBtn.setAttribute('aria-label', action);
     this.playBtn.setAttribute('aria-pressed', String(this.playing));
   }
 
@@ -436,17 +511,23 @@ export class Player {
   }
 
   private bindPointer(viewport: HTMLElement): void {
-    let drag: { id: number; x: number; y: number } | null = null;
+    let drag: { id: number; x: number; y: number; captured: boolean } | null = null;
     const down = (e: PointerEvent) => {
       if (e.button !== 0 || e.defaultPrevented) return;
-      drag = { id: e.pointerId, x: e.clientX, y: e.clientY };
-      viewport.setPointerCapture(e.pointerId);
-      viewport.classList.add('dav-dragging');
+      drag = { id: e.pointerId, x: e.clientX, y: e.clientY, captured: false };
     };
     const move = (e: PointerEvent) => {
       if (!drag || drag.id !== e.pointerId) return;
-      this.panX += e.clientX - drag.x;
-      this.panY += e.clientY - drag.y;
+      const dx = e.clientX - drag.x;
+      const dy = e.clientY - drag.y;
+      if (!drag.captured) {
+        if (Math.hypot(dx, dy) < 3) return;
+        drag.captured = true;
+        viewport.setPointerCapture(e.pointerId);
+        viewport.classList.add('dav-dragging');
+      }
+      this.panX += dx;
+      this.panY += dy;
       drag.x = e.clientX;
       drag.y = e.clientY;
       this.userMoved = true;
@@ -454,6 +535,9 @@ export class Player {
     };
     const up = (e: PointerEvent) => {
       if (!drag || drag.id !== e.pointerId) return;
+      if (drag.captured && viewport.hasPointerCapture(e.pointerId)) {
+        viewport.releasePointerCapture(e.pointerId);
+      }
       drag = null;
       viewport.classList.remove('dav-dragging');
     };
@@ -471,9 +555,24 @@ export class Player {
 
   private bindKeyboard(target: Window | HTMLElement): void {
     const onKey = (e: Event) => {
+      if (!this.root.isConnected) return;
       const ke = e as KeyboardEvent;
-      const tag = (ke.target as HTMLElement | null)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || this.dialog.open) return;
+      const targetEl = ke.target as HTMLElement | null;
+      const tag = targetEl?.tagName;
+      if (
+        ke.defaultPrevented ||
+        ke.ctrlKey ||
+        ke.metaKey ||
+        ke.altKey ||
+        tag === 'INPUT' ||
+        tag === 'TEXTAREA' ||
+        tag === 'SELECT' ||
+        targetEl?.isContentEditable ||
+        this.dialog.open ||
+        document.querySelector('dialog[open]') !== null
+      ) {
+        return;
+      }
       if (ke.key === 'ArrowRight') this.next();
       else if (ke.key === 'ArrowLeft') this.prev();
       else if (ke.key === ' ' && tag !== 'BUTTON') this.togglePlay();
@@ -483,6 +582,10 @@ export class Player {
     };
     target.addEventListener('keydown', onKey);
     this.cleanups.push(() => target.removeEventListener('keydown', onKey));
+    if (target !== window && !this.root.contains(this.playbackBar)) {
+      this.playbackBar.addEventListener('keydown', onKey);
+      this.cleanups.push(() => this.playbackBar.removeEventListener('keydown', onKey));
+    }
   }
 
   // ---------------------------------------------------------------------------

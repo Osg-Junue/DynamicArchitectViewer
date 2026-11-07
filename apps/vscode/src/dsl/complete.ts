@@ -31,13 +31,6 @@ const STATEMENT_KEYWORDS: readonly DslCompletionItem[] = [
   { label: 'focus', kind: 'keyword', detail: 'フォーカス対象ID (focus id1, id2)' },
   { label: 'state', kind: 'keyword', detail: 'ステップ状態変更 (state <id> [...])' },
   { label: 'animate', kind: 'keyword', detail: 'パケットアニメーション (animate a --> b)' },
-  { label: '@pos', kind: 'keyword', insertText: '@pos(0, 0)', detail: '座標指定 @pos(x, y)' },
-  {
-    label: '@size',
-    kind: 'keyword',
-    insertText: '@size(240, 160)',
-    detail: 'サイズ指定 @size(w, h)',
-  },
 ];
 
 const ATTRIBUTE_KEYS: readonly DslCompletionItem[] = [
@@ -85,7 +78,7 @@ export function computeCompletions(
   const lineStart = text.lastIndexOf('\n', Math.max(0, pos - 1)) + 1;
   const beforeOnLine = text.slice(lineStart, pos);
 
-  const wordMatch = /@[A-Za-z_]*|[A-Za-z_][A-Za-z0-9_]*$/.exec(beforeOnLine);
+  const wordMatch = /[A-Za-z_][A-Za-z0-9_]*$/.exec(beforeOnLine);
   const from = wordMatch ? pos - wordMatch[0].length : pos;
 
   // 1. Inside attribute value after `key: `

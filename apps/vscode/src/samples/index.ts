@@ -15,20 +15,20 @@ export const SAMPLE_TEMPLATES: readonly SampleTemplate[] = [
     dsl: `dav 1
 title "AWS マルチAZ Webアーキテクチャ & DBフェイルオーバー"
 
-group edge_net "Edge & Security" @pos(250, 50) @size(210, 380) {
-  node cdn "CloudFront CDN" [icon: cdn, sub: "Edge Cache"] @pos(275, 110)
-  node waf "AWS WAF" [icon: firewall, sub: "Rate Limit / ACL"] @pos(275, 290)
+group edge_net "Edge & Security" {
+  node cdn "CloudFront CDN" [icon: cdn, sub: "Edge Cache"]
+  node waf "AWS WAF" [icon: firewall, sub: "Rate Limit / ACL"]
 }
 
-group vpc "Production VPC (ap-northeast-1)" @pos(500, 30) @size(690, 440) {
-  node alb "Application LB" [icon: lb, sub: "Ingress HTTPS"] @pos(530, 200)
-  node api "Order API" [icon: container, sub: "ECS Fargate x4"] @pos(750, 200)
-  node redis "ElastiCache" [icon: cache, sub: "Redis Cluster"] @pos(980, 75)
-  node db_pri "Primary DB" [icon: database, sub: "Aurora Writer (AZ-a)"] @pos(980, 200)
-  node db_sby "Standby DB" [icon: database, sub: "Aurora Reader (AZ-c)", status: muted, badge: "STANDBY"] @pos(980, 340)
+group vpc "Production VPC (ap-northeast-1)" {
+  node alb "Application LB" [icon: lb, sub: "Ingress HTTPS"]
+  node api "Order API" [icon: container, sub: "ECS Fargate x4"]
+  node redis "ElastiCache" [icon: cache, sub: "Redis Cluster"]
+  node db_pri "Primary DB" [icon: database, sub: "Aurora Writer (AZ-a)"]
+  node db_sby "Standby DB" [icon: database, sub: "Aurora Reader (AZ-c)", status: muted, badge: "STANDBY"]
 }
 
-node client "Web Browser" [icon: browser, sub: "エンドユーザー"] @pos(30, 200)
+node client "Web Browser" [icon: browser, sub: "エンドユーザー"]
 
 client --> cdn : "HTTPS"
 cdn --> waf : "Origin Fetch"
@@ -83,17 +83,17 @@ step "Primary DB障害発生と自動フェイルオーバー" {
     dsl: `dav 1
 title "ECアプリ 画面遷移 & バックエンドAPI連携シーケンス"
 
-group frontend "フロントエンド画面遷移 (SPA)" @pos(40, 40) @size(890, 240) {
-  node scr_login "ログイン画面" [icon: screen, sub: "/login | ID・PW入力フォーム"] @pos(70, 100)
-  node scr_catalog "商品一覧・カート画面" [icon: screen, sub: "/catalog | カート追加・在庫表示"] @pos(300, 100)
-  node mod_pay "決済確認モーダル" [icon: modal, sub: "Modal | クレジットカード確認", visible: false] @pos(530, 100)
-  node scr_done "注文完了画面" [icon: screen, sub: "/complete | 注文番号表示", status: muted] @pos(720, 100)
+group frontend "フロントエンド画面遷移 (SPA)" {
+  node scr_login "ログイン画面" [icon: screen, sub: "/login | ID・PW入力フォーム"]
+  node scr_catalog "商品一覧・カート画面" [icon: screen, sub: "/catalog | カート追加・在庫表示"]
+  node mod_pay "決済確認モーダル" [icon: modal, sub: "Modal | クレジットカード確認", visible: false]
+  node scr_done "注文完了画面" [icon: screen, sub: "/complete | 注文番号表示", status: muted]
 }
 
-group backend "バックエンド & 外部連携" @pos(140, 330) @size(720, 170) {
-  node auth_api "Auth Service" [icon: firewall, sub: "JWT発行 / OAuth"] @pos(180, 390)
-  node shop_api "Checkout API" [icon: server, sub: "在庫引当・注文管理"] @pos(420, 390)
-  node stripe "Stripe決済GW" [icon: external, sub: "External Payment API"] @pos(650, 390)
+group backend "バックエンド & 外部連携" {
+  node auth_api "Auth Service" [icon: firewall, sub: "JWT発行 / OAuth"]
+  node shop_api "Checkout API" [icon: server, sub: "在庫引当・注文管理"]
+  node stripe "Stripe決済GW" [icon: external, sub: "External Payment API"]
 }
 
 scr_login --> scr_catalog : "認証成功後遷移"
@@ -151,16 +151,16 @@ step "注文完了画面への遷移" {
     dsl: `dav 1
 title "非同期イベント駆動 レポート生成アーキテクチャ"
 
-node user "クライアント画面" [icon: screen, sub: "管理ダッシュボード"] @pos(40, 190)
-node apigw "API Gateway" [icon: router, sub: "REST Endpoint"] @pos(270, 190)
+node user "クライアント画面" [icon: screen, sub: "管理ダッシュボード"]
+node apigw "API Gateway" [icon: router, sub: "REST Endpoint"]
 
-group async_core "非同期処理パイプライン" @pos(480, 50) @size(460, 360) {
-  node queue "SQS Queue" [icon: queue, sub: "ReportJobQueue"] @pos(510, 190)
-  node worker "Lambda Worker" [icon: function, sub: "PDF Generator"] @pos(730, 120)
-  node s3 "S3 Bucket" [icon: storage, sub: "Report Archive"] @pos(730, 270)
+group async_core "非同期処理パイプライン" {
+  node queue "SQS Queue" [icon: queue, sub: "ReportJobQueue"]
+  node worker "Lambda Worker" [icon: function, sub: "PDF Generator"]
+  node s3 "S3 Bucket" [icon: storage, sub: "Report Archive"]
 }
 
-apigw <--> user : "HTTPS / Polling"
+user <--> apigw : "HTTPS / Polling"
 apigw --> queue : "Enqueue Job"
 queue --> worker : "Trigger Batch"
 worker --> s3 : "PutObject (PDF)"

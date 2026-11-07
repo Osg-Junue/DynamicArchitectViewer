@@ -1,7 +1,7 @@
 {
   "name": "dynamic-architect-viewer",
   "displayName": "DynamicArchitectViewer",
-  "description": "Time-stepped architecture & screen-transition diagram DSL (.dav) with two-way interactive canvas and zero-dependency single-file HTML export.",
+  "description": "Lightweight time-stepped architecture & screen-transition diagram DSL (.dav) with 100% auto-layout, live preview, and zero-dependency single-file HTML export.",
   "version": "0.1.0",
   "publisher": "dynamic-architect-viewer",
   "license": "MIT",
@@ -12,7 +12,7 @@
   "type": "module",
   "engines": {
     "vscode": "^1.96.0",
-    "node": ">=22.0.0"
+    "node": ">=26.0.0"
   },
   "categories": [
     "Visualization",
@@ -115,18 +115,13 @@
   },
   "dependencies": {
     "@lezer/common": "^1.5.5",
-    "@lezer/lr": "^1.4.12",
-    "react": "^19.3.1",
-    "react-dom": "^19.3.1"
+    "@lezer/lr": "^1.4.12"
   },
   "devDependencies": {
     "@lezer/generator": "^1.8.1",
     "@playwright/test": "^1.65.0",
-    "@types/node": "^22.0.0",
-    "@types/react": "^19.3.0",
-    "@types/react-dom": "^19.3.0",
+    "@types/node": "^26.6.6",
     "@types/vscode": "^1.96.0",
-    "@vitejs/plugin-react": "^6.2.1",
     "@vscode/vsce": "^4.1.0",
     "fast-check": "^4.10.2",
     "typescript": "^7.0.2",

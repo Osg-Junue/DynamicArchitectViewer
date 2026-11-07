@@ -4,7 +4,6 @@
   "scopeName": "source.dav",
   "patterns": [
     { "include": "#comments" },
-    { "include": "#directives" },
     { "include": "#keywords" },
     { "include": "#booleans" },
     { "include": "#arrows" },
@@ -20,14 +19,6 @@
         {
           "name": "comment.line.double-slash.dav",
           "match": "//.*$"
-        }
-      ]
-    },
-    "directives": {
-      "patterns": [
-        {
-          "name": "storage.modifier.directive.dav",
-          "match": "@(?:pos|size)\\b"
         }
       ]
     },
@@ -59,7 +50,7 @@
       "patterns": [
         {
           "name": "constant.other.color.rgb-value.dav",
-          "match": "#[0-9a-fA-F]{6}\\b"
+          "match": "#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?\\b"
         }
       ]
     },
@@ -85,7 +76,7 @@
     "attributes": {
       "patterns": [
         {
-          "match": "\\b(icon|sub|status|badge|color|visible|parallel|id|label)\\s*(:)",
+          "match": "\\b(icon|sub|status|badge|color|visible|parallel|id)\\s*(:)",
           "captures": {
             "1": { "name": "variable.other.property.dav" },
             "2": { "name": "punctuation.separator.key-value.dav" }

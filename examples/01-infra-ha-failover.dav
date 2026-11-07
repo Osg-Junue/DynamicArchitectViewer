@@ -1,20 +1,20 @@
 dav 1
 title "AWS マルチAZ Webアーキテクチャ & DBフェイルオーバー"
 
-group edge_net "Edge & Security" @pos(250, 50) @size(210, 380) {
-  node cdn "CloudFront CDN" [icon: cdn, sub: "Edge Cache"] @pos(275, 110)
-  node waf "AWS WAF" [icon: firewall, sub: "Rate Limit / ACL"] @pos(275, 290)
+group edge_net "Edge & Security" {
+  node cdn "CloudFront CDN" [icon: cdn, sub: "Edge Cache"]
+  node waf "AWS WAF" [icon: firewall, sub: "Rate Limit / ACL"]
 }
 
-group vpc "Production VPC (ap-northeast-1)" @pos(500, 30) @size(690, 440) {
-  node alb "Application LB" [icon: lb, sub: "Ingress HTTPS"] @pos(530, 200)
-  node api "Order API" [icon: container, sub: "ECS Fargate x4"] @pos(750, 200)
-  node redis "ElastiCache" [icon: cache, sub: "Redis Cluster"] @pos(980, 75)
-  node db_pri "Primary DB" [icon: database, sub: "Aurora Writer (AZ-a)"] @pos(980, 200)
-  node db_sby "Standby DB" [icon: database, sub: "Aurora Reader (AZ-c)", status: muted, badge: "STANDBY"] @pos(980, 340)
+group vpc "Production VPC (ap-northeast-1)" {
+  node alb "Application LB" [icon: lb, sub: "Ingress HTTPS"]
+  node api "Order API" [icon: container, sub: "ECS Fargate x4"]
+  node redis "ElastiCache" [icon: cache, sub: "Redis Cluster"]
+  node db_pri "Primary DB" [icon: database, sub: "Aurora Writer (AZ-a)"]
+  node db_sby "Standby DB" [icon: database, sub: "Aurora Reader (AZ-c)", status: muted, badge: "STANDBY"]
 }
 
-node client "Web Browser" [icon: browser, sub: "エンドユーザー"] @pos(30, 200)
+node client "Web Browser" [icon: browser, sub: "エンドユーザー"]
 
 client --> cdn : "HTTPS"
 cdn --> waf : "Origin Fetch"
