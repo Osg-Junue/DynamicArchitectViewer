@@ -1,0 +1,5 @@
+project_id         = "dav-web-prod-cdaofb"
+region             = "asia-northeast1"
+billing_account_id = "015A54-C804F8-76324A"
+github_owner       = "Osg-Junue"
+github_repository  = "DynamicArchitectViewer"

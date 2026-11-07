@@ -19,6 +19,13 @@ npm-debug.log*
 .env.*
 !.env.example
 
+# Terraform (keep .terraform.lock.hcl committed)
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+
 # Editors / OS
 .vs/
 .idea/

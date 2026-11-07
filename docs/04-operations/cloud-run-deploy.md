@@ -1,115 +1,79 @@
-# Cloud Run デプロイ手順 (Operations)
+# Cloud Run デプロイ・インフラ運用 (Operations)
 
-本番環境は Cloud Run 上の静的配信コンテナ（nginx-unprivileged）です。`main` への push で GitHub Actions がビルド・デプロイします。
+本番環境は Cloud Run 上の静的配信コンテナ（nginx-unprivileged）です。インフラは **Terraform**（[infra/terraform](../../infra/terraform)）で管理し、アプリのデプロイは `main` への push で GitHub Actions が行います。
+
+## 1. 責務分担
+
+| 対象 | 管理方法 |
+| :--- | :--- |
+| GCP プロジェクト、tfstate 用バケット | ブートストラップ（gcloud、1回のみ。§4） |
+| API 有効化、Artifact Registry（古いイメージの自動削除）、サービスアカウント、IAM、Workload Identity Federation、Cloud Run サービス設定（スケーリング・CPU/メモリ・実行SA・公開設定）、予算アラート | Terraform（`main.tf`） |
+| GitHub `production` 環境、Actions Variables | Terraform（`github.tf`） |
+| コンテナイメージ（Cloud Run のリビジョン） | GitHub Actions（[ci.yml](../../.github/workflows/ci.yml)） |
+
+> [!IMPORTANT]
+> Cloud Run の設定をコンソールや `gcloud run services update` で変更しないでください。次回の `terraform apply` で戻されます。Terraform 側はイメージとデプロイ時に付くラベルのみ `ignore_changes` しています。
 
 ```mermaid
 flowchart LR
-  Push["git push main"] --> Check["check job\nlint / typecheck / test / build"]
-  Check --> Container["container job\ndocker build + スモークテスト"]
-  Container --> Deploy["deploy job\nWIF 認証 → Artifact Registry push → Cloud Run deploy"]
+  Push["git push main"] --> Check["check\nlint / typecheck / test / build"]
+  Check --> Container["container\ndocker build + スモークテスト"]
+  Container --> Deploy["deploy\nWIF 認証 → Artifact Registry push → イメージ更新"]
+  TF["terraform apply (手元)"] -.->|"サービス設定・IAM・Variables"| CR["Cloud Run"]
+  Deploy --> CR
 ```
 
-| ファイル                                                                       | 役割                                                 |
-| :----------------------------------------------------------------------------- | :--------------------------------------------------- |
-| [Dockerfile](../../Dockerfile)                                                 | Node でビルド → nginx-unprivileged で `dist/` を配信 |
-| [deploy/nginx/default.conf](../../deploy/nginx/default.conf)                   | 8080 待受、SPA フォールバック、キャッシュ制御、gzip  |
-| [deploy/nginx/security-headers.conf](../../deploy/nginx/security-headers.conf) | CSP 等のセキュリティヘッダ                           |
-| [.github/workflows/ci.yml](../../.github/workflows/ci.yml)                     | CI とデプロイ                                        |
+## 2. 現在の環境
 
----
+| 項目 | 値 |
+| :--- | :--- |
+| GCP プロジェクト | `dav-web-prod-cdaofb` |
+| リージョン | `asia-northeast1` |
+| Cloud Run サービス | `dav-web`（min 0 / max 2、1 vCPU / 256Mi） |
+| tfstate | `gs://dav-web-prod-cdaofb-tfstate/prod`（バージョニング有効） |
+| 予算 | 月 1,000 円（50% / 90% / 100% / 予測100% で請求先管理者にメール） |
 
-## 1. 初回セットアップ（手作業・1回のみ）
+## 3. Terraform の実行
 
-Cloud Shell で実行することを想定しています。先頭の変数を自分の環境に合わせて書き換えてください。
+[tf.ps1](../../infra/terraform/tf.ps1) は `gcloud auth print-access-token` と `gh auth token` から短命トークンを取得して Terraform を実行するラッパーです（鍵ファイル・ADC 不要）。
 
-```bash
-PROJECT_ID="your-project-id"
-REGION="asia-northeast1"
-AR_REPO="dav"
-SERVICE="dav-web"
-GITHUB_REPO="OWNER/REPO"          # 例: O10J/DynamicArchitectViewer
-
-gcloud config set project "$PROJECT_ID"
-PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
-
-# 1) API 有効化
-gcloud services enable \
-  run.googleapis.com \
-  artifactregistry.googleapis.com \
-  iamcredentials.googleapis.com \
-  sts.googleapis.com
-
-# 2) Artifact Registry
-gcloud artifacts repositories create "$AR_REPO" \
-  --repository-format=docker --location="$REGION"
-
-# 3) サービスアカウント
-#    - dav-runtime : Cloud Run 実行用（権限なし。静的配信のみのため）
-#    - github-deployer : GitHub Actions からのデプロイ用
-gcloud iam service-accounts create dav-runtime --display-name="DAV Cloud Run runtime"
-gcloud iam service-accounts create github-deployer --display-name="DAV GitHub deployer"
-
-RUNTIME_SA="dav-runtime@${PROJECT_ID}.iam.gserviceaccount.com"
-DEPLOY_SA="github-deployer@${PROJECT_ID}.iam.gserviceaccount.com"
-
-gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-  --member="serviceAccount:${DEPLOY_SA}" --role="roles/run.admin"
-gcloud artifacts repositories add-iam-policy-binding "$AR_REPO" --location="$REGION" \
-  --member="serviceAccount:${DEPLOY_SA}" --role="roles/artifactregistry.writer"
-gcloud iam service-accounts add-iam-policy-binding "$RUNTIME_SA" \
-  --member="serviceAccount:${DEPLOY_SA}" --role="roles/iam.serviceAccountUser"
-
-# 4) Workload Identity Federation（サービスアカウントキー不要）
-gcloud iam workload-identity-pools create github \
-  --location=global --display-name="GitHub Actions"
-
-gcloud iam workload-identity-pools providers create-oidc github \
-  --location=global --workload-identity-pool=github \
-  --issuer-uri="https://token.actions.githubusercontent.com" \
-  --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.ref=assertion.ref" \
-  --attribute-condition="assertion.repository=='${GITHUB_REPO}' && assertion.ref=='refs/heads/main'"
-
-gcloud iam service-accounts add-iam-policy-binding "$DEPLOY_SA" \
-  --role="roles/iam.workloadIdentityUser" \
-  --member="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github/attribute.repository/${GITHUB_REPO}"
-
-# 5) GitHub に設定する値を表示
-echo "GCP_PROJECT_ID=${PROJECT_ID}"
-echo "GCP_REGION=${REGION}"
-echo "GCP_AR_REPOSITORY=${AR_REPO}"
-echo "CLOUD_RUN_SERVICE=${SERVICE}"
-echo "GCP_DEPLOY_SA=${DEPLOY_SA}"
-echo "GCP_RUNTIME_SA=${RUNTIME_SA}"
-echo "GCP_WIF_PROVIDER=projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github/providers/github"
+```powershell
+./infra/terraform/tf.ps1 init       # 初回 / プロバイダ更新時
+./infra/terraform/tf.ps1 plan
+./infra/terraform/tf.ps1 apply
 ```
 
-### GitHub 側の設定
+前提:
+- `gcloud auth login` 済みで、プロジェクトのオーナー権限と請求先アカウントの予算編集権限を持つこと
+- `gh auth login` 済みで、リポジトリの管理権限を持つこと
+- Terraform 実行ファイルの場所が異なる場合は環境変数 `TERRAFORM_EXE` で指定
 
-1. リポジトリの **Settings → Environments** で `production` 環境を作成（必要なら承認者を設定）
-2. **Settings → Secrets and variables → Actions → Variables** に上記7つを登録
-   - いずれも秘密情報ではないため Variables で可（WIF によりキーは存在しない）
-3. `GCP_PROJECT_ID` が未設定の間は `deploy` ジョブはスキップされ、CI のみ動きます
+## 4. ブートストラップ（実施済み・再構築時のみ）
 
-### コスト防御（必須）
+Terraform の state を置くバケットは Terraform 自身では作れないため、gcloud で作成しています。
 
-- **Billing → Budgets & alerts** で月額予算（例: 1,000円）とアラート閾値（50% / 90% / 100%）を設定
-- `--max-instances=2` で同時インスタンス数を制限済み（[ci.yml](../../.github/workflows/ci.yml) の `flags`）
+```powershell
+$p = "dav-web-prod-cdaofb"
+gcloud projects create $p --name="DynamicArchitectViewer"
+gcloud billing projects link $p --billing-account=015A54-C804F8-76324A
+gcloud services enable serviceusage.googleapis.com cloudresourcemanager.googleapis.com storage.googleapis.com iam.googleapis.com cloudbilling.googleapis.com billingbudgets.googleapis.com --project=$p
+gcloud storage buckets create "gs://$p-tfstate" --project=$p --location=asia-northeast1 --uniform-bucket-level-access --public-access-prevention
+gcloud storage buckets update "gs://$p-tfstate" --versioning
+```
 
-> [!WARNING]
-> 組織ポリシー「ドメインで制限された共有（`iam.allowedPolicyMemberDomains`）」が有効なプロジェクトでは `--allow-unauthenticated`（`allUsers` への公開）が拒否されます。個人プロジェクトでは通常問題ありません。
+その後 `terraform.tfvars` と `backend.hcl` を更新して §3 を実行します。
 
----
+## 5. 運用
 
-## 2. 運用
+| 操作 | 方法 |
+| :--- | :--- |
+| デプロイ | `main` に push（または Actions の `workflow_dispatch`） |
+| ロールバック | Cloud Run コンソールの「リビジョン」で旧リビジョンにトラフィックを 100% 切替。または `gcloud run services update-traffic dav-web --region=asia-northeast1 --to-revisions=REVISION=100` |
+| スケール上限・メモリ変更 | `variables.tf` / `main.tf` を変更して `terraform apply` |
+| ログ | Cloud Run コンソール → ログ |
+| 依存更新 | Dependabot（npm / GitHub Actions / Docker ベースイメージ、週次） |
 
-| 操作         | 方法                                                                                                                                                                                     |
-| :----------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| デプロイ     | `main` に push（または Actions から `workflow_dispatch`）                                                                                                                                |
-| ロールバック | Cloud Run コンソールの「リビジョン」から旧リビジョンへトラフィックを 100% 切替、または `gcloud run services update-traffic dav-web --region=asia-northeast1 --to-revisions=REVISION=100` |
-| ログ         | Cloud Run コンソール → ログ                                                                                                                                                              |
-| 依存更新     | Dependabot（npm / GitHub Actions / Docker ベースイメージ、週次）                                                                                                                         |
-
-## 3. ローカル確認
+## 6. ローカル確認
 
 Docker がある環境では以下で本番同等の配信を確認できます。
 
