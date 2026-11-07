@@ -148,6 +148,34 @@ test.describe('authoring canvas & inspector (M3)', () => {
     });
     expect(lastUpdate?.dsl).toContain('node api "Gateway API"');
   });
+
+  test('opens AI Prompt & DSL Reference modal and toggles JA/EN locale (M4)', async ({ page }) => {
+    const errors = watchErrors(page);
+    await page.goto('/');
+
+    // Toggle locale between EN and JA
+    const localeBtn = page.getByTestId('btn-locale-toggle');
+    const initialLocale = await localeBtn.textContent();
+    await localeBtn.click();
+    const nextLocale = await localeBtn.textContent();
+    expect(nextLocale).not.toBe(initialLocale);
+
+    // Open AI Prompt & DSL Reference dialog
+    await page.getByTestId('btn-open-help').click();
+    await expect(page.getByTestId('help-dialog')).toBeVisible();
+    await expect(page.getByTestId('ai-prompt-textarea')).toHaveValue(/dav 1/);
+
+    // Include current DSL in prompt
+    await page.getByTestId('chk-include-current-dsl').check();
+    await expect(page.getByTestId('ai-prompt-textarea')).toHaveValue(/AWS/);
+
+    // Switch to Reference tab and verify all 18 icons are shown
+    await page.getByTestId('help-tab-ref').click();
+    await expect(page.getByTestId('ref-icon-catalog').locator('.icon-card')).toHaveCount(18);
+
+    await page.getByTestId('help-close-btn').click();
+    expect(errors).toEqual([]);
+  });
 });
 
 test.describe('exported HTML', () => {

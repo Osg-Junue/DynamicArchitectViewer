@@ -25,6 +25,7 @@ export type WebviewToHostMessage =
   | {
       type: 'exportHtml';
       dsl: string;
+      locale?: 'ja' | 'en';
     }
   | {
       type: 'formatDocument';

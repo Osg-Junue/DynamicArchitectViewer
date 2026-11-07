@@ -24,9 +24,14 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
-      - run: npm run build
-      - name: Verify extension and webview bundles exist
+      - run: npm run package
+      - name: Verify extension, webview, and VSIX package exist
         run: |
           test -f apps/vscode/dist/extension.cjs
           test -f apps/vscode/dist/webview/assets/webview.js
           test -f apps/vscode/dist/webview/assets/webview.css
+          test -f apps/vscode/dist/dynamic-architect-viewer.vsix
+      - uses: actions/upload-artifact@v6
+        with:
+          name: dynamic-architect-viewer-vsix
+          path: apps/vscode/dist/dynamic-architect-viewer.vsix

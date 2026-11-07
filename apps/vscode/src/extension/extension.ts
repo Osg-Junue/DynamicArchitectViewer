@@ -9,6 +9,7 @@ import {
   parse,
 } from '../dsl';
 import { exportHtml, importContent } from '../exporter';
+import { buildAiPrompt } from '../prompt';
 import type { HostToWebviewMessage, WebviewToHostMessage } from '../protocol/messages';
 import { SAMPLES } from '../samples';
 
@@ -234,6 +235,20 @@ export function activate(context: vscode.ExtensionContext): void {
       await vscode.window.showTextDocument(doc, vscode.ViewColumn.One);
       panelManager.open(doc);
     }),
+    vscode.commands.registerCommand('dav.copyAiPrompt', async () => {
+      const doc = panelManager.activeDocument ?? vscode.window.activeTextEditor?.document;
+      const currentDsl = doc?.languageId === LANGUAGE_ID ? doc.getText() : undefined;
+      const prompt = buildAiPrompt({
+        locale,
+        ...(currentDsl ? { currentDsl, includeCurrentDsl: true } : {}),
+      });
+      await vscode.env.clipboard.writeText(prompt);
+      void vscode.window.showInformationMessage(
+        locale === 'ja'
+          ? 'DSL v1 AIプロンプトをクリップボードにコピーしました。'
+          : 'Copied DSL v1 AI prompt template to clipboard.',
+      );
+    }),
   );
 }
 
@@ -362,7 +377,7 @@ class CanvasPanelManager {
       }
 
       case 'exportHtml':
-        await exportDocumentToHtml(doc, currentLocale(), msg.dsl);
+        await exportDocumentToHtml(doc, msg.locale ?? currentLocale(), msg.dsl);
         break;
 
       case 'formatDocument': {

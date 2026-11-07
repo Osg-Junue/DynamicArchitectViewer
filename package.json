@@ -11,6 +11,7 @@
   "scripts": {
     "dev": "npm --workspace=apps/vscode run dev",
     "build": "npm --workspace=apps/vscode run build",
+    "package": "npm --workspace=apps/vscode run package",
     "preview": "npm --workspace=apps/vscode run preview",
     "typecheck": "npm --workspace=apps/vscode run typecheck",
     "test": "npm --workspace=apps/vscode run test",

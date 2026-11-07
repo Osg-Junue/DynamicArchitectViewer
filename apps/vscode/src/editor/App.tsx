@@ -6,6 +6,7 @@ import type { HostToWebviewMessage, WebviewToHostMessage } from '../protocol/mes
 import type { PlayerData } from '../runtime/player';
 import { DEFAULT_SAMPLE, SAMPLES } from '../samples';
 import { CanvasPane } from './canvas/CanvasPane';
+import { HelpModal } from './HelpModal';
 import {
   canRedo,
   canUndo,
@@ -31,7 +32,7 @@ declare global {
   }
 }
 
-const LOCALE: Locale =
+const DEFAULT_LOCALE: Locale =
   typeof navigator !== 'undefined' && navigator.language.toLowerCase().startsWith('ja')
     ? 'ja'
     : 'en';
@@ -43,6 +44,7 @@ const STRINGS = {
     undo: '元に戻す',
     redo: 'やり直す',
     open: 'HTML / DSL を開く',
+    help: 'AIプロンプト / 仕様',
     export: '単一HTML出力',
     problems: '診断',
     noProblems: 'エラーはありません',
@@ -57,6 +59,7 @@ const STRINGS = {
     undo: 'Undo',
     redo: 'Redo',
     open: 'Open HTML / DSL',
+    help: 'AI Prompt / Ref',
     export: 'Export HTML',
     problems: 'Problems',
     noProblems: 'No problems',
@@ -66,8 +69,6 @@ const STRINGS = {
     tabSteps: 'Steps',
   },
 } as const;
-
-const T = STRINGS[LOCALE];
 
 let cachedVsCodeApi: VsCodeApi | null | undefined;
 function getVsCodeApi(): VsCodeApi | null {
@@ -83,6 +84,8 @@ export function App() {
   const vscodeApi = getVsCodeApi();
   const isVsCodeWebview = vscodeApi !== null;
 
+  const [locale, setLocale] = useState<Locale>(DEFAULT_LOCALE);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [sampleId, setSampleId] = useState(DEFAULT_SAMPLE.id);
   const [history, setHistory] = useState(() => createHistory(DEFAULT_SAMPLE.dsl));
   const [notice, setNotice] = useState<string | null>(null);
@@ -90,6 +93,8 @@ export function App() {
   const [activeStepIndex, setActiveStepIndex] = useState<number | null>(0);
   const [cursorOffset, setCursorOffset] = useState<number | null>(null);
   const [inspectorTab, setInspectorTab] = useState<'element' | 'steps'>('element');
+
+  const T = STRINGS[locale];
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -207,10 +212,10 @@ export function App() {
 
   const handleExport = async () => {
     if (vscodeApi) {
-      vscodeApi.postMessage({ type: 'exportHtml', dsl });
+      vscodeApi.postMessage({ type: 'exportHtml', dsl, locale });
       return;
     }
-    const html = await exportHtml(dsl, { locale: LOCALE });
+    const html = await exportHtml(dsl, { locale });
     downloadTextFile(html, `${safeFileName(doc.title)}.html`, 'text/html;charset=utf-8');
   };
 
@@ -304,6 +309,17 @@ export function App() {
         <button type="button" onClick={handleFormat} data-testid="btn-format">
           {T.format}
         </button>
+        <button type="button" onClick={() => setHelpOpen(true)} data-testid="btn-open-help">
+          {T.help}
+        </button>
+        <button
+          type="button"
+          onClick={() => setLocale((l) => (l === 'ja' ? 'en' : 'ja'))}
+          title="Switch language / 言語切替"
+          data-testid="btn-locale-toggle"
+        >
+          {locale === 'ja' ? 'JA' : 'EN'}
+        </button>
         {!isVsCodeWebview && (
           <>
             <button type="button" onClick={() => fileInputRef.current?.click()}>
@@ -364,7 +380,7 @@ export function App() {
                 ) : (
                   diagnostics.map((d) => (
                     <li key={`${d.from}-${d.code}`} className={d.severity}>
-                      {T.line} {lineOf(d.from)}: {formatDiagnostic(d, LOCALE)}
+                      {T.line} {lineOf(d.from)}: {formatDiagnostic(d, locale)}
                     </li>
                   ))
                 )}
@@ -377,7 +393,7 @@ export function App() {
           <CanvasPane
             dsl={dsl}
             data={playerData}
-            locale={LOCALE}
+            locale={locale}
             selectedIds={selectedIds}
             cursorElementId={cursorTarget.elementId}
             activeStepIndex={activeStepIndex}
@@ -418,7 +434,7 @@ export function App() {
                 dsl={dsl}
                 document={doc}
                 layout={layout}
-                locale={LOCALE}
+                locale={locale}
                 selectedIds={selectedIds}
                 onSelectIds={setSelectedIds}
                 onApplyDsl={applyDsl}
@@ -428,7 +444,7 @@ export function App() {
               <StepInspector
                 dsl={dsl}
                 document={doc}
-                locale={LOCALE}
+                locale={locale}
                 activeStepIndex={activeStepIndex}
                 onActiveStepChange={setActiveStepIndex}
                 onApplyDsl={applyDsl}
@@ -438,6 +454,12 @@ export function App() {
           </div>
         </aside>
       </main>
+      <HelpModal
+        open={helpOpen}
+        locale={locale}
+        currentDsl={dsl}
+        onClose={() => setHelpOpen(false)}
+      />
     </div>
   );
 }

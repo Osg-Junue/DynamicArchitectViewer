@@ -138,21 +138,20 @@ flowchart LR
 - `prefers-reduced-motion` 対応
 - 完了条件: 同じDSLでエディタとHTMLの表示がPlaywrightのスクリーンショット比較で一致、悪意あるDSLのテストが通る、サイズ予算内
 
-### M3: エディタ製品化
+### M3: VS Code 拡張機能 & インタラクティブエディタ製品化（完了）
 
-- CodeMirror 6（ハイライト・エラー波線・ID補完）
-- Undo/Redo、IndexedDB自動保存、ファイルを開く・保存
-- キャンバス⇄コードの相互ジャンプ、複数選択・スナップ
-- `CanvasPane` の分割
-- 完了条件: 主要操作のE2Eテストが通る
+- VS Code 拡張機能化（`apps/vscode`）：`.dav` TextMate 文法、リアルタイム診断（`DiagnosticCollection`）、Quick Fix（`CodeActionProvider`）、ID/属性/アイコン補完（`CompletionItemProvider`）、フォーマッタ（`DocumentFormattingEditProvider`）、アウトライン（`DocumentSymbolProvider`）
+- Webview 双方向同期（`WorkspaceEdit` による VS Code 本体 Undo/Redo 統合、カーソル追従、ダブルクリックによる該当行ジャンプ）
+- インタラクティブキャンバス（`CanvasPane` / `CanvasOverlay` / `snap`）とインスペクタ（`ElementInspector` / `StepInspector`）
+- 完了条件: 主要操作および VS Code Webview プロトコルの E2E テストが通る
 
-### M4: 公開
+### M4: 公開・AI連携・パッケージング整備（完了）
 
-- 日英UI（i18n）、出力HTMLの `lang` 切替
-- 初回起動時のサンプル・簡易ヘルプ、DSLリファレンスページ
-- AIに渡すためのプロンプトテンプレート（DSL仕様の要約）をアプリ内からコピーできるようにする
-- 独自ドメイン設定、予算アラートの最終確認
-- 完了条件: 初見の人がサンプルから図を作り、HTMLを出力できる
+- 日英 UI（`JA` / `EN`）切替、出力 HTML の `lang` 連動
+- DSL v1 リファレンス & 内蔵アイコン一覧モーダル（`HelpModal`）
+- AI エージェントに渡すための DSL v1 仕様プロンプトテンプレート生成・ワンクリックコピー（コマンドパレット `dav.copyAiPrompt` および Webview モーダル）
+- `@vscode/vsce` による `.vsix` パッケージビルド（`npm run package`）と GitHub Actions アーティファクト出力
+- 完了条件: サンプルから図を作成・編集し、AI プロンプト取得・単一 HTML 出力・`.vsix` パッケージ生成が一貫して動作する
 
 ### M5: 拡張（任意・順不同）
 

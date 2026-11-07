@@ -31,8 +31,21 @@ const RULES: Record<string, { allowedLayers: string[]; forbiddenPackages: RegExp
     allowedLayers: ['protocol'],
     forbiddenPackages: /^(react|react-dom|vscode|@lezer\/)/,
   },
+  prompt: {
+    allowedLayers: ['prompt', 'model'],
+    forbiddenPackages: /^(react|react-dom|vscode|@lezer\/)/,
+  },
   extension: {
-    allowedLayers: ['extension', 'protocol', 'dsl', 'exporter', 'samples', 'model', 'layout'],
+    allowedLayers: [
+      'extension',
+      'protocol',
+      'prompt',
+      'dsl',
+      'exporter',
+      'samples',
+      'model',
+      'layout',
+    ],
     forbiddenPackages: /^(react|react-dom)/,
   },
 };

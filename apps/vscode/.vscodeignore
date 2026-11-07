@@ -1,0 +1,13 @@
+src/**
+e2e/**
+test-results/**
+playwright-report/**
+node_modules/**
+tsconfig.json
+vite.config.ts
+vite.runtime.config.ts
+vite.extension.config.ts
+playwright.config.ts
+index.html
+**/*.map
+**/*.vsix
