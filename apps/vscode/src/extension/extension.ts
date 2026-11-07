@@ -5,7 +5,6 @@ import {
   type Diagnostic as DavDiagnostic,
   format,
   formatDiagnostic,
-  type Locale,
   parse,
 } from '../dsl';
 import { exportHtml, importContent } from '../exporter';
@@ -15,12 +14,7 @@ import { SAMPLES } from '../samples';
 
 const LANGUAGE_ID = 'dav';
 
-function currentLocale(): Locale {
-  return vscode.env.language.toLowerCase().startsWith('ja') ? 'ja' : 'en';
-}
-
 export function activate(context: vscode.ExtensionContext): void {
-  const locale = currentLocale();
   const diagnostics = vscode.languages.createDiagnosticCollection(LANGUAGE_ID);
   const latestDiagnostics = new Map<string, DavDiagnostic[]>();
 
@@ -39,7 +33,7 @@ export function activate(context: vscode.ExtensionContext): void {
         d.severity === 'error'
           ? vscode.DiagnosticSeverity.Error
           : vscode.DiagnosticSeverity.Warning;
-      const diag = new vscode.Diagnostic(range, formatDiagnostic(d, locale), severity);
+      const diag = new vscode.Diagnostic(range, formatDiagnostic(d, 'en'), severity);
       diag.code = d.code;
       diag.source = 'dav';
       return diag;
@@ -76,7 +70,7 @@ export function activate(context: vscode.ExtensionContext): void {
             const hint = d.args.hint;
             if (!hint) continue;
             if (d.to < startOffset || d.from > endOffset) continue;
-            const title = locale === 'ja' ? `「${hint}」に修正` : `Change to '${hint}'`;
+            const title = `Change to '${hint}'`;
             const action = new vscode.CodeAction(title, vscode.CodeActionKind.QuickFix);
             const edit = new vscode.WorkspaceEdit();
             edit.replace(
@@ -198,7 +192,7 @@ export function activate(context: vscode.ExtensionContext): void {
         void vscode.window.showInformationMessage('Open a .dav file first.');
         return;
       }
-      await exportDocumentToHtml(doc, locale);
+      await exportDocumentToHtml(doc);
     }),
     vscode.commands.registerCommand('dav.importHtml', async () => {
       const uris = await vscode.window.showOpenDialog({
@@ -238,15 +232,11 @@ export function activate(context: vscode.ExtensionContext): void {
       const doc = panelManager.activeDocument ?? vscode.window.activeTextEditor?.document;
       const currentDsl = doc?.languageId === LANGUAGE_ID ? doc.getText() : undefined;
       const prompt = buildAiPrompt({
-        locale,
+        locale: 'en',
         ...(currentDsl ? { currentDsl, includeCurrentDsl: true } : {}),
       });
       await vscode.env.clipboard.writeText(prompt);
-      void vscode.window.showInformationMessage(
-        locale === 'ja'
-          ? 'DSL v1 AIプロンプトをクリップボードにコピーしました。'
-          : 'Copied DSL v1 AI prompt template to clipboard.',
-      );
+      void vscode.window.showInformationMessage('Copied DSL v1 AI prompt template to clipboard.');
     }),
   );
 }
@@ -359,7 +349,7 @@ class CanvasPanelManager {
       }
 
       case 'exportHtml':
-        await exportDocumentToHtml(doc, msg.locale ?? currentLocale(), msg.dsl);
+        await exportDocumentToHtml(doc, msg.dsl);
         break;
 
       case 'formatDocument': {
@@ -396,7 +386,7 @@ class CanvasPanelManager {
 
     return [
       '<!DOCTYPE html>',
-      `<html lang="${currentLocale()}">`,
+      '<html lang="en">',
       '<head>',
       '<meta charset="UTF-8">',
       `<meta http-equiv="Content-Security-Policy" content="${csp}">`,
@@ -413,13 +403,9 @@ class CanvasPanelManager {
   }
 }
 
-async function exportDocumentToHtml(
-  doc: vscode.TextDocument,
-  locale: Locale,
-  overrideDsl?: string,
-): Promise<void> {
+async function exportDocumentToHtml(doc: vscode.TextDocument, overrideDsl?: string): Promise<void> {
   const dsl = overrideDsl ?? doc.getText();
-  const html = await exportHtml(dsl, { locale });
+  const html = await exportHtml(dsl, { locale: 'en' });
   const defaultPath = `${doc.uri.fsPath.replace(/\.dav$/i, '')}.html`;
   const targetUri = await vscode.window.showSaveDialog({
     defaultUri: doc.isUntitled ? vscode.Uri.file('diagram.html') : vscode.Uri.file(defaultPath),

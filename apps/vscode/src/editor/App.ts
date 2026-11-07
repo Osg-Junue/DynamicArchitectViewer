@@ -11,7 +11,6 @@ import { computeLayout, type Layout } from '../layout';
 import type { DavDocument } from '../model/types';
 import { isHostToWebviewMessage, type WebviewToHostMessage } from '../protocol/messages';
 import { clear, html, svg } from '../runtime/dom';
-import { detectLocale, type ViewerLocale } from '../runtime/i18n';
 import { Player } from '../runtime/player';
 import { DEFAULT_SAMPLE, SAMPLES } from '../samples';
 import { HelpModal } from './HelpModal';
@@ -39,60 +38,26 @@ function getVsCodeApi(): VsCodeApi | null {
   return cachedVsCodeApi;
 }
 
-interface EditorStrings {
-  templates: string;
-  format: string;
-  formatTitle: string;
-  help: string;
-  helpTitle: string;
-  openFile: string;
-  exportHtml: string;
-  exportSuccess: (file: string) => string;
-  importError: string;
-  dslHeader: string;
-  noDiagnostics: string;
-  diagnosticCount: (errors: number, warnings: number) => string;
-  lineLabel: (line: number) => string;
-}
-
-const EDITOR_STRINGS: Record<ViewerLocale, EditorStrings> = {
-  ja: {
-    templates: 'サンプル',
-    format: '整形',
-    formatTitle: 'DSLコードを自動フォーマット',
-    help: 'AIプロンプト / 構文',
-    helpTitle: 'AI生成プロンプトとDSLリファレンスを表示',
-    openFile: 'ファイルを開く (.dav / .html)',
-    exportHtml: 'HTML出力',
-    exportSuccess: (file) => `${file} を出力しました`,
-    importError: 'HTML内に埋め込まれたDSLが見つかりませんでした',
-    dslHeader: 'DSL (.dav)',
-    noDiagnostics: '構文エラーなし (0件)',
-    diagnosticCount: (e, w) => `エラー ${e}件 / 警告 ${w}件`,
-    lineLabel: (line) => `L${line}`,
-  },
-  en: {
-    templates: 'Template',
-    format: 'Format',
-    formatTitle: 'Format DSL code',
-    help: 'AI Prompt / Syntax',
-    helpTitle: 'Open AI Prompt & DSL v1 Reference',
-    openFile: 'Open (.dav / .html)',
-    exportHtml: 'Export HTML',
-    exportSuccess: (file) => `Exported ${file}`,
-    importError: 'No embedded DSL found in this HTML file',
-    dslHeader: 'DSL (.dav)',
-    noDiagnostics: '0 diagnostics',
-    diagnosticCount: (e, w) => `${e} errors / ${w} warnings`,
-    lineLabel: (line) => `L${line}`,
-  },
+const STRINGS = {
+  templates: 'Template',
+  format: 'Format',
+  formatTitle: 'Format DSL code',
+  help: 'AI Prompt / Syntax',
+  helpTitle: 'Open AI Prompt & DSL v1 Reference',
+  openFile: 'Open (.dav / .html)',
+  exportHtml: 'Export HTML',
+  exportSuccess: (file: string) => `Exported ${file}`,
+  importError: 'No embedded DSL found in this HTML file',
+  dslHeader: 'DSL (.dav)',
+  noDiagnostics: '0 diagnostics',
+  diagnosticCount: (e: number, w: number) => `${e} errors / ${w} warnings`,
+  lineLabel: (line: number) => `L${line}`,
 };
 
 export function mountApp(container: HTMLElement): void {
   const vscodeApi = getVsCodeApi();
   const isVsCodeWebview = vscodeApi !== null;
 
-  let locale: ViewerLocale = detectLocale();
   let sampleId: string = DEFAULT_SAMPLE.id;
   let dsl: string = DEFAULT_SAMPLE.dsl;
   let cursorTargetId: string | null = null;
@@ -106,42 +71,55 @@ export function mountApp(container: HTMLElement): void {
   };
 
   // Toolbar elements
-  const sampleLabelEl = html('span', {});
-  const sampleSelect = html('select', { 'aria-label': EDITOR_STRINGS[locale].templates });
+  const sampleLabelEl = html('span', {}, STRINGS.templates);
+  const sampleSelect = html('select', { 'aria-label': STRINGS.templates });
   for (const s of SAMPLES) {
     sampleSelect.append(html('option', { value: s.id }, s.name));
   }
   const sampleLabelWrap = html('label', { class: 'toolbar-label' }, sampleLabelEl, sampleSelect);
 
-  const formatBtn = html('button', {
-    type: 'button',
-    class: 'btn',
-    'data-testid': 'btn-format',
-  });
-  const helpBtn = html('button', {
-    type: 'button',
-    class: 'btn',
-    'data-testid': 'btn-open-help',
-  });
-  const localeBtn = html('button', {
-    type: 'button',
-    class: 'btn',
-    'data-testid': 'btn-locale-toggle',
-  });
-  const openFileBtn = html('button', {
-    type: 'button',
-    class: 'btn',
-  });
+  const formatBtn = html(
+    'button',
+    {
+      type: 'button',
+      class: 'btn',
+      title: STRINGS.formatTitle,
+      'data-testid': 'btn-format',
+    },
+    STRINGS.format,
+  );
+  const helpBtn = html(
+    'button',
+    {
+      type: 'button',
+      class: 'btn',
+      title: STRINGS.helpTitle,
+      'data-testid': 'btn-open-help',
+    },
+    STRINGS.help,
+  );
+  const openFileBtn = html(
+    'button',
+    {
+      type: 'button',
+      class: 'btn',
+    },
+    STRINGS.openFile,
+  );
   const fileInput = html('input', {
     type: 'file',
     accept: '.dav,.html,.htm,text/plain,text/html',
     hidden: true,
   });
-  const exportBtn = html('button', {
-    type: 'button',
-    class: 'btn primary',
-    'data-testid': 'btn-export-html',
-  });
+  const exportBtn = html(
+    'button',
+    {
+      type: 'button',
+      class: 'btn primary',
+      'data-testid': 'btn-export-html',
+    },
+    STRINGS.exportHtml,
+  );
   const toastEl = html('span', { class: 'toast', role: 'status', hidden: true });
   const playbackSlot = html('div', {
     class: 'toolbar-center',
@@ -149,7 +127,7 @@ export function mountApp(container: HTMLElement): void {
   });
 
   // Left editor pane (standalone browser mode only)
-  const dslHeaderTitle = html('span', { class: 'pane-title' });
+  const dslHeaderTitle = html('span', { class: 'pane-title' }, STRINGS.dslHeader);
   const dslDiagSummary = html('span', { class: 'diag-badge' });
   const textarea = html('textarea', {
     class: 'dsl-input',
@@ -181,7 +159,7 @@ export function mountApp(container: HTMLElement): void {
     previewPane,
   );
 
-  const helpModal = new HelpModal(locale, dsl);
+  const helpModal = new HelpModal('en', dsl);
 
   const shellEl = html(
     'div',
@@ -207,7 +185,6 @@ export function mountApp(container: HTMLElement): void {
         'div',
         { class: 'toolbar-group toolbar-right' },
         toastEl,
-        localeBtn,
         !isVsCodeWebview && openFileBtn,
         !isVsCodeWebview && fileInput,
         exportBtn,
@@ -276,9 +253,9 @@ export function mountApp(container: HTMLElement): void {
     clear(playerHost);
     player = new Player(
       playerHost,
-      { document: lastValid.document, layout: lastValid.layout, dsl },
+      { document: lastValid.document, layout: lastValid.layout },
       {
-        locale,
+        locale: 'en',
         autoplay: opts.autoplay ?? false,
         speed: opts.speed ?? 1,
         initialStep,
@@ -292,11 +269,12 @@ export function mountApp(container: HTMLElement): void {
   }
 
   function renderProblems(diagnostics: readonly Diagnostic[]): void {
-    const t = EDITOR_STRINGS[locale];
     const errorCount = diagnostics.filter((d) => d.severity === 'error').length;
     const warnCount = diagnostics.filter((d) => d.severity === 'warning').length;
     dslDiagSummary.textContent =
-      diagnostics.length === 0 ? t.noDiagnostics : t.diagnosticCount(errorCount, warnCount);
+      diagnostics.length === 0
+        ? STRINGS.noDiagnostics
+        : STRINGS.diagnosticCount(errorCount, warnCount);
     dslDiagSummary.className =
       errorCount > 0
         ? 'diag-badge has-error'
@@ -306,7 +284,7 @@ export function mountApp(container: HTMLElement): void {
 
     clear(problemsEl);
     if (diagnostics.length === 0) {
-      problemsEl.append(html('div', { class: 'ok' }, t.noDiagnostics));
+      problemsEl.append(html('div', { class: 'ok' }, STRINGS.noDiagnostics));
       return;
     }
     for (const d of diagnostics) {
@@ -314,7 +292,7 @@ export function mountApp(container: HTMLElement): void {
       const item = html(
         'button',
         { type: 'button', class: d.severity },
-        `${t.lineLabel(line)}: ${formatDiagnostic(d, locale)}`,
+        `${STRINGS.lineLabel(line)}: ${formatDiagnostic(d, 'en')}`,
       );
       item.addEventListener('click', () => {
         textarea.focus();
@@ -322,23 +300,6 @@ export function mountApp(container: HTMLElement): void {
       });
       problemsEl.append(item);
     }
-  }
-
-  function updateStrings(): void {
-    const t = EDITOR_STRINGS[locale];
-    sampleLabelEl.textContent = t.templates;
-    sampleSelect.setAttribute('aria-label', t.templates);
-    formatBtn.textContent = t.format;
-    formatBtn.title = t.formatTitle;
-    helpBtn.textContent = t.help;
-    helpBtn.title = t.helpTitle;
-    localeBtn.textContent = locale === 'ja' ? 'EN' : 'JA';
-    localeBtn.title = locale === 'ja' ? 'Switch to English' : '日本語に切替';
-    openFileBtn.textContent = t.openFile;
-    exportBtn.textContent = t.exportHtml;
-    dslHeaderTitle.textContent = t.dslHeader;
-    renderProblems(parsed.diagnostics);
-    helpModal.update(locale, dsl);
   }
 
   function applyDsl(
@@ -362,11 +323,11 @@ export function mountApp(container: HTMLElement): void {
       };
     }
     if (player) {
-      player.update({ document: lastValid.document, layout: lastValid.layout, dsl });
+      player.update({ document: lastValid.document, layout: lastValid.layout });
     }
     renderHighlight();
     renderProblems(parsed.diagnostics);
-    helpModal.update(locale, dsl);
+    helpModal.update('en', dsl);
 
     if (opts.persist && !isVsCodeWebview) {
       void saveWorkspace({ dsl, sampleId, updatedAt: Date.now() });
@@ -401,16 +362,7 @@ export function mountApp(container: HTMLElement): void {
   });
 
   helpBtn.addEventListener('click', () => {
-    helpModal.open(locale, dsl);
-  });
-
-  localeBtn.addEventListener('click', () => {
-    locale = locale === 'ja' ? 'en' : 'ja';
-    const currentStep = player ? player.getStepIndex() : null;
-    const wasPlaying = player ? player.isPlaying() : false;
-    const currentSpeed = player ? player.getSpeed() : 1;
-    updateStrings();
-    createOrRebuildPlayer(currentStep, { autoplay: wasPlaying, speed: currentSpeed });
+    helpModal.open('en', dsl);
   });
 
   openFileBtn.addEventListener('click', () => {
@@ -423,7 +375,7 @@ export function mountApp(container: HTMLElement): void {
     if (res.ok) {
       applyDsl(res.dsl, { updateTextarea: true, persist: true });
     } else {
-      showToast(EDITOR_STRINGS[locale].importError);
+      showToast(STRINGS.importError);
     }
   }
 
@@ -450,13 +402,13 @@ export function mountApp(container: HTMLElement): void {
       vscodeApi.postMessage({
         type: 'exportHtml',
         dsl,
-        locale,
+        locale: 'en',
       });
     } else {
-      const htmlContent = await exportHtml(dsl, { locale });
+      const htmlContent = await exportHtml(dsl, { locale: 'en' });
       downloadTextFile(htmlContent, filename, 'text/html;charset=utf-8');
     }
-    showToast(EDITOR_STRINGS[locale].exportSuccess(filename));
+    showToast(STRINGS.exportSuccess(filename));
   });
 
   textarea.addEventListener('input', () => {
@@ -470,7 +422,7 @@ export function mountApp(container: HTMLElement): void {
   });
 
   // Initial render
-  updateStrings();
+  renderProblems(parsed.diagnostics);
   createOrRebuildPlayer(lastValid.document.steps.length > 0 ? 0 : null);
 
   if (vscodeApi) {

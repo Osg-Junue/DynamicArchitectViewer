@@ -32,7 +32,7 @@ export interface ExportOptions {
  */
 export async function exportHtml(dsl: string, options: ExportOptions = {}): Promise<string> {
   const { document } = parse(dsl);
-  const locale = options.locale ?? 'ja';
+  const locale = options.locale ?? 'en';
   const payload: ExportPayload = {
     format: EXPORT_FORMAT,
     version: EXPORT_FORMAT_VERSION,

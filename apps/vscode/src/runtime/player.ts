@@ -11,12 +11,11 @@ import {
   resolveView,
 } from '../scene';
 import { clear, html, renderSvg, svg } from './dom';
-import { detectLocale, VIEWER_STRINGS, type ViewerLocale, type ViewerStrings } from './i18n';
+import { VIEWER_STRINGS, type ViewerLocale, type ViewerStrings } from './i18n';
 
 export interface PlayerData {
   document: DavDocument;
   layout: Layout;
-  /** Embedded DSL source, shown in the "DSL" dialog when present. */
   dsl?: string;
 }
 
@@ -43,7 +42,7 @@ const MIN_ZOOM = 0.15;
 const MAX_ZOOM = 4;
 
 /**
- * Self-contained diagram player used both by the exported HTML and the web app.
+ * Self-contained diagram player used both by the exported HTML and the webview app.
  * Renders with DOM APIs only (CSP-friendly, no innerHTML, no inline styles).
  */
 export class Player {
@@ -78,20 +77,15 @@ export class Player {
   private readonly stepDescEl: HTMLElement;
   private readonly pillsEl: HTMLElement;
   private readonly playBtn: HTMLButtonElement;
-  private readonly prevBtn: HTMLButtonElement;
-  private readonly nextBtn: HTMLButtonElement;
   private readonly speedSelect: HTMLSelectElement;
   private readonly zoomLabel: HTMLElement;
-  private readonly sourceBtn: HTMLButtonElement;
-  private readonly dialog: HTMLDialogElement;
-  private readonly sourcePre: HTMLElement;
   private readonly onStepChange?: ((stepIndex: number | null) => void) | undefined;
   private readonly cleanups: Array<() => void> = [];
 
   constructor(container: HTMLElement, data: PlayerData, options: PlayerOptions = {}) {
     this.data = data;
     this.onStepChange = options.onStepChange;
-    this.strings = VIEWER_STRINGS[options.locale ?? detectLocale()];
+    this.strings = VIEWER_STRINGS.en;
     this.reducedMotion =
       typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
     const hasSteps = data.document.steps.length > 0;
@@ -118,7 +112,6 @@ export class Player {
 
     this.titleEl = html('h1', { class: 'dav-title' });
     this.zoomLabel = html('span', { class: 'dav-zoom-label', 'aria-live': 'polite' });
-    this.sourceBtn = this.button(s.source, s.sourceTitle, () => this.openSource());
     this.stepTitleEl = html('div', { class: 'dav-step-title' });
     this.stepDescEl = html('div', { class: 'dav-step-desc' });
     this.pillsEl = html('div', { class: 'dav-pills', role: 'tablist' });
@@ -129,12 +122,6 @@ export class Player {
       'dav-btn dav-btn-primary dav-btn-play',
     );
     this.playBtn.dataset.testid = 'btn-play';
-
-    this.prevBtn = this.button(`◀ ${s.prev}`, s.prev, () => this.prev(), 'dav-btn dav-btn-step');
-    this.prevBtn.dataset.testid = 'btn-step-prev';
-
-    this.nextBtn = this.button(`${s.next} ▶`, s.next, () => this.next(), 'dav-btn dav-btn-step');
-    this.nextBtn.dataset.testid = 'btn-step-next';
 
     this.speedSelect = html('select', {
       class: 'dav-btn dav-speed-select',
@@ -161,9 +148,6 @@ export class Player {
       },
       this.playBtn,
       html('span', { class: 'dav-toolbar-sep', 'aria-hidden': 'true' }),
-      this.prevBtn,
-      this.nextBtn,
-      html('span', { class: 'dav-toolbar-sep', 'aria-hidden': 'true' }),
       this.speedSelect,
     );
 
@@ -171,30 +155,6 @@ export class Player {
       clear(options.playbackSlot);
       options.playbackSlot.append(this.playbackBar);
     }
-
-    this.sourcePre = html('pre', { class: 'dav-source' });
-    const copyBtn = this.button(
-      s.copy,
-      s.copy,
-      () => this.copySource(copyBtn),
-      'dav-btn dav-btn-primary',
-    );
-    this.dialog = html(
-      'dialog',
-      { class: 'dav-dialog', 'aria-label': s.sourceTitle },
-      html(
-        'div',
-        { class: 'dav-dialog-header' },
-        html('span', {}, s.sourceTitle),
-        html(
-          'div',
-          { class: 'dav-row' },
-          copyBtn,
-          this.button(s.close, s.close, () => this.dialog.close()),
-        ),
-      ),
-      this.sourcePre,
-    );
 
     const viewport = html('main', { class: 'dav-viewport' }, this.svgEl);
     this.root = html(
@@ -212,7 +172,6 @@ export class Player {
           this.zoomLabel,
           this.button('+', s.zoomIn, () => this.zoomBy(1.2)),
           this.button(s.fit, s.fit, () => this.fit(true)),
-          this.sourceBtn,
         ),
       ),
       viewport,
@@ -232,7 +191,6 @@ export class Player {
         ),
         html('div', { class: 'dav-controls' }, this.pillsEl),
       ),
-      this.dialog,
     );
     container.append(this.root);
 
@@ -334,14 +292,11 @@ export class Player {
   // ---------------------------------------------------------------------------
 
   private renderChrome(): void {
-    const { document: doc, dsl } = this.data;
+    const { document: doc } = this.data;
     this.titleEl.textContent = doc.title;
     this.svgEl.setAttribute('aria-label', doc.title);
-    this.sourceBtn.hidden = dsl === undefined;
     const noSteps = doc.steps.length === 0;
     this.playBtn.disabled = noSteps;
-    this.prevBtn.disabled = noSteps;
-    this.nextBtn.disabled = noSteps;
     this.speedSelect.disabled = noSteps;
     clear(this.pillsEl);
     this.pillsEl.append(this.pill(this.strings.overview, null));
@@ -568,7 +523,6 @@ export class Player {
         tag === 'TEXTAREA' ||
         tag === 'SELECT' ||
         targetEl?.isContentEditable ||
-        this.dialog.open ||
         document.querySelector('dialog[open]') !== null
       ) {
         return;
@@ -585,31 +539,6 @@ export class Player {
     if (target !== window && !this.root.contains(this.playbackBar)) {
       this.playbackBar.addEventListener('keydown', onKey);
       this.cleanups.push(() => this.playbackBar.removeEventListener('keydown', onKey));
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // DSL source dialog
-  // ---------------------------------------------------------------------------
-
-  private openSource(): void {
-    this.sourcePre.textContent = this.data.dsl ?? '';
-    this.dialog.showModal();
-  }
-
-  private async copySource(btn: HTMLButtonElement): Promise<void> {
-    try {
-      await navigator.clipboard.writeText(this.data.dsl ?? '');
-      btn.textContent = this.strings.copied;
-      setTimeout(() => {
-        btn.textContent = this.strings.copy;
-      }, 1500);
-    } catch {
-      const range = document.createRange();
-      range.selectNodeContents(this.sourcePre);
-      const sel = getSelection();
-      sel?.removeAllRanges();
-      sel?.addRange(range);
     }
   }
 

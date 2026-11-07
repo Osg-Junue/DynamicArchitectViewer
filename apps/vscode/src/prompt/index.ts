@@ -46,7 +46,7 @@ step "2. Enqueue Background Job" {
  * a DynamicArchitectViewer (`dav 1`) diagram without syntax errors.
  */
 export function buildAiPrompt(options: AiPromptOptions = {}): string {
-  const locale = options.locale ?? 'ja';
+  const locale = options.locale ?? 'en';
   const icons = ICON_NAMES.join(', ');
   const statuses = NODE_STATUSES.join(', ');
   const includeCurrent = Boolean(options.includeCurrentDsl && options.currentDsl?.trim());

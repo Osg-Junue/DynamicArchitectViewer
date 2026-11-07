@@ -99,7 +99,7 @@ const SUGGESTION: Record<Locale, string> = {
 const KIND_ARGS = new Set(['owner', 'kind', 'actual', 'expected']);
 
 /** Renders a diagnostic message in the given locale. */
-export function formatDiagnostic(diagnostic: Diagnostic, locale: Locale = 'ja'): string {
+export function formatDiagnostic(diagnostic: Diagnostic, locale: Locale = 'en'): string {
   const template = MESSAGES[locale][diagnostic.code];
   return template.replace(/\{(\w+)\}/g, (_, key: string) => {
     const raw = diagnostic.args[key] ?? '';
