@@ -83,23 +83,13 @@
       "editor/title": [
         {
           "command": "dav.openPreview",
-          "when": "editorLangId == dav",
+          "when": "editorLangId == dav || resourceExtname == .dav",
           "group": "navigation@1"
         },
         {
           "command": "dav.exportHtml",
-          "when": "editorLangId == dav",
+          "when": "editorLangId == dav || resourceExtname == .dav",
           "group": "navigation@2"
-        }
-      ],
-      "commandPalette": [
-        {
-          "command": "dav.openPreview",
-          "when": "editorLangId == dav"
-        },
-        {
-          "command": "dav.exportHtml",
-          "when": "editorLangId == dav"
         }
       ]
     },
@@ -108,7 +98,7 @@
         "command": "dav.openPreview",
         "key": "ctrl+shift+v",
         "mac": "cmd+shift+v",
-        "when": "editorTextFocus && editorLangId == dav"
+        "when": "editorLangId == dav || resourceExtname == .dav"
       }
     ]
   },
