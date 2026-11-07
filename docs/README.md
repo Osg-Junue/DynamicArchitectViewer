@@ -6,17 +6,15 @@ DynamicArchitectViewer（動的インフラ構成図・画面遷移図フレー�
 
 ## ディレクトリ構成
 
-| カテゴリ                   | ドキュメント                                                                     | 概要                                                                             |
-| :------------------------- | :------------------------------------------------------------------------------- | :------------------------------------------------------------------------------- |
-| **01. コンセプト**         | [01-concept/vision-and-goals.md](./01-concept/vision-and-goals.md)               | 解決する課題、コアバリュー、AIエージェント×人間GUIの協調ワークフロー             |
-| **02. アーキテクチャ**     | [02-architecture/system-overview.md](./02-architecture/system-overview.md)       | 全体アーキテクチャ、モジュール設計、GUI ⇄ DSL双方向同期、自動レイアウト          |
-| **02. アーキテクチャ**     | [02-architecture/single-file-html.md](./02-architecture/single-file-html.md)     | 単一HTML（Single-file HTML）バンドル構造とラウンドトリップ再編集の仕組み         |
-| **03. 仕様・リファレンス** | [03-specification/dsl-reference.md](./03-specification/dsl-reference.md)         | Mermaidライク独自DSLの完全文法仕様、アイコン・属性一覧、AIプロンプトテンプレート |
-| **04. 運用**               | [04-operations/cloud-run-deploy.md](./04-operations/cloud-run-deploy.md)         | Cloud Run / Terraform によるインフラ管理、デプロイ、ロールバック               |
-| **05. ロードマップ**       | [05-roadmap/productization-strategy.md](./05-roadmap/productization-strategy.md) | 製品化方針、製品原則、マイルストーン M0〜M5                                      |
-
-> [!NOTE]
-> 01〜03 はプロトタイプ（`apps/prototype`）時点の内容です。製品版（`apps/web`）では DSL v1 として再設計するため、M1 完了時に改訂します。
+| カテゴリ | ドキュメント | 概要 |
+| :--- | :--- | :--- |
+| **01. コンセプト** | [01-concept/vision-and-goals.md](./01-concept/vision-and-goals.md) | 解決する課題、コアバリュー、AIエージェント×人間GUIの協調ワークフロー |
+| **02. アーキテクチャ** | [02-architecture/dsl-core.md](./02-architecture/dsl-core.md) | DSL コア（パーサー・検証・非破壊編集・フォーマッタ）の設計 |
+| **02. アーキテクチャ** | [02-architecture/single-file-html.md](./02-architecture/single-file-html.md) | 単一HTMLバンドル構造とラウンドトリップ再編集（プロトタイプ時点。M2 で改訂） |
+| **03. 仕様** | [03-specification/dsl-v1.md](./03-specification/dsl-v1.md) | DSL v1 言語仕様（文法 EBNF・意味規則・属性・アイコン） |
+| **04. 運用** | [04-operations/cloud-run-deploy.md](./04-operations/cloud-run-deploy.md) | Cloud Run / Terraform によるインフラ管理、デプロイ、ロールバック |
+| **05. ロードマップ** | [05-roadmap/productization-strategy.md](./05-roadmap/productization-strategy.md) | 製品化方針、製品原則、マイルストーン M0〜M5 |
+| **参考: プロトタイプ** | [prototype/](./prototype/) | 凍結済みプロトタイプのシステム構成と旧 DSL 仕様（製品版とは互換性なし） |
 
 ---
 
@@ -32,7 +30,7 @@ DynamicArchitectViewer/
 ├── .github/workflows/ci.yml     # CI（check / build / コンテナスモークテスト）+ Cloud Run デプロイ
 ├── .node-version                # Node.js 26.13.0
 ├── apps/
-│   ├── web/                     # 製品版 Web アプリ（M0 時点では雛形）
+│   ├── web/                     # 製品版 Web アプリ（src/model, src/dsl: DSL v1 コア）
 │   └── prototype/               # 凍結済みプロトタイプ（挙動の参照実装。変更しない）
 │       └── src/
 │           ├── core/            # DSLパーサー、双方向シリアライザ、自動レイアウト、アイコン定義
@@ -44,5 +42,6 @@ DynamicArchitectViewer/
     ├── 02-architecture/
     ├── 03-specification/
     ├── 04-operations/
-    └── 05-roadmap/
+    ├── 05-roadmap/
+    └── prototype/
 ```

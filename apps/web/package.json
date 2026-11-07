@@ -14,13 +14,17 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@lezer/common": "^1.5.5",
+    "@lezer/lr": "^1.4.12",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },
   "devDependencies": {
+    "@lezer/generator": "^1.8.1",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.2.1",
+    "fast-check": "^4.10.2",
     "typescript": "^7.0.2",
     "vite": "^8.3.6",
     "vitest": "^5.1.0"
