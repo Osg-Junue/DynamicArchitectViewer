@@ -1,0 +1,26 @@
+{
+  "name": "dynamic-architect-viewer-monorepo",
+  "private": true,
+  "version": "0.0.0",
+  "workspaces": [
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=26.13.0"
+  },
+  "scripts": {
+    "dev": "npm --workspace=apps/web run dev",
+    "build": "npm --workspace=apps/web run build",
+    "preview": "npm --workspace=apps/web run preview",
+    "typecheck": "npm --workspace=apps/web run typecheck",
+    "test": "npm --workspace=apps/web run test",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "check": "npm run lint && npm run typecheck && npm run test",
+    "prototype:dev": "npm --workspace=apps/prototype run dev",
+    "prototype:test": "npm --workspace=apps/prototype run test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.6"
+  }
+}

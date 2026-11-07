@@ -1,0 +1,86 @@
+name: CI / Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm run build
+
+  container:
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build container image
+        run: docker build -t dav-web:ci .
+      - name: Smoke test container
+        run: |
+          docker run -d --name dav -p 8080:8080 dav-web:ci
+          for i in $(seq 1 20); do curl -fsS http://localhost:8080/ > /dev/null && break; sleep 1; done
+          curl -fsSI http://localhost:8080/ | tee headers.txt
+          grep -qi '^content-security-policy:' headers.txt
+          curl -fsS http://localhost:8080/some/spa/route | grep -q '<div id="root">'
+          docker rm -f dav
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: container
+    # Runs only on main pushes and only after GCP repository variables are configured
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.GCP_PROJECT_ID != ''
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GCP_AR_REPOSITORY }}/web:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build and push image
+        run: |
+          gcloud auth configure-docker "${{ vars.GCP_REGION }}-docker.pkg.dev" --quiet
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+
+      - uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ vars.CLOUD_RUN_SERVICE }}
+          region: ${{ vars.GCP_REGION }}
+          image: ${{ env.IMAGE }}
+          flags: >-
+            --port=8080
+            --service-account=${{ vars.GCP_RUNTIME_SA }}
+            --min-instances=0
+            --max-instances=2
+            --concurrency=80
+            --cpu=1
+            --memory=256Mi
+            --allow-unauthenticated
