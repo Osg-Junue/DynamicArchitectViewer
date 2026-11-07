@@ -1,0 +1,45 @@
+dav 1
+title "非同期イベント駆動 レポート生成アーキテクチャ"
+
+node user "クライアント画面" [icon: screen, sub: "管理ダッシュボード"] @pos(40, 190)
+node apigw "API Gateway" [icon: router, sub: "REST Endpoint"] @pos(270, 190)
+
+group async_core "非同期処理パイプライン" @pos(480, 50) @size(460, 360) {
+  node queue "SQS Queue" [icon: queue, sub: "ReportJobQueue"] @pos(510, 190)
+  node worker "Lambda Worker" [icon: function, sub: "PDF Generator"] @pos(730, 120)
+  node s3 "S3 Bucket" [icon: storage, sub: "Report Archive"] @pos(730, 270)
+}
+
+apigw <--> user : "HTTPS / Polling"
+apigw --> queue : "Enqueue Job"
+queue --> worker : "Trigger Batch"
+worker --> s3 : "PutObject (PDF)"
+user -.-> s3 : "Signed URL DL" [id: e_dl, visible: false, color: #10b981]
+
+step "ジョブ登録と即時受付応答 (202 Accepted)" {
+  desc "重たいPDF生成処理を同期実行せず、SQSへジョブを投入して即座に 202 Accepted を返却します。"
+  focus user, apigw, queue
+  state queue [status: active, badge: "QUEUED: 1"]
+  animate user --> apigw : "POST /reports" [color: #3b82f6]
+  animate apigw --> queue : "SendMessage" [color: #a855f7]
+}
+
+step "非同期ワーカー起動とPDF生成・保存" {
+  desc "SQSをトリガーにLambda Workerが起動し、レポートPDFを生成してS3バケットへ保存します。"
+  focus queue, worker, s3
+  state queue [status: normal, badge: ""]
+  state worker [status: active, badge: "RUNNING"]
+  state s3 [status: active, badge: "SAVED"]
+  animate queue --> worker : "Invoke Worker" [color: #f59e0b]
+  animate worker --> s3 : "PutObject report.pdf" [color: #14b8a6]
+}
+
+step "署名付きURLによる直接ダウンロード" {
+  desc "生成完了後、クライアントはS3のPresigned URLから直接PDFをダウンロードします。"
+  focus user, s3
+  state worker [status: normal, badge: ""]
+  state s3 [status: normal, badge: ""]
+  state e_dl [visible: true]
+  state user [status: active, badge: "DOWNLOADED"]
+  animate user -.-> s3 : "GET Presigned URL" [color: #10b981]
+}

@@ -1,0 +1,60 @@
+dav 1
+title "ECアプリ 画面遷移 & バックエンドAPI連携シーケンス"
+
+group frontend "フロントエンド画面遷移 (SPA)" @pos(40, 40) @size(890, 240) {
+  node scr_login "ログイン画面" [icon: screen, sub: "/login | ID・PW入力フォーム"] @pos(70, 100)
+  node scr_catalog "商品一覧・カート画面" [icon: screen, sub: "/catalog | カート追加・在庫表示"] @pos(300, 100)
+  node mod_pay "決済確認モーダル" [icon: modal, sub: "Modal | クレジットカード確認", visible: false] @pos(530, 100)
+  node scr_done "注文完了画面" [icon: screen, sub: "/complete | 注文番号表示", status: muted] @pos(720, 100)
+}
+
+group backend "バックエンド & 外部連携" @pos(140, 330) @size(720, 170) {
+  node auth_api "Auth Service" [icon: firewall, sub: "JWT発行 / OAuth"] @pos(180, 390)
+  node shop_api "Checkout API" [icon: server, sub: "在庫引当・注文管理"] @pos(420, 390)
+  node stripe "Stripe決済GW" [icon: external, sub: "External Payment API"] @pos(650, 390)
+}
+
+scr_login --> scr_catalog : "認証成功後遷移"
+scr_catalog --> mod_pay : "「購入へ進む」押下"
+mod_pay --> scr_done : "決済完了"
+scr_login --> auth_api : "POST /auth/login"
+scr_catalog --> shop_api : "GET /items"
+mod_pay --> shop_api : "POST /checkout"
+shop_api --> stripe : "Charge API"
+
+step "ログイン認証とトークン発行" {
+  desc "ユーザーがログイン画面で認証情報を送信。Auth Serviceで検証後、JWTを発行して商品一覧画面へ遷移します。"
+  focus scr_login, auth_api, scr_catalog
+  state scr_login [status: active, badge: "INPUT"]
+  animate scr_login --> auth_api : "POST /auth/login" [color: #3b82f6]
+  animate scr_login --> scr_catalog : "Redirect /catalog" [color: #10b981]
+}
+
+step "商品一覧取得と決済モーダル表示" {
+  desc "商品一覧画面で最新在庫をAPIから取得。ユーザーが「購入へ進む」を押すと決済確認モーダルが立ち上がります。"
+  focus scr_catalog, shop_api, mod_pay
+  state scr_login [status: normal, badge: ""]
+  state scr_catalog [status: active]
+  state mod_pay [visible: true, status: active, badge: "OPEN"]
+  animate scr_catalog --> shop_api : "GET /items (200 OK)" [color: #06b6d4]
+  animate scr_catalog --> mod_pay : "Open Modal" [color: #a855f7]
+}
+
+step "決済実行と外部決済GW連携" {
+  desc "決済モーダルで「注文確定」を押下。Checkout APIがStripe決済GWと通信して与信枠を確保します。"
+  focus mod_pay, shop_api, stripe
+  state scr_catalog [status: normal]
+  state mod_pay [status: warning, badge: "PROCESSING"]
+  state shop_api [status: active]
+  animate mod_pay --> shop_api : "POST /checkout" [color: #f59e0b]
+  animate shop_api --> stripe : "POST /v1/charges" [color: #6366f1]
+}
+
+step "注文完了画面への遷移" {
+  desc "決済承認が完了し、モーダルを閉じて注文完了画面へ遷移します。"
+  focus mod_pay, scr_done
+  state mod_pay [status: muted, badge: ""]
+  state shop_api [status: normal]
+  state scr_done [status: active, badge: "COMPLETED"]
+  animate mod_pay --> scr_done : "Navigate /complete" [color: #10b981]
+}
