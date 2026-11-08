@@ -199,6 +199,7 @@ node b "Gateway" [icon: lb]
 node c "Service" [icon: container]
 a --> b
 b --> c
+b --> a
 
 step "Declaration order" {
   animate a --> b : "1st"
@@ -284,7 +285,7 @@ group zone "group" [color: ${color}] {
 a --> b : "edge" [color: ${color}]
 
 step "animate" {
-  animate b --> a : "packet" [color: ${color}]
+  animate a --> b : "packet" [color: ${color}]
 }`;
 }
 

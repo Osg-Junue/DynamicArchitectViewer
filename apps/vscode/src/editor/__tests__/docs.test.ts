@@ -3,7 +3,7 @@ import { parse } from '../../dsl';
 import { computeLayout } from '../../layout';
 import { resolveView } from '../../scene';
 import { mapStepLines } from '../docs/code';
-import { ALL_EXAMPLE_DOCUMENTS, DIAGNOSTIC_EXAMPLES } from '../docs/snippets';
+import { ALL_EXAMPLE_DOCUMENTS, DIAGNOSTIC_EXAMPLES, NO_EDGE_DSL } from '../docs/snippets';
 
 describe('documentation examples', () => {
   it.each(ALL_EXAMPLE_DOCUMENTS)('compile cleanly: %s', (dsl) => {
@@ -25,6 +25,22 @@ describe('documentation examples', () => {
       expect(lines[step.from]).toMatch(/^step /);
     });
   });
+
+  // NO_EDGE_DSL exists to show a packet without an edge.
+  it.each(ALL_EXAMPLE_DOCUMENTS.filter((dsl) => dsl !== NO_EDGE_DSL))(
+    'run packets along declared edges: %s',
+    (dsl) => {
+      const { document } = parse(dsl);
+      for (const { from, to } of document.steps.flatMap((step) => step.animations)) {
+        const rides = document.edges.some(
+          (e) =>
+            (e.from === from && e.to === to) ||
+            (e.direction === 'bidirectional' && e.from === to && e.to === from),
+        );
+        expect(rides, `${from} --> ${to}`).toBe(true);
+      }
+    },
+  );
 });
 
 describe('diagnostic examples', () => {
