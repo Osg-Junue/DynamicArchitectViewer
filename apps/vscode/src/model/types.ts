@@ -84,6 +84,7 @@ export interface Animation {
   style: LineStyle;
   direction: Direction;
   label?: string;
+  description?: string;
   color?: string;
   parallel: boolean;
 }

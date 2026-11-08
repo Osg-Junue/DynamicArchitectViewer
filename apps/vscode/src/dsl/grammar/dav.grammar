@@ -28,11 +28,12 @@ stepStatement { Desc | Focus | State | Animate }
 Desc { kw<"desc"> String }
 Focus { kw<"focus"> Identifier ("," Identifier)* }
 State { kw<"state"> Identifier Attributes }
-Animate { kw<"animate"> Identifier Arrow Identifier EdgeLabel? Attributes? }
+Animate { kw<"animate"> Identifier Arrow Identifier EdgeLabel? Attributes? AnimateBody? }
+AnimateBody { "{" Desc* "}" }
 
 Attributes { "[" (Attribute ("," Attribute)* ","?)? "]" }
 Attribute { AttrName ":" value }
-AttrName { Identifier }
+AttrName { Identifier | kw<"desc"> }
 value { String | Number | Color | Identifier | Boolean }
 Boolean { kw<"true"> | kw<"false"> }
 

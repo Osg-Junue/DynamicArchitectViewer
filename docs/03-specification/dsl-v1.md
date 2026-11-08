@@ -47,10 +47,10 @@ StepStmt      ::= DescStmt | FocusStmt | StateStmt | AnimateStmt
 DescStmt      ::= "desc" String
 FocusStmt     ::= "focus" Identifier ("," Identifier)*
 StateStmt     ::= "state" Identifier AttrBlock
-AnimateStmt   ::= "animate" Identifier ArrowOp Identifier (":" String)? AttrBlock?
+AnimateStmt   ::= "animate" Identifier ArrowOp Identifier (":" String)? AttrBlock? ("{" DescStmt* "}")?
 
 AttrBlock     ::= "[" (Attr ("," Attr)* ","?)? "]"
-Attr          ::= Identifier ":" (String | Identifier | Color | Boolean)
+Attr          ::= (Identifier | "desc") ":" (String | Identifier | Color | Boolean)
 ```
 
 ---
@@ -122,13 +122,14 @@ step "Primary DB障害発生と自動フェイルオーバー" {
   state db_pri [status: error, badge: "DOWN"]
   state db_sby [status: active, badge: "PROMOTED"]
   state e_failover [visible: true]
-  animate api -.-> db_sby : "Reconnect Writer" [color: #f59e0b]
+  animate api -.-> db_sby : "Reconnect Writer" [color: #f59e0b, desc: "昇格したStandby DBへエンドポイントを自動切替"]
 }
 ```
 
 - **評価モデル（累積状態 + ステップ局所演出）**:
   - `state <id> [...]` による状態変更（`status`, `badge`, `visible`, `color`）は **Step 1 から Step $k$ まで順に累積適用** される（ノードは `status`/`badge`/`visible`/`color`、グループは `color`、エッジは `visible`/`color` を変更可能）。
   - `focus`（ハイライト対象）および `animate`（パケットアニメーション）は **そのステップのみ有効**。
+  - `animate` には `desc: "..."` 属性（または `{ desc "..." }` ブロック）で各アニメーション動作の解説を記述でき、再生中のフェーズに合わせて下部ドックにハイライト表示される。
   - `animate` に `[parallel: true]` を指定すると、直前の `animate` と同じフェーズで同時再生される。
 
 ---

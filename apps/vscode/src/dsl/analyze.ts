@@ -387,6 +387,24 @@ class Analyzer {
     if (label !== undefined) animation.label = label;
     assignString(animation, 'color', attrs);
 
+    const descs: string[] = [];
+    const attrDesc = attrs.get('desc')?.value;
+    if (typeof attrDesc === 'string' && attrDesc.length > 0) {
+      descs.push(attrDesc);
+    }
+    const body = stmt.getChild('AnimateBody');
+    if (body) {
+      for (const child of childNodes(body)) {
+        if (child.name === 'Desc') {
+          const str = child.getChild('String');
+          if (str) descs.push(this.readString(str));
+        }
+      }
+    }
+    if (descs.length > 0) {
+      animation.description = descs.join('\n');
+    }
+
     step.animations.push(animation);
     this.references.push(
       { id: animation.from, range: rangeOf(fromNode), allowed: ['node'] },

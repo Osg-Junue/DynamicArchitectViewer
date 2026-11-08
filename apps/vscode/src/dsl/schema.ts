@@ -29,6 +29,7 @@ export const ATTRIBUTE_SCHEMA: Record<AttrOwner, Readonly<Record<string, AttrTyp
   animate: {
     color: 'color',
     parallel: 'bool',
+    desc: 'string',
   },
 };
 

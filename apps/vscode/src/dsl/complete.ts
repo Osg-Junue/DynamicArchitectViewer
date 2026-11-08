@@ -44,9 +44,15 @@ const ATTRIBUTE_KEYS: readonly DslCompletionItem[] = [
     label: 'parallel',
     kind: 'property',
     insertText: 'parallel: true',
-    detail: '前フェーズと並列再生',
+    detail: 'Play in parallel with previous animation',
   },
-  { label: 'id', kind: 'property', insertText: 'id: ', detail: '明示エッジID' },
+  {
+    label: 'desc',
+    kind: 'property',
+    insertText: 'desc: ""',
+    detail: 'Animation step description',
+  },
+  { label: 'id', kind: 'property', insertText: 'id: ', detail: 'Explicit edge ID' },
 ];
 
 const ICON_COMPLETIONS: readonly DslCompletionItem[] = ICON_NAMES.map((name) => ({

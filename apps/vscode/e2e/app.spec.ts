@@ -46,10 +46,16 @@ test.describe('code-only authoring & live preview', () => {
     ).toHaveCount(0);
     await expect(page.locator('main.dav-viewport [data-testid="btn-zoom-fit"] svg')).toBeVisible();
 
-    // Selecting a step from the top dropdown updates the bottom dock narrative
+    // Selecting a step from the top dropdown updates the bottom dock narrative and per-animation descriptions
     await expect(page.locator('.dav-step-title')).toContainText('Step 1 / 4');
+    await expect(page.getByTestId('dock-anim-list')).toBeVisible();
+    await expect(page.getByTestId('dock-anim-item')).toHaveCount(3);
+    await expect(page.getByTestId('dock-anim-item').first()).toHaveClass(/dav-active/);
+    await expect(page.getByTestId('dock-anim-item').first()).toContainText('CloudFront');
     await topStepSelect.selectOption('2');
     await expect(page.locator('.dav-step-title')).toContainText('Step 3 / 4');
+    await expect(page.getByTestId('dock-anim-item')).toHaveCount(2);
+    await expect(page.getByTestId('dock-anim-item').nth(1)).toContainText('WAL');
 
     // Toggle play/pause from top toolbar: icon-only button (no text label) with double play arrow SVG
     await expect(topPlayBtn).toHaveText('');

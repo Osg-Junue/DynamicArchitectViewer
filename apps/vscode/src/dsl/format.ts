@@ -2,7 +2,7 @@ import type { SyntaxNode } from '@lezer/common';
 import { childNodes, parseTree, sliceOf } from './syntax';
 
 const INDENT = '  ';
-const CONTAINERS = new Set(['GroupBody', 'StepBody']);
+const CONTAINERS = new Set(['GroupBody', 'StepBody', 'AnimateBody']);
 const STATEMENTS = new Set([
   'Header',
   'Title',
@@ -89,6 +89,20 @@ class Printer {
           body !== null && childNodes(body).some((c) => c.name !== '{' && c.name !== '}');
         if (!body || !hasContent) {
           this.lines.push(`${indent}${head} {}`);
+          return;
+        }
+        this.lines.push(`${indent}${head} {`);
+        this.block(body, depth + 1);
+        this.lines.push(`${indent}}`);
+        return;
+      }
+      case 'Animate': {
+        const body = node.getChild('AnimateBody');
+        const head = this.inline(node, (c) => !CONTAINERS.has(c.name));
+        const hasContent =
+          body !== null && childNodes(body).some((c) => c.name !== '{' && c.name !== '}');
+        if (!body || !hasContent) {
+          this.lines.push(`${indent}${head}`);
           return;
         }
         this.lines.push(`${indent}${head} {`);

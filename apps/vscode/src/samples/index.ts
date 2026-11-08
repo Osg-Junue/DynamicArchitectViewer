@@ -42,17 +42,17 @@ api -.-> db_sby : "Failover Route" [id: e_failover, visible: false, color: #f59e
 step "エッジ検証とALBへのルーティング" {
   desc "ブラウザからのリクエストをCloudFrontが受け取り、WAFで検査した後にVPC内のALBへ転送します。"
   focus client, cdn, waf, alb
-  animate client --> cdn : "GET /products" [color: #38bdf8]
-  animate cdn --> waf : "Inspect Request" [color: #8b5cf6]
-  animate waf --> alb : "Pass ACL" [color: #6366f1]
+  animate client --> cdn : "GET /products" [color: #38bdf8, desc: "ブラウザからCloudFrontエッジロケーションへHTTPSリクエストを送信"]
+  animate cdn --> waf : "Inspect Request" [color: #8b5cf6, desc: "キャッシュミス時、AWS WAFへ転送してACL・レート制限ルールで検査"]
+  animate waf --> alb : "Pass ACL" [color: #6366f1, desc: "検査を通過した正常なリクエストのみをVPC内のALBへルーティング"]
 }
 
 step "キャッシュヒットによる高速応答" {
   desc "Order APIがRedisを参照し、キャッシュヒットした場合はDBへアクセスせず即座にレスポンスを返します。"
   focus alb, api, redis
   state redis [status: active, badge: "CACHE HIT"]
-  animate alb --> api : "Forward" [color: #3b82f6]
-  animate api --> redis : "GET product:101" [color: #ef4444]
+  animate alb --> api : "Forward" [color: #3b82f6, desc: "ALBがターゲットグループ内のECS Fargateタスクへリクエストを振り分け"]
+  animate api --> redis : "GET product:101" [color: #ef4444, desc: "ElastiCache (Redis) からインメモリで商品データを高速取得"]
 }
 
 step "注文トランザクションの書き込みとDB同期" {
@@ -60,8 +60,8 @@ step "注文トランザクションの書き込みとDB同期" {
   focus api, db_pri, db_sby
   state redis [status: normal, badge: ""]
   state db_pri [status: active, badge: "COMMIT"]
-  animate api --> db_pri : "INSERT INTO orders" [color: #10b981]
-  animate db_pri -.-> db_sby : "Replicate WAL" [color: #14b8a6]
+  animate api --> db_pri : "INSERT INTO orders" [color: #10b981, desc: "Primary DB (AZ-a) に対して注文トランザクションを書き込みコミット"]
+  animate db_pri -.-> db_sby : "Replicate WAL" [color: #14b8a6, desc: "別AZのStandby DB (AZ-c) へストレージレベルでWALを同期レプリケーション"]
 }
 
 step "Primary DB障害発生と自動フェイルオーバー" {
@@ -70,7 +70,7 @@ step "Primary DB障害発生と自動フェイルオーバー" {
   state db_pri [status: error, badge: "DOWN"]
   state db_sby [status: active, badge: "PROMOTED"]
   state e_failover [visible: true]
-  animate api -.-> db_sby : "Reconnect Writer" [color: #f59e0b]
+  animate api -.-> db_sby : "Reconnect Writer" [color: #f59e0b, desc: "クラスターエンドポイントのDNS切替により、昇格したStandby DBへ自動再接続"]
 }
 `,
   },
@@ -108,8 +108,8 @@ step "ログイン認証とトークン発行" {
   desc "ユーザーがログイン画面で認証情報を送信。Auth Serviceで検証後、JWTを発行して商品一覧画面へ遷移します。"
   focus scr_login, auth_api, scr_catalog
   state scr_login [status: active, badge: "INPUT"]
-  animate scr_login --> auth_api : "POST /auth/login" [color: #3b82f6]
-  animate scr_login --> scr_catalog : "Redirect /catalog" [color: #10b981]
+  animate scr_login --> auth_api : "POST /auth/login" [color: #3b82f6, desc: "入力されたID・パスワードをAuth Serviceへ送信し、認証トークン(JWT)を取得"]
+  animate scr_login --> scr_catalog : "Redirect /catalog" [color: #10b981, desc: "認証成功後、SPAルーターにより商品一覧・カート画面へ遷移"]
 }
 
 step "商品一覧取得と決済モーダル表示" {
@@ -118,8 +118,8 @@ step "商品一覧取得と決済モーダル表示" {
   state scr_login [status: normal, badge: ""]
   state scr_catalog [status: active]
   state mod_pay [visible: true, status: active, badge: "OPEN"]
-  animate scr_catalog --> shop_api : "GET /items (200 OK)" [color: #06b6d4]
-  animate scr_catalog --> mod_pay : "Open Modal" [color: #a855f7]
+  animate scr_catalog --> shop_api : "GET /items (200 OK)" [color: #06b6d4, desc: "Checkout APIから最新の商品カタログおよび在庫ステータスを取得"]
+  animate scr_catalog --> mod_pay : "Open Modal" [color: #a855f7, desc: "カート内商品の確認後、画面遷移せずに決済確認モーダルをオーバーレイ表示"]
 }
 
 step "決済実行と外部決済GW連携" {
@@ -128,8 +128,8 @@ step "決済実行と外部決済GW連携" {
   state scr_catalog [status: normal]
   state mod_pay [status: warning, badge: "PROCESSING"]
   state shop_api [status: active]
-  animate mod_pay --> shop_api : "POST /checkout" [color: #f59e0b]
-  animate shop_api --> stripe : "POST /v1/charges" [color: #6366f1]
+  animate mod_pay --> shop_api : "POST /checkout" [color: #f59e0b, desc: "決済トークンと注文内容をCheckout APIへ送信し、二重送信防止ロックを開始"]
+  animate shop_api --> stripe : "POST /v1/charges" [color: #6366f1, desc: "バックエンドからStripe決済ゲートウェイを呼び出し、カード決済を実行"]
 }
 
 step "注文完了画面への遷移" {
@@ -138,7 +138,7 @@ step "注文完了画面への遷移" {
   state mod_pay [status: muted, badge: ""]
   state shop_api [status: normal]
   state scr_done [status: active, badge: "COMPLETED"]
-  animate mod_pay --> scr_done : "Navigate /complete" [color: #10b981]
+  animate mod_pay --> scr_done : "Navigate /complete" [color: #10b981, desc: "決済完了レスポンスを受け取り、モーダルを閉じて注文完了画面へ遷移"]
 }
 `,
   },
@@ -170,8 +170,8 @@ step "ジョブ登録と即時受付応答 (202 Accepted)" {
   desc "重たいPDF生成処理を同期実行せず、SQSへジョブを投入して即座に 202 Accepted を返却します。"
   focus user, apigw, queue
   state queue [status: active, badge: "QUEUED: 1"]
-  animate user --> apigw : "POST /reports" [color: #3b82f6]
-  animate apigw --> queue : "SendMessage" [color: #a855f7]
+  animate user --> apigw : "POST /reports" [color: #3b82f6, desc: "管理ダッシュボードから月次レポート生成リクエストをAPI Gatewayへ送信"]
+  animate apigw --> queue : "SendMessage" [color: #a855f7, desc: "API GatewayからSQSへジョブメッセージをエンキューし、即座に受付完了を応答"]
 }
 
 step "非同期ワーカー起動とPDF生成・保存" {
@@ -180,8 +180,8 @@ step "非同期ワーカー起動とPDF生成・保存" {
   state queue [status: normal, badge: ""]
   state worker [status: active, badge: "RUNNING"]
   state s3 [status: active, badge: "SAVED"]
-  animate queue --> worker : "Invoke Worker" [color: #f59e0b]
-  animate worker --> s3 : "PutObject report.pdf" [color: #14b8a6]
+  animate queue --> worker : "Invoke Worker" [color: #f59e0b, desc: "SQSイベントソースマッピングによりLambda Workerを非同期起動"]
+  animate worker --> s3 : "PutObject report.pdf" [color: #14b8a6, desc: "生成したPDFファイルをS3バケットのアーカイブ領域へアップロード"]
 }
 
 step "署名付きURLによる直接ダウンロード" {
@@ -191,7 +191,7 @@ step "署名付きURLによる直接ダウンロード" {
   state s3 [status: normal, badge: ""]
   state e_dl [visible: true]
   state user [status: active, badge: "DOWNLOADED"]
-  animate user -.-> s3 : "GET Presigned URL" [color: #10b981]
+  animate user -.-> s3 : "GET Presigned URL" [color: #10b981, desc: "APIサーバーを経由せず、S3の署名付きURLからブラウザへ直接PDFをダウンロード"]
 }
 `,
   },

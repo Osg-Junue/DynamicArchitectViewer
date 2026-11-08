@@ -26,8 +26,8 @@ step "ログイン認証とトークン発行" {
   desc "ユーザーがログイン画面で認証情報を送信。Auth Serviceで検証後、JWTを発行して商品一覧画面へ遷移します。"
   focus scr_login, auth_api, scr_catalog
   state scr_login [status: active, badge: "INPUT"]
-  animate scr_login --> auth_api : "POST /auth/login" [color: #3b82f6]
-  animate scr_login --> scr_catalog : "Redirect /catalog" [color: #10b981]
+  animate scr_login --> auth_api : "POST /auth/login" [color: #3b82f6, desc: "入力されたID・パスワードをAuth Serviceへ送信し、認証トークン(JWT)を取得"]
+  animate scr_login --> scr_catalog : "Redirect /catalog" [color: #10b981, desc: "認証成功後、SPAルーターにより商品一覧・カート画面へ遷移"]
 }
 
 step "商品一覧取得と決済モーダル表示" {
@@ -36,8 +36,8 @@ step "商品一覧取得と決済モーダル表示" {
   state scr_login [status: normal, badge: ""]
   state scr_catalog [status: active]
   state mod_pay [visible: true, status: active, badge: "OPEN"]
-  animate scr_catalog --> shop_api : "GET /items (200 OK)" [color: #06b6d4]
-  animate scr_catalog --> mod_pay : "Open Modal" [color: #a855f7]
+  animate scr_catalog --> shop_api : "GET /items (200 OK)" [color: #06b6d4, desc: "Checkout APIから最新の商品カタログおよび在庫ステータスを取得"]
+  animate scr_catalog --> mod_pay : "Open Modal" [color: #a855f7, desc: "カート内商品の確認後、画面遷移せずに決済確認モーダルをオーバーレイ表示"]
 }
 
 step "決済実行と外部決済GW連携" {
@@ -46,8 +46,8 @@ step "決済実行と外部決済GW連携" {
   state scr_catalog [status: normal]
   state mod_pay [status: warning, badge: "PROCESSING"]
   state shop_api [status: active]
-  animate mod_pay --> shop_api : "POST /checkout" [color: #f59e0b]
-  animate shop_api --> stripe : "POST /v1/charges" [color: #6366f1]
+  animate mod_pay --> shop_api : "POST /checkout" [color: #f59e0b, desc: "決済トークンと注文内容をCheckout APIへ送信し、二重送信防止ロックを開始"]
+  animate shop_api --> stripe : "POST /v1/charges" [color: #6366f1, desc: "バックエンドからStripe決済ゲートウェイを呼び出し、カード決済を実行"]
 }
 
 step "注文完了画面への遷移" {
@@ -56,5 +56,5 @@ step "注文完了画面への遷移" {
   state mod_pay [status: muted, badge: ""]
   state shop_api [status: normal]
   state scr_done [status: active, badge: "COMPLETED"]
-  animate mod_pay --> scr_done : "Navigate /complete" [color: #10b981]
+  animate mod_pay --> scr_done : "Navigate /complete" [color: #10b981, desc: "決済完了レスポンスを受け取り、モーダルを閉じて注文完了画面へ遷移"]
 }

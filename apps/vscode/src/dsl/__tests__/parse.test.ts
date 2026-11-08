@@ -40,8 +40,10 @@ step "First" {
   focus a, vpc, bc
   state a [status: error, badge: "DOWN"]
   state bc [visible: true]
-  animate a --> b : "go" [color: #f00]
-  animate b --> c [parallel: true]
+  animate a --> b : "go" [color: #f00, desc: "send request"]
+  animate b --> c [parallel: true] {
+    desc "forward to c"
+  }
 }
 
 step "Second" {}
@@ -119,10 +121,18 @@ step "Second" {}
           style: 'solid',
           direction: 'forward',
           label: 'go',
+          description: 'send request',
           color: '#f00',
           parallel: false,
         },
-        { from: 'b', to: 'c', style: 'solid', direction: 'forward', parallel: true },
+        {
+          from: 'b',
+          to: 'c',
+          style: 'solid',
+          direction: 'forward',
+          description: 'forward to c',
+          parallel: true,
+        },
       ],
     });
     expect(second).toMatchObject({ index: 1, title: 'Second' });

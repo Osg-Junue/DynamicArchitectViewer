@@ -4,13 +4,13 @@
   "scopeName": "source.dav",
   "patterns": [
     { "include": "#comments" },
+    { "include": "#attributes" },
     { "include": "#keywords" },
     { "include": "#booleans" },
     { "include": "#arrows" },
     { "include": "#colors" },
     { "include": "#numbers" },
     { "include": "#strings" },
-    { "include": "#attributes" },
     { "include": "#identifiers" }
   ],
   "repository": {
@@ -76,7 +76,7 @@
     "attributes": {
       "patterns": [
         {
-          "match": "\\b(icon|sub|status|badge|color|visible|parallel|id)\\s*(:)",
+          "match": "\\b(icon|sub|status|badge|color|visible|parallel|desc|id)\\s*(:)",
           "captures": {
             "1": { "name": "variable.other.property.dav" },
             "2": { "name": "punctuation.separator.key-value.dav" }

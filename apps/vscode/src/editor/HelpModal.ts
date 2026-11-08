@@ -307,7 +307,7 @@ step "Step Title" {
   desc "Narrative shown in player dock"
   focus <id1>, <id2>
   state <id> [status: active, badge: "OK", visible: true]
-  animate <from_id> --> <to_id> : "Packet" [color: #3b82f6, parallel: true]
+  animate <from_id> --> <to_id> : "Packet" [color: #3b82f6, desc: "Action explanation", parallel: true]
 }`,
         ),
         html('h3', {}, s.refExampleTitle),

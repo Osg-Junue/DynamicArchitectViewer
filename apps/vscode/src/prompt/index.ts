@@ -28,9 +28,9 @@ step "1. Submit Order" {
   focus client, alb, api, db
   state api [status: active, badge: "200 OK"]
   state db [status: active, badge: "WRITE"]
-  animate client --> alb : "POST /orders" [color: #3b82f6]
-  animate alb --> api : "Forward" [color: #3b82f6]
-  animate api --> db : "INSERT order" [color: #10b981]
+  animate client --> alb : "POST /orders" [color: #3b82f6, desc: "Client sends order payload over HTTPS"]
+  animate alb --> api : "Forward" [color: #3b82f6, desc: "ALB routes request to healthy API container"]
+  animate api --> db : "INSERT order" [color: #10b981, desc: "API commits transaction to primary PostgreSQL"]
 }
 
 step "2. Enqueue Background Job" {
@@ -38,7 +38,7 @@ step "2. Enqueue Background Job" {
   focus api, queue
   state db [status: normal, badge: ""]
   state queue [status: warning, badge: "QUEUED"]
-  animate api -.-> queue : "OrderCreated" [color: #f59e0b]
+  animate api -.-> queue : "OrderCreated" [color: #f59e0b, desc: "Publish async event for downstream workers"]
 }`;
 
 /**
@@ -84,8 +84,8 @@ export function buildAiPrompt(options: AiPromptOptions = {}): string {
       '  - `focus <id1>, <id2>, ...` (highlights listed nodes/groups; focusing a group automatically focuses its descendants; non-focused elements are dimmed during this step).',
       '  - `state <target_id> [status: ..., badge: "...", color: #..., visible: true|false]`',
       '    - **Cumulative semantics**: `state` overrides accumulate across steps `1..k`. To clear a badge or reset status in a later step, set `badge: ""` or `status: normal`.',
-      '  - `animate <from_id> <arrow> <to_id> : "Packet Label" [color: #3b82f6, parallel: true]`',
-      '    - Plays in declaration order. Add `parallel: true` to run simultaneously with the immediately preceding `animate` statement.',
+      '  - `animate <from_id> <arrow> <to_id> : "Packet Label" [color: #3b82f6, desc: "Action description", parallel: true]`',
+      '    - Plays in declaration order and displays `desc` in the bottom dock during that animation phase. Add `parallel: true` to run simultaneously with the immediately preceding `animate` statement.',
       '',
       '## 4. Reference Example',
       '```dav',
@@ -137,8 +137,8 @@ export function buildAiPrompt(options: AiPromptOptions = {}): string {
     '  - `focus <id1>, <id2>, ...`（注目するノード/グループID。グループを指定すると配下要素も自動フォーカスされ、それ以外は減光される）',
     '  - `state <target_id> [status: ..., badge: "...", color: #..., visible: true|false]`',
     '    - **累積適用ルール**: `state` の変更はステップ `1..k` で累積される。後のステップでバッジや状態を戻す場合は `badge: ""` や `status: normal` を明示する。',
-    '  - `animate <from_id> <arrow> <to_id> : "パケット名" [color: #3b82f6, parallel: true]`',
-    '    - 記述順に直列再生される。直前の `animate` と同時再生したい場合は `[parallel: true]` を付与する。',
+    '  - `animate <from_id> <arrow> <to_id> : "パケット名" [color: #3b82f6, desc: "アニメーション動作の説明", parallel: true]`',
+    '    - 記述順に直列再生され、各アニメーション実行中に `desc` の説明が下部ドックにハイライト表示される。直前の `animate` と同時再生したい場合は `[parallel: true]` を付与する。',
     '',
     '## 4. サンプルコード',
     '```dav',

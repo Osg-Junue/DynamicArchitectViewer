@@ -47,7 +47,10 @@ export interface ResolvedEdge {
 export interface Packet {
   from: string;
   to: string;
+  fromLabel: string;
+  toLabel: string;
   label?: string;
+  description?: string;
   color: string;
   style: LineStyle;
   path: Bezier;
@@ -199,8 +202,17 @@ export function resolveView(
       }
       if (!activeEdges.has(edge.id)) activeEdges.set(edge.id, color);
     }
-    const packet: Packet = { from: a.from, to: a.to, color, style: a.style, path };
+    const packet: Packet = {
+      from: a.from,
+      to: a.to,
+      fromLabel: fromNode.label,
+      toLabel: toNode.label,
+      color,
+      style: a.style,
+      path,
+    };
     if (a.label !== undefined) packet.label = a.label;
+    if (a.description !== undefined) packet.description = a.description;
     const current = phases[phases.length - 1];
     if (a.parallel && current) current.push(packet);
     else phases.push([packet]);

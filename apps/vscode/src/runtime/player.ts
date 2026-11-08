@@ -75,6 +75,7 @@ export class Player {
   private readonly titleEl: HTMLElement;
   private readonly stepTitleEl: HTMLElement;
   private readonly stepDescEl: HTMLElement;
+  private readonly animListEl: HTMLElement;
   private readonly stepSelect: HTMLSelectElement;
   private readonly playBtn: HTMLButtonElement;
   private readonly speedSelect: HTMLSelectElement;
@@ -114,6 +115,11 @@ export class Player {
     this.zoomLabel = html('span', { class: 'dav-zoom-label', 'aria-live': 'polite' });
     this.stepTitleEl = html('div', { class: 'dav-step-title' });
     this.stepDescEl = html('div', { class: 'dav-step-desc' });
+    this.animListEl = html('div', {
+      class: 'dav-anim-list',
+      'data-testid': 'dock-anim-list',
+      hidden: true,
+    });
 
     this.stepSelect = html('select', {
       class: 'dav-btn dav-step-select',
@@ -239,6 +245,7 @@ export class Player {
           ),
           html('div', { class: 'dav-hint' }, s.hint),
         ),
+        this.animListEl,
       ),
     );
     container.append(this.root);
@@ -407,7 +414,57 @@ export class Player {
       this.stepDescEl.textContent = this.view.description ?? '';
       this.stepSelect.value = String(this.view.stepIndex);
     }
+
+    clear(this.animListEl);
+    const { phases } = this.view;
+    if (phases.length === 0) {
+      this.animListEl.hidden = true;
+    } else {
+      this.animListEl.hidden = false;
+      phases.forEach((packets, phaseIdx) => {
+        const item = html('button', {
+          type: 'button',
+          class: 'dav-anim-item',
+          'data-phase': String(phaseIdx),
+          'data-testid': 'dock-anim-item',
+        });
+        for (const pkt of packets) {
+          item.append(
+            html(
+              'div',
+              { class: 'dav-anim-head' },
+              html('span', { class: 'dav-anim-index' }, `${phaseIdx + 1}`),
+              html('span', { class: 'dav-anim-route' }, `${pkt.fromLabel} → ${pkt.toLabel}`),
+              pkt.label ? html('code', { class: 'dav-anim-label' }, pkt.label) : null,
+            ),
+          );
+          if (pkt.description) {
+            item.append(html('div', { class: 'dav-anim-desc' }, pkt.description));
+          }
+        }
+        item.addEventListener('click', () => {
+          this.phase = phaseIdx;
+          this.elapsed = 0;
+          this.renderPackets();
+          this.updatePhaseHighlight();
+          this.ensureLoop();
+        });
+        this.animListEl.append(item);
+      });
+      this.updatePhaseHighlight();
+    }
+
     this.updatePlayButton();
+  }
+
+  private updatePhaseHighlight(): void {
+    const count = this.view.phases.length;
+    if (count === 0) return;
+    const activePhase = Math.min(this.phase, count - 1);
+    for (const child of Array.from(this.animListEl.children) as HTMLElement[]) {
+      const isCurrent = Number(child.dataset.phase) === activePhase;
+      child.classList.toggle('dav-active', isCurrent);
+    }
   }
 
   private updatePlayButton(): void {
@@ -474,7 +531,10 @@ export class Player {
       if (this.elapsed >= PHASE_MS) {
         this.phase++;
         this.elapsed = 0;
-        if (this.phase < phases.length) this.renderPackets();
+        if (this.phase < phases.length) {
+          this.renderPackets();
+          this.updatePhaseHighlight();
+        }
       }
     } else if (this.elapsed >= HOLD_MS) {
       if (this.playing) {
@@ -485,6 +545,7 @@ export class Player {
       this.phase = 0;
       this.elapsed = 0;
       this.renderPackets();
+      this.updatePhaseHighlight();
     }
 
     if (this.playing || phases.length > 0) {
