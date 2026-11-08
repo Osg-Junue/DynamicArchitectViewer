@@ -80,6 +80,34 @@ export const ICON_SHAPES: Record<IconName, readonly Shape[]> = {
     ['polyline', { points: '15 3 21 3 21 9' }],
     ['line', { x1: 10, y1: 14, x2: 21, y2: 3 }],
   ],
+  auth: [
+    ['rect', { x: 4, y: 11, width: 16, height: 10, rx: 2 }],
+    ['path', { d: 'M8 11V7a4 4 0 0 1 8 0v4' }],
+    ['circle', { cx: 12, cy: 16, r: 1 }],
+  ],
+  ai: [
+    [
+      'path',
+      {
+        d: 'M12 3l1.9 5.8a2 2 0 0 0 1.3 1.3L21 12l-5.8 1.9a2 2 0 0 0-1.3 1.3L12 21l-1.9-5.8a2 2 0 0 0-1.3-1.3L3 12l5.8-1.9a2 2 0 0 0 1.3-1.3L12 3z',
+      },
+    ],
+    ['path', { d: 'M19 3v4' }],
+    ['path', { d: 'M21 5h-4' }],
+  ],
+  mail: [
+    ['rect', { x: 2, y: 4, width: 20, height: 16, rx: 2 }],
+    ['path', { d: 'm22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7' }],
+  ],
+  monitor: [['polyline', { points: '22 12 18 12 15 21 9 3 6 12 2 12' }]],
+  schedule: [
+    ['circle', { cx: 12, cy: 12, r: 9 }],
+    ['polyline', { points: '12 7 12 12 15.5 14' }],
+  ],
+  search: [
+    ['circle', { cx: 11, cy: 11, r: 7 }],
+    ['line', { x1: 20, y1: 20, x2: 16, y2: 16 }],
+  ],
   screen: [
     ['rect', { x: 2, y: 3, width: 20, height: 18, rx: 2 }],
     ['line', { x1: 2, y1: 8, x2: 22, y2: 8 }],
@@ -100,6 +128,11 @@ export const ICON_SHAPES: Record<IconName, readonly Shape[]> = {
   mobile: [
     ['rect', { x: 6, y: 2, width: 12, height: 20, rx: 2 }],
     ['line', { x1: 12, y1: 18, x2: 12.01, y2: 18 }],
+  ],
+  terminal: [
+    ['rect', { x: 2, y: 4, width: 20, height: 16, rx: 2 }],
+    ['polyline', { points: '6 9 10 12 6 15' }],
+    ['line', { x1: 12, y1: 15, x2: 17, y2: 15 }],
   ],
   user: [
     ['path', { d: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2' }],

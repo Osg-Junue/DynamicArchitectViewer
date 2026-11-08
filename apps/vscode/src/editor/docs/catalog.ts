@@ -123,27 +123,6 @@ export function colorLab(t: Translate, track: (cleanup: () => void) => void): HT
   return html('div', {}, colorChips(COLOR_NAMES, 'blue', show, t), slot);
 }
 
-const ICON_DESCRIPTIONS: Record<IconName, readonly [ja: string, en: string]> = {
-  server: ['サーバー / VM（既定）', 'Server or VM (default)'],
-  container: ['コンテナ / Pod', 'Container or pod'],
-  function: ['サーバーレス関数', 'Serverless function'],
-  database: ['データベース', 'Database'],
-  cache: ['キャッシュ', 'Cache'],
-  queue: ['キュー / ストリーム', 'Queue or stream'],
-  storage: ['オブジェクト / ファイルストレージ', 'Object or file storage'],
-  lb: ['ロードバランサー', 'Load balancer'],
-  firewall: ['ファイアウォール / WAF', 'Firewall or WAF'],
-  cdn: ['CDN', 'CDN'],
-  cloud: ['クラウド / マネージドサービス', 'Cloud or managed service'],
-  router: ['ルーター / ゲートウェイ', 'Router or gateway'],
-  external: ['外部システム', 'External system'],
-  screen: ['画面（ウィンドウ形）', 'Screen (window shape)'],
-  modal: ['モーダル（ウィンドウ形）', 'Modal (window shape)'],
-  browser: ['ブラウザ', 'Web browser'],
-  mobile: ['モバイル端末', 'Mobile device'],
-  user: ['ユーザー / アクター', 'User or actor'],
-};
-
 function iconTile(icon: IconName, tint: ColorName | null, t: Translate): HTMLElement {
   const name = html('code', {}, icon);
   const tile = html(
@@ -155,7 +134,7 @@ function iconTile(icon: IconName, tint: ColorName | null, t: Translate): HTMLEle
     },
     stationPreview(icon, tint ?? undefined),
     name,
-    html('span', { class: 'doc-muted' }, t(...ICON_DESCRIPTIONS[icon])),
+    html('span', { class: 'doc-muted' }, t(...ICON_META[icon].description)),
   );
   tile.addEventListener('click', () => {
     void copyWithFeedback(`icon: ${icon}`, tile, icon, t('コピー済み', 'Copied'), name);
@@ -183,7 +162,7 @@ export function iconCatalog(t: Translate): HTMLElement {
       const icons = ICON_NAMES.filter(
         (icon) =>
           ICON_META[icon].category === category &&
-          `${icon} ${ICON_DESCRIPTIONS[icon].join(' ')}`.toLowerCase().includes(filter),
+          `${icon} ${ICON_META[icon].description.join(' ')}`.toLowerCase().includes(filter),
       );
       if (icons.length === 0) continue;
       list.append(

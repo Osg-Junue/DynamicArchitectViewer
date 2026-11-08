@@ -17,10 +17,17 @@ export const ICON_NAMES = [
   'cloud',
   'router',
   'external',
+  'auth',
+  'ai',
+  'mail',
+  'monitor',
+  'schedule',
+  'search',
   'screen',
   'modal',
   'browser',
   'mobile',
+  'terminal',
   'user',
 ] as const;
 export type IconName = (typeof ICON_NAMES)[number];

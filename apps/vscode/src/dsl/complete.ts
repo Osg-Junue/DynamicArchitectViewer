@@ -1,3 +1,4 @@
+import { ICON_META } from '../model/icons';
 import { COLOR_NAMES, COLOR_RESET, ICON_NAMES } from '../model/types';
 import { parse } from './analyze';
 import { ATTRIBUTE_SCHEMA, type AttrOwner } from './schema';
@@ -58,7 +59,7 @@ const ATTRIBUTE_KEYS: readonly DslCompletionItem[] = [
 const ICON_COMPLETIONS: readonly DslCompletionItem[] = ICON_NAMES.map((name) => ({
   label: name,
   kind: 'constant',
-  detail: 'icon',
+  detail: `${ICON_META[name].description[1]} (${ICON_META[name].description[0]})`,
 }));
 
 const COLOR_COMPLETIONS: readonly DslCompletionItem[] = COLOR_NAMES.map((name) => ({

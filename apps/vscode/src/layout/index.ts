@@ -46,8 +46,8 @@ export function stationRect(node: Rect, icon: IconName): Rect {
   };
 }
 
-export function defaultNodeSize(icon: IconName): { width: number; height: number } {
-  return icon === 'screen' || icon === 'modal' ? SCREEN_NODE_SIZE : NODE_SIZE;
+export function defaultNodeSize(_icon: IconName): { width: number; height: number } {
+  return NODE_SIZE;
 }
 
 /**

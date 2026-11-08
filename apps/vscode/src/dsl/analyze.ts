@@ -521,16 +521,18 @@ class Analyzer {
         });
         return undefined;
       }
-      case 'icon':
+      case 'icon': {
         if (node.name !== 'Identifier') return invalid();
-        if (!(ICON_NAMES as readonly string[]).includes(raw)) {
+        const iconName = raw.toLowerCase();
+        if (!(ICON_NAMES as readonly string[]).includes(iconName)) {
           this.report('unknown-icon', 'error', node, {
             icon: raw,
             suggestion: closestMatch(raw, ICON_NAMES) ?? '',
           });
           return undefined;
         }
-        return raw;
+        return iconName;
+      }
     }
   }
 
@@ -600,13 +602,15 @@ function assignString<K extends string>(
   if (typeof value === 'string') target[key] = value;
 }
 
-/** Returns the closest candidate within an edit distance of 2, if any. */
+/** Returns the closest candidate within an edit distance of 2 (or 1 for <=3-char names), if any. */
 export function closestMatch(input: string, candidates: readonly string[]): string | undefined {
   let best: string | undefined;
   let bestDistance = 3;
+  const normalized = input.toLowerCase();
   for (const candidate of candidates) {
-    const d = levenshtein(input.toLowerCase(), candidate);
-    if (d < bestDistance) {
+    const maxDistance = candidate.length <= 3 ? 1 : 2;
+    const d = levenshtein(normalized, candidate);
+    if (d <= maxDistance && d < bestDistance) {
       best = candidate;
       bestDistance = d;
     }

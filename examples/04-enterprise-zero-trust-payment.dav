@@ -9,12 +9,12 @@ group client_edge "Client & Global Edge" [color: teal] {
 
 group zero_trust "Zero-Trust Ingress & Identity" [color: purple] {
   node apigw "API Gateway" [icon: router, sub: "mTLS / Token Guard"]
-  node idp "Auth0 / OIDC IdP" [icon: user, sub: "FIDO2 / JWT Verify"]
+  node idp "Auth0 / OIDC IdP" [icon: auth, sub: "FIDO2 / JWT Verify"]
 }
 
 group app_mesh "Core Microservices Mesh (EKS)" [color: blue] {
   node bff "Checkout BFF" [icon: container, sub: "GraphQL Orchestrator"]
-  node fraud_ai "Fraud AI Engine" [icon: function, sub: "ML Risk Scoring (gRPC)"]
+  node fraud_ai "Fraud AI Engine" [icon: ai, sub: "ML Risk Scoring (gRPC)"]
   node order_svc "Order Service" [icon: server, sub: "Saga Coordinator"]
   node pay_svc "Payment Service" [icon: container, sub: "PCI-DSS Isolated Pod"]
 }

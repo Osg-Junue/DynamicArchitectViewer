@@ -100,6 +100,33 @@ describe('color values', () => {
   });
 });
 
+describe('icon values', () => {
+  it('treats icon names case-insensitively and supports the new icons', () => {
+    const { document, diagnostics } = parse(
+      'dav 1\nnode a [icon: Auth]\nnode b [icon: AI]\nnode c [icon: terminal]',
+    );
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((n) => n.icon)).toEqual(['auth', 'ai', 'terminal']);
+  });
+
+  it('includes descriptive details in icon completions', () => {
+    const res = computeCompletions('dav 1\nnode a [icon: ', 20, true);
+    const authItem = res?.items.find((i) => i.label === 'auth');
+    expect(authItem?.detail).toContain('Auth');
+    expect(res?.items).toHaveLength(25);
+  });
+
+  it('does not falsely suggest 2-char icons for unrelated short words', () => {
+    const [d1] = parse('dav 1\nnode a [icon: bar]').diagnostics;
+    expect(d1?.code).toBe('unknown-icon');
+    expect(d1?.args.suggestion).toBe('');
+
+    const [d2] = parse('dav 1\nnode a [icon: aii]').diagnostics;
+    expect(d2?.code).toBe('unknown-icon');
+    expect(d2?.args.suggestion).toBe('ai');
+  });
+});
+
 describe('arrows', () => {
   it('accepts the four three-character edge arrows', () => {
     const { document, diagnostics } = parse(

@@ -16,7 +16,7 @@ apps/vscode/
 ├── syntaxes/
 │   └── dav.tmLanguage.json      # TextMate シンタックスハイライト定義
 └── src/
-    ├── model/                   # AST 型・内蔵アイコンカタログ (18種)
+    ├── model/                   # AST 型・内蔵アイコンカタログ (25種)
     ├── dsl/                     # Lezer パーサー・検証・補完計算・フォーマッタ
     ├── layout/                  # トポロジ & グループ階層からの 100% 自動レイアウト
     ├── scene/                   # ステップ状態解決・幾何計算・DOM非依存シーン構築
@@ -37,7 +37,7 @@ apps/vscode/
 2. **Quick Fix (`CodeActionProvider`)**:
    - アイコン名や色名のタイポ等で `d.suggestion` が存在する場合、`Ctrl+.`（`⌘.`）で1クリック修正アクションを提供します。
 3. **コンテキスト認識補完 (`CompletionItemProvider`)**:
-   - `computeCompletions(text, offset, true)` により、定義済みノード/グループ ID、キーワード、属性名、アイコン名（18種）、色名（9種）を補完します。
+   - `computeCompletions(text, offset, true)` により、定義済みノード/グループ ID、キーワード、属性名、アイコン名（25種）、色名（9種）を補完します。
 4. **ドキュメント整形 (`DocumentFormattingEditProvider`)**:
    - `Shift+Alt+F` または保存時フォーマットにより、コメントを保持したまま `format(text)` で `.dav` ファイルを整形します。
 5. **アウトライン・パンくずリスト (`DocumentSymbolProvider`)**:

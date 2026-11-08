@@ -118,7 +118,7 @@ group core "Core" [color: teal] {
   node api "API" [icon: container]
   node db "DB" [icon: database]
 }
-node log "Logs" [icon: storage]
+node log "Logs" [icon: monitor]
 
 client --> api
 api --> db
@@ -210,7 +210,7 @@ step "Declaration order" {
 export const PARALLEL_DSL = `dav 1
 
 node api "API" [icon: container]
-node mail "Mail" [icon: function]
+node mail "Mail" [icon: mail]
 node push "Push" [icon: mobile]
 node audit "Audit" [icon: storage]
 api --> mail

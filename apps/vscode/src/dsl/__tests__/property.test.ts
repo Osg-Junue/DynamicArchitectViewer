@@ -1,8 +1,9 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
+import { ICON_NAMES } from '../../model/types';
 import { format, parse } from '../index';
 
-const ICONS = ['server', 'database', 'cache', 'screen', 'user'] as const;
+const ICONS = ICON_NAMES;
 const ARROWS = ['-->', '..>', '<->', '<.>'] as const;
 
 const labelArb = fc.string({ maxLength: 12 });

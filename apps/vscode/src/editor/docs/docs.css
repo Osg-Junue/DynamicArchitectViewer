@@ -259,6 +259,9 @@
 .doc-tok-attr {
   color: var(--dav-c-blue);
 }
+.doc-tok-icon {
+  color: var(--dav-c-teal);
+}
 .doc-tok-color::before,
 .doc-dot {
   content: "";

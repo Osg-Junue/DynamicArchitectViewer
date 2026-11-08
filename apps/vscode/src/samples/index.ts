@@ -91,7 +91,7 @@ group frontend "フロントエンド画面遷移 (SPA)" {
 }
 
 group backend "バックエンド & 外部連携" {
-  node auth_api "Auth Service" [icon: firewall, sub: "JWT発行 / OAuth"]
+  node auth_api "Auth Service" [icon: auth, sub: "JWT発行 / OAuth"]
   node shop_api "Checkout API" [icon: server, sub: "在庫引当・注文管理"]
   node stripe "Stripe決済GW" [icon: external, sub: "External Payment API"]
 }
@@ -208,12 +208,12 @@ group client_edge "Client & Global Edge" [color: teal] {
 
 group zero_trust "Zero-Trust Ingress & Identity" [color: purple] {
   node apigw "API Gateway" [icon: router, sub: "mTLS / Token Guard"]
-  node idp "Auth0 / OIDC IdP" [icon: user, sub: "FIDO2 / JWT Verify"]
+  node idp "Auth0 / OIDC IdP" [icon: auth, sub: "FIDO2 / JWT Verify"]
 }
 
 group app_mesh "Core Microservices Mesh (EKS)" [color: blue] {
   node bff "Checkout BFF" [icon: container, sub: "GraphQL Orchestrator"]
-  node fraud_ai "Fraud AI Engine" [icon: function, sub: "ML Risk Scoring (gRPC)"]
+  node fraud_ai "Fraud AI Engine" [icon: ai, sub: "ML Risk Scoring (gRPC)"]
   node order_svc "Order Service" [icon: server, sub: "Saga Coordinator"]
   node pay_svc "Payment Service" [icon: container, sub: "PCI-DSS Isolated Pod"]
 }
