@@ -272,25 +272,25 @@ export class Player {
       html(
         'header',
         { class: 'dav-topbar' },
-        this.titleEl,
-        !options.playbackSlot && this.playbackBar,
-      ),
-      viewport,
-      html(
-        'footer',
-        { class: 'dav-dock' },
         html(
           'div',
-          { class: 'dav-dock-header' },
+          { class: 'dav-topbar-main' },
+          this.titleEl,
+          !options.playbackSlot && this.playbackBar,
+          html('div', { class: 'dav-hint' }, s.hint),
+        ),
+        html(
+          'div',
+          { class: 'dav-dock', 'data-testid': 'top-step-dock' },
           html(
             'div',
             { class: 'dav-step-info', 'aria-live': 'polite' },
             this.stepTitleEl,
             this.stepDescEl,
           ),
-          html('div', { class: 'dav-hint' }, s.hint),
         ),
       ),
+      viewport,
     );
     container.append(this.root);
 

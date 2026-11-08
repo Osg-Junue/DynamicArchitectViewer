@@ -60,8 +60,11 @@ test.describe('code-only authoring & live preview', () => {
     await expect(followBtn).toHaveAttribute('aria-pressed', 'false');
     expect(await page.locator('.dav-world').getAttribute('transform')).toBe(initialTransform);
 
-    // Selecting a step from the top dropdown updates the bottom dock narrative and packet speech bubble
-    await expect(page.locator('.dav-step-title')).toContainText('Step 1 / 4');
+    // Step narrative (title + description) is mounted in the top header above the canvas viewport (no bottom footer)
+    await expect(page.locator('footer.dav-dock')).toHaveCount(0);
+    await expect(page.locator('header.dav-topbar .dav-dock .dav-step-title')).toContainText(
+      'Step 1 / 4',
+    );
     await expect(page.getByTestId('dock-anim-list')).toHaveCount(0);
     await expect(page.locator('.dav-packet .dav-packet-callout')).toHaveCount(1);
     await expect(page.locator('.dav-packet .dav-packet-label')).toHaveText('GET /products');
