@@ -52,6 +52,22 @@ export const ICON_META: Record<IconName, IconMeta> = {
     category: 'infra',
     description: ['検索エンジン / 分析', 'Search or analytics engine'],
   },
+  logic: {
+    category: 'infra',
+    description: ['ロジック / Controller / 処理', 'Controller, logic or process'],
+  },
+  webhook: {
+    category: 'infra',
+    description: ['Webhook / コールバック', 'Webhook or callback'],
+  },
+  payment: {
+    category: 'infra',
+    description: ['決済 / 課金 / カード', 'Payment, billing or card'],
+  },
+  key: {
+    category: 'infra',
+    description: ['鍵管理 / トークン / 証明書', 'Key, token or certificate'],
+  },
   screen: { category: 'screen', description: ['画面（ウィンドウ形）', 'Screen (window shape)'] },
   modal: {
     category: 'screen',
@@ -63,5 +79,29 @@ export const ICON_META: Record<IconName, IconMeta> = {
     category: 'screen',
     description: ['CLI / 端末クライアント', 'CLI or terminal client'],
   },
+  device: {
+    category: 'screen',
+    description: ['IoT / 専用端末 / ハードウェア', 'IoT device, sensor or hardware'],
+  },
+  chat: {
+    category: 'screen',
+    description: ['チャット / メッセージ / 通知', 'Chat, messaging or push'],
+  },
+  sheet: {
+    category: 'screen',
+    description: ['スプレッドシート / Excel', 'Spreadsheet, Excel or CSV'],
+  },
+  file: {
+    category: 'screen',
+    description: ['ファイル / 帳票 / 文書', 'File, document or report'],
+  },
   user: { category: 'screen', description: ['ユーザー / アクター', 'User or actor'] },
+  users: {
+    category: 'screen',
+    description: ['複数ユーザー / 部署・組織', 'Users, team or department'],
+  },
+  bot: {
+    category: 'screen',
+    description: ['Bot / 自動応答アクター', 'Bot or automated agent'],
+  },
 };

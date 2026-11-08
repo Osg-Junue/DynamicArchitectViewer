@@ -23,12 +23,22 @@ export const ICON_NAMES = [
   'monitor',
   'schedule',
   'search',
+  'logic',
+  'webhook',
+  'payment',
+  'key',
   'screen',
   'modal',
   'browser',
   'mobile',
   'terminal',
+  'device',
+  'chat',
+  'sheet',
+  'file',
   'user',
+  'users',
+  'bot',
 ] as const;
 export type IconName = (typeof ICON_NAMES)[number];
 

@@ -383,12 +383,12 @@ describe('buildScene', () => {
     },
   );
 
-  it('renders all 25 built-in icons', () => {
+  it('renders all 35 built-in icons', () => {
     const dsl = ['dav 1', ...ICON_NAMES.map((icon, i) => `node n${i} [icon: ${icon}]`)].join('\n');
     const { document, diagnostics } = parse(dsl);
     expect(diagnostics).toEqual([]);
     const scene = buildScene(resolveView(document, computeLayout(document), null));
     const stations = findAll(scene, (e) => e.attrs.class === 'dav-station');
-    expect(stations).toHaveLength(25);
+    expect(stations).toHaveLength(35);
   });
 });

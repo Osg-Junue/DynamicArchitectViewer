@@ -103,17 +103,24 @@ describe('color values', () => {
 describe('icon values', () => {
   it('treats icon names case-insensitively and supports the new icons', () => {
     const { document, diagnostics } = parse(
-      'dav 1\nnode a [icon: Auth]\nnode b [icon: AI]\nnode c [icon: terminal]',
+      'dav 1\nnode a [icon: Auth]\nnode b [icon: AI]\nnode c [icon: sheet]\nnode d [icon: webhook]\nnode e [icon: payment]\nnode f [icon: chat]',
     );
     expect(diagnostics).toEqual([]);
-    expect(document.nodes.map((n) => n.icon)).toEqual(['auth', 'ai', 'terminal']);
+    expect(document.nodes.map((n) => n.icon)).toEqual([
+      'auth',
+      'ai',
+      'sheet',
+      'webhook',
+      'payment',
+      'chat',
+    ]);
   });
 
   it('includes descriptive details in icon completions', () => {
     const res = computeCompletions('dav 1\nnode a [icon: ', 20, true);
-    const authItem = res?.items.find((i) => i.label === 'auth');
-    expect(authItem?.detail).toContain('Auth');
-    expect(res?.items).toHaveLength(25);
+    const sheetItem = res?.items.find((i) => i.label === 'sheet');
+    expect(sheetItem?.detail).toContain('Spreadsheet');
+    expect(res?.items).toHaveLength(35);
   });
 
   it('does not falsely suggest 2-char icons for unrelated short words', () => {
