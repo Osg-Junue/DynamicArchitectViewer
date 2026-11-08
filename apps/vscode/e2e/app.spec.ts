@@ -218,6 +218,14 @@ test.describe('code-only authoring & live preview', () => {
     await expect(page.locator('.dav-step-title')).toContainText('Step 2 / 2');
     await expect(page.getByTestId('select-step')).toHaveValue('1');
 
+    // A cursor move within the same step must not rebuild the scene (which restarts animations)
+    await page.locator('.dav-scene').evaluate((el) => el.setAttribute('data-marker', 'kept'));
+    await page.evaluate(async (offset) => {
+      window.postMessage({ type: 'cursorMoved', offset }, '*');
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }, s2Offset + 1);
+    await expect(page.locator('.dav-scene')).toHaveAttribute('data-marker', 'kept');
+
     // Double-clicking a canvas node posts `revealRange` to Extension Host
     await page.locator('.dav-node[data-id="api"]').dblclick();
     const revealMsg = await page.evaluate(() => {
@@ -238,6 +246,8 @@ test.describe('code-only authoring & live preview', () => {
       return msgs.some((m) => m.type === 'exportHtml');
     });
     expect(exportMsg).toBe(true);
+    // The host reports the outcome after its save dialog; the webview must not claim success.
+    await expect(page.locator('.toast')).toBeHidden();
   });
 
   test('opens AI Prompt & DSL Reference modal and wraps cleanly on narrow viewports', async ({

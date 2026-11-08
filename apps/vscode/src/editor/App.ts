@@ -331,7 +331,13 @@ export function mountApp(container: HTMLElement): void {
     const hit = findAtOffset(lastValid.sourceMap, offset);
     cursorTargetId = hit.elementId;
     renderHighlight();
-    if (hit.stepIndex !== null && player) {
+    // Only a move into another step navigates; otherwise playback would restart on every keystroke.
+    if (
+      player &&
+      hit.stepIndex !== null &&
+      hit.stepIndex !== player.getStepIndex() &&
+      !player.isPlaying()
+    ) {
       player.goTo(hit.stepIndex);
     }
   }
@@ -382,17 +388,18 @@ export function mountApp(container: HTMLElement): void {
   }
 
   exportBtn.addEventListener('click', async () => {
-    const filename = `${safeFileName(lastValid.document.title)}.html`;
     if (vscodeApi) {
+      // The host owns the save dialog and reports the outcome itself.
       vscodeApi.postMessage({
         type: 'exportHtml',
         dsl,
         locale: 'en',
       });
-    } else {
-      const htmlContent = await exportHtml(dsl, { locale: 'en' });
-      downloadTextFile(htmlContent, filename, 'text/html;charset=utf-8');
+      return;
     }
+    const filename = `${safeFileName(lastValid.document.title)}.html`;
+    const htmlContent = await exportHtml(dsl, { locale: 'en' });
+    downloadTextFile(htmlContent, filename, 'text/html;charset=utf-8');
     showToast(STRINGS.exportSuccess(filename));
   });
 

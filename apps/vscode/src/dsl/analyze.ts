@@ -223,14 +223,22 @@ class Analyzer {
     const color = attrs.get('color')?.value;
     if (typeof color === 'string') group.color = color;
 
-    this.declare({ kind: 'group', id, from: node.from, to: node.to, idRange: rangeOf(idNode) });
-    this.doc.groups.push(group);
+    const declared = this.declare({
+      kind: 'group',
+      id,
+      from: node.from,
+      to: node.to,
+      idRange: rangeOf(idNode),
+    });
+    if (declared) this.doc.groups.push(group);
 
     const body = node.getChild('GroupBody');
     if (!body) return;
+    // Members of a rejected duplicate move up to the enclosing group: the model must stay a tree.
+    const memberParent = declared ? id : parentId;
     for (const member of childNodes(body)) {
-      if (member.name === 'Group') this.readGroup(member, id);
-      else if (member.name === 'Node') this.readNode(member, id);
+      if (member.name === 'Group') this.readGroup(member, memberParent);
+      else if (member.name === 'Node') this.readNode(member, memberParent);
     }
   }
 
@@ -252,8 +260,14 @@ class Analyzer {
     assignString(result, 'badge', attrs);
     assignString(result, 'color', attrs);
 
-    this.declare({ kind: 'node', id, from: node.from, to: node.to, idRange: rangeOf(idNode) });
-    this.doc.nodes.push(result);
+    const declared = this.declare({
+      kind: 'node',
+      id,
+      from: node.from,
+      to: node.to,
+      idRange: rangeOf(idNode),
+    });
+    if (declared) this.doc.nodes.push(result);
   }
 
   private readEdge(node: SyntaxNode): void {
@@ -453,7 +467,7 @@ class Analyzer {
       if (!nameNode || !valueNode) continue;
       const name = sliceOf(this.text, nameNode);
 
-      const type = schema[name];
+      const type = Object.hasOwn(schema, name) ? schema[name] : undefined;
       if (!type) {
         this.report('unknown-attribute', 'warning', nameNode, { name, owner });
         continue;
@@ -518,12 +532,14 @@ class Analyzer {
   // IDs and references
   // ---------------------------------------------------------------------------
 
-  private declare(source: ElementSource): void {
+  /** Registers an element ID. Returns false (and reports) when the ID is already taken. */
+  private declare(source: ElementSource): boolean {
     if (this.elements.has(source.id)) {
       this.report('duplicate-id', 'error', source.idRange ?? source, { id: source.id });
-      return;
+      return false;
     }
     this.elements.set(source.id, source);
+    return true;
   }
 
   private resolveReferences(): void {

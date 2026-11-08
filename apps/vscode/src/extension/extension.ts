@@ -67,16 +67,16 @@ export function activate(context: vscode.ExtensionContext): void {
           const actions: vscode.CodeAction[] = [];
 
           for (const d of list) {
-            const hint = d.args.hint;
-            if (!hint) continue;
+            const suggestion = d.args.suggestion;
+            if (!suggestion) continue;
             if (d.to < startOffset || d.from > endOffset) continue;
-            const title = `Change to '${hint}'`;
+            const title = `Change to '${suggestion}'`;
             const action = new vscode.CodeAction(title, vscode.CodeActionKind.QuickFix);
             const edit = new vscode.WorkspaceEdit();
             edit.replace(
               doc.uri,
               new vscode.Range(doc.positionAt(d.from), doc.positionAt(d.to)),
-              hint,
+              suggestion,
             );
             action.edit = edit;
             action.isPreferred = true;
@@ -177,6 +177,14 @@ export function activate(context: vscode.ExtensionContext): void {
   // Canvas Preview Panel Manager
   const panelManager = new CanvasPanelManager(context.extensionUri);
 
+  /** The `.dav` document a command applies to: the focused editor, else the previewed one. */
+  const commandTargetDocument = (): vscode.TextDocument | undefined => {
+    const active = vscode.window.activeTextEditor?.document;
+    if (active?.languageId === LANGUAGE_ID) return active;
+    const previewed = panelManager.activeDocument;
+    return previewed && !previewed.isClosed ? previewed : undefined;
+  };
+
   context.subscriptions.push(
     vscode.commands.registerCommand('dav.openPreview', () => {
       const editor = vscode.window.activeTextEditor;
@@ -187,7 +195,7 @@ export function activate(context: vscode.ExtensionContext): void {
       panelManager.open(editor.document);
     }),
     vscode.commands.registerCommand('dav.exportHtml', async () => {
-      const doc = panelManager.activeDocument ?? vscode.window.activeTextEditor?.document;
+      const doc = commandTargetDocument();
       if (!doc) {
         void vscode.window.showInformationMessage('Open a .dav file first.');
         return;
@@ -229,8 +237,7 @@ export function activate(context: vscode.ExtensionContext): void {
       panelManager.open(doc);
     }),
     vscode.commands.registerCommand('dav.copyAiPrompt', async () => {
-      const doc = panelManager.activeDocument ?? vscode.window.activeTextEditor?.document;
-      const currentDsl = doc?.languageId === LANGUAGE_ID ? doc.getText() : undefined;
+      const currentDsl = commandTargetDocument()?.getText();
       const prompt = buildAiPrompt({
         locale: 'en',
         ...(currentDsl ? { currentDsl, includeCurrentDsl: true } : {}),
@@ -280,11 +287,15 @@ class CanvasPanelManager {
     this.disposables.push(
       panel.onDidDispose(() => {
         this.panel = null;
+        this.activeDocument = null;
         for (const d of this.disposables) d.dispose();
         this.disposables = [];
       }),
       panel.webview.onDidReceiveMessage((msg: WebviewToHostMessage) => {
-        void this.onWebviewMessage(msg);
+        this.onWebviewMessage(msg).catch((err: unknown) => {
+          const detail = err instanceof Error ? err.message : String(err);
+          void vscode.window.showErrorMessage(`DynamicArchitectViewer: ${detail}`);
+        });
       }),
       vscode.workspace.onDidChangeTextDocument((e) => {
         if (

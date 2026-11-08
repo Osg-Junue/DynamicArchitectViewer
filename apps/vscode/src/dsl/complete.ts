@@ -1,5 +1,6 @@
 import { ICON_NAMES, NODE_STATUSES } from '../model/types';
 import { parse } from './analyze';
+import { ATTRIBUTE_SCHEMA, type AttrOwner } from './schema';
 
 export type CompletionItemKind =
   | 'keyword'
@@ -72,6 +73,30 @@ const BOOL_COMPLETIONS: readonly DslCompletionItem[] = [
   { label: 'false', kind: 'keyword' },
 ];
 
+/** Whether the text before the cursor on its line ends inside a string or a line comment. */
+function endsInStringOrComment(beforeOnLine: string): boolean {
+  let inString = false;
+  for (let i = 0; i < beforeOnLine.length; i++) {
+    const ch = beforeOnLine[i];
+    if (inString) {
+      if (ch === '\\') i++;
+      else if (ch === '"') inString = false;
+    } else if (ch === '"') {
+      inString = true;
+    } else if (ch === '/' && beforeOnLine[i + 1] === '/') {
+      return true;
+    }
+  }
+  return inString;
+}
+
+/** The statement kind owning an attribute block, from the line text before its `[`. */
+function attributeOwner(statementHead: string): AttrOwner | null {
+  const keyword = /^\s*(node|group|state|animate)\b/.exec(statementHead)?.[1];
+  if (keyword) return keyword as AttrOwner;
+  return /-\.?->/.test(statementHead) ? 'edge' : null;
+}
+
 /**
  * Computes context-aware completions at character offset `pos` in a `.dav` document.
  * Pure and editor-agnostic (used by the VS Code CompletionItemProvider and unit tests).
@@ -83,6 +108,7 @@ export function computeCompletions(
 ): DslCompletionList | null {
   const lineStart = text.lastIndexOf('\n', Math.max(0, pos - 1)) + 1;
   const beforeOnLine = text.slice(lineStart, pos);
+  if (endsInStringOrComment(beforeOnLine)) return null;
 
   const wordMatch = /[A-Za-z_][A-Za-z0-9_]*$/.exec(beforeOnLine);
   const from = wordMatch ? pos - wordMatch[0].length : pos;
@@ -104,7 +130,12 @@ export function computeCompletions(
     const insideBrackets = beforeOnLine.slice(lastOpenBracket + 1);
     const afterLastComma = insideBrackets.split(',').pop() ?? '';
     if (!afterLastComma.includes(':')) {
-      return { from, to: pos, items: [...ATTRIBUTE_KEYS] };
+      const owner = attributeOwner(beforeOnLine.slice(0, lastOpenBracket));
+      const schema = owner ? ATTRIBUTE_SCHEMA[owner] : undefined;
+      const items = schema
+        ? ATTRIBUTE_KEYS.filter((key) => Object.hasOwn(schema, key.label))
+        : [...ATTRIBUTE_KEYS];
+      return { from, to: pos, items };
     }
   }
 

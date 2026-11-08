@@ -39,9 +39,9 @@ export function defaultNodeSize(icon: IconName): { width: number; height: number
  */
 export function computeLayout(doc: DavDocument): Layout {
   const sizes = new Map(doc.nodes.map((n) => [n.id, defaultNodeSize(n.icon)] as const));
-  const nodes: Record<string, Rect> = {};
+  const nodes = rectRecord();
   const emptyGroups = findEmptyGroups(doc);
-  const placeholders: Record<string, Rect> = {};
+  const placeholders = rectRecord();
 
   if (doc.nodes.length > 0 || emptyGroups.size > 0) {
     const ranks = computeRanks(
@@ -52,6 +52,11 @@ export function computeLayout(doc: DavDocument): Layout {
   }
 
   return { nodes, groups: computeGroupRects(doc, nodes, placeholders) };
+}
+
+/** Prototype-less map: IDs such as `__proto__` or `constructor` must behave as plain keys. */
+function rectRecord(): Record<string, Rect> {
+  return Object.create(null) as Record<string, Rect>;
 }
 
 /** Longest-path ranks; back edges found by DFS are ignored so cycles terminate. */
@@ -281,7 +286,7 @@ function computeGroupRects(
   nodes: Record<string, Rect>,
   placeholders: Record<string, Rect>,
 ): Record<string, Rect> {
-  const groups: Record<string, Rect> = {};
+  const groups = rectRecord();
   const childrenOf = new Map<string, string[]>();
   for (const g of doc.groups) {
     if (g.parentId) childrenOf.set(g.parentId, [...(childrenOf.get(g.parentId) ?? []), g.id]);
