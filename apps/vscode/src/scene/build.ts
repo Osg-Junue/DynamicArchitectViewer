@@ -2,7 +2,7 @@ import type { Rect } from '../layout';
 import { type Point, pointAt, svgPath } from './geometry';
 import { ICON_SHAPES } from './icons';
 import type { Packet, ResolvedEdge, ResolvedGroup, ResolvedNode, ResolvedView } from './resolve';
-import { estimateTextWidth, fitText } from './text';
+import { estimateTextWidth, fitText, wrapText } from './text';
 import { h, type VElement } from './vnode';
 
 /**
@@ -275,42 +275,87 @@ function pill(center: Point, text: string, color: string): VElement[] {
   ];
 }
 
-/** A moving packet (dot + label) drawn at the origin; position it with a transform. */
+/** A moving packet (dot + speech-bubble callout) drawn at the origin; position it with a transform. */
 export function buildPacket(packet: Packet): VElement {
-  const label = packet.label ? fitText(packet.label, 11, 220) : '';
-  const width = estimateTextWidth(label, 11) + 18;
+  const label = packet.label ? fitText(packet.label, 11, 250) : '';
+  const descLines = packet.description ? wrapText(packet.description, 10.5, 250, 3) : [];
+  const hasCallout = Boolean(label) || descLines.length > 0;
+
+  let callout: VElement | null = null;
+  if (hasCallout) {
+    const labelW = label ? estimateTextWidth(label, 11) : 0;
+    const descW = descLines.reduce((m, line) => Math.max(m, estimateTextWidth(line, 10.5)), 0);
+    const padX = descLines.length > 0 ? 12 : 10;
+    const width = Math.max(44, Math.ceil(Math.max(labelW, descW) + padX * 2));
+    const halfW = width / 2;
+    const height = descLines.length === 0 ? 24 : (label ? 29 : 14) + descLines.length * 14;
+    const boxBottom = -16;
+    const boxTop = boxBottom - height;
+    const r = 8;
+    const bubblePath = [
+      `M ${-halfW + r} ${boxTop}`,
+      `H ${halfW - r}`,
+      `A ${r} ${r} 0 0 1 ${halfW} ${boxTop + r}`,
+      `V ${boxBottom - r}`,
+      `A ${r} ${r} 0 0 1 ${halfW - r} ${boxBottom}`,
+      'H 6',
+      `L 0 ${boxBottom + 6}`,
+      `L -6 ${boxBottom}`,
+      `H ${-halfW + r}`,
+      `A ${r} ${r} 0 0 1 ${-halfW} ${boxBottom - r}`,
+      `V ${boxTop + r}`,
+      `A ${r} ${r} 0 0 1 ${-halfW + r} ${boxTop}`,
+      'Z',
+    ].join(' ');
+
+    callout = h(
+      'g',
+      { class: 'dav-packet-callout' },
+      h('path', {
+        d: bubblePath,
+        fill: '#0b1220',
+        'fill-opacity': 0.94,
+        stroke: packet.color,
+        'stroke-width': 1.5,
+        'stroke-linejoin': 'round',
+        class: 'dav-packet-bubble',
+      }),
+      label
+        ? h(
+            'text',
+            {
+              x: descLines.length > 0 ? -halfW + padX : 0,
+              y: descLines.length > 0 ? boxTop + 17 : boxTop + 16,
+              ...(descLines.length === 0 ? { 'text-anchor': 'middle' } : {}),
+              'font-size': 11,
+              fill: descLines.length > 0 ? packet.color : '#f8fafc',
+              class: 'dav-packet-label',
+            },
+            label,
+          )
+        : null,
+      ...descLines.map((line, i) =>
+        h(
+          'text',
+          {
+            x: -halfW + padX,
+            y: boxTop + (label ? 32 : 17) + i * 14,
+            'font-size': 10.5,
+            fill: '#e2e8f0',
+            class: 'dav-packet-desc',
+          },
+          line,
+        ),
+      ),
+    );
+  }
+
   return h(
     'g',
     { class: 'dav-packet' },
     h('circle', { r: 11, fill: packet.color, 'fill-opacity': 0.25 }),
     h('circle', { r: 6, fill: packet.color, stroke: '#ffffff', 'stroke-width': 1.5 }),
-    label
-      ? h(
-          'g',
-          { transform: 'translate(0 -24)' },
-          h('rect', {
-            x: -width / 2,
-            y: -11,
-            width,
-            height: 22,
-            rx: 11,
-            fill: '#0b1220',
-            stroke: packet.color,
-            'stroke-width': 1.5,
-          }),
-          h(
-            'text',
-            {
-              y: 4,
-              'text-anchor': 'middle',
-              'font-size': 11,
-              fill: '#f8fafc',
-              class: 'dav-packet-label',
-            },
-            label,
-          ),
-        )
-      : null,
+    callout,
   );
 }
 

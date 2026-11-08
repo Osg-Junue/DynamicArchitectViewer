@@ -19,6 +19,50 @@ export function fitText(text: string, fontSize: number, maxWidth: number): strin
   return `${out}…`;
 }
 
+/** Wraps text into at most `maxLines` lines that each fit within `maxWidth`. */
+export function wrapText(text: string, fontSize: number, maxWidth: number, maxLines = 3): string[] {
+  const clean = text.trim().replace(/\s+/g, ' ');
+  if (!clean) return [];
+
+  const tokens: string[] = [];
+  let word = '';
+  for (const ch of clean) {
+    if (ch === ' ' || isWide(ch)) {
+      if (word) {
+        tokens.push(word);
+        word = '';
+      }
+      tokens.push(ch);
+    } else {
+      word += ch;
+    }
+  }
+  if (word) tokens.push(word);
+
+  const lines: string[] = [];
+  let current = '';
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i] ?? '';
+    if (!current && tok === ' ') continue;
+    const candidate = current + tok;
+    if (current && estimateTextWidth(candidate, fontSize) > maxWidth) {
+      if (lines.length + 1 >= maxLines) {
+        const rest = (current + tokens.slice(i).join('')).trim();
+        lines.push(fitText(rest, fontSize, maxWidth));
+        return lines;
+      }
+      lines.push(fitText(current.trimEnd(), fontSize, maxWidth));
+      current = tok === ' ' ? '' : tok;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current.trim()) {
+    lines.push(fitText(current.trim(), fontSize, maxWidth));
+  }
+  return lines;
+}
+
 function isWide(ch: string): boolean {
   const code = ch.codePointAt(0) ?? 0;
   return (

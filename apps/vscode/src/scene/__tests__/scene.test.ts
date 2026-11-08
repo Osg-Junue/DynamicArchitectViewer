@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
 import { computeLayout } from '../../layout';
 import { SAMPLE_TEMPLATES } from '../../samples';
-import { buildScene, resolveView, type VElement, type VNode } from '../index';
+import { buildPacket, buildScene, resolveView, type VElement, type VNode } from '../index';
 
 const DSL = `dav 1
 title "T"
@@ -142,6 +142,21 @@ describe('buildScene', () => {
     const attrs = collectAttrs(scene).join('|');
     expect(attrs).not.toContain('<');
     expect(attrs).not.toMatch(/on\w+=/);
+  });
+
+  it('renders a speech-bubble callout with wrapped description on packets', () => {
+    const doc = parse(
+      'dav 1\nnode a "A"\nnode b "B"\na --> b\nstep "S" {\n  animate a --> b : "POST /v1/charges" [desc: "Edge WAF inspects payload and verifies mTLS before forwarding"]\n}\n',
+    ).document;
+    const pkt = resolveView(doc, computeLayout(doc), 0).phases[0]?.[0];
+    expect(pkt).toBeDefined();
+    if (!pkt) return;
+    const vnode = buildPacket(pkt);
+    const callouts = findAll(vnode, (e) => e.attrs.class === 'dav-packet-callout');
+    expect(callouts).toHaveLength(1);
+    const texts = collectText(vnode).join(' ');
+    expect(texts).toContain('POST /v1/charges');
+    expect(texts).toContain('Edge WAF inspects payload');
   });
 
   it.each(SAMPLE_TEMPLATES.map((s) => [s.id, s.dsl] as const))(
