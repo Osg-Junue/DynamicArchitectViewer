@@ -1,11 +1,4 @@
-import {
-  type Diagnostic,
-  findAtOffset,
-  format,
-  formatDiagnostic,
-  parse,
-  type SourceMap,
-} from '../dsl';
+import { type Diagnostic, findAtOffset, formatDiagnostic, parse, type SourceMap } from '../dsl';
 import { exportHtml, importContent } from '../exporter';
 import { computeLayout, type Layout } from '../layout';
 import type { DavDocument } from '../model/types';
@@ -40,8 +33,6 @@ function getVsCodeApi(): VsCodeApi | null {
 
 const STRINGS = {
   templates: 'Template',
-  format: 'Format',
-  formatTitle: 'Format DSL code',
   help: 'AI Prompt / Syntax',
   helpTitle: 'Open AI Prompt & DSL v1 Reference',
   openFile: 'Open (.dav / .html)',
@@ -78,16 +69,6 @@ export function mountApp(container: HTMLElement): void {
   }
   const sampleLabelWrap = html('label', { class: 'toolbar-label' }, sampleLabelEl, sampleSelect);
 
-  const formatBtn = html(
-    'button',
-    {
-      type: 'button',
-      class: 'btn',
-      title: STRINGS.formatTitle,
-      'data-testid': 'btn-format',
-    },
-    STRINGS.format,
-  );
   const helpBtn = html(
     'button',
     {
@@ -170,14 +151,7 @@ export function mountApp(container: HTMLElement): void {
       html(
         'div',
         { class: 'toolbar-group toolbar-left' },
-        html(
-          'strong',
-          { class: 'brand' },
-          html('span', { class: 'brand-mark', 'aria-hidden': 'true' }),
-          'DynamicArchitectViewer',
-        ),
         !isVsCodeWebview && sampleLabelWrap,
-        formatBtn,
         helpBtn,
       ),
       playbackSlot,
@@ -351,14 +325,6 @@ export function mountApp(container: HTMLElement): void {
     cursorTargetId = null;
     applyDsl(found.dsl, { updateTextarea: true, persist: true });
     player?.goTo(lastValid.document.steps.length > 0 ? 0 : null);
-  });
-
-  formatBtn.addEventListener('click', () => {
-    if (vscodeApi) {
-      vscodeApi.postMessage({ type: 'formatDocument' });
-    } else {
-      applyDsl(format(dsl), { updateTextarea: true, persist: true });
-    }
   });
 
   helpBtn.addEventListener('click', () => {

@@ -195,11 +195,21 @@
   border-color: #93c5fd;
 }
 
+.dav-step-select {
+  background: rgba(15, 23, 42, 0.9);
+  border-color: rgba(71, 85, 105, 0.6);
+  color: #f1f5f9;
+  padding: 4px 10px;
+  max-width: 280px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .dav-speed-select {
   background: rgba(15, 23, 42, 0.85);
   border-color: rgba(71, 85, 105, 0.55);
   color: #cbd5e1;
-  padding: 3px 8px;
+  padding: 4px 8px;
   font-variant-numeric: tabular-nums;
 }
 .dav-zoom-group .dav-btn {

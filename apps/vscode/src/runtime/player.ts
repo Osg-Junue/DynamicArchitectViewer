@@ -75,7 +75,7 @@ export class Player {
   private readonly titleEl: HTMLElement;
   private readonly stepTitleEl: HTMLElement;
   private readonly stepDescEl: HTMLElement;
-  private readonly pillsEl: HTMLElement;
+  private readonly stepSelect: HTMLSelectElement;
   private readonly playBtn: HTMLButtonElement;
   private readonly speedSelect: HTMLSelectElement;
   private readonly zoomLabel: HTMLElement;
@@ -114,7 +114,18 @@ export class Player {
     this.zoomLabel = html('span', { class: 'dav-zoom-label', 'aria-live': 'polite' });
     this.stepTitleEl = html('div', { class: 'dav-step-title' });
     this.stepDescEl = html('div', { class: 'dav-step-desc' });
-    this.pillsEl = html('div', { class: 'dav-pills', role: 'tablist' });
+
+    this.stepSelect = html('select', {
+      class: 'dav-btn dav-step-select',
+      'aria-label': 'Step',
+      title: 'Select step',
+      'data-testid': 'select-step',
+    });
+    this.stepSelect.addEventListener('change', () => {
+      const val = this.stepSelect.value;
+      this.showStep(val === 'overview' ? null : Number(val));
+    });
+
     this.playBtn = this.button(
       s.play,
       s.play,
@@ -146,6 +157,8 @@ export class Player {
         'aria-label': s.speed,
         'data-testid': 'playback-toolbar',
       },
+      this.stepSelect,
+      html('span', { class: 'dav-toolbar-sep', 'aria-hidden': 'true' }),
       this.playBtn,
       html('span', { class: 'dav-toolbar-sep', 'aria-hidden': 'true' }),
       this.speedSelect,
@@ -226,7 +239,6 @@ export class Player {
           ),
           html('div', { class: 'dav-hint' }, s.hint),
         ),
-        html('div', { class: 'dav-controls' }, this.pillsEl),
       ),
     );
     container.append(this.root);
@@ -335,18 +347,11 @@ export class Player {
     const noSteps = doc.steps.length === 0;
     this.playBtn.disabled = noSteps;
     this.speedSelect.disabled = noSteps;
-    clear(this.pillsEl);
-    this.pillsEl.append(this.pill(this.strings.overview, null));
+    clear(this.stepSelect);
+    this.stepSelect.append(html('option', { value: 'overview' }, this.strings.overview));
     doc.steps.forEach((step, i) => {
-      this.pillsEl.append(this.pill(`${i + 1}. ${step.title}`, i));
+      this.stepSelect.append(html('option', { value: String(i) }, `${i + 1}. ${step.title}`));
     });
-  }
-
-  private pill(label: string, index: number | null): HTMLButtonElement {
-    const btn = html('button', { class: 'dav-pill', type: 'button', role: 'tab' }, label);
-    btn.dataset.index = index === null ? 'overview' : String(index);
-    btn.addEventListener('click', () => this.showStep(index));
-    return btn;
   }
 
   private showStep(index: number | null, opts: { keepPhase?: boolean } = {}): void {
@@ -396,15 +401,11 @@ export class Player {
     if (this.view.stepIndex === null) {
       this.stepTitleEl.textContent = s.overview;
       this.stepDescEl.textContent = s.overviewHint;
+      this.stepSelect.value = 'overview';
     } else {
       this.stepTitleEl.textContent = `${s.stepLabel(this.view.stepIndex + 1, steps.length)} — ${this.view.stepTitle ?? ''}`;
       this.stepDescEl.textContent = this.view.description ?? '';
-    }
-    for (const pill of Array.from(this.pillsEl.children) as HTMLElement[]) {
-      const key = this.view.stepIndex === null ? 'overview' : String(this.view.stepIndex);
-      const active = pill.dataset.index === key;
-      pill.classList.toggle('dav-active', active);
-      pill.setAttribute('aria-selected', String(active));
+      this.stepSelect.value = String(this.view.stepIndex);
     }
     this.updatePlayButton();
   }

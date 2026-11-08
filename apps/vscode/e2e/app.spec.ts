@@ -12,7 +12,7 @@ function watchErrors(page: Page): string[] {
 }
 
 test.describe('code-only authoring & live preview', () => {
-  test('renders the sample diagram in the shared player with top playback controls', async ({
+  test('renders the sample diagram in the shared player with top step dropdown and playback controls', async ({
     page,
   }) => {
     const errors = watchErrors(page);
@@ -21,17 +21,21 @@ test.describe('code-only authoring & live preview', () => {
     await expect(page.locator('.dav-title')).toHaveText(/AWS/);
     await expect(page.locator('.problems .ok')).toBeVisible();
 
-    // Playback controls (Play/Start + Speed) are mounted in the top toolbar (Visual Studio style)
-    const topPlayBtn = page.locator('header.toolbar [data-testid="btn-play"]');
-    await expect(topPlayBtn).toBeVisible();
-    await expect(topPlayBtn).toHaveAttribute('aria-pressed', 'false');
-    await expect(page.locator('footer.dav-dock [data-testid="btn-play"]')).toHaveCount(0);
-
-    // No Prev/Next, locale toggle, or DSL source buttons
+    // Top toolbar has no brand title, Format button, Prev/Next, locale toggle, or DSL source button
+    await expect(page.locator('.brand')).toHaveCount(0);
+    await expect(page.locator('[data-testid="btn-format"]')).toHaveCount(0);
     await expect(page.locator('[data-testid="btn-step-prev"]')).toHaveCount(0);
     await expect(page.locator('[data-testid="btn-step-next"]')).toHaveCount(0);
     await expect(page.locator('[data-testid="btn-locale-toggle"]')).toHaveCount(0);
     await expect(page.locator('.dav-topbar').getByRole('button', { name: 'DSL' })).toHaveCount(0);
+
+    // Playback controls (Step dropdown, Play/Start, Speed) are mounted in the top toolbar
+    const topStepSelect = page.locator('header.toolbar [data-testid="select-step"]');
+    const topPlayBtn = page.locator('header.toolbar [data-testid="btn-play"]');
+    await expect(topStepSelect).toBeVisible();
+    await expect(topPlayBtn).toBeVisible();
+    await expect(topPlayBtn).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.locator('footer.dav-dock [data-testid="btn-play"]')).toHaveCount(0);
 
     // Zoom percentage & icon Fit button are mounted inside the diagram canvas viewport corner
     await expect(
@@ -41,6 +45,11 @@ test.describe('code-only authoring & live preview', () => {
       page.locator('header.dav-topbar [data-testid="canvas-zoom-controls"]'),
     ).toHaveCount(0);
     await expect(page.locator('main.dav-viewport [data-testid="btn-zoom-fit"] svg')).toBeVisible();
+
+    // Selecting a step from the top dropdown updates the bottom dock narrative
+    await expect(page.locator('.dav-step-title')).toContainText('Step 1 / 4');
+    await topStepSelect.selectOption('2');
+    await expect(page.locator('.dav-step-title')).toContainText('Step 3 / 4');
 
     // Toggle play/pause from top toolbar and verify English accessible label/title updates
     await expect(topPlayBtn).toHaveAttribute('aria-label', 'Play');
@@ -52,24 +61,21 @@ test.describe('code-only authoring & live preview', () => {
     await expect(topPlayBtn).toHaveAttribute('aria-pressed', 'false');
     await expect(topPlayBtn).toHaveAttribute('aria-label', 'Play');
 
-    // Global keyboard shortcuts work from document.body without manual focus on .dav-app,
-    // while modifier combinations (e.g. Alt+ArrowLeft) are ignored.
-    await expect(page.locator('.dav-step-title')).toContainText('Step 1 / 4');
+    // Global keyboard shortcuts work from document.body and sync the top step dropdown
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await page.keyboard.press('ArrowRight');
-    await expect(page.locator('.dav-step-title')).toContainText('Step 2 / 4');
+    await expect(page.locator('.dav-step-title')).toContainText('Step 4 / 4');
+    await expect(topStepSelect).toHaveValue('3');
     await page.keyboard.press('Alt+ArrowLeft');
-    await expect(page.locator('.dav-step-title')).toContainText('Step 2 / 4');
+    await expect(page.locator('.dav-step-title')).toContainText('Step 4 / 4');
     await page.keyboard.press('Home');
-    await expect(page.locator('.dav-pill[data-index="overview"]')).toHaveAttribute(
-      'aria-selected',
-      'true',
-    );
+    await expect(topStepSelect).toHaveValue('overview');
+    await expect(page.locator('.dav-step-title')).toHaveText('Overview');
 
     expect(errors).toEqual([]);
   });
 
-  test('updates the preview, reports diagnostics, and formats DSL code', async ({ page }) => {
+  test('updates the preview and reports diagnostics on DSL edits', async ({ page }) => {
     const errors = watchErrors(page);
     await page.goto('/');
     const input = page.locator('textarea.dsl-input');
@@ -82,14 +88,11 @@ test.describe('code-only authoring & live preview', () => {
     await expect(page.getByTestId('btn-play')).toBeDisabled();
     await expect(page.getByTestId('btn-play')).toHaveAttribute('aria-pressed', 'false');
     await expect(page.getByTestId('select-speed')).toBeDisabled();
+    await expect(page.getByTestId('select-step')).toHaveValue('overview');
 
-    // Fix typo and format
+    // Fix typo
     await input.fill(
-      'dav   1\ntitle   "Formatted"\ngroup g{\nnode a "A"[icon:database]\nnode b\n}\na-->b\n',
-    );
-    await page.getByTestId('btn-format').click();
-    await expect(input).toHaveValue(
-      'dav 1\ntitle "Formatted"\ngroup g {\n  node a "A" [icon: database]\n  node b\n}\na --> b\n',
+      'dav 1\ntitle "Clean"\ngroup g {\n  node a "A" [icon: database]\n  node b\n}\na --> b\n',
     );
     await expect(page.locator('.problems .ok')).toBeVisible();
     expect(errors).toEqual([]);
@@ -141,12 +144,13 @@ test.describe('code-only authoring & live preview', () => {
     }, apiOffset);
     await expect(page.locator('.editor-cursor-highlight')).toHaveCount(1);
 
-    // Simulate Extension Host sending `cursorMoved` inside `step "S2"` -> switches player to step 2
+    // Simulate Extension Host sending `cursorMoved` inside `step "S2"` -> switches player and top dropdown to step 2
     const s2Offset = dsl.indexOf('focus db') + 2;
     await page.evaluate((offset) => {
       window.postMessage({ type: 'cursorMoved', offset }, '*');
     }, s2Offset);
     await expect(page.locator('.dav-step-title')).toContainText('Step 2 / 2');
+    await expect(page.getByTestId('select-step')).toHaveValue('1');
 
     // Double-clicking a canvas node posts `revealRange` to Extension Host
     await page.locator('.dav-node[data-id="api"]').dblclick();
@@ -160,14 +164,14 @@ test.describe('code-only authoring & live preview', () => {
     });
     expect(revealMsg?.from).toBe(dsl.indexOf('node api "API"'));
 
-    // Format button posts `formatDocument` to Extension Host
-    await page.getByTestId('btn-format').click();
-    const formatMsg = await page.evaluate(() => {
+    // Export HTML button posts `exportHtml` to Extension Host
+    await page.getByTestId('btn-export-html').click();
+    const exportMsg = await page.evaluate(() => {
       const msgs = (window as unknown as { __postedMessages: Array<{ type: string }> })
         .__postedMessages;
-      return msgs.some((m) => m.type === 'formatDocument');
+      return msgs.some((m) => m.type === 'exportHtml');
     });
-    expect(formatMsg).toBe(true);
+    expect(exportMsg).toBe(true);
   });
 
   test('opens AI Prompt & DSL Reference modal and wraps cleanly on narrow viewports', async ({
@@ -222,7 +226,7 @@ test.describe('exported HTML', () => {
 
     // Rendered by the inline runtime (would be blocked if the CSP hash were wrong).
     await expect(viewer.locator('.dav-node')).toHaveCount(8);
-    await expect(viewer.locator('.dav-pill')).toHaveCount(5);
+    await expect(viewer.getByTestId('select-step').locator('option')).toHaveCount(5);
     await expect(viewer.locator('.dav-step-title')).toContainText('Step 1 / 4');
     await expect(viewer.locator('header.dav-topbar [data-testid="btn-play"]')).toBeVisible();
     await expect(viewer.locator('footer.dav-dock [data-testid="btn-play"]')).toHaveCount(0);
@@ -231,15 +235,15 @@ test.describe('exported HTML', () => {
     // Packets animate along paths.
     await expect(viewer.locator('.dav-packet')).not.toHaveCount(0);
 
-    // Keyboard navigation.
+    // Keyboard & top dropdown navigation.
     await viewer.locator('body').press('ArrowRight');
     await expect(viewer.locator('.dav-step-title')).toContainText('Step 2 / 4');
-    await viewer.locator('.dav-pill').nth(4).click();
+    await viewer.getByTestId('select-step').selectOption('3');
     await expect(viewer.locator('.dav-step-title')).toContainText('Step 4 / 4');
     await expect(viewer.locator('.dav-node[data-id="db_pri"] .dav-badge')).toContainText('DOWN');
 
     // Scene DOM in exported HTML must match the editor preview at the same step.
-    await page.locator('.dav-pill').nth(4).click();
+    await page.getByTestId('select-step').selectOption('3');
     expect(await viewer.locator('.dav-scene').innerHTML()).toBe(
       await page.locator('.dav-scene').innerHTML(),
     );
