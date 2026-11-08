@@ -93,7 +93,7 @@ function endsInStringOrComment(beforeOnLine: string): boolean {
 function attributeOwner(statementHead: string): AttrOwner | null {
   const keyword = /^\s*(node|group|state|animate)\b/.exec(statementHead)?.[1];
   if (keyword) return keyword as AttrOwner;
-  return /-\.?->/.test(statementHead) ? 'edge' : null;
+  return /-->|<->|\.\.>|<\.>/.test(statementHead) ? 'edge' : null;
 }
 
 /**
@@ -161,7 +161,7 @@ export function computeCompletions(
 
   // 4. Context expecting an element ID: after arrow, `focus`, `state`, `animate`
   if (
-    /(?:-->|-\.->|<-->|<-\.->)\s*[A-Za-z0-9_]*$/.test(beforeOnLine) ||
+    /(?:-->|<->|\.\.>|<\.>)\s*[A-Za-z0-9_]*$/.test(beforeOnLine) ||
     /\b(?:focus|state|animate)\b[^[\]{}]*$/.test(beforeOnLine)
   ) {
     return { from, to: pos, items: idCompletions };

@@ -7,6 +7,7 @@ import {
   buildPacket,
   buildScene,
   computePacketCalloutBox,
+  packetPosition,
   resolveView,
   type VElement,
   type VNode,
@@ -22,8 +23,8 @@ node client [icon: browser]
 node hidden [visible: false]
 client --> api : "HTTPS"
 api --> db
-api -.-> hidden [id: failover, visible: false]
-client <--> db
+api ..> hidden [id: failover, visible: false]
+client <-> db
 
 step "one" {
   focus client
@@ -253,6 +254,86 @@ describe('buildScene', () => {
     const rails = findAll(scene, (e) => String(e.attrs.class).startsWith('dav-edge'));
     expect(rails.flatMap((rail) => findAll(rail, (e) => e.attrs.class === 'dav-flow'))).toEqual([]);
     expect(findAll(scene, (e) => e.attrs.class === 'dav-flow')[0]?.attrs['data-edge']).toBe('a->c');
+  });
+
+  it('draws zone names above the rails', () => {
+    const doc = parse('dav 1\ngroup g "Zone" {\n  node a\n}\nnode b\na --> b\n').document;
+    const scene = buildScene(resolveView(doc, computeLayout(doc), null));
+    const layerOf = (name: string) =>
+      scene.children.findIndex((c) => typeof c !== 'string' && c.attrs.class === name);
+    const labels = scene.children[layerOf('dav-layer-labels')];
+    expect(layerOf('dav-layer-labels')).toBeGreaterThan(layerOf('dav-layer-flows'));
+    expect(labels && findAll(labels, (e) => e.attrs.class === 'dav-group-label')).toHaveLength(1);
+  });
+
+  it('makes a round trip only when the animate arrow is bidirectional', () => {
+    const packetFor = (arrow: string) => {
+      const doc = parse(
+        `dav 1\nnode a\nnode b\na <-> b\nstep "S" {\n  animate a ${arrow} b\n}\n`,
+      ).document;
+      const packet = resolveView(doc, computeLayout(doc), 0).phases[0]?.[0];
+      if (!packet) throw new Error('missing packet');
+      return packet;
+    };
+
+    const roundTrip = packetFor('<->');
+    expect(packetPosition(roundTrip, 0)).toEqual(roundTrip.path.p0);
+    expect(packetPosition(roundTrip, 0.5)).toEqual(roundTrip.path.p3);
+    expect(packetPosition(roundTrip, 1)).toEqual(roundTrip.path.p0);
+
+    const oneWay = packetFor('-->');
+    expect(packetPosition(oneWay, 0.5)).not.toEqual(oneWay.path.p3);
+    expect(packetPosition(oneWay, 1)).toEqual(oneWay.path.p3);
+  });
+
+  it.each(SAMPLE_TEMPLATES.map((s) => [s.id, s.dsl] as const))(
+    '%s: callouts never cover a zone name',
+    (_, dsl) => {
+      const doc = parse(dsl).document;
+      const l = computeLayout(doc);
+      doc.steps.forEach((_step, i) => {
+        for (const packet of resolveView(doc, l, i).phases.flat()) {
+          const box = computePacketCalloutBox(packet);
+          if (!box) continue;
+          for (const area of packet.labelAreas) {
+            const overlaps =
+              box.cx - box.halfW < area.x + area.width &&
+              box.cx + box.halfW > area.x &&
+              box.boxTop < area.y + area.height &&
+              box.boxBottom > area.y;
+            expect(overlaps).toBe(false);
+          }
+        }
+      });
+    },
+  );
+
+  it('marks only active edge labels for emphasis', () => {
+    const doc = parse(
+      'dav 1\nnode a\nnode b\nnode c\na --> b : "on"\nb --> c : "off"\nstep "S" {\n  animate a --> b\n}\n',
+    ).document;
+    const scene = buildScene(resolveView(doc, computeLayout(doc), 0));
+    const [on, off] = findAll(scene, (e) => String(e.attrs.class).startsWith('dav-edge-label')).map(
+      (g) => findAll(g, (e) => e.tag === 'text')[0]?.attrs,
+    );
+    expect(on?.['data-active-fill']).toBe('var(--dav-accent-text)');
+    expect(on?.['data-edge']).toBe('a->b');
+    expect(off?.['data-active-fill']).toBeUndefined();
+  });
+
+  it('colors a running stop like its flow', () => {
+    const doc = parse(
+      'dav 1\nnode a\nnode b\nnode c\nstep "S" {\n  animate a --> b\n  animate b --> c [color: red]\n}\n',
+    ).document;
+    const stops = findAll(
+      buildScene(resolveView(doc, computeLayout(doc), 0)),
+      (e) => e.attrs.class === 'dav-stop',
+    );
+    expect(stops.map((s) => s.attrs['data-active-fill'])).toEqual([
+      'var(--dav-accent)',
+      'var(--dav-c-red)',
+    ]);
+    expect(stops.map((s) => s.attrs['data-active-text'])).toEqual(['#ffffff', 'var(--dav-bg)']);
   });
 
   it('leaves stations along the direction of travel', () => {

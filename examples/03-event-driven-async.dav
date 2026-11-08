@@ -10,11 +10,11 @@ group async_core "非同期処理パイプライン" {
   node s3 "S3 Bucket" [icon: storage, sub: "Report Archive"]
 }
 
-user <--> apigw : "HTTPS / Polling"
+user <-> apigw : "HTTPS / Polling"
 apigw --> queue : "Enqueue Job"
 queue --> worker : "Trigger Batch"
 worker --> s3 : "PutObject (PDF)"
-user -.-> s3 : "Signed URL DL" [id: e_dl, visible: false, color: green]
+user ..> s3 : "Signed URL DL" [id: e_dl, visible: false, color: green]
 
 step "ジョブ登録と即時受付応答 (202 Accepted)" {
   desc "重たいPDF生成処理を同期実行せず、SQSへジョブを投入して即座に 202 Accepted を返却します。"
@@ -41,5 +41,5 @@ step "署名付きURLによる直接ダウンロード" {
   state s3 [badge: ""]
   state e_dl [visible: true]
   state user [badge: "DOWNLOADED"]
-  animate user -.-> s3 : "GET Presigned URL" [desc: "APIサーバーを経由せず、S3の署名付きURLからブラウザへ直接PDFをダウンロード"]
+  animate user --> s3 : "GET Presigned URL" [desc: "APIサーバーを経由せず、S3の署名付きURLからブラウザへ直接PDFをダウンロード"]
 }

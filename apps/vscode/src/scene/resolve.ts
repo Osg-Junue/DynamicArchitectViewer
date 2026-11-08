@@ -1,4 +1,5 @@
 import { type Layout, type Rect, stationRect } from '../layout';
+import { estimateTextWidth } from '../model/text';
 import {
   COLOR_RESET,
   type DavDocument,
@@ -60,10 +61,13 @@ export interface Packet {
   label?: string;
   description?: string;
   color: string;
-  style: LineStyle;
   path: Bezier;
+  /** Written as `<->` in the `animate`: the packet goes to the end and comes back. */
+  roundTrip: boolean;
   /** Top edge of the two endpoint nodes; the callout stays above it to keep them visible. */
   clearTop: number;
+  /** Zone names on the canvas, which the callout must not cover. */
+  labelAreas: readonly Rect[];
 }
 
 export interface ResolvedView {
@@ -82,6 +86,17 @@ export interface ResolvedView {
 const TRACK_OFFSET = 12;
 const STATION_CLEARANCE = 12;
 const LABEL_AREA_WIDTH = 96;
+
+/** Where a zone's name is drawn (see groupLabelElement). */
+function zoneLabelArea(group: ResolvedGroup): Rect {
+  const { x, y, width } = group.rect;
+  return {
+    x: x + 14,
+    y: y + 6,
+    width: Math.min(estimateTextWidth(group.label, 12), Math.max(40, width - 28)),
+    height: 18,
+  };
+}
 
 /** The part of a node a rail must not cross: its station and the labels below it. */
 function stationArea(node: ResolvedNode): Rect {
@@ -222,6 +237,8 @@ export function resolveView(
     return [group];
   });
 
+  const labelAreas = groups.map(zoneLabelArea);
+
   // 5. Rails. Opposite directions between two stations run on parallel tracks.
   const trackKey = (from: string, to: string) => `${from}\u0000${to}`;
   const sharedRail = new Set(
@@ -271,9 +288,10 @@ export function resolveView(
       fromLabel: fromNode.label,
       toLabel: toNode.label,
       color,
-      style: a.style,
       path,
+      roundTrip: a.direction === 'bidirectional',
       clearTop: Math.min(fromNode.rect.y, toNode.rect.y),
+      labelAreas,
     };
     if (a.label !== undefined) packet.label = a.label;
     if (a.description !== undefined) packet.description = a.description;

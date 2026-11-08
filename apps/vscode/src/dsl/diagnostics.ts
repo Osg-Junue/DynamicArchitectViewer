@@ -15,6 +15,7 @@ export type DiagnosticCode =
   | 'invalid-attribute-value'
   | 'unknown-icon'
   | 'invalid-color'
+  | 'invalid-animate-arrow'
   | 'invalid-escape'
   | 'attribute-not-applicable'
   | 'empty-state';
@@ -48,6 +49,7 @@ const MESSAGES: Record<Locale, Record<DiagnosticCode, string>> = {
     'invalid-attribute-value': '属性 "{name}" の値が不正です（期待: {expected}）',
     'unknown-icon': 'アイコン "{icon}" は存在しません{suggestion}',
     'invalid-color': '色 "{value}" は不正です{suggestion}（使用可: {names}）',
+    'invalid-animate-arrow': 'animate では点線の矢印 "{arrow}" は使えません{suggestion}',
     'invalid-escape': 'エスケープシーケンス "{sequence}" は使えません（使用可: \\" \\\\ \\n \\t）',
     'attribute-not-applicable': '属性 "{name}" は{kind}には適用されません',
     'empty-state': 'state に属性が指定されていません',
@@ -68,6 +70,7 @@ const MESSAGES: Record<Locale, Record<DiagnosticCode, string>> = {
     'invalid-attribute-value': 'Invalid value for attribute "{name}" (expected {expected})',
     'unknown-icon': 'Unknown icon "{icon}"{suggestion}',
     'invalid-color': 'Invalid color "{value}"{suggestion}. Use one of: {names}',
+    'invalid-animate-arrow': 'Dashed arrow "{arrow}" cannot be used in animate{suggestion}',
     'invalid-escape': 'Invalid escape sequence "{sequence}" (allowed: \\" \\\\ \\n \\t)',
     'attribute-not-applicable': 'Attribute "{name}" does not apply to a {kind}',
     'empty-state': 'state has no attributes',

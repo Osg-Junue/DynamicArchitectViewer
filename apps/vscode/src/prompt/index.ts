@@ -21,7 +21,7 @@ node client "Web Client" [icon: browser]
 client --> alb : "HTTPS"
 alb --> api : "gRPC"
 api --> db : "SQL"
-api -.-> queue : "Async Event"
+api ..> queue : "Async Event"
 
 step "1. Submit Order" {
   desc "Client sends an order request through the load balancer to the API."
@@ -38,7 +38,7 @@ step "2. Enqueue Background Job" {
   focus api, queue
   state db [badge: ""]
   state queue [badge: "QUEUED"]
-  animate api -.-> queue : "OrderCreated" [desc: "Publish async event for downstream workers"]
+  animate api --> queue : "OrderCreated" [desc: "Publish async event for downstream workers"]
 }`;
 
 /**
@@ -75,7 +75,7 @@ export function buildAiPrompt(options: AiPromptOptions = {}): string {
       `  - Allowed \`color\` values (case-insensitive): \`${colors}\`. Hex codes are not supported.`,
       '- Edge (top-level only):',
       '  `<from_id> <arrow> <to_id> : "Edge Label" [id: <edge_id>, color: gray, visible: true]`',
-      '  - Allowed `<arrow>` tokens: `-->` (solid), `-.->` (dashed), `<-->` (solid bidirectional), `<-.->` (dashed bidirectional).',
+      '  - Allowed `<arrow>` tokens: `-->` (solid), `..>` (dashed), `<->` (solid bidirectional), `<.>` (dashed bidirectional).',
       '  - Note: a colon `:` is required before the edge label string (`a --> b : "Label"`).',
       '',
       '## 3. Time-Stepped Scenarios (`step`)',
@@ -85,7 +85,7 @@ export function buildAiPrompt(options: AiPromptOptions = {}): string {
       '  - `state <target_id> [badge: "...", color: <color>, visible: true|false]`',
       '    - **Cumulative semantics**: `state` overrides accumulate across steps `1..k`. To clear a badge in a later step, set `badge: ""`. To return to the declared color, set `color: none`.',
       '  - `animate <from_id> <arrow> <to_id> : "Packet Label" [color: blue, desc: "Action description", parallel: true]`',
-      "    - Plays in declaration order and displays `desc` in the packet's speech bubble during that animation phase. Add `parallel: true` to run simultaneously with the immediately preceding `animate` statement.",
+      "    - Plays in declaration order and displays `desc` in the packet's speech bubble during that animation phase. Add `parallel: true` to run simultaneously with the immediately preceding `animate` statement. Only `-->` (one way) and `<->` (there and back) are allowed in `animate`.",
       '',
       '## 4. Reference Example',
       '```dav',
@@ -128,7 +128,7 @@ export function buildAiPrompt(options: AiPromptOptions = {}): string {
     `  - 使用可能な \`color\`（大文字小文字は区別しない）: \`${colors}\`。16進カラーコードは使用不可。`,
     '- エッジ（トップレベルに記述）:',
     '  `<from_id> <arrow> <to_id> : "ラベル" [id: <edge_id>, color: gray, visible: true]`',
-    '  - 使用可能な `<arrow>`: `-->`（実線）, `-.->`（破線）, `<-->`（双方向実線）, `<-.->`（双方向破線）',
+    '  - 使用可能な `<arrow>`: `-->`（実線）, `..>`（破線）, `<->`（双方向実線）, `<.>`（双方向破線）',
     '  - ※エッジのラベル文字列の前にはコロン `:` が必須（例: `a --> b : "HTTPS"`）。',
     '',
     '## 3. 時系列ステップ (`step`)',
@@ -138,7 +138,7 @@ export function buildAiPrompt(options: AiPromptOptions = {}): string {
     '  - `state <target_id> [badge: "...", color: <color>, visible: true|false]`',
     '    - **累積適用ルール**: `state` の変更はステップ `1..k` で累積される。後のステップでバッジを消す場合は `badge: ""`、宣言時の色に戻す場合は `color: none` を明示する。',
     '  - `animate <from_id> <arrow> <to_id> : "パケット名" [color: blue, desc: "アニメーション動作の説明", parallel: true]`',
-    '    - 記述順に直列再生され、各アニメーション実行中に `desc` の説明がパケットの吹き出しに表示される。直前の `animate` と同時再生したい場合は `[parallel: true]` を付与する。',
+    '    - 記述順に直列再生され、各アニメーション実行中に `desc` の説明がパケットの吹き出しに表示される。直前の `animate` と同時再生したい場合は `[parallel: true]` を付与する。`animate` で使える矢印は `-->`（片道）と `<->`（往復）のみ。',
     '',
     '## 4. サンプルコード',
     '```dav',

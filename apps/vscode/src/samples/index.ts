@@ -36,8 +36,8 @@ waf --> alb : "Verified"
 alb --> api : "HTTP/2"
 api --> redis : "Cache Lookup"
 api --> db_pri : "Read / Write"
-db_pri -.-> db_sby : "Sync Replication"
-api -.-> db_sby : "Failover Route" [id: e_failover, visible: false, color: yellow]
+db_pri ..> db_sby : "Sync Replication"
+api ..> db_sby : "Failover Route" [id: e_failover, visible: false, color: yellow]
 
 step "エッジ検証とALBへのルーティング" {
   desc "ブラウザからのリクエストをCloudFrontが受け取り、WAFで検査した後にVPC内のALBへ転送します。"
@@ -61,7 +61,7 @@ step "注文トランザクションの書き込みとDB同期" {
   state redis [color: none, badge: ""]
   state db_pri [color: green, badge: "COMMIT"]
   animate api --> db_pri : "INSERT INTO orders" [desc: "Primary DB (AZ-a) に対して注文トランザクションを書き込みコミット"]
-  animate db_pri -.-> db_sby : "Replicate WAL" [desc: "別AZのStandby DB (AZ-c) へストレージレベルでWALを同期レプリケーション"]
+  animate db_pri --> db_sby : "Replicate WAL" [desc: "別AZのStandby DB (AZ-c) へストレージレベルでWALを同期レプリケーション"]
 }
 
 step "Primary DB障害発生と自動フェイルオーバー" {
@@ -70,7 +70,7 @@ step "Primary DB障害発生と自動フェイルオーバー" {
   state db_pri [color: red, badge: "DOWN"]
   state db_sby [color: green, badge: "PROMOTED"]
   state e_failover [visible: true]
-  animate api -.-> db_sby : "Reconnect Writer" [desc: "クラスターエンドポイントのDNS切替により、昇格したStandby DBへ自動再接続"]
+  animate api --> db_sby : "Reconnect Writer" [color: yellow, desc: "クラスターエンドポイントのDNS切替により、昇格したStandby DBへ自動再接続"]
 }
 `,
   },
@@ -156,11 +156,11 @@ group async_core "非同期処理パイプライン" {
   node s3 "S3 Bucket" [icon: storage, sub: "Report Archive"]
 }
 
-user <--> apigw : "HTTPS / Polling"
+user <-> apigw : "HTTPS / Polling"
 apigw --> queue : "Enqueue Job"
 queue --> worker : "Trigger Batch"
 worker --> s3 : "PutObject (PDF)"
-user -.-> s3 : "Signed URL DL" [id: e_dl, visible: false, color: green]
+user ..> s3 : "Signed URL DL" [id: e_dl, visible: false, color: green]
 
 step "ジョブ登録と即時受付応答 (202 Accepted)" {
   desc "重たいPDF生成処理を同期実行せず、SQSへジョブを投入して即座に 202 Accepted を返却します。"
@@ -187,7 +187,7 @@ step "署名付きURLによる直接ダウンロード" {
   state s3 [badge: ""]
   state e_dl [visible: true]
   state user [badge: "DOWNLOADED"]
-  animate user -.-> s3 : "GET Presigned URL" [desc: "APIサーバーを経由せず、S3の署名付きURLからブラウザへ直接PDFをダウンロード"]
+  animate user --> s3 : "GET Presigned URL" [desc: "APIサーバーを経由せず、S3の署名付きURLからブラウザへ直接PDFをダウンロード"]
 }
 `,
   },
@@ -232,17 +232,17 @@ group external_net "External Financial Network" [color: yellow] {
 mobile --> cdn : "HTTPS (TLS 1.3)"
 cdn --> waf : "Edge Inspect"
 waf --> apigw : "Signed Origin"
-apigw <--> idp : "JWKS / OIDC"
+apigw <-> idp : "JWKS / OIDC"
 apigw --> bff : "GraphQL"
-bff <--> redis : "Idempotency"
-bff <--> fraud_ai : "Risk Check"
+bff <-> redis : "Idempotency"
+bff <-> fraud_ai : "Risk Check"
 bff --> order_svc : "Start Saga"
 order_svc --> aurora : "ACID Write"
 order_svc --> pay_svc : "Capture Cmd"
-pay_svc <--> stripe : "ISO8583 / REST"
+pay_svc <-> stripe : "ISO8583 / REST"
 pay_svc --> kafka : "PaymentEvent"
 order_svc --> kafka : "OrderEvent"
-kafka -.-> s3_audit : "Audit Sink"
+kafka ..> s3_audit : "Audit Sink"
 
 step "エンドツーエンド決済・不正検知・オーケストレーション (10アニメーション)" {
   desc "モバイル端末からの決済要求がエッジ防御・ゼロトラスト認証・AI不正検知・分散Saga・外部カード決済・監査証跡保管まで10段階のアニメーションで処理されます。"
@@ -255,10 +255,10 @@ step "エンドツーエンド決済・不正検知・オーケストレーシ�
   animate mobile --> cdn : "1. POST /checkout" [desc: "モバイルアプリから最寄りのCloudFrontエッジPoPへTLS 1.3で注文確定リクエストを送信"]
   animate cdn --> waf : "2. WAF Inspect" [desc: "AWS WAFでBotシグネチャ・IPレピュテーション・リクエストレート制限を検査"]
   animate waf --> apigw : "3. Origin mTLS" [desc: "検査を通過したリクエストにオリジン検証ヘッダを付与しAPI Gatewayへ転送"]
-  animate apigw <--> idp : "4. Verify JWT" [desc: "OIDC IdPと連携し、Passkey署名付きJWTの有効期限・スコープ・端末バインディングを検証"]
+  animate apigw <-> idp : "4. Verify JWT" [desc: "OIDC IdPと連携し、Passkey署名付きJWTの有効期限・スコープ・端末バインディングを検証"]
   animate apigw --> bff : "5. Route BFF" [desc: "認証済みユーザーコンテキストを付与してEKS内のCheckout BFFへルーティング"]
-  animate bff <--> redis : "6. Lock Idempotency" [desc: "RedisクラスタでIdempotency-Keyを原子的にロックし、ネットワーク再送による二重決済を防止"]
-  animate bff <--> fraud_ai : "7. AI Risk Check" [desc: "Fraud AIエンジンへデバイス指紋・購買行動ベクトルを送り、12msで不正リスクスコアを推論"]
+  animate bff <-> redis : "6. Lock Idempotency" [desc: "RedisクラスタでIdempotency-Keyを原子的にロックし、ネットワーク再送による二重決済を防止"]
+  animate bff <-> fraud_ai : "7. AI Risk Check" [desc: "Fraud AIエンジンへデバイス指紋・購買行動ベクトルを送り、12msで不正リスクスコアを推論"]
   animate bff --> order_svc : "8. Start Order Saga" [desc: "リスク判定クリア後、Order Serviceを起動して分散トランザクション(Saga)を開始"]
   animate order_svc --> aurora : "9. INSERT Order" [desc: "Aurora PostgreSQLプライマリへ注文レコードとOutboxイベントを単一トランザクションで保存"]
   animate order_svc --> pay_svc : "10. Capture & Audit" [desc: "PCI-DSS分離セグメントのPayment ServiceからStripe与信枠の売上確定と監査イベント発行を実行"]
@@ -271,11 +271,11 @@ step "不正検知ブロックと補償トランザクション (異常系シナ
   state pay_svc [color: gray, badge: "SKIPPED"]
   state aurora [color: yellow, badge: "ABORTED"]
   state waf [color: red, badge: "BLOCKLISTED"]
-  animate bff <--> fraud_ai : "1. Score 0.96 ( Fraud )" [desc: "異常なカード試行パターンを検知し、Fraud AIエンジンが高リスク判定(0.96)を返却"]
-  animate bff --> order_svc : "2. Cancel Saga" [desc: "Checkout BFFが決済処理を中断し、Order Serviceへ補償トランザクション(Cancel)を指示"]
-  animate order_svc --> aurora : "3. UPDATE REJECTED" [desc: "Aurora内の注文ステータスをREJECTEDへ更新し、仮引当在庫を即時解放"]
-  animate order_svc --> kafka : "4. FraudAlertEvent" [desc: "セキュリティ監視トピックへ不正試行アラートイベントを非同期配信"]
-  animate kafka -.-> s3_audit : "5. Write Forensics" [desc: "改ざん防止(WORM)設定のAudit S3 Vaultへフォレンジック証跡ログを永続化"]
+  animate bff <-> fraud_ai : "1. Score 0.96 ( Fraud )" [color: red, desc: "異常なカード試行パターンを検知し、Fraud AIエンジンが高リスク判定(0.96)を返却"]
+  animate bff --> order_svc : "2. Cancel Saga" [color: red, desc: "Checkout BFFが決済処理を中断し、Order Serviceへ補償トランザクション(Cancel)を指示"]
+  animate order_svc --> aurora : "3. UPDATE REJECTED" [color: red, desc: "Aurora内の注文ステータスをREJECTEDへ更新し、仮引当在庫を即時解放"]
+  animate order_svc --> kafka : "4. FraudAlertEvent" [color: red, desc: "セキュリティ監視トピックへ不正試行アラートイベントを非同期配信"]
+  animate kafka --> s3_audit : "5. Write Forensics" [color: red, desc: "改ざん防止(WORM)設定のAudit S3 Vaultへフォレンジック証跡ログを永続化"]
 }
 `,
   },

@@ -14,6 +14,7 @@ export { format } from './format';
 export {
   ATTRIBUTE_SCHEMA,
   isValidIdentifier,
+  KEYWORDS,
   STATE_ATTRIBUTES_BY_TARGET,
 } from './schema';
 export { parser, parseTree } from './syntax';

@@ -23,14 +23,6 @@
   --raw-warning: #9a6700;
   --raw-ok: #1a7f37;
   --raw-shadow: rgba(31, 35, 40, 0.16);
-  --raw-c-red: #c92a2a;
-  --raw-c-orange: #c2570c;
-  --raw-c-yellow: #967000;
-  --raw-c-green: #2b8a3e;
-  --raw-c-teal: #0b7d83;
-  --raw-c-blue: #1c6fd1;
-  --raw-c-purple: #7b3fc4;
-  --raw-c-pink: #c2258a;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -54,14 +46,6 @@
     --raw-warning: #e2b341;
     --raw-ok: #73c991;
     --raw-shadow: rgba(0, 0, 0, 0.4);
-    --raw-c-red: #ff7b72;
-    --raw-c-orange: #ffa657;
-    --raw-c-yellow: #e3c04b;
-    --raw-c-green: #56d364;
-    --raw-c-teal: #39c5cf;
-    --raw-c-blue: #6cb6ff;
-    --raw-c-purple: #bc8cff;
-    --raw-c-pink: #f778ba;
   }
 }
 
@@ -82,8 +66,6 @@
   --dav-muted: var(--vscode-descriptionForeground, var(--raw-muted));
   --dav-border: var(--vscode-panel-border, var(--raw-border));
   --dav-border-strong: var(--vscode-input-placeholderForeground, var(--raw-border-strong));
-  /* The red pencil of a drawing review: the one fixed color of the product, on every theme. */
-  --dav-accent: #f0641e;
   --dav-focus: var(--vscode-focusBorder, var(--raw-focus));
   --dav-hover: var(--vscode-toolbar-hoverBackground, var(--raw-hover));
   --dav-selected: var(--vscode-inputOption-activeBackground, var(--raw-selected));
@@ -105,16 +87,21 @@
   --dav-icon: var(--dav-muted);
   --dav-edge: color-mix(in srgb, var(--dav-fg) 38%, var(--dav-bg));
 
-  /* Named DSL colors */
-  --dav-c-red: var(--vscode-charts-red, var(--raw-c-red));
-  --dav-c-orange: var(--vscode-charts-orange, var(--raw-c-orange));
-  --dav-c-yellow: var(--vscode-charts-yellow, var(--raw-c-yellow));
-  --dav-c-green: var(--vscode-charts-green, var(--raw-c-green));
-  --dav-c-teal: var(--vscode-terminal-ansiCyan, var(--raw-c-teal));
-  --dav-c-blue: var(--vscode-charts-blue, var(--raw-c-blue));
-  --dav-c-purple: var(--vscode-charts-purple, var(--raw-c-purple));
-  --dav-c-pink: var(--vscode-terminal-ansiMagenta, var(--raw-c-pink));
-  --dav-c-gray: var(--dav-border-strong);
+  /*
+   * The diagram palette: the single definition of every diagram color, as
+   * light-dark(<light theme>, <dark theme>), resolved through color-scheme.
+   */
+  --dav-accent: light-dark(#c8500a, #eb6101);
+  --dav-accent-text: light-dark(#b8460f, #ff8a4c);
+  --dav-c-red: light-dark(#a8142e, #e23a52);
+  --dav-c-orange: light-dark(#c24a00, #ff7a2f);
+  --dav-c-yellow: light-dark(#9a6f00, #ffc21f);
+  --dav-c-green: light-dark(#0e7f4f, #1fbf7a);
+  --dav-c-teal: light-dark(#007a85, #00b8c4);
+  --dav-c-blue: light-dark(#0f62c4, #2e90ff);
+  --dav-c-purple: light-dark(#6330c8, #9b5cff);
+  --dav-c-pink: light-dark(#c8578f, #f4a6c8);
+  --dav-c-gray: light-dark(#6e7074, #b4b6ba);
 }
 
 .vscode-dark,
@@ -388,6 +375,16 @@
 .dav-canvas text {
   font-family: inherit;
 }
+/* A background-colored outline keeps text readable where a line passes behind it. */
+.dav-group-label,
+.dav-edge-label text,
+.dav-node-label,
+.dav-node-sub {
+  paint-order: stroke;
+  stroke: var(--dav-bg);
+  stroke-width: 1.5px;
+  stroke-linejoin: round;
+}
 .dav-node-label,
 .dav-packet-label {
   font-weight: 700;
@@ -420,19 +417,11 @@
 .dav-layer-stops {
   pointer-events: none;
 }
-.dav-stop circle {
-  fill: var(--dav-fg);
-}
 .dav-stop text {
-  fill: var(--dav-bg);
   font-weight: 700;
 }
 .dav-stop.is-current circle {
-  fill: var(--dav-accent);
   r: 14px;
-}
-.dav-stop.is-current text {
-  fill: #ffffff;
 }
 @media (prefers-reduced-motion: reduce) {
   .dav-node,

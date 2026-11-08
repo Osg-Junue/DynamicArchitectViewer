@@ -30,14 +30,14 @@ group vpc "VPC" [color: BLUE] {
 node c "C"
 
 a --> b : "ab"
-b -.-> c [id: bc, visible: false]
-c <--> a
-a <-.-> c
+b ..> c [id: bc, visible: false]
+c <-> a
+a <.> c
 
 step "First" {
   desc "line1"
   desc "line2"
-  focus a, vpc, bc
+  focus a, vpc
   state a [badge: "DOWN"]
   state bc [visible: true]
   animate a --> b : "go" [color: red, desc: "send request"]
@@ -107,7 +107,7 @@ step "Second" {}
       index: 0,
       title: 'First',
       description: 'line1\nline2',
-      focus: ['a', 'vpc', 'bc'],
+      focus: ['a', 'vpc'],
       states: [
         { target: 'a', badge: 'DOWN' },
         { target: 'bc', visible: true },
@@ -116,7 +116,6 @@ step "Second" {}
         {
           from: 'a',
           to: 'b',
-          style: 'solid',
           direction: 'forward',
           label: 'go',
           description: 'send request',
@@ -126,7 +125,6 @@ step "Second" {}
         {
           from: 'b',
           to: 'c',
-          style: 'solid',
           direction: 'forward',
           description: 'forward to c',
           parallel: true,
@@ -158,11 +156,16 @@ describe('parse: diagnostics', () => {
     ['duplicate title', 'dav 1\ntitle "a"\ntitle "b"', ['duplicate-title']],
     ['duplicate node id', 'dav 1\nnode a\nnode a', ['duplicate-id']],
     ['id shared across kinds', 'dav 1\nnode a\ngroup a {}', ['duplicate-id']],
-    ['duplicate implicit edge', 'dav 1\nnode a\nnode b\na --> b\na -.-> b', ['duplicate-edge']],
-    ['explicit id resolves duplicate', 'dav 1\nnode a\nnode b\na --> b\na -.-> b [id: e2]', []],
+    ['duplicate implicit edge', 'dav 1\nnode a\nnode b\na --> b\na ..> b', ['duplicate-edge']],
+    ['explicit id resolves duplicate', 'dav 1\nnode a\nnode b\na --> b\na ..> b [id: e2]', []],
     ['undefined edge endpoint', 'dav 1\nnode a\na --> b', ['undefined-reference']],
     ['edge to group', 'dav 1\nnode a\ngroup g {}\na --> g', ['reference-kind-mismatch']],
     ['undefined focus', 'dav 1\nstep "s" { focus x }', ['undefined-reference']],
+    [
+      'focus on an edge',
+      'dav 1\nnode a\nnode b\na --> b [id: e]\nstep "s" { focus e }',
+      ['reference-kind-mismatch'],
+    ],
     [
       'undefined state target',
       'dav 1\nstep "s" { state x [visible: true] }',
