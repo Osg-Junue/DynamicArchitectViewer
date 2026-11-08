@@ -29,12 +29,15 @@ test.describe('code-only authoring & live preview', () => {
     await expect(page.locator('[data-testid="btn-locale-toggle"]')).toHaveCount(0);
     await expect(page.locator('.dav-topbar').getByRole('button', { name: 'DSL' })).toHaveCount(0);
 
-    // Playback controls (Step dropdown, Play/Start, Speed) are mounted in the top toolbar
+    // Playback controls (Step dropdown, Play step, Play all steps, Speed) are mounted in the top toolbar
     const topStepSelect = page.locator('header.toolbar [data-testid="select-step"]');
     const topPlayBtn = page.locator('header.toolbar [data-testid="btn-play"]');
+    const topPlayAllBtn = page.locator('header.toolbar [data-testid="btn-play-all"]');
     await expect(topStepSelect).toBeVisible();
     await expect(topPlayBtn).toBeVisible();
+    await expect(topPlayAllBtn).toBeVisible();
     await expect(topPlayBtn).toHaveAttribute('aria-pressed', 'false');
+    await expect(topPlayAllBtn).toHaveAttribute('aria-pressed', 'false');
     await expect(page.locator('footer.dav-dock [data-testid="btn-play"]')).toHaveCount(0);
 
     // Zoom percentage, icon Fit button, and Follow Animation icon button are mounted inside the diagram canvas viewport corner
@@ -72,6 +75,26 @@ test.describe('code-only authoring & live preview', () => {
     await expect(page.locator('.dav-packet .dav-packet-callout')).toHaveCount(1);
     await expect(page.locator('.dav-packet .dav-packet-label')).toHaveText('GET /products');
     await expect(page.locator('.dav-packet .dav-packet-desc').first()).toContainText('CloudFront');
+
+    // Dashed halo boxes only outline the current phase's A -> B endpoints (client & cdn), hiding C/D (waf & alb)
+    await expect(page.locator('.dav-node[data-id="client"] .dav-halo')).not.toHaveAttribute(
+      'hidden',
+    );
+    await expect(page.locator('.dav-node[data-id="cdn"] .dav-halo')).not.toHaveAttribute('hidden');
+    await expect(page.locator('.dav-node[data-id="waf"] .dav-halo')).toHaveAttribute('hidden', '');
+    await expect(page.locator('.dav-node[data-id="alb"] .dav-halo')).toHaveAttribute('hidden', '');
+
+    // Clicking a node on the canvas repeats that node's animation phase and shifts the dashed halo boxes to B & C
+    await page.locator('.dav-node[data-id="waf"]').click();
+    await expect(page.locator('.dav-packet .dav-packet-label')).toHaveText('Pass ACL');
+    await expect(page.locator('.dav-node[data-id="waf"] .dav-halo')).not.toHaveAttribute('hidden');
+    await expect(page.locator('.dav-node[data-id="alb"] .dav-halo')).not.toHaveAttribute('hidden');
+    await expect(page.locator('.dav-node[data-id="client"] .dav-halo')).toHaveAttribute(
+      'hidden',
+      '',
+    );
+    await expect(page.locator('.dav-node[data-id="cdn"] .dav-halo')).toHaveAttribute('hidden', '');
+
     await topStepSelect.selectOption('2');
     await expect(page.locator('.dav-step-title')).toContainText('Step 3 / 4');
     await expect(page.locator('.dav-packet .dav-packet-label').first()).toHaveText(
@@ -79,18 +102,28 @@ test.describe('code-only authoring & live preview', () => {
     );
     await expect(page.locator('.dav-packet .dav-packet-desc').first()).toBeVisible();
 
-    // Toggle play/pause from top toolbar: icon-only button (no text label) with double play arrow SVG
+    // Toggle Play step (single triangle) and Play all steps (double triangle) from top toolbar
     await expect(topPlayBtn).toHaveText('');
-    await expect(topPlayBtn.locator('svg polygon')).toHaveCount(2);
-    await expect(topPlayBtn).toHaveAttribute('aria-label', 'Play');
+    await expect(topPlayBtn.locator('svg polygon')).toHaveCount(1);
+    await expect(topPlayBtn).toHaveAttribute('aria-label', 'Play step');
+    await expect(topPlayAllBtn).toHaveText('');
+    await expect(topPlayAllBtn.locator('svg polygon')).toHaveCount(2);
+    await expect(topPlayAllBtn).toHaveAttribute('aria-label', 'Play all steps');
+
     await topPlayBtn.click();
     await expect(topPlayBtn).toHaveAttribute('aria-pressed', 'true');
-    await expect(topPlayBtn).toHaveText('');
     await expect(topPlayBtn).toHaveAttribute('aria-label', 'Pause');
-    await expect(topPlayBtn).toHaveAttribute('title', 'Pause');
-    await topPlayBtn.click();
+    await expect(topPlayAllBtn).toHaveAttribute('aria-pressed', 'false');
+
+    await topPlayAllBtn.click();
+    await expect(topPlayAllBtn).toHaveAttribute('aria-pressed', 'true');
+    await expect(topPlayAllBtn).toHaveAttribute('aria-label', 'Pause');
     await expect(topPlayBtn).toHaveAttribute('aria-pressed', 'false');
-    await expect(topPlayBtn).toHaveAttribute('aria-label', 'Play');
+    await expect(topPlayBtn).toHaveAttribute('aria-label', 'Play step');
+
+    await topPlayAllBtn.click();
+    await expect(topPlayAllBtn).toHaveAttribute('aria-pressed', 'false');
+    await expect(topPlayAllBtn).toHaveAttribute('aria-label', 'Play all steps');
 
     // Global keyboard shortcuts work from document.body and sync the top step dropdown
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
@@ -115,9 +148,11 @@ test.describe('code-only authoring & live preview', () => {
     await expect(page.locator('.dav-node')).toHaveCount(2);
     await expect(page.locator('.problems .error')).toContainText('database');
 
-    // Diagram with 0 steps disables playback transport controls and keeps play button unpressed
+    // Diagram with 0 steps disables playback transport controls and keeps play buttons unpressed
     await expect(page.getByTestId('btn-play')).toBeDisabled();
     await expect(page.getByTestId('btn-play')).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.getByTestId('btn-play-all')).toBeDisabled();
+    await expect(page.getByTestId('btn-play-all')).toHaveAttribute('aria-pressed', 'false');
     await expect(page.getByTestId('select-speed')).toBeDisabled();
     await expect(page.getByTestId('select-step')).toHaveValue('overview');
 

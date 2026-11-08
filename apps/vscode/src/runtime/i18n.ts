@@ -4,6 +4,7 @@ export interface ViewerStrings {
   overview: string;
   overviewHint: string;
   play: string;
+  playAll: string;
   pause: string;
   speed: string;
   zoomIn: string;
@@ -17,7 +18,8 @@ export const VIEWER_STRINGS: Record<ViewerLocale, ViewerStrings> = {
   ja: {
     overview: 'Overview',
     overviewHint: 'Select a step or press play (← / → / Space) to watch the flow.',
-    play: 'Play',
+    play: 'Play step',
+    playAll: 'Play all steps',
     pause: 'Pause',
     speed: 'Playback speed',
     zoomIn: 'Zoom in',
@@ -29,7 +31,8 @@ export const VIEWER_STRINGS: Record<ViewerLocale, ViewerStrings> = {
   en: {
     overview: 'Overview',
     overviewHint: 'Select a step or press play (← / → / Space) to watch the flow.',
-    play: 'Play',
+    play: 'Play step',
+    playAll: 'Play all steps',
     pause: 'Pause',
     speed: 'Playback speed',
     zoomIn: 'Zoom in',

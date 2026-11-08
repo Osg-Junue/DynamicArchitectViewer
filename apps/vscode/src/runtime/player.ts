@@ -54,7 +54,7 @@ export class Player {
   private readonly reducedMotion: boolean;
 
   private stepIndex: number | null;
-  private playing: boolean;
+  private playMode: 'node' | 'step' | 'all';
   private speed = 1;
   private view!: ResolvedView;
 
@@ -87,6 +87,7 @@ export class Player {
   private readonly stepDescEl: HTMLElement;
   private readonly stepSelect: HTMLSelectElement;
   private readonly playBtn: HTMLButtonElement;
+  private readonly playAllBtn: HTMLButtonElement;
   private readonly speedSelect: HTMLSelectElement;
   private readonly zoomLabel: HTMLElement;
   private readonly followBtn: HTMLButtonElement;
@@ -108,7 +109,7 @@ export class Player {
         : hasSteps
           ? 0
           : null;
-    this.playing = hasSteps && (options.autoplay ?? true) && !this.reducedMotion;
+    this.playMode = hasSteps && options.autoplay && !this.reducedMotion ? 'all' : 'node';
     if (options.speed !== undefined && SPEEDS.includes(options.speed as (typeof SPEEDS)[number])) {
       this.speed = options.speed;
     }
@@ -145,6 +146,14 @@ export class Player {
     );
     this.playBtn.dataset.testid = 'btn-play';
 
+    this.playAllBtn = this.button(
+      s.playAll,
+      s.playAll,
+      () => this.togglePlayAll(),
+      'dav-btn dav-btn-primary dav-btn-play',
+    );
+    this.playAllBtn.dataset.testid = 'btn-play-all';
+
     this.speedSelect = html('select', {
       class: 'dav-btn dav-speed-select',
       'aria-label': s.speed,
@@ -171,6 +180,7 @@ export class Player {
       this.stepSelect,
       html('span', { class: 'dav-toolbar-sep', 'aria-hidden': 'true' }),
       this.playBtn,
+      this.playAllBtn,
       html('span', { class: 'dav-toolbar-sep', 'aria-hidden': 'true' }),
       this.speedSelect,
     );
@@ -314,8 +324,8 @@ export class Player {
   update(data: PlayerData): void {
     this.data = data;
     const count = data.document.steps.length;
-    if (count === 0 && this.playing) {
-      this.playing = false;
+    if (count === 0 && this.playMode !== 'node') {
+      this.playMode = 'node';
     }
     const index =
       this.stepIndex === null ? null : count === 0 ? null : Math.min(this.stepIndex, count - 1);
@@ -353,7 +363,7 @@ export class Player {
   }
 
   isPlaying(): boolean {
-    return this.playing;
+    return this.playMode !== 'node';
   }
 
   getSpeed(): number {
@@ -383,8 +393,59 @@ export class Player {
 
   togglePlay(): void {
     if (this.data.document.steps.length === 0) return;
-    this.playing = !this.playing;
-    if (this.playing && this.stepIndex === null) this.showStep(0);
+    this.playMode = this.playMode === 'step' ? 'node' : 'step';
+    if (this.playMode === 'step') {
+      if (this.stepIndex === null) {
+        this.showStep(0);
+      } else {
+        this.phase = 0;
+        this.elapsed = 0;
+        this.renderPackets();
+      }
+    }
+    this.updatePlayButton();
+    this.ensureLoop();
+  }
+
+  togglePlayAll(): void {
+    if (this.data.document.steps.length === 0) return;
+    this.playMode = this.playMode === 'all' ? 'node' : 'all';
+    if (this.playMode === 'all') {
+      if (this.stepIndex === null) {
+        this.showStep(0);
+      } else {
+        this.phase = 0;
+        this.elapsed = 0;
+        this.renderPackets();
+      }
+    }
+    this.updatePlayButton();
+    this.ensureLoop();
+  }
+
+  selectNodeAnimation(nodeId: string): void {
+    const phases = this.view.phases;
+    if (phases.length === 0) return;
+    let matching = phases
+      .map((pkts, idx) => (pkts.some((p) => p.from === nodeId) ? idx : -1))
+      .filter((idx) => idx >= 0);
+    if (matching.length === 0) {
+      matching = phases
+        .map((pkts, idx) => (pkts.some((p) => p.to === nodeId) ? idx : -1))
+        .filter((idx) => idx >= 0);
+    }
+    if (matching.length === 0) return;
+
+    const currentPos = matching.indexOf(this.phase);
+    const nextPhase =
+      this.playMode === 'node' && currentPos >= 0
+        ? (matching[(currentPos + 1) % matching.length] ?? matching[0] ?? 0)
+        : (matching[0] ?? 0);
+
+    this.playMode = 'node';
+    this.phase = nextPhase;
+    this.elapsed = 0;
+    this.renderPackets();
     this.updatePlayButton();
     this.ensureLoop();
   }
@@ -410,6 +471,7 @@ export class Player {
     this.svgEl.setAttribute('aria-label', doc.title);
     const noSteps = doc.steps.length === 0;
     this.playBtn.disabled = noSteps;
+    this.playAllBtn.disabled = noSteps;
     this.speedSelect.disabled = noSteps;
     clear(this.stepSelect);
     this.stepSelect.append(html('option', { value: 'overview' }, this.strings.overview));
@@ -449,7 +511,49 @@ export class Player {
       return;
     }
     for (const packet of phases[this.phase] ?? []) this.addPacket(packet, 0);
+    this.syncPhaseHighlights();
     if (this.followAnim) this.focusCurrentPhase(true);
+  }
+
+  /**
+   * Restricts the dashed `.dav-halo` node boxes and `.dav-flow` edge dashes to only the
+   * endpoints and edges of the currently active animation phase (e.g., A & B during A->B,
+   * then B & C during B->C).
+   */
+  private syncPhaseHighlights(): void {
+    const phases = this.view.phases;
+    if (phases.length === 0 || this.reducedMotion) return;
+    const currentPackets = phases[Math.min(this.phase, phases.length - 1)] ?? [];
+    const activeNodes = new Set<string>();
+    const activeEdges = new Set<string>();
+    for (const pkt of currentPackets) {
+      activeNodes.add(pkt.from);
+      activeNodes.add(pkt.to);
+      for (const e of this.view.edges) {
+        if (
+          (e.from === pkt.from && e.to === pkt.to) ||
+          (e.direction === 'bidirectional' && e.from === pkt.to && e.to === pkt.from)
+        ) {
+          activeEdges.add(e.id);
+        }
+      }
+    }
+    for (const nodeEl of Array.from(this.sceneLayer.querySelectorAll<SVGGElement>('.dav-node'))) {
+      const id = nodeEl.getAttribute('data-id') ?? '';
+      const halo = nodeEl.querySelector<SVGElement>('.dav-halo');
+      if (halo) {
+        if (activeNodes.has(id)) halo.removeAttribute('hidden');
+        else halo.setAttribute('hidden', '');
+      }
+    }
+    for (const edgeEl of Array.from(this.sceneLayer.querySelectorAll<SVGGElement>('.dav-edge'))) {
+      const id = edgeEl.getAttribute('data-id') ?? '';
+      const flow = edgeEl.querySelector<SVGElement>('.dav-flow');
+      if (flow) {
+        if (activeEdges.has(id)) flow.removeAttribute('hidden');
+        else flow.setAttribute('hidden', '');
+      }
+    }
   }
 
   private addPacket(packet: Packet, t: number): void {
@@ -495,9 +599,10 @@ export class Player {
   }
 
   private updatePlayButton(): void {
-    const action = this.playing ? this.strings.pause : this.strings.play;
+    const stepPlaying = this.playMode === 'step';
+    const stepAction = stepPlaying ? this.strings.pause : this.strings.play;
     clear(this.playBtn);
-    if (this.playing) {
+    if (stepPlaying) {
       this.playBtn.append(
         svg(
           'svg',
@@ -517,6 +622,43 @@ export class Player {
         svg(
           'svg',
           {
+            width: 15,
+            height: 15,
+            viewBox: '0 0 24 24',
+            fill: 'currentColor',
+            'aria-hidden': 'true',
+          },
+          svg('polygon', { points: '6 4 20 12 6 20 6 4' }),
+        ),
+      );
+    }
+    this.playBtn.title = stepAction;
+    this.playBtn.setAttribute('aria-label', stepAction);
+    this.playBtn.setAttribute('aria-pressed', String(stepPlaying));
+
+    const allPlaying = this.playMode === 'all';
+    const allAction = allPlaying ? this.strings.pause : this.strings.playAll;
+    clear(this.playAllBtn);
+    if (allPlaying) {
+      this.playAllBtn.append(
+        svg(
+          'svg',
+          {
+            width: 15,
+            height: 15,
+            viewBox: '0 0 24 24',
+            fill: 'currentColor',
+            'aria-hidden': 'true',
+          },
+          svg('rect', { x: 6, y: 5, width: 4, height: 14, rx: 1 }),
+          svg('rect', { x: 14, y: 5, width: 4, height: 14, rx: 1 }),
+        ),
+      );
+    } else {
+      this.playAllBtn.append(
+        svg(
+          'svg',
+          {
             width: 16,
             height: 16,
             viewBox: '0 0 24 24',
@@ -528,9 +670,9 @@ export class Player {
         ),
       );
     }
-    this.playBtn.title = action;
-    this.playBtn.setAttribute('aria-label', action);
-    this.playBtn.setAttribute('aria-pressed', String(this.playing));
+    this.playAllBtn.title = allAction;
+    this.playAllBtn.setAttribute('aria-label', allAction);
+    this.playAllBtn.setAttribute('aria-pressed', String(allPlaying));
   }
 
   // ---------------------------------------------------------------------------
@@ -540,7 +682,7 @@ export class Player {
   private ensureLoop(): void {
     const animating =
       !this.reducedMotion && (this.view.phases.length > 0 || this.cameraTarget !== null);
-    if (!animating && !this.playing) return;
+    if (!animating && this.playMode === 'node') return;
     if (this.frame) return;
     this.lastFrame = performance.now();
     this.frame = requestAnimationFrame((t) => this.tick(t));
@@ -572,7 +714,16 @@ export class Player {
     }
 
     const phases = this.reducedMotion ? [] : this.view.phases;
-    if (this.phase < phases.length) {
+    if (this.playMode === 'node') {
+      if (phases.length > 0) {
+        const t = Math.min(1, this.elapsed / PHASE_MS);
+        for (const entry of this.packetEls) this.placePacket(entry, t);
+        if (this.elapsed >= PHASE_MS + 400) {
+          this.elapsed = 0;
+          for (const entry of this.packetEls) this.placePacket(entry, 0);
+        }
+      }
+    } else if (this.phase < phases.length) {
       const t = Math.min(1, this.elapsed / PHASE_MS);
       for (const entry of this.packetEls) this.placePacket(entry, t);
       if (this.elapsed >= PHASE_MS) {
@@ -583,17 +734,17 @@ export class Player {
         }
       }
     } else if (this.elapsed >= HOLD_MS) {
-      if (this.playing) {
+      if (this.playMode === 'all') {
         this.next();
         return;
       }
-      // Paused: replay the current step's packets.
+      // 'step' mode: replay all phases of the current step from the beginning.
       this.phase = 0;
       this.elapsed = 0;
       this.renderPackets();
     }
 
-    if (this.playing || phases.length > 0 || this.cameraTarget !== null) {
+    if (this.playMode !== 'node' || phases.length > 0 || this.cameraTarget !== null) {
       this.frame = requestAnimationFrame((t) => this.tick(t));
     }
   }
@@ -751,11 +902,17 @@ export class Player {
     };
     const up = (e: PointerEvent) => {
       if (!drag || drag.id !== e.pointerId) return;
+      const wasDragged = drag.captured;
       if (drag.captured && viewport.hasPointerCapture(e.pointerId)) {
         viewport.releasePointerCapture(e.pointerId);
       }
       drag = null;
       viewport.classList.remove('dav-dragging');
+      if (!wasDragged && e.type === 'pointerup') {
+        const nodeEl = (e.target as Element | null)?.closest('.dav-node');
+        const nodeId = nodeEl?.getAttribute('data-id');
+        if (nodeId) this.selectNodeAnimation(nodeId);
+      }
     };
     const wheel = (e: WheelEvent) => {
       e.preventDefault();

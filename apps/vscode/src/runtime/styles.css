@@ -311,6 +311,10 @@
 .dav-status-muted.dav-dimmed {
   opacity: 0.18;
 }
+.dav-halo[hidden],
+.dav-flow[hidden] {
+  display: none;
+}
 .dav-flow {
   stroke-dasharray: 8 8;
   animation: dav-dash 0.6s steps(6, end) infinite;
