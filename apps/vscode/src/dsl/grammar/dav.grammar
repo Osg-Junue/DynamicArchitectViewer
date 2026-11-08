@@ -46,7 +46,7 @@ kw<term> { @specialize[@name={term}]<Identifier, term> }
   Number { "-"? @digit+ ("." @digit+)? }
   Color { "#" $[0-9a-zA-Z]+ }
   String { '"' (!["\\\n] | "\\" _)* '"' }
-  Arrow { "-->" | "-.->" | "<-->" | "<-.->" }
+  Arrow { "-->" | "..>" | "<->" | "<.>" }
   "{" "}" "[" "]" "," ":"
 }
 

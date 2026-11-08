@@ -22,8 +22,8 @@ waf --> alb : "Verified"
 alb --> api : "HTTP/2"
 api --> redis : "Cache Lookup"
 api --> db_pri : "Read / Write"
-db_pri -.-> db_sby : "Sync Replication"
-api -.-> db_sby : "Failover Route" [id: e_failover, visible: false, color: yellow]
+db_pri ..> db_sby : "Sync Replication"
+api ..> db_sby : "Failover Route" [id: e_failover, visible: false, color: yellow]
 
 step "エッジ検証とALBへのルーティング" {
   desc "ブラウザからのリクエストをCloudFrontが受け取り、WAFで検査した後にVPC内のALBへ転送します。"
@@ -47,7 +47,7 @@ step "注文トランザクションの書き込みとDB同期" {
   state redis [color: none, badge: ""]
   state db_pri [color: green, badge: "COMMIT"]
   animate api --> db_pri : "INSERT INTO orders" [desc: "Primary DB (AZ-a) に対して注文トランザクションを書き込みコミット"]
-  animate db_pri -.-> db_sby : "Replicate WAL" [desc: "別AZのStandby DB (AZ-c) へストレージレベルでWALを同期レプリケーション"]
+  animate db_pri --> db_sby : "Replicate WAL" [desc: "別AZのStandby DB (AZ-c) へストレージレベルでWALを同期レプリケーション"]
 }
 
 step "Primary DB障害発生と自動フェイルオーバー" {
@@ -56,5 +56,5 @@ step "Primary DB障害発生と自動フェイルオーバー" {
   state db_pri [color: red, badge: "DOWN"]
   state db_sby [color: green, badge: "PROMOTED"]
   state e_failover [visible: true]
-  animate api -.-> db_sby : "Reconnect Writer" [desc: "クラスターエンドポイントのDNS切替により、昇格したStandby DBへ自動再接続"]
+  animate api --> db_sby : "Reconnect Writer" [color: yellow, desc: "クラスターエンドポイントのDNS切替により、昇格したStandby DBへ自動再接続"]
 }

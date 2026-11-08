@@ -7,6 +7,7 @@ export {
   type PacketCalloutBox,
   packetBubblePath,
   packetPosition,
+  paint,
   SCENE_PADDING,
   sceneBounds,
 } from './build';

@@ -1,5 +1,64 @@
-import { pathToFileURL } from 'node:url';
+import { writeFile } from 'node:fs/promises';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { expect, type Page, test } from '@playwright/test';
+import { createServer } from 'vite';
+import { DEFAULT_SAMPLE } from '../src/samples';
+
+interface PostedMessage {
+  type: string;
+  from?: number;
+}
+
+/** Loads the webview the way the extension does: it reports `ready` and receives the document. */
+async function openWebview(page: Page, dsl: string = DEFAULT_SAMPLE.dsl): Promise<void> {
+  await page.addInitScript((text) => {
+    const posted: PostedMessage[] = [];
+    (window as unknown as { __posted: PostedMessage[] }).__posted = posted;
+    window.acquireVsCodeApi = () => ({
+      postMessage(message) {
+        posted.push(message);
+        if (message.type === 'ready') window.postMessage({ type: 'docChanged', dsl: text }, '*');
+      },
+    });
+  }, dsl);
+  await page.goto('/');
+}
+
+function postedMessages(page: Page): Promise<PostedMessage[]> {
+  return page.evaluate(() => (window as unknown as { __posted: PostedMessage[] }).__posted);
+}
+
+function sendDsl(page: Page, dsl: string): Promise<void> {
+  return page.evaluate((text) => window.postMessage({ type: 'docChanged', dsl: text }, '*'), dsl);
+}
+
+function sendCursor(page: Page, offset: number): Promise<void> {
+  return page.evaluate(
+    (value) => window.postMessage({ type: 'cursorMoved', offset: value }, '*'),
+    offset,
+  );
+}
+
+type ExporterModule = typeof import('../src/exporter');
+let exporter: Promise<ExporterModule> | undefined;
+
+/** The exporter uses Vite-only `?raw` imports, so it is loaded through Vite. */
+async function loadExporter(): Promise<ExporterModule> {
+  const server = await createServer({
+    root: fileURLToPath(new URL('..', import.meta.url)),
+    appType: 'custom',
+    logLevel: 'silent',
+    server: { middlewareMode: true, hmr: false, watch: null },
+  });
+  const module = (await server.ssrLoadModule('/src/exporter/index.ts')) as ExporterModule;
+  await server.close();
+  return module;
+}
+
+async function writeExport(file: string, dsl: string = DEFAULT_SAMPLE.dsl): Promise<void> {
+  exporter ??= loadExporter();
+  await writeFile(file, await (await exporter).exportHtml(dsl, { locale: 'en' }));
+}
 
 /** Collects console errors, page errors and CSP violations. */
 function watchErrors(page: Page): string[] {
@@ -11,23 +70,14 @@ function watchErrors(page: Page): string[] {
   return errors;
 }
 
-test.describe('code-only authoring & live preview', () => {
+test.describe('webview preview', () => {
   test('renders the sample diagram in the shared player with top step dropdown and playback controls', async ({
     page,
   }) => {
     const errors = watchErrors(page);
-    await page.goto('/');
+    await openWebview(page);
     await expect(page.locator('.dav-node')).not.toHaveCount(0);
     await expect(page.locator('.dav-title')).toHaveText(/AWS/);
-    await expect(page.locator('.problems .ok')).toBeVisible();
-
-    // Top toolbar has no brand title, Format button, Prev/Next, locale toggle, or DSL source button
-    await expect(page.locator('.brand')).toHaveCount(0);
-    await expect(page.locator('[data-testid="btn-format"]')).toHaveCount(0);
-    await expect(page.locator('[data-testid="btn-step-prev"]')).toHaveCount(0);
-    await expect(page.locator('[data-testid="btn-step-next"]')).toHaveCount(0);
-    await expect(page.locator('[data-testid="btn-locale-toggle"]')).toHaveCount(0);
-    await expect(page.locator('.dav-topbar').getByRole('button', { name: 'DSL' })).toHaveCount(0);
 
     // Playback controls (Step dropdown, Play step, Play all steps, Speed) are mounted in the top toolbar
     const topStepSelect = page.locator('header.toolbar [data-testid="select-step"]');
@@ -38,15 +88,11 @@ test.describe('code-only authoring & live preview', () => {
     await expect(topPlayAllBtn).toBeVisible();
     await expect(topPlayBtn).toHaveAttribute('aria-pressed', 'false');
     await expect(topPlayAllBtn).toHaveAttribute('aria-pressed', 'false');
-    await expect(page.locator('footer.dav-dock [data-testid="btn-play"]')).toHaveCount(0);
 
     // Zoom percentage, icon Fit button, and Follow Animation icon button are mounted inside the diagram canvas viewport corner
     await expect(
       page.locator('main.dav-viewport [data-testid="canvas-zoom-controls"]'),
     ).toBeVisible();
-    await expect(
-      page.locator('header.dav-topbar [data-testid="canvas-zoom-controls"]'),
-    ).toHaveCount(0);
     const fitBtn = page.locator('main.dav-viewport [data-testid="btn-zoom-fit"]');
     const followBtn = page.locator('main.dav-viewport [data-testid="btn-follow-anim"]');
     await expect(fitBtn.locator('svg')).toBeVisible();
@@ -68,15 +114,12 @@ test.describe('code-only authoring & live preview', () => {
       scaleOf(initialTransform),
     );
 
-    // Step narrative (title + description) is mounted in the top header above the canvas viewport (no bottom footer or keyboard hint)
-    await expect(page.locator('footer.dav-dock')).toHaveCount(0);
-    await expect(page.locator('.dav-hint')).toHaveCount(0);
+    // Step narrative (title + description) is mounted in the top header above the canvas viewport
     await expect(page.getByTestId('btn-open-help').locator('svg')).toBeVisible();
     await expect(page.getByTestId('btn-open-help')).toHaveText('');
     await expect(page.locator('header.dav-topbar .dav-dock .dav-step-title')).toContainText(
       'Step 1 / 4',
     );
-    await expect(page.getByTestId('dock-anim-list')).toHaveCount(0);
     await expect(page.locator('.dav-packet .dav-packet-callout')).toHaveCount(1);
     await expect(page.locator('.dav-packet .dav-packet-label')).toHaveText('GET /products');
     await expect(page.locator('.dav-packet .dav-packet-desc').first()).toContainText('CloudFront');
@@ -129,14 +172,13 @@ test.describe('code-only authoring & live preview', () => {
     expect(errors).toEqual([]);
   });
 
-  test('updates the preview and reports diagnostics on DSL edits', async ({ page }) => {
+  test('updates the preview when the document changes', async ({ page }) => {
     const errors = watchErrors(page);
-    await page.goto('/');
-    const input = page.locator('textarea.dsl-input');
-    await input.fill('dav 1\ntitle "Typed"\nnode a [icon: databse]\nnode b\na --> b');
+    await openWebview(page);
+    await expect(page.locator('.dav-node')).not.toHaveCount(0);
+    await sendDsl(page, 'dav 1\ntitle "Typed"\nnode a [icon: databse]\nnode b\na --> b');
     await expect(page.locator('.dav-title')).toHaveText('Typed');
     await expect(page.locator('.dav-node')).toHaveCount(2);
-    await expect(page.locator('.problems .error')).toContainText('database');
 
     // Diagram with 0 steps disables playback transport controls and keeps play buttons unpressed
     await expect(page.getByTestId('btn-play')).toBeDisabled();
@@ -146,17 +188,17 @@ test.describe('code-only authoring & live preview', () => {
     await expect(page.getByTestId('select-speed')).toBeDisabled();
     await expect(page.getByTestId('select-step')).toHaveValue('overview');
 
-    // Fix typo
-    await input.fill(
+    await sendDsl(
+      page,
       'dav 1\ntitle "Clean"\ngroup g {\n  node a "A" [icon: database]\n  node b\n}\na --> b\n',
     );
-    await expect(page.locator('.problems .ok')).toBeVisible();
+    await expect(page.locator('.dav-title')).toHaveText('Clean');
+    await expect(page.locator('.dav-group[data-id="g"]')).not.toHaveCount(0);
     expect(errors).toEqual([]);
   });
 
   test('adapts color names to the theme', async ({ page }) => {
-    await page.goto('/');
-    await page.locator('.dsl-input').fill('dav 1\nnode named "N" [color: yellow]\n');
+    await openWebview(page, 'dav 1\nnode named "N" [color: yellow]\n');
     const strokeOf = (id: string) =>
       page
         .locator(`.dav-node[data-id="${id}"] .dav-station`)
@@ -172,109 +214,111 @@ test.describe('code-only authoring & live preview', () => {
   test('communicates with VS Code Extension Host via acquireVsCodeApi protocol', async ({
     page,
   }) => {
-    await page.addInitScript(() => {
-      const posted: unknown[] = [];
-      (window as unknown as { __postedMessages: unknown[] }).__postedMessages = posted;
-      window.acquireVsCodeApi = () => ({
-        postMessage(msg: unknown) {
-          posted.push(msg);
-        },
-        getState() {
-          return undefined;
-        },
-        setState() {},
-      });
-    });
-
-    await page.goto('/');
-    // Webview sends `{ type: 'ready' }` on startup
-    const postedReady = await page.evaluate(
-      () => (window as unknown as { __postedMessages: Array<{ type: string }> }).__postedMessages,
-    );
-    expect(postedReady.some((m) => m.type === 'ready')).toBe(true);
-
-    // Simulate Extension Host sending `docChanged`
     const dsl =
       'dav 1\ntitle "From VS Code"\nnode api "API"\nnode db "DB"\napi --> db\nstep "S1" {\n  focus api\n}\nstep "S2" {\n  focus db\n}\n';
-    await page.evaluate((text) => {
-      window.postMessage(
-        {
-          type: 'docChanged',
-          dsl: text,
-        },
-        '*',
-      );
-    }, dsl);
+    await openWebview(page, dsl);
+    expect((await postedMessages(page)).some((m) => m.type === 'ready')).toBe(true);
+
     await expect(page.locator('.dav-title')).toHaveText('From VS Code');
     await expect(page.locator('.dav-node')).toHaveCount(2);
 
     // Simulate Extension Host sending `cursorMoved` on `node api` -> highlights node
     const apiOffset = dsl.indexOf('node api') + 5;
-    await page.evaluate((offset) => {
-      window.postMessage({ type: 'cursorMoved', offset }, '*');
-    }, apiOffset);
+    await sendCursor(page, apiOffset);
     await expect(page.locator('.editor-cursor-highlight')).toHaveCount(1);
 
     // Simulate Extension Host sending `cursorMoved` inside `step "S2"` -> switches player and top dropdown to step 2
     const s2Offset = dsl.indexOf('focus db') + 2;
-    await page.evaluate((offset) => {
-      window.postMessage({ type: 'cursorMoved', offset }, '*');
-    }, s2Offset);
+    await sendCursor(page, s2Offset);
     await expect(page.locator('.dav-step-title')).toContainText('Step 2 / 2');
     await expect(page.getByTestId('select-step')).toHaveValue('1');
 
     // A cursor move within the same step must not rebuild the scene (which restarts animations)
     await page.locator('.dav-scene').evaluate((el) => el.setAttribute('data-marker', 'kept'));
-    await page.evaluate(async (offset) => {
-      window.postMessage({ type: 'cursorMoved', offset }, '*');
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }, s2Offset + 1);
+    await sendCursor(page, s2Offset + 1);
+    await page.waitForTimeout(50);
     await expect(page.locator('.dav-scene')).toHaveAttribute('data-marker', 'kept');
 
     // Double-clicking a canvas node posts `revealRange` to Extension Host
     await page.locator('.dav-node[data-id="api"]').dblclick();
-    const revealMsg = await page.evaluate(() => {
-      const msgs = (
-        window as unknown as {
-          __postedMessages: Array<{ type: string; from?: number; to?: number }>;
-        }
-      ).__postedMessages;
-      return msgs.filter((m) => m.type === 'revealRange').pop();
-    });
+    const revealMsg = (await postedMessages(page)).filter((m) => m.type === 'revealRange').pop();
     expect(revealMsg?.from).toBe(dsl.indexOf('node api "API"'));
 
     // Export HTML button posts `exportHtml` to Extension Host
     await page.getByTestId('btn-export-html').click();
-    const exportMsg = await page.evaluate(() => {
-      const msgs = (window as unknown as { __postedMessages: Array<{ type: string }> })
-        .__postedMessages;
-      return msgs.some((m) => m.type === 'exportHtml');
-    });
+    const exportMsg = (await postedMessages(page)).some((m) => m.type === 'exportHtml');
     expect(exportMsg).toBe(true);
-    // The host reports the outcome after its save dialog; the webview must not claim success.
-    await expect(page.locator('.toast')).toBeHidden();
   });
 
-  test('opens AI Prompt & DSL Reference modal and wraps cleanly on narrow viewports', async ({
-    page,
-  }) => {
+  test('opens the documentation and wraps cleanly on narrow viewports', async ({ page }) => {
     const errors = watchErrors(page);
-    await page.goto('/');
+    await openWebview(page);
+    await expect(page.locator('.dav-node')).not.toHaveCount(0);
 
-    // Open AI Prompt & DSL Reference dialog (English UI)
     await page.getByTestId('btn-open-help').click();
-    await expect(page.getByTestId('help-dialog')).toBeVisible();
-    await expect(page.getByTestId('ai-prompt-textarea')).toHaveValue(/dav 1/);
+    const dialog = page.getByTestId('help-dialog');
+    await expect(dialog).toBeVisible();
 
-    // Include current DSL in prompt
+    // The overview plays a real diagram under the page's CSP.
+    await expect(dialog.locator('.dav-node')).toHaveCount(3);
+    await expect(dialog.locator('.doc-line.is-running')).toHaveCount(1);
+
+    // Examples repeat the current step, and only the reader changes steps.
+    const figurePlay = dialog.getByTestId('btn-play');
+    await expect(figurePlay).toBeVisible();
+    await expect(figurePlay).toHaveAttribute('aria-pressed', 'true');
+    await expect(dialog.getByTestId('btn-play-all')).toBeHidden();
+    await expect(dialog.locator('.dav-step-title')).toContainText('Step 1 / 2');
+    await dialog.locator('.dav-tick').nth(1).click();
+    await expect(dialog.locator('.dav-step-title')).toContainText('Step 2 / 2');
+    await expect(figurePlay).toHaveAttribute('aria-pressed', 'true');
+
+    // Every color shows distinct light and dark values read from the theme.
+    await page.getByTestId('doc-nav-colors').click();
+    const swatches = page.getByTestId('doc-palette').locator('.doc-swatch');
+    await expect(swatches).toHaveCount(9);
+    await expect(page.getByTestId('doc-color-none').locator('.dav-node')).toHaveCount(6);
+    const [lightHex, darkHex] = await swatches.first().locator('.doc-swatch-hex').allTextContents();
+    expect(lightHex).toMatch(/^#[0-9a-f]{6}$/);
+    expect(darkHex).toMatch(/^#[0-9a-f]{6}$/);
+    expect(lightHex).not.toBe(darkHex);
+    await page.getByTestId('doc-chip-red').click();
+    await expect(page.getByTestId('doc-color-lab').locator('.doc-code')).toContainText(
+      'color: red',
+    );
+
+    // All icons render, and the filter narrows them.
+    await page.getByTestId('doc-nav-icons').click();
+    const icons = page.getByTestId('doc-icon-catalog').locator('.doc-icon-card');
+    await expect(icons).toHaveCount(18);
+    await expect(icons.first().locator('.dav-station')).toHaveCount(1);
+    await page.getByTestId('doc-icon-search').fill('database');
+    await expect(icons).toHaveCount(1);
+
+    // Animation pages show the phases of the running step.
+    await page.getByTestId('doc-nav-animate').click();
+    await expect(page.getByTestId('doc-figure')).toHaveCount(5);
+    await expect(page.getByTestId('doc-phase-strip').first().locator('.doc-phase')).toHaveCount(3);
+    await expect(page.locator('.doc-phase.is-active').first()).toBeVisible();
+
+    // State shows accumulated values, including the reset in the last step.
+    await page.getByTestId('doc-nav-state').click();
+    await expect(page.getByTestId('doc-state-matrix').locator('tbody tr')).not.toHaveCount(0);
+
+    await page.getByTestId('doc-nav-diagnostics').click();
+    await expect(page.getByTestId('doc-diagnostics').locator('tbody tr')).toHaveCount(18);
+
+    await page.getByTestId('doc-locale-ja').click();
+    await expect(page.getByTestId('doc-nav-diagnostics')).toHaveText('診断メッセージ');
+    await page.getByTestId('doc-locale-en').click();
+
+    await page.getByTestId('doc-nav-prompt').click();
+    await expect(page.getByTestId('ai-prompt-textarea')).toHaveValue(/dav 1/);
     await page.getByTestId('chk-include-current-dsl').check();
     await expect(page.getByTestId('ai-prompt-textarea')).toHaveValue(/AWS/);
 
-    // Switch to Reference tab and verify all 18 icons are shown
-    await page.getByTestId('help-tab-ref').click();
-    await expect(page.getByTestId('ref-icon-catalog').locator('.icon-card')).toHaveCount(18);
-
     await page.getByTestId('help-close-btn').click();
+    await expect(dialog.locator('.dav-node')).toHaveCount(0);
 
     // Narrow split-pane viewport (600px wide): toolbar wraps cleanly without horizontal overflow
     await page.setViewportSize({ width: 600, height: 800 });
@@ -290,16 +334,32 @@ test.describe('code-only authoring & live preview', () => {
   });
 });
 
+test('documentation examples keep the source where the reader scrolled it', async ({ page }) => {
+  await openWebview(page);
+  await expect(page.locator('.dav-node')).not.toHaveCount(0);
+  await page.getByTestId('btn-open-help').click();
+  const figure = page.getByTestId('doc-figure').first();
+  const code = figure.locator('.doc-code');
+  const scrollTop = () => code.evaluate((el) => el.scrollTop);
+
+  // Changing steps brings the step into view.
+  await figure.locator('.dav-tick').nth(1).click();
+  await expect.poll(scrollTop).toBeGreaterThan(0);
+
+  // Repeating the same step (one phase plus the hold) must not move it back.
+  await code.evaluate((el) => {
+    el.scrollTop = 0;
+  });
+  await page.waitForTimeout(4200);
+  expect(await scrollTop()).toBe(0);
+});
+
 test.describe('exported HTML', () => {
   test('works standalone from file:// under its strict CSP', async ({ page, context }, info) => {
-    await page.goto('/');
+    await openWebview(page);
     await expect(page.locator('.dav-node')).not.toHaveCount(0);
-    const [download] = await Promise.all([
-      page.waitForEvent('download'),
-      page.locator('.toolbar button.primary').click(),
-    ]);
     const file = info.outputPath('export.html');
-    await download.saveAs(file);
+    await writeExport(file);
 
     const viewer = await context.newPage();
     const errors = watchErrors(viewer);
@@ -310,8 +370,6 @@ test.describe('exported HTML', () => {
     await expect(viewer.getByTestId('select-step').locator('option')).toHaveCount(5);
     await expect(viewer.locator('.dav-step-title')).toContainText('Step 1 / 4');
     await expect(viewer.locator('header.dav-topbar [data-testid="btn-play"]')).toBeVisible();
-    await expect(viewer.locator('footer.dav-dock [data-testid="btn-play"]')).toHaveCount(0);
-    await expect(viewer.locator('.dav-topbar').getByRole('button', { name: 'DSL' })).toHaveCount(0);
 
     // Packets animate along paths.
     await expect(viewer.locator('.dav-packet')).not.toHaveCount(0);
@@ -342,35 +400,10 @@ test.describe('exported HTML', () => {
     expect(errors).toEqual([]);
   });
 
-  test('re-imports an exported file into the app', async ({ page }, info) => {
-    await page.goto('/');
-    await page
-      .locator('textarea.dsl-input')
-      .fill('dav 1\ntitle "Round trip"\nnode a\nnode b\na --> b');
-    const [download] = await Promise.all([
-      page.waitForEvent('download'),
-      page.locator('.toolbar button.primary').click(),
-    ]);
-    const file = info.outputPath('roundtrip.html');
-    await download.saveAs(file);
-
-    await page.reload();
-    await page.locator('input[type=file]').setInputFiles(file);
-    await expect(page.locator('textarea.dsl-input')).toHaveValue(
-      'dav 1\ntitle "Round trip"\nnode a\nnode b\na --> b',
-    );
-  });
-
   test('honors prefers-reduced-motion', async ({ browser }, info) => {
     const context = await browser.newContext({ reducedMotion: 'reduce' });
-    const page = await context.newPage();
-    await page.goto('/');
-    const [download] = await Promise.all([
-      page.waitForEvent('download'),
-      page.locator('.toolbar button.primary').click(),
-    ]);
     const file = info.outputPath('reduced.html');
-    await download.saveAs(file);
+    await writeExport(file);
     const viewer = await context.newPage();
     await viewer.goto(pathToFileURL(file).href);
     await expect(viewer.getByTestId('btn-play')).toHaveAttribute('aria-pressed', 'false');

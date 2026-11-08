@@ -27,11 +27,13 @@ const COLOR = {
 } as const;
 
 /** Color names resolve to a per-theme token; default colors are tokens already. */
-function paint(color: string): string {
+export function paint(color: string): string {
   return (COLOR_NAMES as readonly string[]).includes(color) ? `var(--dav-c-${color})` : color;
 }
 
 export const SCENE_PADDING = 48;
+/** Extra room above a framed diagram for speech bubbles. */
+const BUBBLE_HEADROOM = 76;
 
 export function buildScene(view: ResolvedView): VElement {
   return h(
@@ -44,7 +46,12 @@ export function buildScene(view: ResolvedView): VElement {
     ),
     h('g', { class: 'dav-layer-edges' }, ...view.edges.map(edgeElement)),
     h('g', { class: 'dav-layer-flows' }, ...view.edges.map(flowElement)),
-    h('g', { class: 'dav-layer-labels' }, ...view.edges.map(edgeLabelElement)),
+    h(
+      'g',
+      { class: 'dav-layer-labels' },
+      ...view.groups.map(groupLabelElement),
+      ...view.edges.map(edgeLabelElement),
+    ),
     h('g', { class: 'dav-layer-stops' }, ...stopElements(view)),
     h('g', { class: 'dav-layer-nodes' }, ...view.nodes.map(nodeElement)),
   );
@@ -73,17 +80,29 @@ export function buildDefs(): VElement {
 }
 
 /** Bounding box of everything drawn (for fit-to-screen). */
-export function sceneBounds(view: ResolvedView): Rect {
-  return boundsOf([...view.groups.map((g) => g.rect), ...view.nodes.map((n) => n.rect)]);
+export function sceneBounds(
+  view: ResolvedView,
+  pad = SCENE_PADDING,
+  headroom = BUBBLE_HEADROOM,
+): Rect {
+  return boundsOf(
+    [...view.groups.map((g) => g.rect), ...view.nodes.map((n) => n.rect)],
+    pad,
+    headroom,
+  );
 }
 
 /** Bounding box of rectangles plus scene padding (extra top headroom for speech bubbles). */
-export function boundsOf(rects: readonly Rect[]): Rect {
+export function boundsOf(
+  rects: readonly Rect[],
+  pad = SCENE_PADDING,
+  headroom = BUBBLE_HEADROOM,
+): Rect {
   if (rects.length === 0) return { x: 0, y: 0, width: 400, height: 300 };
-  const minX = Math.min(...rects.map((r) => r.x)) - SCENE_PADDING;
-  const minY = Math.min(...rects.map((r) => r.y)) - SCENE_PADDING - 76;
-  const maxX = Math.max(...rects.map((r) => r.x + r.width)) + SCENE_PADDING;
-  const maxY = Math.max(...rects.map((r) => r.y + r.height)) + SCENE_PADDING;
+  const minX = Math.min(...rects.map((r) => r.x)) - pad;
+  const minY = Math.min(...rects.map((r) => r.y)) - pad - headroom;
+  const maxX = Math.max(...rects.map((r) => r.x + r.width)) + pad;
+  const maxY = Math.max(...rects.map((r) => r.y + r.height)) + pad;
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 }
 
@@ -105,6 +124,15 @@ function groupElement(g: ResolvedGroup): VElement {
       rx: 14,
       fill: g.color ? `color-mix(in srgb, ${paint(g.color)} 14%, transparent)` : COLOR.zone,
     }),
+  );
+}
+
+/** A zone's name, in a layer above the rails so that no line can run over it. */
+function groupLabelElement(g: ResolvedGroup): VElement {
+  const { x, y, width } = g.rect;
+  return h(
+    'g',
+    { class: dimClass('dav-group', g.dimmed), 'data-id': g.id },
     h(
       'text',
       { x: x + 14, y: y + 19, class: 'dav-group-label', 'font-size': 12, fill: COLOR.fg },
@@ -154,6 +182,11 @@ function flowElement(e: ResolvedEdge): VElement | null {
   });
 }
 
+function activeLabelFill(e: ResolvedEdge): string {
+  const custom = e.flowColor && e.flowColor !== COLOR.accent;
+  return custom ? paint(e.flowColor as string) : 'var(--dav-accent-text)';
+}
+
 function edgeLabelElement(e: ResolvedEdge): VElement | null {
   if (!e.label) return null;
   const mid = pointAt(e.path, 0.5);
@@ -168,6 +201,9 @@ function edgeLabelElement(e: ResolvedEdge): VElement | null {
         'text-anchor': 'middle',
         'font-size': EDGE_LABEL_FONT_SIZE,
         fill: COLOR.fg,
+        // Read by Player.syncPhaseHighlights to emphasize the running phase's label.
+        'data-edge': e.active ? e.id : undefined,
+        'data-active-fill': e.active ? activeLabelFill(e) : undefined,
       },
       fitText(e.label, EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH),
     ),
@@ -182,9 +218,19 @@ function stopElements(view: ResolvedView): VElement[] {
       const { x, y } = pointAt(packet.path, 0.5);
       return h(
         'g',
-        { class: 'dav-stop', 'data-phase': phase },
-        h('circle', { cx: x, cy: y, r: 11 }),
-        h('text', { x, y: y + 4, 'text-anchor': 'middle', 'font-size': 11 }, String(phase + 1)),
+        {
+          class: 'dav-stop',
+          'data-phase': phase,
+          // Read by Player.syncPhaseHighlights while this phase is running.
+          'data-active-fill': paint(packet.color),
+          'data-active-text': packet.color === COLOR.accent ? '#ffffff' : COLOR.bg,
+        },
+        h('circle', { cx: x, cy: y, r: 11, fill: COLOR.fg }),
+        h(
+          'text',
+          { x, y: y + 4, 'text-anchor': 'middle', 'font-size': 11, fill: COLOR.bg },
+          String(phase + 1),
+        ),
       );
     }),
   );
@@ -325,6 +371,7 @@ const CALLOUT_DESC_SIZE = 13;
 const CALLOUT_LINE_HEIGHT = 18;
 /** Keeps a callout above its endpoint nodes, including their badges and crop marks. */
 const CALLOUT_NODE_CLEARANCE = 16;
+const CALLOUT_LABEL_CLEARANCE = 6;
 
 /**
  * Computes the stationary speech-bubble box positioned above the packet's edge path.
@@ -361,7 +408,13 @@ export function computePacketCalloutBox(packet: Packet): PacketCalloutBox | null
     mid.y,
   );
   const cx = mid.x;
-  const boxBottom = Math.min(mid.y - 36, minY - 26, packet.clearTop - CALLOUT_NODE_CLEARANCE);
+  let boxBottom = Math.min(mid.y - 36, minY - 26, packet.clearTop - CALLOUT_NODE_CLEARANCE);
+  // Moves up past each zone name in the way, nearest first.
+  for (const area of [...packet.labelAreas].sort((a, b) => b.y - a.y)) {
+    const overlapsX = cx - halfW < area.x + area.width && cx + halfW > area.x;
+    const overlapsY = boxBottom - height < area.y + area.height && boxBottom > area.y;
+    if (overlapsX && overlapsY) boxBottom = area.y - CALLOUT_LABEL_CLEARANCE;
+  }
   const boxTop = boxBottom - height;
 
   return { cx, halfW, boxTop, boxBottom, padX, label, descLines };
@@ -469,7 +522,9 @@ export function buildPacket(packet: Packet, t = 0): VElement {
 }
 
 export function packetPosition(packet: Packet, t: number): Point {
-  return pointAt(packet.path, easeInOut(t));
+  // A round trip covers the path twice in the time of a one-way trip.
+  const progress = packet.roundTrip ? 1 - Math.abs(2 * t - 1) : t;
+  return pointAt(packet.path, easeInOut(progress));
 }
 
 function easeInOut(t: number): number {

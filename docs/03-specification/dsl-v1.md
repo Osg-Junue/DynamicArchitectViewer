@@ -40,14 +40,16 @@ GroupChild    ::= GroupDecl | NodeDecl
 NodeDecl      ::= "node" Identifier String? AttrBlock?
 
 EdgeDecl      ::= Identifier ArrowOp Identifier (":" String)? AttrBlock?
-ArrowOp       ::= "-->" | "-.->" | "<-->" | "<-.->"
+ArrowOp       ::= "-->" | "..>" | "<->" | "<.>"
+
+AnimateArrow  ::= "-->" | "<->"
 
 StepDecl      ::= "step" String "{" StepStmt* "}"
 StepStmt      ::= DescStmt | FocusStmt | StateStmt | AnimateStmt
 DescStmt      ::= "desc" String
 FocusStmt     ::= "focus" Identifier ("," Identifier)*
 StateStmt     ::= "state" Identifier AttrBlock
-AnimateStmt   ::= "animate" Identifier ArrowOp Identifier (":" String)? AttrBlock? ("{" DescStmt* "}")?
+AnimateStmt   ::= "animate" Identifier AnimateArrow Identifier (":" String)? AttrBlock? ("{" DescStmt* "}")?
 
 AttrBlock     ::= "[" (Attr ("," Attr)* ","?)? "]"
 Attr          ::= (Identifier | "desc") ":" (String | Identifier | Color | Boolean)
@@ -97,18 +99,18 @@ node db_pri "Primary DB" [icon: database, sub: "Aurora Writer", badge: "WRITER",
 
 ```dav
 api --> db_pri : "Read / Write"
-db_pri -.-> db_sby : "Sync Replication"
-user <--> apigw : "HTTPS"
-api -.-> db_sby : "Failover Route" [id: e_failover, visible: false, color: yellow]
+db_pri ..> db_sby : "Sync Replication"
+user <-> apigw : "HTTPS"
+api ..> db_sby : "Failover Route" [id: e_failover, visible: false, color: yellow]
 ```
 
 - **矢印演算子**:
   - `-->` : 実線・単方向
-  - `-.->` : 破線・単方向
-  - `<-->` : 実線・双方向
-  - `<-.->` : 破線・双方向
+  - `..>` : 破線・単方向
+  - `<->` : 実線・双方向
+  - `<.>` : 破線・双方向
 - **属性**:
-  - `id`: `<id>`（`step` 内の `state` や `focus` から参照するための明示的 ID。省略時の暗黙 ID は `<from>-><to>`）
+  - `id`: `<id>`（`step` 内の `state` からエッジを参照するために必須の明示的 ID。省略時の暗黙 ID `<from>-><to>` は内部の識別用で、識別子の字句規則に合わないため DSL からは参照できない）
   - `color`: `<color>`（線の色）
   - `visible`: `<bool>`（初期表示状態。省略時: `true`）
 
@@ -121,16 +123,17 @@ step "Primary DB障害発生と自動フェイルオーバー" {
   state db_pri [badge: "DOWN"]
   state db_sby [badge: "PROMOTED"]
   state e_failover [visible: true]
-  animate api -.-> db_sby : "Reconnect Writer" [color: yellow, desc: "昇格したStandby DBへエンドポイントを自動切替"]
+  animate api --> db_sby : "Reconnect Writer" [color: yellow, desc: "昇格したStandby DBへエンドポイントを自動切替"]
 }
 ```
 
 - **評価モデル（累積状態 + ステップ局所演出）**:
   - `state <id> [...]` による状態変更（`badge`, `visible`, `color`）は **Step 1 から Step $k$ まで順に累積適用** される（ノードは `badge`/`visible`/`color`、グループは `color`、エッジは `visible`/`color` を変更可能）。
   - `state` の `color` には `none` も指定でき、それまでのステップで付けた色を解除して宣言時の色に戻す（`node` / `group` / エッジの宣言では使用不可）。
-  - `focus`（ハイライト対象）および `animate`（パケットアニメーション）は **そのステップのみ有効**。
+  - `focus`（ハイライト対象）および `animate`（パケットアニメーション）は **そのステップのみ有効**。`focus` の対象はノードとグループのみで、エッジは指定できない。
   - `animate` には `desc: "..."` 属性（または `{ desc "..." }` ブロック）で各アニメーション動作の解説を記述でき、再生中のフェーズに合わせてパケットの吹き出しに表示される。
   - `animate` に `[parallel: true]` を指定すると、直前の `animate` と同じフェーズで同時再生される。
+  - `animate` で使える矢印は `-->`（片道）と `<->`（片道と同じ時間で往復）のみ。エッジの矢印の種類はパケットの動きに影響しない。
 
 ---
 
@@ -151,7 +154,8 @@ step "Primary DB障害発生と自動フェイルオーバー" {
 | `attribute-not-applicable` | Warning | `state` の対象種別に適用できない属性を指定した |
 | `empty-state` | Warning | `state` の属性ブロックが空 `[]` |
 | `unknown-icon` | Error | 18種以外のアイコン名を指定した（最近傍候補をサジェスト） |
-| `invalid-color` | Error | 定義済みの色名以外の色指定（16 進カラーコードを含む。最も近い色名をサジェスト） |
+| `invalid-color` | Error | 定義済みの色名以外の色指定（16 進カラーコードを含む。色名のタイプミスには最も近い色名をサジェスト） |
+| `invalid-animate-arrow` | Error | `animate` に点線の矢印を指定した |
 | `invalid-escape` | Error | 文字列内の未定義エスケープシーケンス |
 | `unexpected-eof` | Error | ブロック `{ ... }` または文字列が閉じられていない |
 | `syntax-error` | Error | その他の構文エラー |

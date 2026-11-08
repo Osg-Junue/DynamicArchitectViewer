@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { format, parse } from '../index';
 
 const ICONS = ['server', 'database', 'cache', 'screen', 'user'] as const;
-const ARROWS = ['-->', '-.->', '<-->', '<-.->'] as const;
+const ARROWS = ['-->', '..>', '<->', '<.>'] as const;
 
 const labelArb = fc.string({ maxLength: 12 });
 
@@ -180,8 +180,8 @@ describe('fuzz: arbitrary input never throws', () => {
     '"',
     '\\',
     '-->',
-    '-.->',
-    '<-->',
+    '..>',
+    '<->',
     '[',
     ']',
     '{',

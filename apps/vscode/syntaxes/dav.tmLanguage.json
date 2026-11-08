@@ -42,7 +42,7 @@
       "patterns": [
         {
           "name": "keyword.operator.arrow.dav",
-          "match": "<-->|<-\\.->|-->|-\\.->"
+          "match": "<->|<\\.>|-->|\\.\\.>"
         }
       ]
     },

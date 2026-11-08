@@ -21,7 +21,6 @@ import {
   ATTRIBUTE_SCHEMA,
   type AttrOwner,
   type AttrType,
-  closestColorName,
   STATE_ATTRIBUTES_BY_TARGET,
 } from './schema';
 import { childNodes, parseTree, sliceOf, unescapeString } from './syntax';
@@ -71,9 +70,9 @@ interface ValidAttr {
 
 const ARROWS: Record<string, { style: LineStyle; direction: Direction }> = {
   '-->': { style: 'solid', direction: 'forward' },
-  '-.->': { style: 'dashed', direction: 'forward' },
-  '<-->': { style: 'solid', direction: 'bidirectional' },
-  '<-.->': { style: 'dashed', direction: 'bidirectional' },
+  '..>': { style: 'dashed', direction: 'forward' },
+  '<->': { style: 'solid', direction: 'bidirectional' },
+  '<.>': { style: 'dashed', direction: 'bidirectional' },
 };
 
 const DEFAULT_ARROW = { style: 'solid', direction: 'forward' } as const;
@@ -338,7 +337,7 @@ class Analyzer {
           for (const ref of stmt.getChildren('Identifier')) {
             const id = sliceOf(this.text, ref);
             step.focus.push(id);
-            this.references.push({ id, range: rangeOf(ref), allowed: ['node', 'group', 'edge'] });
+            this.references.push({ id, range: rangeOf(ref), allowed: ['node', 'group'] });
           }
           break;
         case 'State':
@@ -384,13 +383,19 @@ class Analyzer {
     const [fromNode, toNode] = stmt.getChildren('Identifier');
     const arrowNode = stmt.getChild('Arrow');
     if (!fromNode || !toNode || !arrowNode) return;
-    const arrow = ARROWS[sliceOf(this.text, arrowNode)] ?? DEFAULT_ARROW;
+    const arrowText = sliceOf(this.text, arrowNode);
+    const arrow = ARROWS[arrowText] ?? DEFAULT_ARROW;
+    if (arrow.style === 'dashed') {
+      this.report('invalid-animate-arrow', 'error', arrowNode, {
+        arrow: arrowText,
+        suggestion: arrow.direction === 'bidirectional' ? '<->' : '-->',
+      });
+    }
     const attrs = this.readAttributes(stmt.getChild('Attributes'), 'animate');
 
     const animation: Animation = {
       from: sliceOf(this.text, fromNode),
       to: sliceOf(this.text, toNode),
-      style: arrow.style,
       direction: arrow.direction,
       parallel: (attrs.get('parallel')?.value as boolean | undefined) ?? false,
     };
@@ -508,8 +513,7 @@ class Analyzer {
         if ((COLOR_NAMES as readonly string[]).includes(colorName)) return colorName;
         const allowsReset = type === 'stateColor';
         if (allowsReset && colorName === COLOR_RESET) return COLOR_RESET;
-        const suggestion =
-          node.name === 'Color' ? closestColorName(raw) : closestMatch(raw, COLOR_NAMES);
+        const suggestion = node.name === 'Color' ? undefined : closestMatch(raw, COLOR_NAMES);
         this.report('invalid-color', 'error', node, {
           value: raw,
           suggestion: suggestion ?? '',

@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { computeCompletions, findAtOffset, parse } from '../../dsl';
-import { safeFileName } from '../storage';
 
 describe('findAtOffset', () => {
   const sample = [
@@ -67,12 +66,5 @@ describe('computeCompletions', () => {
     const text = `${dsl}api --> `;
     const res = computeCompletions(text, text.length, true);
     expect(res?.items.map((i) => i.label)).toEqual(expect.arrayContaining(['api', 'db', 'vpc']));
-  });
-});
-
-describe('safeFileName', () => {
-  it('sanitizes reserved path characters and control characters', () => {
-    expect(safeFileName('AWS: Multi-AZ / Failover?')).toBe('AWS_ Multi-AZ _ Failover_');
-    expect(safeFileName('')).toBe('diagram');
   });
 });

@@ -63,16 +63,10 @@ describe('color values', () => {
     expect(document.nodes[0]?.color).toBe('yellow');
   });
 
-  it.each([
-    ['#1e3a8a', 'blue'],
-    ['#ef4444', 'red'],
-    ['#f59e0b', 'yellow'],
-    ['#10b981', 'green'],
-    ['#fff', 'gray'],
-  ])('rejects %s and suggests %s', (hex, name) => {
-    const [diagnostic] = parse(`dav 1\nnode a [color: ${hex}]`).diagnostics;
+  it('rejects hex colors without suggesting a name', () => {
+    const [diagnostic] = parse('dav 1\nnode a [color: #ef4444]').diagnostics;
     expect(diagnostic?.code).toBe('invalid-color');
-    expect(diagnostic?.args.suggestion).toBe(name);
+    expect(diagnostic?.args.suggestion).toBe('');
   });
 
   it('accepts none only in a state', () => {
@@ -106,6 +100,35 @@ describe('color values', () => {
   });
 });
 
+describe('arrows', () => {
+  it('accepts the four three-character edge arrows', () => {
+    const { document, diagnostics } = parse(
+      'dav 1\nnode a\nnode b\na --> b [id: e1]\na <-> b [id: e2]\na ..> b [id: e3]\na <.> b [id: e4]',
+    );
+    expect(diagnostics).toEqual([]);
+    expect(document.edges.map((e) => [e.style, e.direction])).toEqual([
+      ['solid', 'forward'],
+      ['solid', 'bidirectional'],
+      ['dashed', 'forward'],
+      ['dashed', 'bidirectional'],
+    ]);
+  });
+
+  it.each(['<-->', '-.->', '<-.->'])('rejects the old arrow %s', (arrow) => {
+    const codes = parse(`dav 1\nnode a\nnode b\na ${arrow} b`).diagnostics.map((d) => d.code);
+    expect(codes).toContain('syntax-error');
+  });
+
+  it.each([
+    ['..>', '-->'],
+    ['<.>', '<->'],
+  ])('rejects %s in animate and suggests %s', (arrow, suggestion) => {
+    const { diagnostics } = parse(`dav 1\nnode a\nnode b\nstep "s" {\n  animate a ${arrow} b\n}`);
+    expect(diagnostics.map((d) => d.code)).toEqual(['invalid-animate-arrow']);
+    expect(diagnostics[0]?.args.suggestion).toBe(suggestion);
+  });
+});
+
 describe('computeCompletions context', () => {
   it('offers nothing inside strings', () => {
     expect(labels('dav 1\ntitle "Hello ')).toBeUndefined();
@@ -125,7 +148,7 @@ describe('computeCompletions context', () => {
   it('limits attribute keys to the statement kind', () => {
     expect(labels('dav 1\ngroup g [')).toEqual(['color']);
     expect(labels('dav 1\na --> b [')?.sort()).toEqual(['color', 'id', 'visible']);
-    expect(labels('dav 1\na <-.-> b [')?.sort()).toEqual(['color', 'id', 'visible']);
+    expect(labels('dav 1\na <.> b [')?.sort()).toEqual(['color', 'id', 'visible']);
     expect(labels('step "s" {\n  animate a --> b [')?.sort()).toEqual([
       'color',
       'desc',

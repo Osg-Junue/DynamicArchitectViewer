@@ -17,7 +17,7 @@ step   "S"{
 desc "d"
 focus a,b
 state a[ badge: "x" ]
-animate a  -.->  b :"x"[parallel:true]
+animate a  -->  b :"x"[parallel:true]
 }
 `;
     expect(format(input)).toBe(`dav 1
@@ -33,7 +33,7 @@ step "S" {
   desc "d"
   focus a, b
   state a [badge: "x"]
-  animate a -.-> b : "x" [parallel: true]
+  animate a --> b : "x" [parallel: true]
 }
 `);
   });

@@ -93,7 +93,6 @@ export interface StateOverride {
 export interface Animation {
   from: string;
   to: string;
-  style: LineStyle;
   direction: Direction;
   label?: string;
   description?: string;
