@@ -1,4 +1,4 @@
-import { ICON_NAMES, NODE_STATUSES } from '../model/types';
+import { COLOR_NAMES, COLOR_RESET, ICON_NAMES } from '../model/types';
 import { parse } from './analyze';
 import { ATTRIBUTE_SCHEMA, type AttrOwner } from './schema';
 
@@ -37,9 +37,8 @@ const STATEMENT_KEYWORDS: readonly DslCompletionItem[] = [
 const ATTRIBUTE_KEYS: readonly DslCompletionItem[] = [
   { label: 'icon', kind: 'property', insertText: 'icon: ', detail: 'アイコン種別' },
   { label: 'sub', kind: 'property', insertText: 'sub: ""', detail: 'サブラベル' },
-  { label: 'status', kind: 'property', insertText: 'status: ', detail: '稼働状態' },
   { label: 'badge', kind: 'property', insertText: 'badge: ""', detail: 'バッジ表示' },
-  { label: 'color', kind: 'property', insertText: 'color: #3b82f6', detail: 'カラー (#RRGGBB)' },
+  { label: 'color', kind: 'property', insertText: 'color: ', detail: 'Color name' },
   { label: 'visible', kind: 'property', insertText: 'visible: true', detail: '表示・非表示' },
   {
     label: 'parallel',
@@ -62,10 +61,10 @@ const ICON_COMPLETIONS: readonly DslCompletionItem[] = ICON_NAMES.map((name) => 
   detail: 'icon',
 }));
 
-const STATUS_COMPLETIONS: readonly DslCompletionItem[] = NODE_STATUSES.map((status) => ({
-  label: status,
-  kind: 'enum',
-  detail: 'status',
+const COLOR_COMPLETIONS: readonly DslCompletionItem[] = COLOR_NAMES.map((name) => ({
+  label: name,
+  kind: 'constant',
+  detail: 'color (adapts to the theme)',
 }));
 
 const BOOL_COMPLETIONS: readonly DslCompletionItem[] = [
@@ -114,12 +113,18 @@ export function computeCompletions(
   const from = wordMatch ? pos - wordMatch[0].length : pos;
 
   // 1. Inside attribute value after `key: `
-  const attrValMatch = /\b(icon|status|visible|parallel)\s*:\s*([A-Za-z_]*)$/.exec(beforeOnLine);
+  const attrValMatch = /\b(icon|color|visible|parallel)\s*:\s*([A-Za-z_]*)$/.exec(beforeOnLine);
   if (attrValMatch) {
     const key = attrValMatch[1];
     const valFrom = pos - (attrValMatch[2]?.length ?? 0);
     if (key === 'icon') return { from: valFrom, to: pos, items: [...ICON_COMPLETIONS] };
-    if (key === 'status') return { from: valFrom, to: pos, items: [...STATUS_COMPLETIONS] };
+    if (key === 'color') {
+      const items = [...COLOR_COMPLETIONS];
+      if (attributeOwner(beforeOnLine) === 'state') {
+        items.push({ label: COLOR_RESET, kind: 'constant', detail: 'Back to the declared color' });
+      }
+      return { from: valFrom, to: pos, items };
+    }
     return { from: valFrom, to: pos, items: [...BOOL_COMPLETIONS] };
   }
 

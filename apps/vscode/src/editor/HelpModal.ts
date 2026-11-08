@@ -1,5 +1,5 @@
 import { ICON_META } from '../model/icons';
-import { ICON_NAMES, NODE_STATUSES } from '../model/types';
+import { COLOR_NAMES, ICON_NAMES } from '../model/types';
 import { buildAiPrompt, PROMPT_EXAMPLE_DSL } from '../prompt';
 import { clear, html, svg } from '../runtime/dom';
 import type { ViewerLocale } from '../runtime/i18n';
@@ -16,7 +16,7 @@ interface HelpStrings {
   copiedPrompt: string;
   refSyntaxTitle: string;
   refIconsTitle: string;
-  refStatusesTitle: string;
+  refTokensTitle: string;
   refExampleTitle: string;
 }
 
@@ -33,7 +33,7 @@ const STRINGS: Record<ViewerLocale, HelpStrings> = {
     copiedPrompt: 'コピーしました',
     refSyntaxTitle: '基本構文 (dav 1)',
     refIconsTitle: '利用可能なアイコン (全18種)',
-    refStatusesTitle: 'ステータスと矢印トークン',
+    refTokensTitle: '色と矢印トークン',
     refExampleTitle: '記述サンプル',
   },
   en: {
@@ -48,7 +48,7 @@ const STRINGS: Record<ViewerLocale, HelpStrings> = {
     copiedPrompt: 'Copied!',
     refSyntaxTitle: 'Core Syntax (dav 1)',
     refIconsTitle: 'Available Icons (18)',
-    refStatusesTitle: 'Statuses & Arrow Tokens',
+    refTokensTitle: 'Colors & Arrow Tokens',
     refExampleTitle: 'Reference Example',
   },
 };
@@ -233,8 +233,8 @@ export class HelpModal {
         height: 22,
         viewBox: '0 0 24 24',
         fill: 'none',
-        stroke: meta.accentColor,
-        'stroke-width': 1.8,
+        stroke: 'currentColor',
+        'stroke-width': 2,
         'stroke-linecap': 'round',
         'stroke-linejoin': 'round',
       });
@@ -263,15 +263,15 @@ export class HelpModal {
       html(
         'section',
         { class: 'help-section' },
-        html('h3', {}, s.refStatusesTitle),
+        html('h3', {}, s.refTokensTitle),
         html(
           'div',
           { class: 'ref-kv-list' },
           html(
             'div',
             {},
-            html('strong', {}, 'status: '),
-            html('code', {}, NODE_STATUSES.join(' | ')),
+            html('strong', {}, 'color: '),
+            html('code', {}, `${COLOR_NAMES.join(' | ')} (state only: none)`),
           ),
           html(
             'div',
@@ -297,17 +297,17 @@ export class HelpModal {
           `dav 1
 title "Diagram Title"
 
-group <id> "Label" [color: #3b82f6] {
-  node <id> "Label" [icon: server, sub: "Sublabel", status: normal, badge: "v1"]
+group <id> "Label" [color: blue] {
+  node <id> "Label" [icon: server, sub: "Sublabel", badge: "v1"]
 }
 
-<from_id> --> <to_id> : "Edge Label" [id: <edge_id>, color: #64748b]
+<from_id> --> <to_id> : "Edge Label" [id: <edge_id>, color: gray]
 
 step "Step Title" {
   desc "Narrative shown in player dock"
   focus <id1>, <id2>
-  state <id> [status: active, badge: "OK", visible: true]
-  animate <from_id> --> <to_id> : "Packet" [color: #3b82f6, desc: "Action explanation", parallel: true]
+  state <id> [badge: "OK", visible: true]
+  animate <from_id> --> <to_id> : "Packet" [color: blue, desc: "Action explanation", parallel: true]
 }`,
         ),
         html('h3', {}, s.refExampleTitle),

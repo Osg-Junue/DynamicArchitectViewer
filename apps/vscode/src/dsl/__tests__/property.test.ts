@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import { format, parse } from '../index';
 
 const ICONS = ['server', 'database', 'cache', 'screen', 'user'] as const;
-const STATUSES = ['normal', 'active', 'muted', 'warning', 'error'] as const;
 const ARROWS = ['-->', '-.->', '<-->', '<-.->'] as const;
 
 const labelArb = fc.string({ maxLength: 12 });
@@ -23,7 +22,6 @@ interface GenGroup {
     name: string;
     icon: (typeof ICONS)[number];
     sub: string | undefined;
-    status: (typeof STATUSES)[number];
   }>;
 }
 
@@ -34,7 +32,6 @@ interface GenSpec {
     name: string;
     icon: (typeof ICONS)[number];
     sub: string | undefined;
-    status: (typeof STATUSES)[number];
   }>;
   edges: Array<{
     a: number;
@@ -47,7 +44,6 @@ interface GenSpec {
     desc: string | undefined;
     focusIdx: number;
     stateIdx: number;
-    status: (typeof STATUSES)[number];
   }>;
 }
 
@@ -55,7 +51,6 @@ const nodeSpecArb = fc.record({
   name: labelArb,
   icon: fc.constantFrom(...ICONS),
   sub: fc.option(labelArb, { nil: undefined }),
-  status: fc.constantFrom(...STATUSES),
 });
 
 const specArb: fc.Arbitrary<GenSpec> = fc.record({
@@ -83,7 +78,6 @@ const specArb: fc.Arbitrary<GenSpec> = fc.record({
       desc: fc.option(labelArb, { nil: undefined }),
       focusIdx: fc.nat(20),
       stateIdx: fc.nat(20),
-      status: fc.constantFrom(...STATUSES),
     }),
     { maxLength: 3 },
   ),
@@ -100,7 +94,7 @@ function buildDsl(spec: GenSpec): string {
     for (const n of g.nodes) {
       const nid = `n${nCounter++}`;
       nodeIds.push(nid);
-      const attrs = [`icon: ${n.icon}`, `status: ${n.status}`];
+      const attrs = [`icon: ${n.icon}`];
       if (n.sub !== undefined) attrs.push(`sub: ${escapeDslString(n.sub)}`);
       lines.push(`  node ${nid} ${escapeDslString(n.name)} [${attrs.join(', ')}]`);
     }
@@ -110,7 +104,7 @@ function buildDsl(spec: GenSpec): string {
   for (const n of spec.rootNodes) {
     const nid = `n${nCounter++}`;
     nodeIds.push(nid);
-    const attrs = [`icon: ${n.icon}`, `status: ${n.status}`];
+    const attrs = [`icon: ${n.icon}`];
     if (n.sub !== undefined) attrs.push(`sub: ${escapeDslString(n.sub)}`);
     lines.push(`node ${nid} ${escapeDslString(n.name)} [${attrs.join(', ')}]`);
   }
@@ -133,7 +127,7 @@ function buildDsl(spec: GenSpec): string {
       lines.push(`step ${escapeDslString(s.title)} {`);
       if (s.desc !== undefined) lines.push(`  desc ${escapeDslString(s.desc)}`);
       lines.push(`  focus ${focusTarget}`);
-      lines.push(`  state ${stateTarget} [status: ${s.status}]`);
+      lines.push(`  state ${stateTarget} [color: blue]`);
       lines.push('}');
     }
   }

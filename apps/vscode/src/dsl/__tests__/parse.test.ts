@@ -21,8 +21,8 @@ describe('parse: model', () => {
   const text = `dav 1
 title "T \\"quoted\\"\\nline2"
 
-group vpc "VPC" [color: #3B82F6] {
-  node a "A" [icon: database, sub: "s", status: active, badge: "B", visible: false, color: #abc]
+group vpc "VPC" [color: BLUE] {
+  node a "A" [icon: database, sub: "s", badge: "B", visible: false, color: teal]
   group sub {
     node b
   }
@@ -38,9 +38,9 @@ step "First" {
   desc "line1"
   desc "line2"
   focus a, vpc, bc
-  state a [status: error, badge: "DOWN"]
+  state a [badge: "DOWN"]
   state bc [visible: true]
-  animate a --> b : "go" [color: #f00, desc: "send request"]
+  animate a --> b : "go" [color: red, desc: "send request"]
   animate b --> c [parallel: true] {
     desc "forward to c"
   }
@@ -64,7 +64,7 @@ step "Second" {}
       {
         id: 'vpc',
         label: 'VPC',
-        color: '#3b82f6',
+        color: 'blue',
       },
       { id: 'sub', label: 'sub', parentId: 'vpc' },
     ]);
@@ -76,17 +76,15 @@ step "Second" {}
       label: 'A',
       icon: 'database',
       sub: 's',
-      status: 'active',
       badge: 'B',
       visible: false,
-      color: '#abc',
+      color: 'teal',
       parentId: 'vpc',
     });
     expect(doc.nodes[1]).toEqual({
       id: 'b',
       label: 'b',
       icon: 'server',
-      status: 'normal',
       visible: true,
       parentId: 'sub',
     });
@@ -111,7 +109,7 @@ step "Second" {}
       description: 'line1\nline2',
       focus: ['a', 'vpc', 'bc'],
       states: [
-        { target: 'a', status: 'error', badge: 'DOWN' },
+        { target: 'a', badge: 'DOWN' },
         { target: 'bc', visible: true },
       ],
       animations: [
@@ -122,7 +120,7 @@ step "Second" {}
           direction: 'forward',
           label: 'go',
           description: 'send request',
-          color: '#f00',
+          color: 'red',
           parallel: false,
         },
         {
@@ -180,14 +178,15 @@ describe('parse: diagnostics', () => {
     ['duplicate attribute', 'dav 1\nnode a [sub: "x", sub: "y"]', ['duplicate-attribute']],
     ['string attr type', 'dav 1\nnode a [sub: 1]', ['invalid-attribute-value']],
     ['bool attr type', 'dav 1\nnode a [visible: "no"]', ['invalid-attribute-value']],
-    ['status value', 'dav 1\nnode a [status: broken]', ['invalid-attribute-value']],
+    ['removed status attribute', 'dav 1\nnode a [status: active]', ['unknown-attribute']],
     ['unknown icon', 'dav 1\nnode a [icon: databse]', ['unknown-icon']],
     ['invalid color', 'dav 1\nnode a [color: #12345]', ['invalid-color']],
-    ['color type', 'dav 1\nnode a [color: red]', ['invalid-attribute-value']],
+    ['unknown color name', 'dav 1\nnode a [color: yelow]', ['invalid-color']],
+    ['color type', 'dav 1\nnode a [color: "red"]', ['invalid-attribute-value']],
     ['invalid escape', 'dav 1\ntitle "a\\qb"', ['invalid-escape']],
     [
       'state attr not applicable',
-      'dav 1\nnode a\nnode b\na --> b [id: e]\nstep "s" { state e [status: error] }',
+      'dav 1\nnode a\nnode b\na --> b [id: e]\nstep "s" { state e [badge: "x"] }',
       ['attribute-not-applicable'],
     ],
     ['empty state', 'dav 1\nnode a\nstep "s" { state a [] }', ['empty-state']],

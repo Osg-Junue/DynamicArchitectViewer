@@ -30,7 +30,7 @@ export function minifyCss(css: string): string {
 }
 
 const PAGE_STYLES = minifyCss(
-  `html,body{margin:0;height:100%;background:#080b16;overflow:hidden}${playerStyles}`,
+  `html,body{margin:0;height:100%;background:var(--dav-bg);overflow:hidden}${playerStyles}`,
 );
 
 export interface ExportOptions {

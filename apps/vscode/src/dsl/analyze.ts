@@ -1,6 +1,8 @@
 import type { SyntaxNode } from '@lezer/common';
 import {
   type Animation,
+  COLOR_NAMES,
+  COLOR_RESET,
   CURRENT_DSL_VERSION,
   type DavDocument,
   type DavEdge,
@@ -12,8 +14,6 @@ import {
   type IconName,
   implicitEdgeId,
   type LineStyle,
-  NODE_STATUSES,
-  type NodeStatus,
   type StateOverride,
 } from '../model/types';
 import type { Diagnostic, DiagnosticCode, Severity } from './diagnostics';
@@ -21,7 +21,7 @@ import {
   ATTRIBUTE_SCHEMA,
   type AttrOwner,
   type AttrType,
-  isValidColor,
+  closestColorName,
   STATE_ATTRIBUTES_BY_TARGET,
 } from './schema';
 import { childNodes, parseTree, sliceOf, unescapeString } from './syntax';
@@ -83,9 +83,9 @@ const VALUE_NODE_NAMES = new Set(['String', 'Number', 'Color', 'Identifier', 'Bo
 const EXPECTED_BY_TYPE: Record<AttrType, string> = {
   string: '"..."',
   bool: 'true | false',
-  color: '#rrggbb',
+  color: COLOR_NAMES.join(' | '),
+  stateColor: [...COLOR_NAMES, COLOR_RESET].join(' | '),
   icon: ICON_NAMES.join(' | '),
-  status: NODE_STATUSES.join(' | '),
   ident: 'identifier',
 };
 
@@ -252,7 +252,6 @@ class Analyzer {
       id,
       label: this.readLabel(node) ?? id,
       icon: (attrs.get('icon')?.value as IconName | undefined) ?? 'server',
-      status: (attrs.get('status')?.value as NodeStatus | undefined) ?? 'normal',
       visible: (attrs.get('visible')?.value as boolean | undefined) ?? true,
     };
     if (parentId) result.parentId = parentId;
@@ -367,8 +366,6 @@ class Analyzer {
     }
 
     const override: StateOverride = { target };
-    const status = attrs.get('status')?.value;
-    if (typeof status === 'string') override.status = status as NodeStatus;
     const visible = attrs.get('visible')?.value;
     if (typeof visible === 'boolean') override.visible = visible;
     assignString(override, 'badge', attrs);
@@ -505,16 +502,21 @@ class Analyzer {
       case 'ident':
         return node.name === 'Identifier' ? raw : invalid();
       case 'color':
-        if (node.name !== 'Color') return invalid();
-        if (!isValidColor(raw)) {
-          this.report('invalid-color', 'error', node, { value: raw });
-          return undefined;
-        }
-        return raw.toLowerCase();
-      case 'status':
-        return node.name === 'Identifier' && (NODE_STATUSES as readonly string[]).includes(raw)
-          ? raw
-          : invalid();
+      case 'stateColor': {
+        if (node.name !== 'Identifier' && node.name !== 'Color') return invalid();
+        const colorName = raw.toLowerCase();
+        if ((COLOR_NAMES as readonly string[]).includes(colorName)) return colorName;
+        const allowsReset = type === 'stateColor';
+        if (allowsReset && colorName === COLOR_RESET) return COLOR_RESET;
+        const suggestion =
+          node.name === 'Color' ? closestColorName(raw) : closestMatch(raw, COLOR_NAMES);
+        this.report('invalid-color', 'error', node, {
+          value: raw,
+          suggestion: suggestion ?? '',
+          names: (allowsReset ? [...COLOR_NAMES, COLOR_RESET] : COLOR_NAMES).join(', '),
+        });
+        return undefined;
+      }
       case 'icon':
         if (node.name !== 'Identifier') return invalid();
         if (!(ICON_NAMES as readonly string[]).includes(raw)) {

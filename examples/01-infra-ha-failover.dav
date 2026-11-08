@@ -11,7 +11,7 @@ group vpc "Production VPC (ap-northeast-1)" {
   node api "Order API" [icon: container, sub: "ECS Fargate x4"]
   node redis "ElastiCache" [icon: cache, sub: "Redis Cluster"]
   node db_pri "Primary DB" [icon: database, sub: "Aurora Writer (AZ-a)"]
-  node db_sby "Standby DB" [icon: database, sub: "Aurora Reader (AZ-c)", status: muted, badge: "STANDBY"]
+  node db_sby "Standby DB" [icon: database, sub: "Aurora Reader (AZ-c)", badge: "STANDBY"]
 }
 
 node client "Web Browser" [icon: browser, sub: "エンドユーザー"]
@@ -23,38 +23,38 @@ alb --> api : "HTTP/2"
 api --> redis : "Cache Lookup"
 api --> db_pri : "Read / Write"
 db_pri -.-> db_sby : "Sync Replication"
-api -.-> db_sby : "Failover Route" [id: e_failover, visible: false, color: #f59e0b]
+api -.-> db_sby : "Failover Route" [id: e_failover, visible: false, color: yellow]
 
 step "エッジ検証とALBへのルーティング" {
   desc "ブラウザからのリクエストをCloudFrontが受け取り、WAFで検査した後にVPC内のALBへ転送します。"
   focus client, cdn, waf, alb
-  animate client --> cdn : "GET /products" [color: #38bdf8, desc: "ブラウザからCloudFrontエッジロケーションへHTTPSリクエストを送信"]
-  animate cdn --> waf : "Inspect Request" [color: #8b5cf6, desc: "キャッシュミス時、AWS WAFへ転送してACL・レート制限ルールで検査"]
-  animate waf --> alb : "Pass ACL" [color: #6366f1, desc: "検査を通過した正常なリクエストのみをVPC内のALBへルーティング"]
+  animate client --> cdn : "GET /products" [desc: "ブラウザからCloudFrontエッジロケーションへHTTPSリクエストを送信"]
+  animate cdn --> waf : "Inspect Request" [desc: "キャッシュミス時、AWS WAFへ転送してACL・レート制限ルールで検査"]
+  animate waf --> alb : "Pass ACL" [desc: "検査を通過した正常なリクエストのみをVPC内のALBへルーティング"]
 }
 
 step "キャッシュヒットによる高速応答" {
   desc "Order APIがRedisを参照し、キャッシュヒットした場合はDBへアクセスせず即座にレスポンスを返します。"
   focus alb, api, redis
-  state redis [status: active, badge: "CACHE HIT"]
-  animate alb --> api : "Forward" [color: #3b82f6, desc: "ALBがターゲットグループ内のECS Fargateタスクへリクエストを振り分け"]
-  animate api --> redis : "GET product:101" [color: #ef4444, desc: "ElastiCache (Redis) からインメモリで商品データを高速取得"]
+  state redis [color: green, badge: "CACHE HIT"]
+  animate alb --> api : "Forward" [desc: "ALBがターゲットグループ内のECS Fargateタスクへリクエストを振り分け"]
+  animate api --> redis : "GET product:101" [desc: "ElastiCache (Redis) からインメモリで商品データを高速取得"]
 }
 
 step "注文トランザクションの書き込みとDB同期" {
   desc "注文確定リクエスト（POST）はPrimary DBへ書き込まれ、Standby DBへレプリケーションされます。"
   focus api, db_pri, db_sby
-  state redis [status: normal, badge: ""]
-  state db_pri [status: active, badge: "COMMIT"]
-  animate api --> db_pri : "INSERT INTO orders" [color: #10b981, desc: "Primary DB (AZ-a) に対して注文トランザクションを書き込みコミット"]
-  animate db_pri -.-> db_sby : "Replicate WAL" [color: #14b8a6, desc: "別AZのStandby DB (AZ-c) へストレージレベルでWALを同期レプリケーション"]
+  state redis [color: none, badge: ""]
+  state db_pri [color: green, badge: "COMMIT"]
+  animate api --> db_pri : "INSERT INTO orders" [desc: "Primary DB (AZ-a) に対して注文トランザクションを書き込みコミット"]
+  animate db_pri -.-> db_sby : "Replicate WAL" [desc: "別AZのStandby DB (AZ-c) へストレージレベルでWALを同期レプリケーション"]
 }
 
 step "Primary DB障害発生と自動フェイルオーバー" {
   desc "Primary DBで障害が発生。ヘルスチェック失敗を検知し、Standby DBをWriterに昇格させて経路を自動切替します。"
   focus api, db_pri, db_sby
-  state db_pri [status: error, badge: "DOWN"]
-  state db_sby [status: active, badge: "PROMOTED"]
+  state db_pri [color: red, badge: "DOWN"]
+  state db_sby [color: green, badge: "PROMOTED"]
   state e_failover [visible: true]
-  animate api -.-> db_sby : "Reconnect Writer" [color: #f59e0b, desc: "クラスターエンドポイントのDNS切替により、昇格したStandby DBへ自動再接続"]
+  animate api -.-> db_sby : "Reconnect Writer" [desc: "クラスターエンドポイントのDNS切替により、昇格したStandby DBへ自動再接続"]
 }

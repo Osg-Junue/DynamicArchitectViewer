@@ -1,3 +1,4 @@
+import { EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH, estimateTextWidth } from '../model/text';
 import type { DavDocument, IconName } from '../model/types';
 
 export interface Rect {
@@ -13,16 +14,37 @@ export interface Layout {
   groups: Record<string, Rect>;
 }
 
-export const NODE_SIZE = { width: 168, height: 72 } as const;
-export const SCREEN_NODE_SIZE = { width: 188, height: 108 } as const;
+/** Each node occupies a station with its badge above and its labels below. */
+export const NODE_SIZE = { width: 176, height: 118 } as const;
+export const SCREEN_NODE_SIZE = NODE_SIZE;
 
-const COLUMN_GAP = 96;
-const ROW_GAP = 40;
-const GROUP_PADDING = 24;
-const GROUP_HEADER = 28;
-const CLUSTER_GAP = 48;
+const STATION_SIZE = 44;
+const WINDOW_SIZE = { width: 54, height: 44 } as const;
+/** Vertical center of every station, so rails between stations in a row run straight. */
+const STATION_CENTER = 50;
+
+const COLUMN_GAP = 36;
+const EDGE_LABEL_MARGIN = 32;
+const ROW_GAP = 14;
+const GROUP_PADDING = 16;
+/** Room for the zone name above its stations. */
+const GROUP_HEADER = 18;
+const CLUSTER_GAP = 28;
 const ORIGIN = { x: 40, y: 40 };
 const EMPTY_GROUP_CONTENT = { width: 160, height: 40 };
+
+/** The station symbol within a node's rectangle. */
+export function stationRect(node: Rect, icon: IconName): Rect {
+  const size =
+    icon === 'screen' || icon === 'modal'
+      ? WINDOW_SIZE
+      : { width: STATION_SIZE, height: STATION_SIZE };
+  return {
+    x: node.x + (node.width - size.width) / 2,
+    y: node.y + STATION_CENTER - size.height / 2,
+    ...size,
+  };
+}
 
 export function defaultNodeSize(icon: IconName): { width: number; height: number } {
   return icon === 'screen' || icon === 'modal' ? SCREEN_NODE_SIZE : NODE_SIZE;
@@ -175,13 +197,24 @@ function placeAuto(
   };
   const maxDepth = Math.max(0, ...doc.groups.map((g) => depthOf(g.id)));
   const inset = maxDepth * GROUP_PADDING;
-  const colGap = COLUMN_GAP + maxDepth * GROUP_PADDING * 2;
+  const groupClearance = maxDepth * GROUP_PADDING * 2;
+  // A labeled edge between adjacent columns needs room for its whole label.
+  const labelGap = new Map<number, number>();
+  for (const e of doc.edges) {
+    if (!e.label || !sizes.has(e.from) || !sizes.has(e.to)) continue;
+    const left = Math.min(rankOf(e.from), rankOf(e.to));
+    if (Math.abs(rankOf(e.from) - rankOf(e.to)) !== 1) continue;
+    const width = Math.min(EDGE_LABEL_MAX_WIDTH, estimateTextWidth(e.label, EDGE_LABEL_FONT_SIZE));
+    labelGap.set(left, Math.max(labelGap.get(left) ?? 0, width + EDGE_LABEL_MARGIN));
+  }
   const columnX: number[] = [];
   let x = ORIGIN.x + inset;
-  for (const w of columnWidth) {
+  columnWidth.forEach((w, rank) => {
     columnX.push(x);
-    x += w + colGap;
-  }
+    // A label may use the whole rail, which also runs under the width of both nodes' labels.
+    const needed = (labelGap.get(rank) ?? 0) - (NODE_SIZE.width - STATION_SIZE);
+    x += w + Math.max(COLUMN_GAP, needed) + groupClearance;
+  });
 
   const collectColumns = (cluster: Cluster): number[] => {
     const cols = cluster.nodes.map(rankOf);

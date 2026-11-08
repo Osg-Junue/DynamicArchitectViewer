@@ -1,4 +1,6 @@
-import type { Rect } from '../layout';
+import { type Rect, stationRect } from '../layout';
+import { EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH } from '../model/text';
+import { COLOR_NAMES } from '../model/types';
 import { type Point, pointAt, svgPath } from './geometry';
 import { ICON_SHAPES } from './icons';
 import type { Packet, ResolvedEdge, ResolvedGroup, ResolvedNode, ResolvedView } from './resolve';
@@ -6,15 +8,28 @@ import { estimateTextWidth, fitText, wrapText } from './text';
 import { h, type VElement } from './vnode';
 
 /**
- * Builds the static SVG scene (groups, edges, nodes) for a resolved view.
+ * Builds the SVG scene as a route map: nodes are stations, edges are rails, groups are zones.
  * All user-provided strings end up as text nodes or attribute values; renderers must
  * set them via DOM APIs (never innerHTML).
+ *
+ * Default colors are `var(--dav-*)` presentation attributes so they follow the theme, while
+ * author-specified colors stay plain attributes that no stylesheet rule overrides.
  */
 
-const STATUS_STROKE: Record<string, string | undefined> = {
-  warning: '#f59e0b',
-  error: '#ef4444',
-};
+const COLOR = {
+  fg: 'var(--dav-fg)',
+  bg: 'var(--dav-bg)',
+  panel: 'var(--dav-panel)',
+  borderStrong: 'var(--dav-border-strong)',
+  accent: 'var(--dav-accent)',
+  nodeBg: 'var(--dav-node-bg)',
+  zone: 'var(--dav-zone)',
+} as const;
+
+/** Color names resolve to a per-theme token; default colors are tokens already. */
+function paint(color: string): string {
+  return (COLOR_NAMES as readonly string[]).includes(color) ? `var(--dav-c-${color})` : color;
+}
 
 export const SCENE_PADDING = 48;
 
@@ -29,11 +44,12 @@ export function buildScene(view: ResolvedView): VElement {
     ),
     h('g', { class: 'dav-layer-edges' }, ...view.edges.map(edgeElement)),
     h('g', { class: 'dav-layer-labels' }, ...view.edges.map(edgeLabelElement)),
+    h('g', { class: 'dav-layer-stops' }, ...stopElements(view)),
     h('g', { class: 'dav-layer-nodes' }, ...view.nodes.map(nodeElement)),
   );
 }
 
-/** Shared <defs>: arrow marker colored by the referencing path (`context-stroke`). */
+/** Shared <defs>: an arrow marker colored by the referencing path (`context-stroke`). */
 export function buildDefs(): VElement {
   return h(
     'defs',
@@ -43,10 +59,10 @@ export function buildDefs(): VElement {
       {
         id: 'dav-arrow',
         viewBox: '0 0 10 10',
-        refX: 9,
+        refX: 8,
         refY: 5,
-        markerWidth: 7,
-        markerHeight: 7,
+        markerWidth: 14,
+        markerHeight: 14,
         orient: 'auto-start-reverse',
         markerUnits: 'userSpaceOnUse',
       },
@@ -64,7 +80,7 @@ export function sceneBounds(view: ResolvedView): Rect {
 export function boundsOf(rects: readonly Rect[]): Rect {
   if (rects.length === 0) return { x: 0, y: 0, width: 400, height: 300 };
   const minX = Math.min(...rects.map((r) => r.x)) - SCENE_PADDING;
-  const minY = Math.min(...rects.map((r) => r.y)) - SCENE_PADDING - 56;
+  const minY = Math.min(...rects.map((r) => r.y)) - SCENE_PADDING - 76;
   const maxX = Math.max(...rects.map((r) => r.x + r.width)) + SCENE_PADDING;
   const maxY = Math.max(...rects.map((r) => r.y + r.height)) + SCENE_PADDING;
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
@@ -74,11 +90,9 @@ function dimClass(base: string, dimmed: boolean): string {
   return dimmed ? `${base} dav-dimmed` : base;
 }
 
+/** Groups are zones: a tinted area behind the stations they contain. */
 function groupElement(g: ResolvedGroup): VElement {
-  const stroke = g.color ?? '#475569';
   const { x, y, width, height } = g.rect;
-  const label = fitText(g.label, 11.5, Math.max(40, width - 48));
-  const pillWidth = Math.min(width - 24, estimateTextWidth(label, 11.5) + 22);
   return h(
     'g',
     { class: dimClass('dav-group', g.dimmed), 'data-id': g.id },
@@ -87,51 +101,45 @@ function groupElement(g: ResolvedGroup): VElement {
       y,
       width,
       height,
-      fill: 'rgba(10, 14, 28, 0.72)',
-      stroke,
-      'stroke-width': 2,
-      'stroke-dasharray': '8 4',
-    }),
-    h('rect', {
-      x: x + 15,
-      y: y - 8,
-      width: pillWidth,
-      height: 22,
-      fill: '#03050a',
-    }),
-    h('rect', {
-      x: x + 12,
-      y: y - 11,
-      width: pillWidth,
-      height: 22,
-      fill: '#0c1022',
-      stroke,
-      'stroke-width': 2,
+      rx: 14,
+      fill: g.color ? `color-mix(in srgb, ${paint(g.color)} 14%, transparent)` : COLOR.zone,
     }),
     h(
       'text',
-      { x: x + 23, y: y + 4, class: 'dav-group-label', 'font-size': 11.5, fill: '#e2e8f0' },
-      label,
+      { x: x + 14, y: y + 19, class: 'dav-group-label', 'font-size': 12, fill: COLOR.fg },
+      fitText(g.label, 12, Math.max(40, width - 28)),
     ),
   );
 }
 
 function edgeElement(e: ResolvedEdge): VElement {
   const d = svgPath(e.path);
+  const arrowEnd = 'url(#dav-arrow)';
+  const arrowStart = e.direction === 'bidirectional' ? arrowEnd : undefined;
   return h(
     'g',
     { class: dimClass('dav-edge', e.dimmed), 'data-id': e.id },
     h('path', {
       d,
       fill: 'none',
-      stroke: e.color,
-      'stroke-width': e.active ? 2.6 : 1.75,
-      'stroke-dasharray': e.style === 'dashed' ? '6 5' : undefined,
-      'marker-end': 'url(#dav-arrow)',
-      'marker-start': e.direction === 'bidirectional' ? 'url(#dav-arrow)' : undefined,
+      stroke: paint(e.color),
+      'stroke-dasharray': e.style === 'dashed' ? '1 9' : undefined,
+      'stroke-linecap': 'round',
+      'marker-end': arrowEnd,
+      'marker-start': arrowStart,
+      class: 'dav-rail',
     }),
+    // Only the edge of the running phase shows this overlay (see Player.syncPhaseHighlights).
     e.active
-      ? h('path', { d, fill: 'none', stroke: e.color, 'stroke-width': 3, class: 'dav-flow' })
+      ? h('path', {
+          d,
+          fill: 'none',
+          stroke: e.flowColor ? paint(e.flowColor) : COLOR.accent,
+          'stroke-linecap': 'round',
+          'marker-end': arrowEnd,
+          'marker-start': arrowStart,
+          class: 'dav-flow',
+        })
       : null,
   );
 }
@@ -139,79 +147,86 @@ function edgeElement(e: ResolvedEdge): VElement {
 function edgeLabelElement(e: ResolvedEdge): VElement | null {
   if (!e.label) return null;
   const mid = pointAt(e.path, 0.5);
-  return h('g', { class: dimClass('dav-edge-label', e.dimmed) }, ...pill(mid, e.label, '#94a3b8'));
+  return h(
+    'g',
+    { class: dimClass('dav-edge-label', e.dimmed) },
+    h(
+      'text',
+      {
+        x: mid.x,
+        y: e.labelBelow ? mid.y + 25 : mid.y - 17,
+        'text-anchor': 'middle',
+        'font-size': EDGE_LABEL_FONT_SIZE,
+        fill: COLOR.fg,
+      },
+      fitText(e.label, EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH),
+    ),
+  );
 }
 
+/** Numbered stops showing the order of a step's animation phases. */
+function stopElements(view: ResolvedView): VElement[] {
+  if (view.phases.length < 2) return [];
+  return view.phases.flatMap((packets, phase) =>
+    packets.map((packet) => {
+      const { x, y } = pointAt(packet.path, 0.5);
+      return h(
+        'g',
+        { class: 'dav-stop', 'data-phase': phase },
+        h('circle', { cx: x, cy: y, r: 11 }),
+        h('text', { x, y: y + 4, 'text-anchor': 'middle', 'font-size': 11 }, String(phase + 1)),
+      );
+    }),
+  );
+}
+
+const ICON_SIZE = 22;
+const WINDOW_BAR = 10;
+const WINDOW_ICON_SIZE = 17;
+const NODE_LABEL_OFFSET = 94;
+
 function nodeElement(n: ResolvedNode): VElement {
-  const { x, y, width, height } = n.rect;
-  const isScreen = n.icon === 'screen' || n.icon === 'modal';
-  const highlighted = n.status === 'active' || n.focused;
-  const stroke = STATUS_STROKE[n.status] ?? (highlighted ? n.accent : '#475569');
-  const fill = n.status === 'error' ? '#2a0f16' : '#0d1224';
-  const classes = ['dav-node', `dav-status-${n.status}`];
+  const { x, y, width } = n.rect;
+  const station = stationRect(n.rect, n.icon);
+  const isWindow = n.icon === 'screen' || n.icon === 'modal';
+  const accent = n.accent ? paint(n.accent) : undefined;
+  const classes = ['dav-node'];
   if (n.dimmed) classes.push('dav-dimmed');
 
-  const header = isScreen ? 22 : 0;
-  const iconSize = 22;
-  const contentTop = y + header;
-  const contentHeight = height - header;
-  const iconX = x + 14;
-  const iconY = contentTop + (contentHeight - iconSize) / 2;
-  const textX = iconX + iconSize + 12;
-  const textWidth = x + width - textX - 10;
-  const hasSub = Boolean(n.sub);
-  const labelY = contentTop + contentHeight / 2 + (hasSub ? -3 : 4.5);
+  const cx = x + width / 2;
+  const cy = station.y + station.height / 2;
+  const shape = {
+    fill: COLOR.nodeBg,
+    stroke: accent ?? COLOR.fg,
+    'stroke-width': 3.5,
+    class: 'dav-station',
+  };
+  const iconCy = isWindow ? cy + WINDOW_BAR / 2 : cy;
+  const iconSize = isWindow ? WINDOW_ICON_SIZE : ICON_SIZE;
+  const textWidth = width - 8;
 
   return h(
     'g',
     { class: classes.join(' '), 'data-id': n.id },
-    h('rect', {
-      x: x + 4,
-      y: y + 4,
-      width,
-      height,
-      fill: '#03050a',
-    }),
-    highlighted
+    h('title', {}, n.sub ? `${n.label}\n${n.sub}` : n.label),
+    isWindow
       ? h('rect', {
-          x: x - 5,
-          y: y - 5,
-          width: width + 10,
-          height: height + 10,
-          fill: 'none',
-          stroke: STATUS_STROKE[n.status] ?? n.accent,
-          'stroke-width': 2.5,
-          'stroke-dasharray': '6 4',
-          class: 'dav-halo',
+          x: station.x,
+          y: station.y,
+          width: station.width,
+          height: station.height,
+          rx: 6,
+          ...shape,
         })
-      : null,
-    h('rect', {
-      x,
-      y,
-      width,
-      height,
-      fill,
-      stroke,
-      'stroke-width': 2,
-    }),
-    h('rect', {
-      x: x + 3,
-      y: y + 3,
-      width: width - 6,
-      height: height - 6,
-      fill: 'none',
-      stroke,
-      'stroke-opacity': 0.35,
-      'stroke-width': 1,
-    }),
-    isScreen ? screenHeader(x, y, width, header, n.accent) : null,
+      : h('circle', { cx, cy, r: station.width / 2, ...shape }),
+    isWindow ? windowBar(station, shape.stroke) : null,
     h(
       'g',
       {
-        transform: `translate(${iconX} ${iconY}) scale(${iconSize / 24})`,
+        transform: `translate(${cx - iconSize / 2} ${iconCy - iconSize / 2}) scale(${iconSize / 24})`,
         fill: 'none',
-        stroke: n.accent,
-        'stroke-width': 1.8,
+        stroke: accent ?? COLOR.fg,
+        'stroke-width': 2,
         'stroke-linecap': 'round',
         'stroke-linejoin': 'round',
       },
@@ -219,93 +234,69 @@ function nodeElement(n: ResolvedNode): VElement {
     ),
     h(
       'text',
-      { x: textX, y: labelY, class: 'dav-node-label', 'font-size': 13, fill: '#f1f5f9' },
-      fitText(n.label, 13, textWidth),
+      {
+        x: cx,
+        y: y + NODE_LABEL_OFFSET,
+        'text-anchor': 'middle',
+        class: 'dav-node-label',
+        'font-size': 14,
+        fill: COLOR.fg,
+      },
+      fitText(n.label, 14, textWidth),
     ),
-    hasSub
+    n.sub
       ? h(
           'text',
-          { x: textX, y: labelY + 17, class: 'dav-node-sub', 'font-size': 11, fill: '#94a3b8' },
-          fitText(n.sub ?? '', 11, textWidth),
+          {
+            x: cx,
+            y: y + NODE_LABEL_OFFSET + 17,
+            'text-anchor': 'middle',
+            class: 'dav-node-sub',
+            'font-size': 11.5,
+            fill: COLOR.fg,
+          },
+          fitText(n.sub, 11.5, textWidth),
         )
       : null,
-    n.badge ? badge(x + width, y, n.badge, STATUS_STROKE[n.status] ?? n.accent) : null,
+    n.badge ? badge(cx, station.y, n.badge, accent ?? COLOR.fg) : null,
   );
 }
 
-function screenHeader(x: number, y: number, width: number, height: number, accent: string) {
+function windowBar(station: Rect, stroke: string): VElement {
+  const lineY = station.y + WINDOW_BAR;
   return h(
     'g',
     {},
-    h('rect', {
-      x: x + 1,
-      y: y + 1,
-      width: width - 2,
-      height,
-      fill: '#182038',
+    h('path', {
+      d: `M ${station.x} ${lineY} H ${station.x + station.width}`,
+      stroke,
+      'stroke-width': 1.75,
     }),
-    ...[0, 1, 2].map((i) =>
-      h('rect', {
-        x: x + 10 + i * 9,
-        y: y + height / 2 - 2.5,
-        width: 5,
-        height: 5,
-        fill: i === 0 ? accent : '#475569',
+    ...[0, 1].map((i) =>
+      h('circle', {
+        cx: station.x + 7 + i * 5,
+        cy: station.y + WINDOW_BAR / 2 + 0.5,
+        r: 1.4,
+        fill: stroke,
       }),
     ),
   );
 }
 
-function badge(right: number, top: number, text: string, color: string): VElement {
-  const label = fitText(text, 10, 120);
-  const width = estimateTextWidth(label, 10) + 14;
-  const x = right - width + 8;
-  const y = top - 9;
+function badge(cx: number, stationTop: number, text: string, color: string): VElement {
+  const label = fitText(text, 11, 120);
+  const width = estimateTextWidth(label, 11) + 16;
+  const y = stationTop - 25;
   return h(
     'g',
     { class: 'dav-badge' },
-    h('rect', { x: x + 2, y: y + 2, width, height: 18, fill: '#03050a' }),
-    h('rect', { x, y, width, height: 18, fill: color, stroke: '#f8fafc', 'stroke-width': 1.5 }),
+    h('rect', { x: cx - width / 2, y, width, height: 20, rx: 10, fill: color }),
     h(
       'text',
-      { x: x + width / 2, y: y + 12.5, 'text-anchor': 'middle', 'font-size': 10, fill: '#ffffff' },
+      { x: cx, y: y + 14, 'text-anchor': 'middle', 'font-size': 11, fill: COLOR.bg },
       label,
     ),
   );
-}
-
-function pill(center: Point, text: string, color: string): VElement[] {
-  const label = fitText(text, 10.5, 220);
-  const width = Math.max(40, estimateTextWidth(label, 10.5) + 16);
-  return [
-    h('rect', {
-      x: center.x - width / 2 + 2,
-      y: center.y - 8,
-      width,
-      height: 20,
-      fill: '#03050a',
-    }),
-    h('rect', {
-      x: center.x - width / 2,
-      y: center.y - 10,
-      width,
-      height: 20,
-      fill: '#0c1022',
-      stroke: '#475569',
-      'stroke-width': 1.5,
-    }),
-    h(
-      'text',
-      {
-        x: center.x,
-        y: center.y + 3.8,
-        'text-anchor': 'middle',
-        'font-size': 10.5,
-        fill: color,
-      },
-      label,
-    ),
-  ];
 }
 
 export interface PacketCalloutBox {
@@ -318,23 +309,38 @@ export interface PacketCalloutBox {
   descLines: string[];
 }
 
+const CALLOUT_MAX_TEXT_WIDTH = 360;
+const CALLOUT_LABEL_SIZE = 14;
+const CALLOUT_DESC_SIZE = 13;
+const CALLOUT_LINE_HEIGHT = 18;
+/** Keeps a callout above its endpoint nodes, including their badges and crop marks. */
+const CALLOUT_NODE_CLEARANCE = 16;
+
 /**
  * Computes the stationary speech-bubble box positioned above the packet's edge path.
  * Keeping the bubble body stationary while only its pointer tip tracks the moving dot
  * eliminates eye-tracking fatigue when reading multi-line descriptions.
  */
 export function computePacketCalloutBox(packet: Packet): PacketCalloutBox | null {
-  const label = packet.label ? fitText(packet.label, 16, 480) : '';
-  const descLines = packet.description ? wrapText(packet.description, 15, 480, 4) : [];
+  const label = packet.label
+    ? fitText(packet.label, CALLOUT_LABEL_SIZE, CALLOUT_MAX_TEXT_WIDTH)
+    : '';
+  const descLines = packet.description
+    ? wrapText(packet.description, CALLOUT_DESC_SIZE, CALLOUT_MAX_TEXT_WIDTH, 4)
+    : [];
   if (!label && descLines.length === 0) return null;
 
-  const labelW = label ? estimateTextWidth(label, 16) : 0;
-  const descW = descLines.reduce((m, line) => Math.max(m, estimateTextWidth(line, 15)), 0);
-  const padX = descLines.length > 0 ? 20 : 14;
-  const minW = descLines.length > 0 ? 280 : 72;
+  const labelW = label ? estimateTextWidth(label, CALLOUT_LABEL_SIZE) : 0;
+  const descW = descLines.reduce(
+    (m, line) => Math.max(m, estimateTextWidth(line, CALLOUT_DESC_SIZE)),
+    0,
+  );
+  const padX = descLines.length > 0 ? 12 : 10;
+  const minW = descLines.length > 0 ? 200 : 56;
   const width = Math.max(minW, Math.ceil(Math.max(labelW, descW) + padX * 2));
   const halfW = width / 2;
-  const height = descLines.length === 0 ? 36 : (label ? 46 : 20) + descLines.length * 22;
+  const height =
+    descLines.length === 0 ? 30 : (label ? 36 : 14) + descLines.length * CALLOUT_LINE_HEIGHT;
 
   const mid = pointAt(packet.path, 0.5);
   const minY = Math.min(
@@ -345,96 +351,77 @@ export function computePacketCalloutBox(packet: Packet): PacketCalloutBox | null
     mid.y,
   );
   const cx = mid.x;
-  const boxBottom = Math.min(mid.y - 36, minY - 26);
+  const boxBottom = Math.min(mid.y - 36, minY - 26, packet.clearTop - CALLOUT_NODE_CLEARANCE);
   const boxTop = boxBottom - height;
 
   return { cx, halfW, boxTop, boxBottom, padX, label, descLines };
 }
 
 /**
- * Builds the closed SVG path for the stationary 8-bit pixel-notched speech bubble whose bottom
- * pointer tip dynamically follows `dot` along the edge path.
+ * Builds the path of the stationary annotation box and its leader line, whose end
+ * dynamically follows `dot` along the edge path.
  */
 export function packetBubblePath(box: PacketCalloutBox, dot: Point): string {
   const { cx, halfW, boxTop, boxBottom } = box;
   const left = cx - halfW;
   const right = cx + halfW;
-  const s = 4;
-  const maxOffset = Math.max(0, halfW - s - 14);
+  const r = 6;
+  const maxOffset = Math.max(0, halfW - r - 12);
   const baseX = cx + Math.max(-maxOffset, Math.min(maxOffset, (dot.x - cx) * 0.25));
-  const halfBase = Math.min(9, Math.max(5, halfW - s - 2));
   const dx = dot.x - baseX;
   const dy = Math.max(12, dot.y - boxBottom);
   const dist = Math.hypot(dx, dy);
-  const pull = Math.min(9, dist * 0.35);
+  const pull = Math.min(7, dist * 0.35);
   const tipX = dot.x - (dx / dist) * pull;
   const tipY = dot.y - (dy / dist) * pull;
+  const n = (value: number) => value.toFixed(1);
 
   return [
-    `M ${(left + s).toFixed(1)} ${boxTop.toFixed(1)}`,
-    `H ${(right - s).toFixed(1)}`,
-    `V ${(boxTop + s).toFixed(1)}`,
-    `H ${right.toFixed(1)}`,
-    `V ${(boxBottom - s).toFixed(1)}`,
-    `H ${(right - s).toFixed(1)}`,
-    `V ${boxBottom.toFixed(1)}`,
-    `H ${(baseX + halfBase).toFixed(1)}`,
-    `L ${tipX.toFixed(1)} ${tipY.toFixed(1)}`,
-    `L ${(baseX - halfBase).toFixed(1)} ${boxBottom.toFixed(1)}`,
-    `H ${(left + s).toFixed(1)}`,
-    `V ${(boxBottom - s).toFixed(1)}`,
-    `H ${left.toFixed(1)}`,
-    `V ${(boxTop + s).toFixed(1)}`,
-    `H ${(left + s).toFixed(1)}`,
+    `M ${n(left + r)} ${n(boxTop)}`,
+    `H ${n(right - r)}`,
+    `Q ${n(right)} ${n(boxTop)} ${n(right)} ${n(boxTop + r)}`,
+    `V ${n(boxBottom - r)}`,
+    `Q ${n(right)} ${n(boxBottom)} ${n(right - r)} ${n(boxBottom)}`,
+    `H ${n(baseX)}`,
+    `L ${n(tipX)} ${n(tipY)}`,
+    `L ${n(baseX)} ${n(boxBottom)}`,
+    `H ${n(left + r)}`,
+    `Q ${n(left)} ${n(boxBottom)} ${n(left)} ${n(boxBottom - r)}`,
+    `V ${n(boxTop + r)}`,
+    `Q ${n(left)} ${n(boxTop)} ${n(left + r)} ${n(boxTop)}`,
     'Z',
   ].join(' ');
 }
 
-/** A packet (stationary 8-bit speech-bubble callout + moving pixel dot & pointer tip). */
+/** A packet (stationary callout + a marker riding the rail). */
 export function buildPacket(packet: Packet, t = 0): VElement {
   const dot = packetPosition(packet, t);
   const box = computePacketCalloutBox(packet);
   let callout: VElement | null = null;
 
   if (box) {
-    const { cx, halfW, boxTop, boxBottom, padX, label, descLines } = box;
+    const { cx, halfW, boxTop, padX, label, descLines } = box;
+    const hasDesc = descLines.length > 0;
     callout = h(
       'g',
       { class: 'dav-packet-callout' },
-      h('rect', {
-        x: cx - halfW + 4,
-        y: boxTop + 4,
-        width: halfW * 2,
-        height: boxBottom - boxTop,
-        fill: '#03050a',
-      }),
       h('path', {
         d: packetBubblePath(box, dot),
-        fill: '#0a0e1d',
-        stroke: packet.color,
-        'stroke-width': 2,
-        'stroke-linejoin': 'miter',
+        fill: COLOR.panel,
+        stroke: COLOR.borderStrong,
+        'stroke-width': 1.5,
+        'stroke-linejoin': 'round',
         class: 'dav-packet-bubble',
-      }),
-      h('rect', {
-        x: cx - halfW + 4,
-        y: boxTop + 4,
-        width: halfW * 2 - 8,
-        height: boxBottom - boxTop - 8,
-        fill: 'none',
-        stroke: packet.color,
-        'stroke-opacity': 0.35,
-        'stroke-width': 1,
       }),
       label
         ? h(
             'text',
             {
-              x: descLines.length > 0 ? cx - halfW + padX : cx,
-              y: descLines.length > 0 ? boxTop + 26 : boxTop + 23,
-              ...(descLines.length === 0 ? { 'text-anchor': 'middle' } : {}),
-              'font-size': 16,
-              fill: descLines.length > 0 ? packet.color : '#f8fafc',
+              x: hasDesc ? cx - halfW + padX : cx,
+              y: boxTop + (hasDesc ? 21 : 20),
+              ...(hasDesc ? {} : { 'text-anchor': 'middle' }),
+              'font-size': CALLOUT_LABEL_SIZE,
+              fill: COLOR.fg,
               class: 'dav-packet-label',
             },
             label,
@@ -445,9 +432,9 @@ export function buildPacket(packet: Packet, t = 0): VElement {
           'text',
           {
             x: cx - halfW + padX,
-            y: boxTop + (label ? 50 : 25) + i * 22,
-            'font-size': 15,
-            fill: '#f1f5f9',
+            y: boxTop + (label ? 40 : 19) + i * CALLOUT_LINE_HEIGHT,
+            'font-size': CALLOUT_DESC_SIZE,
+            fill: COLOR.fg,
             class: 'dav-packet-desc',
           },
           line,
@@ -466,25 +453,7 @@ export function buildPacket(packet: Packet, t = 0): VElement {
         class: 'dav-packet-dot',
         transform: `translate(${dot.x.toFixed(1)} ${dot.y.toFixed(1)})`,
       },
-      h('rect', {
-        x: -10,
-        y: -10,
-        width: 20,
-        height: 20,
-        fill: packet.color,
-        'fill-opacity': 0.25,
-        stroke: packet.color,
-        'stroke-width': 1,
-      }),
-      h('rect', {
-        x: -5.5,
-        y: -5.5,
-        width: 11,
-        height: 11,
-        fill: packet.color,
-        stroke: '#ffffff',
-        'stroke-width': 2,
-      }),
+      h('circle', { r: 8, fill: '#ffffff', stroke: paint(packet.color), 'stroke-width': 4 }),
     ),
   );
 }

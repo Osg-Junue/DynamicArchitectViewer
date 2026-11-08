@@ -14,32 +14,32 @@ user <--> apigw : "HTTPS / Polling"
 apigw --> queue : "Enqueue Job"
 queue --> worker : "Trigger Batch"
 worker --> s3 : "PutObject (PDF)"
-user -.-> s3 : "Signed URL DL" [id: e_dl, visible: false, color: #10b981]
+user -.-> s3 : "Signed URL DL" [id: e_dl, visible: false, color: green]
 
 step "ジョブ登録と即時受付応答 (202 Accepted)" {
   desc "重たいPDF生成処理を同期実行せず、SQSへジョブを投入して即座に 202 Accepted を返却します。"
   focus user, apigw, queue
-  state queue [status: active, badge: "QUEUED: 1"]
-  animate user --> apigw : "POST /reports" [color: #3b82f6, desc: "管理ダッシュボードから月次レポート生成リクエストをAPI Gatewayへ送信"]
-  animate apigw --> queue : "SendMessage" [color: #a855f7, desc: "API GatewayからSQSへジョブメッセージをエンキューし、即座に受付完了を応答"]
+  state queue [badge: "QUEUED: 1"]
+  animate user --> apigw : "POST /reports" [desc: "管理ダッシュボードから月次レポート生成リクエストをAPI Gatewayへ送信"]
+  animate apigw --> queue : "SendMessage" [desc: "API GatewayからSQSへジョブメッセージをエンキューし、即座に受付完了を応答"]
 }
 
 step "非同期ワーカー起動とPDF生成・保存" {
   desc "SQSをトリガーにLambda Workerが起動し、レポートPDFを生成してS3バケットへ保存します。"
   focus queue, worker, s3
-  state queue [status: normal, badge: ""]
-  state worker [status: active, badge: "RUNNING"]
-  state s3 [status: active, badge: "SAVED"]
-  animate queue --> worker : "Invoke Worker" [color: #f59e0b, desc: "SQSイベントソースマッピングによりLambda Workerを非同期起動"]
-  animate worker --> s3 : "PutObject report.pdf" [color: #14b8a6, desc: "生成したPDFファイルをS3バケットのアーカイブ領域へアップロード"]
+  state queue [badge: ""]
+  state worker [badge: "RUNNING"]
+  state s3 [badge: "SAVED"]
+  animate queue --> worker : "Invoke Worker" [desc: "SQSイベントソースマッピングによりLambda Workerを非同期起動"]
+  animate worker --> s3 : "PutObject report.pdf" [desc: "生成したPDFファイルをS3バケットのアーカイブ領域へアップロード"]
 }
 
 step "署名付きURLによる直接ダウンロード" {
   desc "生成完了後、クライアントはS3のPresigned URLから直接PDFをダウンロードします。"
   focus user, s3
-  state worker [status: normal, badge: ""]
-  state s3 [status: normal, badge: ""]
+  state worker [badge: ""]
+  state s3 [badge: ""]
   state e_dl [visible: true]
-  state user [status: active, badge: "DOWNLOADED"]
-  animate user -.-> s3 : "GET Presigned URL" [color: #10b981, desc: "APIサーバーを経由せず、S3の署名付きURLからブラウザへ直接PDFをダウンロード"]
+  state user [badge: "DOWNLOADED"]
+  animate user -.-> s3 : "GET Presigned URL" [desc: "APIサーバーを経由せず、S3の署名付きURLからブラウザへ直接PDFをダウンロード"]
 }

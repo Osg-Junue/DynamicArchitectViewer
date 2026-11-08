@@ -76,7 +76,15 @@
     "attributes": {
       "patterns": [
         {
-          "match": "\\b(icon|sub|status|badge|color|visible|parallel|desc|id)\\s*(:)",
+          "match": "\\b(color)\\s*(:)\\s*((?i:red|orange|yellow|green|teal|blue|purple|pink|gray|none))\\b",
+          "captures": {
+            "1": { "name": "variable.other.property.dav" },
+            "2": { "name": "punctuation.separator.key-value.dav" },
+            "3": { "name": "constant.other.color.dav" }
+          }
+        },
+        {
+          "match": "\\b(icon|sub|badge|color|visible|parallel|desc|id)\\s*(:)",
           "captures": {
             "1": { "name": "variable.other.property.dav" },
             "2": { "name": "punctuation.separator.key-value.dav" }

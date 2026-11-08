@@ -2,13 +2,21 @@ import { describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
 import { computeLayout } from '../../layout';
 import { SAMPLE_TEMPLATES } from '../../samples';
-import { buildPacket, buildScene, resolveView, type VElement, type VNode } from '../index';
+import { pointAt } from '../geometry';
+import {
+  buildPacket,
+  buildScene,
+  computePacketCalloutBox,
+  resolveView,
+  type VElement,
+  type VNode,
+} from '../index';
 
 const DSL = `dav 1
 title "T"
 group vpc {
   node api
-  node db [status: muted, badge: "STANDBY"]
+  node db [badge: "STANDBY"]
 }
 node client [icon: browser]
 node hidden [visible: false]
@@ -19,7 +27,7 @@ client <--> db
 
 step "one" {
   focus client
-  state db [status: error, badge: "DOWN"]
+  state db [badge: "DOWN"]
   animate client --> api : "GET"
   animate api --> db [parallel: true]
   animate db --> client : "back"
@@ -45,18 +53,18 @@ describe('resolveView', () => {
     expect(v.stepIndex).toBeNull();
     expect(v.phases).toEqual([]);
     expect(v.nodes.every((n) => !n.dimmed && !n.focused)).toBe(true);
-    expect(node(null, 'db')).toMatchObject({ status: 'muted', badge: 'STANDBY' });
+    expect(node(null, 'db')).toMatchObject({ badge: 'STANDBY' });
     expect(node(null, 'hidden')).toBeUndefined();
   });
 
   it('applies state overrides and focus for the step', () => {
-    expect(node(0, 'db')).toMatchObject({ status: 'error', badge: 'DOWN', focused: true });
+    expect(node(0, 'db')).toMatchObject({ badge: 'DOWN', focused: true });
     expect(node(0, 'client')).toMatchObject({ focused: true, dimmed: false });
   });
 
   it('accumulates state overrides across steps', () => {
-    expect(node(1, 'db')).toMatchObject({ status: 'error', badge: 'DOWN' });
-    expect(node(2, 'db')).toMatchObject({ status: 'error', badge: 'DOWN' });
+    expect(node(1, 'db')).toMatchObject({ badge: 'DOWN' });
+    expect(node(2, 'db')).toMatchObject({ badge: 'DOWN' });
     expect(edge(1, 'failover')).toBeDefined();
     // Still overridden to visible, but hidden because its endpoint is hidden again.
     expect(edge(2, 'failover')).toBeUndefined();
@@ -171,6 +179,103 @@ describe('buildScene', () => {
     const dot0 = findAll(v0, (e) => e.attrs.class === 'dav-packet-dot')[0];
     const dot1 = findAll(v1, (e) => e.attrs.class === 'dav-packet-dot')[0];
     expect(dot0?.attrs.transform).not.toEqual(dot1?.attrs.transform);
+  });
+
+  it('keeps the accent independent of author colors', () => {
+    const doc = parse(
+      'dav 1\nnode a [color: orange]\nnode b [color: yellow]\na --> b [color: orange]\nstep "S" {\n  focus a\n  animate a --> b\n}\n',
+    ).document;
+    const scene = buildScene(resolveView(doc, computeLayout(doc), 0));
+
+    const [flow] = findAll(scene, (e) => e.attrs.class === 'dav-flow');
+    expect(flow?.attrs.stroke).toBe('var(--dav-accent)');
+
+    const strokes = collectAttrs(scene).filter((a) => a.startsWith('stroke='));
+    expect(strokes).toContain('stroke=var(--dav-c-yellow)');
+    expect(strokes).toContain('stroke=var(--dav-c-orange)');
+  });
+
+  it('shows an authored color on the station, icon and badge', () => {
+    const doc = parse(
+      'dav 1\nnode a [icon: database, badge: "A"]\nnode b [color: Red, badge: "B"]\nnode c [badge: "C"]\n',
+    ).document;
+    const scene = buildScene(resolveView(doc, computeLayout(doc), null));
+    const fills = findAll(scene, (e) => e.attrs.class === 'dav-badge').map(
+      (b) => b.children.flatMap((c) => (typeof c === 'string' ? [] : [c.attrs.fill]))[0],
+    );
+    expect(fills).toEqual(['var(--dav-fg)', 'var(--dav-c-red)', 'var(--dav-fg)']);
+
+    const [station] = findAll(scene, (e) => e.attrs['data-id'] === 'b');
+    const strokes = station
+      ? collectAttrs(station).filter((a) => a === 'stroke=var(--dav-c-red)')
+      : [];
+    expect(strokes.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('restores the declared color after color: none', () => {
+    const doc = parse(
+      'dav 1\nnode a [color: blue]\nnode b\nstep "1" {\n  state a [color: red]\n  state b [color: red]\n}\nstep "2" {\n  state a [color: none]\n  state b [color: none]\n}\nstep "3" {\n  focus a\n}\n',
+    ).document;
+    const layout = computeLayout(doc);
+    const accent = (step: number, id: string) =>
+      resolveView(doc, layout, step).nodes.find((n) => n.id === id)?.accent;
+    expect([accent(0, 'a'), accent(0, 'b')]).toEqual(['red', 'red']);
+    expect([accent(1, 'a'), accent(1, 'b')]).toEqual(['blue', undefined]);
+    expect([accent(2, 'a'), accent(2, 'b')]).toEqual(['blue', undefined]);
+  });
+
+  it('routes a rail around stations in its way', () => {
+    const doc = parse(
+      'dav 1\nnode a\nnode b\nnode c\nnode d\na --> b\nb --> c\na --> d\nd --> c\na --> c\n',
+    ).document;
+    const layout = computeLayout(doc);
+    const v = resolveView(doc, layout, null);
+    const rail = v.edges.find((e) => e.id === 'a->c');
+    expect(rail).toBeDefined();
+    for (const id of ['b', 'd']) {
+      const rect = layout.nodes[id];
+      if (!rect || !rail) continue;
+      const center = { x: rect.x + rect.width / 2, y: rect.y + 50 };
+      for (let i = 0; i <= 40; i++) {
+        const p = pointAt(rail.path, i / 40);
+        expect(Math.hypot(p.x - center.x, p.y - center.y)).toBeGreaterThan(22);
+      }
+    }
+  });
+
+  it('leaves stations along the direction of travel', () => {
+    const doc = parse('dav 1\nnode a\nnode b\nnode c\na --> b\na --> c\n').document;
+    const v = resolveView(doc, computeLayout(doc), null);
+    const [first, second] = v.edges;
+    expect(first?.path.p0).not.toEqual(second?.path.p0);
+  });
+
+  it('runs opposite directions on parallel tracks', () => {
+    const doc = parse(
+      'dav 1\nnode a\nnode b\na --> b\nb --> a\nstep "S" {\n  animate a --> b\n  animate b --> a\n}\n',
+    ).document;
+    const v = resolveView(doc, computeLayout(doc), 0);
+    const y = (id: string) => v.edges.find((e) => e.id === id)?.path.p0.y ?? 0;
+    expect(y('a->b')).toBeLessThan(y('b->a'));
+    expect(v.phases[1]?.[0]?.path.p0.y).toBe(y('b->a'));
+  });
+
+  it('numbers the phases of a multi-phase step', () => {
+    const scene = buildScene(view(0));
+    const stops = findAll(scene, (e) => e.attrs.class === 'dav-stop');
+    expect(stops.map((s) => s.attrs['data-phase'])).toEqual([0, 0, 1]);
+    expect(findAll(buildScene(view(2)), (e) => e.attrs.class === 'dav-stop')).toEqual([]);
+  });
+
+  it('keeps callouts above their endpoint nodes', () => {
+    const doc = parse(
+      'dav 1\nnode a "A"\nnode b [icon: modal]\na --> b\nstep "S" {\n  animate a --> b : "x" [desc: "long description"]\n}\n',
+    ).document;
+    const layout = computeLayout(doc);
+    const packet = resolveView(doc, layout, 0).phases[0]?.[0];
+    const box = packet && computePacketCalloutBox(packet);
+    const top = Math.min(layout.nodes.a?.y ?? 0, layout.nodes.b?.y ?? 0);
+    expect(box?.boxBottom).toBeLessThanOrEqual(top - 8);
   });
 
   it.each(SAMPLE_TEMPLATES.map((s) => [s.id, s.dsl] as const))(

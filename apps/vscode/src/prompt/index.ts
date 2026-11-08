@@ -1,4 +1,4 @@
-import { ICON_NAMES, NODE_STATUSES } from '../model/types';
+import { COLOR_NAMES, ICON_NAMES } from '../model/types';
 
 export interface AiPromptOptions {
   locale?: 'ja' | 'en';
@@ -26,19 +26,19 @@ api -.-> queue : "Async Event"
 step "1. Submit Order" {
   desc "Client sends an order request through the load balancer to the API."
   focus client, alb, api, db
-  state api [status: active, badge: "200 OK"]
-  state db [status: active, badge: "WRITE"]
-  animate client --> alb : "POST /orders" [color: #3b82f6, desc: "Client sends order payload over HTTPS"]
-  animate alb --> api : "Forward" [color: #3b82f6, desc: "ALB routes request to healthy API container"]
-  animate api --> db : "INSERT order" [color: #10b981, desc: "API commits transaction to primary PostgreSQL"]
+  state api [badge: "200 OK"]
+  state db [badge: "WRITE"]
+  animate client --> alb : "POST /orders" [desc: "Client sends order payload over HTTPS"]
+  animate alb --> api : "Forward" [desc: "ALB routes request to healthy API container"]
+  animate api --> db : "INSERT order" [desc: "API commits transaction to primary PostgreSQL"]
 }
 
 step "2. Enqueue Background Job" {
   desc "API publishes an event to the queue while keeping the DB state."
   focus api, queue
-  state db [status: normal, badge: ""]
-  state queue [status: warning, badge: "QUEUED"]
-  animate api -.-> queue : "OrderCreated" [color: #f59e0b, desc: "Publish async event for downstream workers"]
+  state db [badge: ""]
+  state queue [badge: "QUEUED"]
+  animate api -.-> queue : "OrderCreated" [desc: "Publish async event for downstream workers"]
 }`;
 
 /**
@@ -48,7 +48,7 @@ step "2. Enqueue Background Job" {
 export function buildAiPrompt(options: AiPromptOptions = {}): string {
   const locale = options.locale ?? 'en';
   const icons = ICON_NAMES.join(', ');
-  const statuses = NODE_STATUSES.join(', ');
+  const colors = COLOR_NAMES.join(', ');
   const includeCurrent = Boolean(options.includeCurrentDsl && options.currentDsl?.trim());
 
   if (locale === 'en') {
@@ -68,13 +68,13 @@ export function buildAiPrompt(options: AiPromptOptions = {}): string {
       '',
       '## 2. Declarations',
       '- Group (can be nested):',
-      '  `group <id> "Label" [color: #3b82f6] { ... }`',
+      '  `group <id> "Label" [color: blue] { ... }`',
       '- Node:',
-      '  `node <id> "Label" [icon: <icon>, sub: "Sublabel", status: <status>, badge: "TEXT", color: #10b981, visible: true]`',
+      '  `node <id> "Label" [icon: <icon>, sub: "Sublabel", badge: "TEXT", color: green, visible: true]`',
       `  - Allowed \`icon\` values (${ICON_NAMES.length}): \`${icons}\``,
-      `  - Allowed \`status\` values (${NODE_STATUSES.length}): \`${statuses}\``,
+      `  - Allowed \`color\` values (case-insensitive): \`${colors}\`. Hex codes are not supported.`,
       '- Edge (top-level only):',
-      '  `<from_id> <arrow> <to_id> : "Edge Label" [id: <edge_id>, color: #64748b, visible: true]`',
+      '  `<from_id> <arrow> <to_id> : "Edge Label" [id: <edge_id>, color: gray, visible: true]`',
       '  - Allowed `<arrow>` tokens: `-->` (solid), `-.->` (dashed), `<-->` (solid bidirectional), `<-.->` (dashed bidirectional).',
       '  - Note: a colon `:` is required before the edge label string (`a --> b : "Label"`).',
       '',
@@ -82,9 +82,9 @@ export function buildAiPrompt(options: AiPromptOptions = {}): string {
       '- `step "Step Title" { ... }` (ordered sequentially). Inside `{ ... }`:',
       '  - `desc "Explanation shown in the player dock"`',
       '  - `focus <id1>, <id2>, ...` (highlights listed nodes/groups; focusing a group automatically focuses its descendants; non-focused elements are dimmed during this step).',
-      '  - `state <target_id> [status: ..., badge: "...", color: #..., visible: true|false]`',
-      '    - **Cumulative semantics**: `state` overrides accumulate across steps `1..k`. To clear a badge or reset status in a later step, set `badge: ""` or `status: normal`.',
-      '  - `animate <from_id> <arrow> <to_id> : "Packet Label" [color: #3b82f6, desc: "Action description", parallel: true]`',
+      '  - `state <target_id> [badge: "...", color: <color>, visible: true|false]`',
+      '    - **Cumulative semantics**: `state` overrides accumulate across steps `1..k`. To clear a badge in a later step, set `badge: ""`. To return to the declared color, set `color: none`.',
+      '  - `animate <from_id> <arrow> <to_id> : "Packet Label" [color: blue, desc: "Action description", parallel: true]`',
       "    - Plays in declaration order and displays `desc` in the packet's speech bubble during that animation phase. Add `parallel: true` to run simultaneously with the immediately preceding `animate` statement.",
       '',
       '## 4. Reference Example',
@@ -121,13 +121,13 @@ export function buildAiPrompt(options: AiPromptOptions = {}): string {
     '',
     '## 2. 要素の宣言',
     '- グループ（入れ子可能）:',
-    '  `group <id> "表示名" [color: #3b82f6] { ... }`',
+    '  `group <id> "表示名" [color: blue] { ... }`',
     '- ノード:',
-    '  `node <id> "表示名" [icon: <icon>, sub: "補足", status: <status>, badge: "バッジ", color: #10b981, visible: true]`',
+    '  `node <id> "表示名" [icon: <icon>, sub: "補足", badge: "バッジ", color: green, visible: true]`',
     `  - 使用可能な \`icon\`（全${ICON_NAMES.length}種）: \`${icons}\``,
-    `  - 使用可能な \`status\`（全${NODE_STATUSES.length}種）: \`${statuses}\``,
+    `  - 使用可能な \`color\`（大文字小文字は区別しない）: \`${colors}\`。16進カラーコードは使用不可。`,
     '- エッジ（トップレベルに記述）:',
-    '  `<from_id> <arrow> <to_id> : "ラベル" [id: <edge_id>, color: #64748b, visible: true]`',
+    '  `<from_id> <arrow> <to_id> : "ラベル" [id: <edge_id>, color: gray, visible: true]`',
     '  - 使用可能な `<arrow>`: `-->`（実線）, `-.->`（破線）, `<-->`（双方向実線）, `<-.->`（双方向破線）',
     '  - ※エッジのラベル文字列の前にはコロン `:` が必須（例: `a --> b : "HTTPS"`）。',
     '',
@@ -135,9 +135,9 @@ export function buildAiPrompt(options: AiPromptOptions = {}): string {
     '- `step "ステップ名" { ... }` の中に以下を記述する:',
     '  - `desc "プレイヤー上部に表示するステップ説明文"`',
     '  - `focus <id1>, <id2>, ...`（注目するノード/グループID。グループを指定すると配下要素も自動フォーカスされ、それ以外は減光される）',
-    '  - `state <target_id> [status: ..., badge: "...", color: #..., visible: true|false]`',
-    '    - **累積適用ルール**: `state` の変更はステップ `1..k` で累積される。後のステップでバッジや状態を戻す場合は `badge: ""` や `status: normal` を明示する。',
-    '  - `animate <from_id> <arrow> <to_id> : "パケット名" [color: #3b82f6, desc: "アニメーション動作の説明", parallel: true]`',
+    '  - `state <target_id> [badge: "...", color: <color>, visible: true|false]`',
+    '    - **累積適用ルール**: `state` の変更はステップ `1..k` で累積される。後のステップでバッジを消す場合は `badge: ""`、宣言時の色に戻す場合は `color: none` を明示する。',
+    '  - `animate <from_id> <arrow> <to_id> : "パケット名" [color: blue, desc: "アニメーション動作の説明", parallel: true]`',
     '    - 記述順に直列再生され、各アニメーション実行中に `desc` の説明がパケットの吹き出しに表示される。直前の `animate` と同時再生したい場合は `[parallel: true]` を付与する。',
     '',
     '## 4. サンプルコード',

@@ -4,6 +4,21 @@ import { parse } from '../../dsl';
 import { SAMPLE_TEMPLATES } from '../../samples';
 import { computeLayout, NODE_SIZE, type Rect, SCREEN_NODE_SIZE } from '../index';
 
+describe('edge label spacing', () => {
+  const gapFor = (label: string) => {
+    const { nodes } = computeLayout(parse(`dav 1\nnode a\nnode b\na --> b : "${label}"`).document);
+    return (nodes.b?.x ?? 0) - ((nodes.a?.x ?? 0) + NODE_SIZE.width);
+  };
+
+  it('widens the column gap so a long label fits between its nodes', () => {
+    expect(gapFor('HTTPS / Polling, then WebSocket')).toBeGreaterThan(gapFor('x'));
+  });
+
+  it('keeps the base gap for short labels', () => {
+    expect(gapFor('x')).toBe(gapFor('y'));
+  });
+});
+
 const layoutOf = (dsl: string) => {
   const { document } = parse(dsl);
   return { document, layout: computeLayout(document) };

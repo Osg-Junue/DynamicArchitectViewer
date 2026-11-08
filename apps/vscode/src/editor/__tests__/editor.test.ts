@@ -13,7 +13,7 @@ describe('findAtOffset', () => {
     'step "Step 1" {',
     '  desc "Query"',
     '  focus web, db',
-    '  state db [status: active]',
+    '  state db [badge: "x"]',
     '  animate web --> db : "SELECT"',
     '}',
   ].join('\n');
@@ -49,18 +49,17 @@ describe('computeCompletions', () => {
     expect(res?.items.some((i) => i.label === 'database')).toBe(true);
   });
 
-  it('completes status values after status:', () => {
-    const text = `${dsl}node x [status: act`;
+  it('completes color names after color:', () => {
+    const text = `${dsl}node x [color: ye`;
     const res = computeCompletions(text, text.length);
-    expect(res?.items.map((i) => i.label)).toContain('active');
-    expect(res?.items.map((i) => i.label)).toContain('error');
+    expect(res?.items.map((i) => i.label)).toContain('yellow');
   });
 
   it('completes attribute keys inside brackets', () => {
     const text = `${dsl}node x [`;
     const res = computeCompletions(text, text.length, true);
     expect(res?.items.map((i) => i.label)).toEqual(
-      expect.arrayContaining(['icon', 'status', 'badge', 'color']),
+      expect.arrayContaining(['icon', 'badge', 'color']),
     );
   });
 

@@ -1,20 +1,24 @@
-import type { Layout, Rect } from '../layout';
-import { ICON_META } from '../model/icons';
-import type { DavDocument, Direction, IconName, LineStyle, NodeStatus } from '../model/types';
-import { type Bezier, connect, reverse } from './geometry';
+import { type Layout, type Rect, stationRect } from '../layout';
+import {
+  COLOR_RESET,
+  type DavDocument,
+  type Direction,
+  type IconName,
+  type LineStyle,
+} from '../model/types';
+import { type Bezier, connect, connectStations, reverse, routeAround, shiftLeft } from './geometry';
 
-export const DEFAULT_FLOW_COLOR = '#3b82f6';
-const DEFAULT_EDGE_COLOR = '#475569';
+export const DEFAULT_FLOW_COLOR = 'var(--dav-accent)';
+const DEFAULT_EDGE_COLOR = 'var(--dav-edge)';
 
 export interface ResolvedNode {
   id: string;
   label: string;
   sub?: string;
   icon: IconName;
-  status: NodeStatus;
   badge?: string;
-  /** Accent color (explicit or icon default). */
-  accent: string;
+  /** Author-specified color; absent when the station follows the theme. */
+  accent?: string;
   rect: Rect;
   visible: boolean;
   focused: boolean;
@@ -35,9 +39,13 @@ export interface ResolvedEdge {
   from: string;
   to: string;
   label?: string;
+  /** The lower of two parallel tracks: its label goes under the rail. */
+  labelBelow: boolean;
   style: LineStyle;
   direction: Direction;
   color: string;
+  /** Color of the flow overlay; present when `active`. */
+  flowColor?: string;
   path: Bezier;
   /** Packets flow along this edge in the current step. */
   active: boolean;
@@ -54,6 +62,8 @@ export interface Packet {
   color: string;
   style: LineStyle;
   path: Bezier;
+  /** Top edge of the two endpoint nodes; the callout stays above it to keep them visible. */
+  clearTop: number;
 }
 
 export interface ResolvedView {
@@ -67,6 +77,40 @@ export interface ResolvedView {
   edges: ResolvedEdge[];
   /** Sequential phases; packets within a phase play in parallel. */
   phases: Packet[][];
+}
+
+const TRACK_OFFSET = 12;
+const STATION_CLEARANCE = 12;
+const LABEL_AREA_WIDTH = 96;
+
+/** The part of a node a rail must not cross: its station and the labels below it. */
+function stationArea(node: ResolvedNode): Rect {
+  const station = stationRect(node.rect, node.icon);
+  const width = Math.max(station.width + STATION_CLEARANCE * 2, LABEL_AREA_WIDTH);
+  const top = station.y - STATION_CLEARANCE;
+  return {
+    x: station.x + station.width / 2 - width / 2,
+    y: top,
+    width,
+    height: node.rect.y + node.rect.height - top,
+  };
+}
+
+/**
+ * Connects two stations. A vertical rail leaves below the upper station's labels,
+ * so it does not run through its text.
+ */
+function stationConnect(from: ResolvedNode, to: ResolvedNode): Bezier {
+  const a = stationRect(from.rect, from.icon);
+  const b = stationRect(to.rect, to.icon);
+  const dx = Math.abs(a.x + a.width / 2 - (b.x + b.width / 2));
+  const dy = Math.abs(a.y + a.height / 2 - (b.y + b.height / 2));
+  if (dx >= dy * 0.85) return connectStations(a, b);
+  const withLabels = (station: Rect, node: ResolvedNode): Rect => ({
+    ...station,
+    height: node.rect.y + node.rect.height - station.y,
+  });
+  return a.y < b.y ? connect(withLabels(a, from), b) : connect(a, withLabels(b, to));
 }
 
 /**
@@ -87,7 +131,6 @@ export function resolveView(
 
   // 1. Accumulate state overrides.
   type Override = Partial<{
-    status: NodeStatus;
     badge: string;
     visible: boolean;
     color: string;
@@ -97,7 +140,9 @@ export function resolveView(
     for (const s of doc.steps.slice(0, index + 1)) {
       for (const st of s.states) {
         const { target, ...rest } = st;
-        overrides.set(target, { ...overrides.get(target), ...rest });
+        const merged = { ...overrides.get(target), ...rest };
+        if (merged.color === COLOR_RESET) delete merged.color;
+        overrides.set(target, merged);
       }
     }
   }
@@ -135,13 +180,13 @@ export function resolveView(
       id: n.id,
       label: n.label,
       icon: n.icon,
-      status: ov.status ?? n.status,
-      accent: ov.color ?? n.color ?? ICON_META[n.icon].accentColor,
       rect,
       visible: animatedEndpoints.has(n.id) || (ov.visible ?? n.visible),
       focused: step !== undefined && focused,
       dimmed: filtering && !focused,
     };
+    const accent = ov.color ?? n.color;
+    if (accent) node.accent = accent;
     if (n.sub) node.sub = n.sub;
     const badge = ov.badge ?? n.badge;
     if (badge) node.badge = badge;
@@ -177,7 +222,25 @@ export function resolveView(
     return [group];
   });
 
-  // 5. Animation phases.
+  // 5. Rails. Opposite directions between two stations run on parallel tracks.
+  const trackKey = (from: string, to: string) => `${from}\u0000${to}`;
+  const sharedRail = new Set(
+    doc.edges
+      .filter((e) => e.direction === 'bidirectional')
+      .flatMap((e) => [trackKey(e.from, e.to), trackKey(e.to, e.from)]),
+  );
+  const directions = new Set(
+    [...doc.edges, ...doc.steps.flatMap((s) => s.animations)]
+      .map((r) => trackKey(r.from, r.to))
+      .filter((key) => !sharedRail.has(key)),
+  );
+  const railBetween = (from: ResolvedNode, to: ResolvedNode): Bezier => {
+    const others = nodes.filter((n) => n.id !== from.id && n.id !== to.id);
+    const path = routeAround(stationConnect(from, to), others.map(stationArea));
+    return directions.has(trackKey(to.id, from.id)) ? shiftLeft(path, TRACK_OFFSET) : path;
+  };
+
+  // 6. Animation phases.
   const edgeFor = (from: string, to: string) =>
     doc.edges.find(
       (e) =>
@@ -192,12 +255,12 @@ export function resolveView(
     if (!fromNode || !toNode) continue;
     const edge = edgeFor(a.from, a.to);
     const color = a.color ?? DEFAULT_FLOW_COLOR;
-    let path = connect(fromNode.rect, toNode.rect);
+    let path = railBetween(fromNode, toNode);
     if (edge) {
-      const fromRect = nodeById.get(edge.from)?.rect;
-      const toRect = nodeById.get(edge.to)?.rect;
-      if (fromRect && toRect) {
-        const edgePath = connect(fromRect, toRect);
+      const edgeFrom = nodeById.get(edge.from);
+      const edgeTo = nodeById.get(edge.to);
+      if (edgeFrom && edgeTo) {
+        const edgePath = railBetween(edgeFrom, edgeTo);
         path = edge.from === a.from ? edgePath : reverse(edgePath);
       }
       if (!activeEdges.has(edge.id)) activeEdges.set(edge.id, color);
@@ -210,6 +273,7 @@ export function resolveView(
       color,
       style: a.style,
       path,
+      clearTop: Math.min(fromNode.rect.y, toNode.rect.y),
     };
     if (a.label !== undefined) packet.label = a.label;
     if (a.description !== undefined) packet.description = a.description;
@@ -218,7 +282,7 @@ export function resolveView(
     else phases.push([packet]);
   }
 
-  // 6. Edges.
+  // 7. Edges.
   const edges: ResolvedEdge[] = [];
   for (const e of doc.edges) {
     const from = nodeById.get(e.from);
@@ -233,13 +297,15 @@ export function resolveView(
       id: e.id,
       from: e.from,
       to: e.to,
+      labelBelow: directions.has(trackKey(e.to, e.from)) && to.rect.x < from.rect.x,
       style: e.style,
       direction: e.direction,
-      color: activeColor ?? ov.color ?? e.color ?? DEFAULT_EDGE_COLOR,
-      path: connect(from.rect, to.rect),
+      color: ov.color ?? e.color ?? DEFAULT_EDGE_COLOR,
+      path: railBetween(from, to),
       active: activeColor !== undefined,
       dimmed: filtering && !focused,
     };
+    if (activeColor !== undefined) edge.flowColor = activeColor;
     if (e.label) edge.label = e.label;
     edges.push(edge);
   }

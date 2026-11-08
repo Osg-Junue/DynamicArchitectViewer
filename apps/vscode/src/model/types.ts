@@ -25,8 +25,22 @@ export const ICON_NAMES = [
 ] as const;
 export type IconName = (typeof ICON_NAMES)[number];
 
-export const NODE_STATUSES = ['normal', 'active', 'muted', 'warning', 'error'] as const;
-export type NodeStatus = (typeof NODE_STATUSES)[number];
+/** The DSL's color names. Each renders as a color tuned for the active theme. */
+export const COLOR_NAMES = [
+  'red',
+  'orange',
+  'yellow',
+  'green',
+  'teal',
+  'blue',
+  'purple',
+  'pink',
+  'gray',
+] as const;
+export type ColorName = (typeof COLOR_NAMES)[number];
+
+/** In a `state`, removes the color set by earlier steps and restores the declared one. */
+export const COLOR_RESET = 'none';
 
 export type LineStyle = 'solid' | 'dashed';
 export type Direction = 'forward' | 'bidirectional';
@@ -49,7 +63,6 @@ export interface DavNode {
   label: string;
   icon: IconName;
   sub?: string;
-  status: NodeStatus;
   badge?: string;
   visible: boolean;
   color?: string;
@@ -72,7 +85,6 @@ export interface DavEdge {
 
 export interface StateOverride {
   target: string;
-  status?: NodeStatus;
   badge?: string;
   visible?: boolean;
   color?: string;

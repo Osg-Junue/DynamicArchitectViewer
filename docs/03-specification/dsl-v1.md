@@ -20,7 +20,7 @@ DynamicArchitectViewer の唯一の真実のソース（Single Source of Truth�
 - **コメント**: `//` から行末まで（単一行コメント）
 - **識別子 (`<id>`)**: `^[a-zA-Z_][a-zA-Z0-9_]*$`（予約語を除く）
 - **文字列 (`<string>`)**: ダブルクォート `"..."` で囲まれた文字列（`\"`, `\\`, `\n`, `\t` のエスケープをサポート）
-- **色 (`<color>`)**: `#RGB` または `#RRGGBB` 形式の 16 進カラーコード
+- **色 (`<color>`)**: `red` | `orange` | `yellow` | `green` | `teal` | `blue` | `purple` | `pink` | `gray`（大文字小文字は区別しない。表示テーマに合わせた色で描画する）
 - **真偽値 (`<bool>`)**: `true` | `false`
 
 ---
@@ -69,19 +69,19 @@ title "AWS マルチAZ Webアーキテクチャ & DBフェイルオーバー"
 ### 4.2 グループ (`group`)
 
 ```dav
-group vpc "Production VPC" [color: #3b82f6] {
+group vpc "Production VPC" [color: blue] {
   node alb "Application LB" [icon: lb]
 }
 ```
 
 - ネスト可能。配下のノード・サブグループを自動で包含する境界ボックスとして描画される。
 - **属性**:
-  - `color`: `<color>`（枠線およびヘッダアクセント色）
+  - `color`: `<color>`（ゾーンの色）
 
 ### 4.3 ノード (`node`)
 
 ```dav
-node db_pri "Primary DB" [icon: database, sub: "Aurora Writer", status: normal, badge: "WRITER", visible: true, color: #10b981]
+node db_pri "Primary DB" [icon: database, sub: "Aurora Writer", badge: "WRITER", visible: true, color: green]
 ```
 
 - **属性**:
@@ -89,10 +89,9 @@ node db_pri "Primary DB" [icon: database, sub: "Aurora Writer", status: normal, 
     - インフラ系 (13種): `server`, `container`, `function`, `database`, `cache`, `queue`, `storage`, `lb`, `firewall`, `cdn`, `cloud`, `router`, `external`
     - 画面・アクター系 (5種): `screen`, `modal`, `browser`, `mobile`, `user`
   - `sub`: `<string>`（ノード下部の補足ラベル）
-  - `status`: `normal` | `active` | `muted` | `warning` | `error`（省略時: `normal`）
-  - `badge`: `<string>`（右上に表示されるステータスバッジ）
+  - `badge`: `<string>`（駅の上に表示されるバッジ）
   - `visible`: `<bool>`（初期表示状態。省略時: `true`）
-  - `color`: `<color>`（アイコンのアクセント色上書き）
+  - `color`: `<color>`（駅の輪、アイコン、バッジの色。省略時はいずれも無彩色）
 
 ### 4.4 エッジ（通信経路・画面遷移）
 
@@ -100,7 +99,7 @@ node db_pri "Primary DB" [icon: database, sub: "Aurora Writer", status: normal, 
 api --> db_pri : "Read / Write"
 db_pri -.-> db_sby : "Sync Replication"
 user <--> apigw : "HTTPS"
-api -.-> db_sby : "Failover Route" [id: e_failover, visible: false, color: #f59e0b]
+api -.-> db_sby : "Failover Route" [id: e_failover, visible: false, color: yellow]
 ```
 
 - **矢印演算子**:
@@ -119,15 +118,16 @@ api -.-> db_sby : "Failover Route" [id: e_failover, visible: false, color: #f59e
 step "Primary DB障害発生と自動フェイルオーバー" {
   desc "Primary DBで障害が発生。Standby DBをWriterに昇格させて経路を自動切替します。"
   focus api, db_pri, db_sby
-  state db_pri [status: error, badge: "DOWN"]
-  state db_sby [status: active, badge: "PROMOTED"]
+  state db_pri [badge: "DOWN"]
+  state db_sby [badge: "PROMOTED"]
   state e_failover [visible: true]
-  animate api -.-> db_sby : "Reconnect Writer" [color: #f59e0b, desc: "昇格したStandby DBへエンドポイントを自動切替"]
+  animate api -.-> db_sby : "Reconnect Writer" [color: yellow, desc: "昇格したStandby DBへエンドポイントを自動切替"]
 }
 ```
 
 - **評価モデル（累積状態 + ステップ局所演出）**:
-  - `state <id> [...]` による状態変更（`status`, `badge`, `visible`, `color`）は **Step 1 から Step $k$ まで順に累積適用** される（ノードは `status`/`badge`/`visible`/`color`、グループは `color`、エッジは `visible`/`color` を変更可能）。
+  - `state <id> [...]` による状態変更（`badge`, `visible`, `color`）は **Step 1 から Step $k$ まで順に累積適用** される（ノードは `badge`/`visible`/`color`、グループは `color`、エッジは `visible`/`color` を変更可能）。
+  - `state` の `color` には `none` も指定でき、それまでのステップで付けた色を解除して宣言時の色に戻す（`node` / `group` / エッジの宣言では使用不可）。
   - `focus`（ハイライト対象）および `animate`（パケットアニメーション）は **そのステップのみ有効**。
   - `animate` には `desc: "..."` 属性（または `{ desc "..." }` ブロック）で各アニメーション動作の解説を記述でき、再生中のフェーズに合わせてパケットの吹き出しに表示される。
   - `animate` に `[parallel: true]` を指定すると、直前の `animate` と同じフェーズで同時再生される。
@@ -151,7 +151,7 @@ step "Primary DB障害発生と自動フェイルオーバー" {
 | `attribute-not-applicable` | Warning | `state` の対象種別に適用できない属性を指定した |
 | `empty-state` | Warning | `state` の属性ブロックが空 `[]` |
 | `unknown-icon` | Error | 18種以外のアイコン名を指定した（最近傍候補をサジェスト） |
-| `invalid-color` | Error | `#RGB` / `#RRGGBB` 以外の色指定 |
+| `invalid-color` | Error | 定義済みの色名以外の色指定（16 進カラーコードを含む。最も近い色名をサジェスト） |
 | `invalid-escape` | Error | 文字列内の未定義エスケープシーケンス |
 | `unexpected-eof` | Error | ブロック `{ ... }` または文字列が閉じられていない |
 | `syntax-error` | Error | その他の構文エラー |

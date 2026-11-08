@@ -47,7 +47,7 @@ const MESSAGES: Record<Locale, Record<DiagnosticCode, string>> = {
     'duplicate-attribute': '属性 "{name}" が重複しています（後の値が使われます）',
     'invalid-attribute-value': '属性 "{name}" の値が不正です（期待: {expected}）',
     'unknown-icon': 'アイコン "{icon}" は存在しません{suggestion}',
-    'invalid-color': '色 "{value}" は不正です（#rgb または #rrggbb）',
+    'invalid-color': '色 "{value}" は不正です{suggestion}（使用可: {names}）',
     'invalid-escape': 'エスケープシーケンス "{sequence}" は使えません（使用可: \\" \\\\ \\n \\t）',
     'attribute-not-applicable': '属性 "{name}" は{kind}には適用されません',
     'empty-state': 'state に属性が指定されていません',
@@ -67,7 +67,7 @@ const MESSAGES: Record<Locale, Record<DiagnosticCode, string>> = {
     'duplicate-attribute': 'Duplicate attribute "{name}" (the last value wins)',
     'invalid-attribute-value': 'Invalid value for attribute "{name}" (expected {expected})',
     'unknown-icon': 'Unknown icon "{icon}"{suggestion}',
-    'invalid-color': 'Invalid color "{value}" (use #rgb or #rrggbb)',
+    'invalid-color': 'Invalid color "{value}"{suggestion}. Use one of: {names}',
     'invalid-escape': 'Invalid escape sequence "{sequence}" (allowed: \\" \\\\ \\n \\t)',
     'attribute-not-applicable': 'Attribute "{name}" does not apply to a {kind}',
     'empty-state': 'state has no attributes',
@@ -108,7 +108,7 @@ export function formatDiagnostic(diagnostic: Diagnostic, locale: Locale = 'en'):
     }
     if (KIND_ARGS.has(key)) {
       return raw
-        .split('|')
+        .split(/\s*\|\s*/)
         .map((k) => KIND_LABELS[locale][k] ?? k)
         .join(locale === 'ja' ? '・' : ' or ');
     }

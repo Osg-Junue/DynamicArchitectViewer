@@ -5,7 +5,7 @@ group frontend "フロントエンド画面遷移 (SPA)" {
   node scr_login "ログイン画面" [icon: screen, sub: "/login | ID・PW入力フォーム"]
   node scr_catalog "商品一覧・カート画面" [icon: screen, sub: "/catalog | カート追加・在庫表示"]
   node mod_pay "決済確認モーダル" [icon: modal, sub: "Modal | クレジットカード確認", visible: false]
-  node scr_done "注文完了画面" [icon: screen, sub: "/complete | 注文番号表示", status: muted]
+  node scr_done "注文完了画面" [icon: screen, sub: "/complete | 注文番号表示"]
 }
 
 group backend "バックエンド & 外部連携" {
@@ -25,36 +25,32 @@ shop_api --> stripe : "Charge API"
 step "ログイン認証とトークン発行" {
   desc "ユーザーがログイン画面で認証情報を送信。Auth Serviceで検証後、JWTを発行して商品一覧画面へ遷移します。"
   focus scr_login, auth_api, scr_catalog
-  state scr_login [status: active, badge: "INPUT"]
-  animate scr_login --> auth_api : "POST /auth/login" [color: #3b82f6, desc: "入力されたID・パスワードをAuth Serviceへ送信し、認証トークン(JWT)を取得"]
-  animate scr_login --> scr_catalog : "Redirect /catalog" [color: #10b981, desc: "認証成功後、SPAルーターにより商品一覧・カート画面へ遷移"]
+  state scr_login [badge: "INPUT"]
+  animate scr_login --> auth_api : "POST /auth/login" [desc: "入力されたID・パスワードをAuth Serviceへ送信し、認証トークン(JWT)を取得"]
+  animate scr_login --> scr_catalog : "Redirect /catalog" [desc: "認証成功後、SPAルーターにより商品一覧・カート画面へ遷移"]
 }
 
 step "商品一覧取得と決済モーダル表示" {
   desc "商品一覧画面で最新在庫をAPIから取得。ユーザーが「購入へ進む」を押すと決済確認モーダルが立ち上がります。"
   focus scr_catalog, shop_api, mod_pay
-  state scr_login [status: normal, badge: ""]
-  state scr_catalog [status: active]
-  state mod_pay [visible: true, status: active, badge: "OPEN"]
-  animate scr_catalog --> shop_api : "GET /items (200 OK)" [color: #06b6d4, desc: "Checkout APIから最新の商品カタログおよび在庫ステータスを取得"]
-  animate scr_catalog --> mod_pay : "Open Modal" [color: #a855f7, desc: "カート内商品の確認後、画面遷移せずに決済確認モーダルをオーバーレイ表示"]
+  state scr_login [badge: ""]
+  state mod_pay [visible: true, badge: "OPEN"]
+  animate scr_catalog --> shop_api : "GET /items (200 OK)" [desc: "Checkout APIから最新の商品カタログおよび在庫ステータスを取得"]
+  animate scr_catalog --> mod_pay : "Open Modal" [desc: "カート内商品の確認後、画面遷移せずに決済確認モーダルをオーバーレイ表示"]
 }
 
 step "決済実行と外部決済GW連携" {
   desc "決済モーダルで「注文確定」を押下。Checkout APIがStripe決済GWと通信して与信枠を確保します。"
   focus mod_pay, shop_api, stripe
-  state scr_catalog [status: normal]
-  state mod_pay [status: warning, badge: "PROCESSING"]
-  state shop_api [status: active]
-  animate mod_pay --> shop_api : "POST /checkout" [color: #f59e0b, desc: "決済トークンと注文内容をCheckout APIへ送信し、二重送信防止ロックを開始"]
-  animate shop_api --> stripe : "POST /v1/charges" [color: #6366f1, desc: "バックエンドからStripe決済ゲートウェイを呼び出し、カード決済を実行"]
+  state mod_pay [badge: "PROCESSING"]
+  animate mod_pay --> shop_api : "POST /checkout" [desc: "決済トークンと注文内容をCheckout APIへ送信し、二重送信防止ロックを開始"]
+  animate shop_api --> stripe : "POST /v1/charges" [desc: "バックエンドからStripe決済ゲートウェイを呼び出し、カード決済を実行"]
 }
 
 step "注文完了画面への遷移" {
   desc "決済承認が完了し、モーダルを閉じて注文完了画面へ遷移します。"
   focus mod_pay, scr_done
-  state mod_pay [status: muted, badge: ""]
-  state shop_api [status: normal]
-  state scr_done [status: active, badge: "COMPLETED"]
-  animate mod_pay --> scr_done : "Navigate /complete" [color: #10b981, desc: "決済完了レスポンスを受け取り、モーダルを閉じて注文完了画面へ遷移"]
+  state mod_pay [badge: ""]
+  state scr_done [badge: "COMPLETED"]
+  animate mod_pay --> scr_done : "Navigate /complete" [desc: "決済完了レスポンスを受け取り、モーダルを閉じて注文完了画面へ遷移"]
 }

@@ -16,7 +16,7 @@ a-->b:"L"[ id : e1 ]
 step   "S"{
 desc "d"
 focus a,b
-state a[ status:error ]
+state a[ badge: "x" ]
 animate a  -.->  b :"x"[parallel:true]
 }
 `;
@@ -32,7 +32,7 @@ a --> b : "L" [id: e1]
 step "S" {
   desc "d"
   focus a, b
-  state a [status: error]
+  state a [badge: "x"]
   animate a -.-> b : "x" [parallel: true]
 }
 `);

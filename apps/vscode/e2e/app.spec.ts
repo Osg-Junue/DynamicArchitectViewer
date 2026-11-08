@@ -53,7 +53,10 @@ test.describe('code-only authoring & live preview', () => {
     await expect(followBtn.locator('svg')).toBeVisible();
     await expect(followBtn).toHaveAttribute('aria-pressed', 'false');
 
-    // Toggling Follow Animation focuses (zooms/pans) onto the active animation and Fit resets it
+    // Steps open framed on their focus. Follow Animation zooms onto the active animation,
+    // and Fit leaves follow mode and zooms out to the whole diagram.
+    const scaleOf = (transform: string | null) =>
+      Number(/scale\(([\d.]+)\)/.exec(transform ?? '')?.[1]);
     const initialTransform = await page.locator('.dav-world').getAttribute('transform');
     await followBtn.click();
     await expect(followBtn).toHaveAttribute('aria-pressed', 'true');
@@ -61,7 +64,9 @@ test.describe('code-only authoring & live preview', () => {
     expect(focusedTransform).not.toBe(initialTransform);
     await fitBtn.click();
     await expect(followBtn).toHaveAttribute('aria-pressed', 'false');
-    expect(await page.locator('.dav-world').getAttribute('transform')).toBe(initialTransform);
+    expect(scaleOf(await page.locator('.dav-world').getAttribute('transform'))).toBeLessThan(
+      scaleOf(initialTransform),
+    );
 
     // Step narrative (title + description) is mounted in the top header above the canvas viewport (no bottom footer or keyboard hint)
     await expect(page.locator('footer.dav-dock')).toHaveCount(0);
@@ -76,24 +81,9 @@ test.describe('code-only authoring & live preview', () => {
     await expect(page.locator('.dav-packet .dav-packet-label')).toHaveText('GET /products');
     await expect(page.locator('.dav-packet .dav-packet-desc').first()).toContainText('CloudFront');
 
-    // Dashed halo boxes only outline the current phase's A -> B endpoints (client & cdn), hiding C/D (waf & alb)
-    await expect(page.locator('.dav-node[data-id="client"] .dav-halo')).not.toHaveAttribute(
-      'hidden',
-    );
-    await expect(page.locator('.dav-node[data-id="cdn"] .dav-halo')).not.toHaveAttribute('hidden');
-    await expect(page.locator('.dav-node[data-id="waf"] .dav-halo')).toHaveAttribute('hidden', '');
-    await expect(page.locator('.dav-node[data-id="alb"] .dav-halo')).toHaveAttribute('hidden', '');
-
-    // Clicking a node on the canvas repeats that node's animation phase and shifts the dashed halo boxes to B & C
+    // Clicking a node on the canvas repeats that node's animation phase
     await page.locator('.dav-node[data-id="waf"]').click();
     await expect(page.locator('.dav-packet .dav-packet-label')).toHaveText('Pass ACL');
-    await expect(page.locator('.dav-node[data-id="waf"] .dav-halo')).not.toHaveAttribute('hidden');
-    await expect(page.locator('.dav-node[data-id="alb"] .dav-halo')).not.toHaveAttribute('hidden');
-    await expect(page.locator('.dav-node[data-id="client"] .dav-halo')).toHaveAttribute(
-      'hidden',
-      '',
-    );
-    await expect(page.locator('.dav-node[data-id="cdn"] .dav-halo')).toHaveAttribute('hidden', '');
 
     await topStepSelect.selectOption('2');
     await expect(page.locator('.dav-step-title')).toContainText('Step 3 / 4');
@@ -162,6 +152,21 @@ test.describe('code-only authoring & live preview', () => {
     );
     await expect(page.locator('.problems .ok')).toBeVisible();
     expect(errors).toEqual([]);
+  });
+
+  test('adapts color names to the theme', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('.dsl-input').fill('dav 1\nnode named "N" [color: yellow]\n');
+    const strokeOf = (id: string) =>
+      page
+        .locator(`.dav-node[data-id="${id}"] .dav-station`)
+        .evaluate((el) => getComputedStyle(el).stroke);
+
+    await page.emulateMedia({ colorScheme: 'dark' });
+    const darkNamed = await strokeOf('named');
+
+    await page.emulateMedia({ colorScheme: 'light' });
+    expect(await strokeOf('named')).not.toBe(darkNamed);
   });
 
   test('communicates with VS Code Extension Host via acquireVsCodeApi protocol', async ({
@@ -310,6 +315,16 @@ test.describe('exported HTML', () => {
 
     // Packets animate along paths.
     await expect(viewer.locator('.dav-packet')).not.toHaveCount(0);
+
+    // The step ruler tracks animation progress under the strict CSP.
+    await expect(viewer.getByTestId('step-timeline').locator('.dav-tick')).toHaveCount(4);
+    await expect
+      .poll(() =>
+        viewer
+          .locator('.dav-tick.is-current .dav-tick-fill')
+          .evaluate((el) => new DOMMatrix(getComputedStyle(el).transform).a),
+      )
+      .toBeGreaterThan(0);
 
     // Keyboard & top dropdown navigation.
     await viewer.locator('body').press('ArrowRight');

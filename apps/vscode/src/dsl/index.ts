@@ -13,7 +13,6 @@ export { formatDiagnostic, hasErrors } from './diagnostics';
 export { format } from './format';
 export {
   ATTRIBUTE_SCHEMA,
-  isValidColor,
   isValidIdentifier,
   STATE_ATTRIBUTES_BY_TARGET,
 } from './schema';

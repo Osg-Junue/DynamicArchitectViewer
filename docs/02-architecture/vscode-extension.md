@@ -35,9 +35,9 @@ apps/vscode/
 1. **リアルタイム診断 (`DiagnosticCollection`)**:
    - `.dav` ファイルのオープン・変更時に `parse(doc.getText()).diagnostics` を実行し、VS Code の「問題 (Problems)」パネルおよびエディタ上の波線として表示します。
 2. **Quick Fix (`CodeActionProvider`)**:
-   - アイコン名やステータスのタイポ等で `d.suggestion` が存在する場合、`Ctrl+.`（`⌘.`）で1クリック修正アクションを提供します。
+   - アイコン名や色名のタイポ等で `d.suggestion` が存在する場合、`Ctrl+.`（`⌘.`）で1クリック修正アクションを提供します。
 3. **コンテキスト認識補完 (`CompletionItemProvider`)**:
-   - `computeCompletions(text, offset, true)` により、定義済みノード/グループ ID、キーワード、属性名、アイコン名（18種）、ステータス値（5種）を補完します。
+   - `computeCompletions(text, offset, true)` により、定義済みノード/グループ ID、キーワード、属性名、アイコン名（18種）、色名（9種）を補完します。
 4. **ドキュメント整形 (`DocumentFormattingEditProvider`)**:
    - `Shift+Alt+F` または保存時フォーマットにより、コメントを保持したまま `format(text)` で `.dav` ファイルを整形します。
 5. **アウトライン・パンくずリスト (`DocumentSymbolProvider`)**:

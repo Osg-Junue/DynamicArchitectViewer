@@ -56,6 +56,56 @@ describe('IDs named after Object.prototype members', () => {
   });
 });
 
+describe('color values', () => {
+  it('accepts color names', () => {
+    const { document, diagnostics } = parse('dav 1\nnode a [color: yellow]');
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes[0]?.color).toBe('yellow');
+  });
+
+  it.each([
+    ['#1e3a8a', 'blue'],
+    ['#ef4444', 'red'],
+    ['#f59e0b', 'yellow'],
+    ['#10b981', 'green'],
+    ['#fff', 'gray'],
+  ])('rejects %s and suggests %s', (hex, name) => {
+    const [diagnostic] = parse(`dav 1\nnode a [color: ${hex}]`).diagnostics;
+    expect(diagnostic?.code).toBe('invalid-color');
+    expect(diagnostic?.args.suggestion).toBe(name);
+  });
+
+  it('accepts none only in a state', () => {
+    const inState = parse('dav 1\nnode a\nstep "s" {\n  state a [color: None]\n}');
+    expect(inState.diagnostics).toEqual([]);
+    expect(inState.document.steps[0]?.states[0]?.color).toBe('none');
+    expect(parse('dav 1\nnode a [color: none]').diagnostics.map((d) => d.code)).toEqual([
+      'invalid-color',
+    ]);
+  });
+
+  it('offers none when completing a color in a state only', () => {
+    expect(labels('dav 1\nnode a\nstep "s" {\n  state a [color: ')).toContain('none');
+    expect(labels('dav 1\nnode a [color: ')).not.toContain('none');
+  });
+
+  it('treats color names case-insensitively', () => {
+    const { document, diagnostics } = parse('dav 1\nnode a [color: Red]\nnode b [color: YELLOW]');
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((n) => n.color)).toEqual(['red', 'yellow']);
+  });
+
+  it('suggests the closest color name', () => {
+    const [diagnostic] = parse('dav 1\nnode a [color: yelow]').diagnostics;
+    expect(diagnostic?.code).toBe('invalid-color');
+    expect(diagnostic?.args.suggestion).toBe('yellow');
+  });
+
+  it('completes color names', () => {
+    expect(labels('dav 1\nnode a [color: ')).toContain('yellow');
+  });
+});
+
 describe('computeCompletions context', () => {
   it('offers nothing inside strings', () => {
     expect(labels('dav 1\ntitle "Hello ')).toBeUndefined();

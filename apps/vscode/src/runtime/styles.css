@@ -1,14 +1,129 @@
-:root,
-.dav-app {
-  --dav-bg: #080b16;
-  --dav-panel: #0c1022;
-  --dav-border: #64748b;
-  --dav-border-bright: #e2e8f0;
-  --dav-shadow: #03050a;
-  --dav-text: #f8fafc;
-  --dav-muted: #94a3b8;
-  --dav-accent: #38bdf8;
-  --dav-gold: #facc15;
+/*
+ * Theme tokens. Inside VS Code every value follows the active color theme; the raw values
+ * below only apply to exported HTML and the standalone browser build.
+ */
+:root {
+  color-scheme: light dark;
+  --raw-bg: #f8f7f2;
+  --raw-panel: #f0efe8;
+  --raw-node: #fffefa;
+  --raw-fg: #20282f;
+  --raw-muted: #5c6670;
+  --raw-border: #d6d3c8;
+  --raw-border-strong: #858b8f;
+  --raw-focus: #c94f12;
+  --raw-hover: rgba(32, 40, 47, 0.08);
+  --raw-selected: rgba(32, 40, 47, 0.12);
+  --raw-selected-fg: #20282f;
+  --raw-input-bg: #fffefa;
+  --raw-primary-bg: #20282f;
+  --raw-primary-hover: #38434d;
+  --raw-primary-fg: #fffefa;
+  --raw-error: #cf222e;
+  --raw-warning: #9a6700;
+  --raw-ok: #1a7f37;
+  --raw-shadow: rgba(31, 35, 40, 0.16);
+  --raw-c-red: #c92a2a;
+  --raw-c-orange: #c2570c;
+  --raw-c-yellow: #967000;
+  --raw-c-green: #2b8a3e;
+  --raw-c-teal: #0b7d83;
+  --raw-c-blue: #1c6fd1;
+  --raw-c-purple: #7b3fc4;
+  --raw-c-pink: #c2258a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --raw-bg: #191b1e;
+    --raw-panel: #212429;
+    --raw-node: #212429;
+    --raw-fg: #dde0e4;
+    --raw-muted: #9ca5ae;
+    --raw-border: #363b42;
+    --raw-border-strong: #737c86;
+    --raw-focus: #f0641e;
+    --raw-hover: rgba(255, 255, 255, 0.09);
+    --raw-selected: rgba(255, 255, 255, 0.14);
+    --raw-selected-fg: #ffffff;
+    --raw-input-bg: #2a2e34;
+    --raw-primary-bg: #dde0e4;
+    --raw-primary-hover: #ffffff;
+    --raw-primary-fg: #191b1e;
+    --raw-error: #f48771;
+    --raw-warning: #e2b341;
+    --raw-ok: #73c991;
+    --raw-shadow: rgba(0, 0, 0, 0.4);
+    --raw-c-red: #ff7b72;
+    --raw-c-orange: #ffa657;
+    --raw-c-yellow: #e3c04b;
+    --raw-c-green: #56d364;
+    --raw-c-teal: #39c5cf;
+    --raw-c-blue: #6cb6ff;
+    --raw-c-purple: #bc8cff;
+    --raw-c-pink: #f778ba;
+  }
+}
+
+:root {
+  --dav-font: var(
+    --vscode-font-family,
+    "Segoe UI",
+    system-ui,
+    -apple-system,
+    "Hiragino Sans",
+    "Noto Sans JP",
+    sans-serif
+  );
+  --dav-mono: var(--vscode-editor-font-family, "Cascadia Code", Consolas, ui-monospace, monospace);
+  --dav-bg: var(--vscode-editor-background, var(--raw-bg));
+  --dav-panel: var(--vscode-sideBar-background, var(--raw-panel));
+  --dav-fg: var(--vscode-foreground, var(--raw-fg));
+  --dav-muted: var(--vscode-descriptionForeground, var(--raw-muted));
+  --dav-border: var(--vscode-panel-border, var(--raw-border));
+  --dav-border-strong: var(--vscode-input-placeholderForeground, var(--raw-border-strong));
+  /* The red pencil of a drawing review: the one fixed color of the product, on every theme. */
+  --dav-accent: #f0641e;
+  --dav-focus: var(--vscode-focusBorder, var(--raw-focus));
+  --dav-hover: var(--vscode-toolbar-hoverBackground, var(--raw-hover));
+  --dav-selected: var(--vscode-inputOption-activeBackground, var(--raw-selected));
+  --dav-selected-fg: var(--vscode-inputOption-activeForeground, var(--raw-selected-fg));
+  --dav-input-bg: var(--vscode-dropdown-background, var(--raw-input-bg));
+  --dav-input-fg: var(--vscode-dropdown-foreground, var(--raw-fg));
+  --dav-input-border: var(--vscode-dropdown-border, var(--raw-border));
+  --dav-primary-bg: var(--vscode-button-background, var(--raw-primary-bg));
+  --dav-primary-hover: var(--vscode-button-hoverBackground, var(--raw-primary-hover));
+  --dav-primary-fg: var(--vscode-button-foreground, var(--raw-primary-fg));
+  --dav-error: var(--vscode-errorForeground, var(--raw-error));
+  --dav-warning: var(--vscode-editorWarning-foreground, var(--raw-warning));
+  --dav-ok: var(--vscode-testing-iconPassed, var(--raw-ok));
+  --dav-shadow: var(--vscode-widget-shadow, var(--raw-shadow));
+
+  /* Canvas */
+  --dav-node-bg: var(--vscode-editorWidget-background, var(--raw-node));
+  --dav-zone: color-mix(in srgb, var(--dav-fg) 7%, transparent);
+  --dav-icon: var(--dav-muted);
+  --dav-edge: color-mix(in srgb, var(--dav-fg) 38%, var(--dav-bg));
+
+  /* Named DSL colors */
+  --dav-c-red: var(--vscode-charts-red, var(--raw-c-red));
+  --dav-c-orange: var(--vscode-charts-orange, var(--raw-c-orange));
+  --dav-c-yellow: var(--vscode-charts-yellow, var(--raw-c-yellow));
+  --dav-c-green: var(--vscode-charts-green, var(--raw-c-green));
+  --dav-c-teal: var(--vscode-terminal-ansiCyan, var(--raw-c-teal));
+  --dav-c-blue: var(--vscode-charts-blue, var(--raw-c-blue));
+  --dav-c-purple: var(--vscode-charts-purple, var(--raw-c-purple));
+  --dav-c-pink: var(--vscode-terminal-ansiMagenta, var(--raw-c-pink));
+  --dav-c-gray: var(--dav-border-strong);
+}
+
+.vscode-dark,
+.vscode-high-contrast {
+  color-scheme: dark;
+}
+.vscode-light,
+.vscode-high-contrast-light {
+  color-scheme: light;
 }
 
 .dav-app,
@@ -27,194 +142,121 @@
   height: 100%;
   min-height: 0;
   background: var(--dav-bg);
-  color: var(--dav-text);
-  font-family:
-    "Cascadia Mono", "JetBrains Mono", Consolas, "Courier New", ui-monospace,
-    "Hiragino Kaku Gothic ProN", "Noto Sans JP", monospace;
-  font-variant-ligatures: none;
+  color: var(--dav-fg);
+  font-family: var(--dav-font);
+  font-size: 13px;
   outline: 0;
-}
-.dav-app:focus-visible {
-  box-shadow: inset 0 0 0 2px var(--dav-accent);
 }
 
 .dav-topbar {
   contain: content;
   display: flex;
   flex-direction: column;
-  background: var(--dav-panel);
+  background: var(--dav-bg);
 }
 .dav-topbar-main {
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 8px 12px;
-  min-height: 42px;
-  padding: 6px 16px;
-  border-bottom: 2px solid #334155;
+  gap: 6px 12px;
+  min-height: 38px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--dav-border);
 }
+/* The sheet's title block, bottom-left of the drawing. */
 .dav-title {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 5;
+  max-width: calc(100% - 220px);
   margin: 0;
-  min-width: 0;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  padding: 4px 8px;
+  background: var(--dav-bg);
+  border: 1px solid var(--dav-border);
+  font-family: var(--dav-mono);
+  font-size: 11px;
+  font-weight: 400;
   color: var(--dav-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  pointer-events: none;
 }
-
-.dav-zoom-group {
-  position: absolute;
-  right: 16px;
-  bottom: 16px;
-  z-index: 5;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 4px 6px;
-  background: var(--dav-panel);
-  border: 2px solid var(--dav-border-bright);
-  box-shadow:
-    inset 0 0 0 2px var(--dav-panel),
-    inset 0 0 0 3px #475569,
-    4px 4px 0 var(--dav-shadow);
-}
-.dav-zoom-label {
-  min-width: 46px;
-  text-align: center;
-  font-size: 11.5px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: var(--dav-gold);
-  text-shadow: 1px 1px 0 var(--dav-shadow);
-  user-select: none;
+.dav-title:empty {
+  display: none;
 }
 
 .dav-playback-bar {
   display: inline-flex;
   align-items: center;
   flex-shrink: 0;
-  gap: 4px;
-  padding: 3px 6px;
-  background: #070a14;
-  border: 2px solid var(--dav-border);
-  box-shadow: 3px 3px 0 var(--dav-shadow);
+  gap: 2px;
 }
 .dav-toolbar-sep {
-  width: 2px;
+  width: 1px;
   height: 16px;
-  background: #334155;
-  margin: 0 2px;
+  margin: 0 4px;
+  background: var(--dav-border);
 }
 
 .dav-btn {
-  background: #161f38;
-  color: var(--dav-text);
-  border: 2px solid var(--dav-border);
-  border-radius: 0;
-  padding: 4px 9px;
-  font: 700 12px / 1.3 inherit;
-  white-space: nowrap;
-  flex-shrink: 0;
-  cursor: pointer;
-  box-shadow: 2px 2px 0 var(--dav-shadow);
-}
-.dav-btn:hover:not(:disabled) {
-  background: #233156;
-  border-color: var(--dav-border-bright);
-  color: #fff;
-}
-.dav-btn:active:not(:disabled) {
-  transform: translate(2px, 2px);
-  box-shadow: none;
-}
-.dav-btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-.dav-btn:focus-visible {
-  outline: 2px solid var(--dav-gold);
-  outline-offset: 2px;
-}
-
-.dav-btn-play {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 36px;
-  height: 28px;
-  background: #064e3b;
-  border-color: #34d399;
-  color: #6ee7b7;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 5px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--dav-fg);
+  font-family: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  cursor: pointer;
 }
-.dav-btn-play:hover:not(:disabled) {
-  background: #047857;
-  border-color: #a7f3d0;
+.dav-btn:hover:not(:disabled) {
+  background: var(--dav-hover);
 }
-.dav-btn-play[aria-pressed="true"] {
-  background: #1e40af;
-  border-color: #93c5fd;
-  color: #fff;
-  transform: translate(1px, 1px);
-  box-shadow: 1px 1px 0 var(--dav-shadow);
+.dav-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
-.dav-btn-play[aria-pressed="true"]:hover:not(:disabled) {
-  background: #2563eb;
-  border-color: #fff;
+.dav-btn:focus-visible {
+  outline: 1px solid var(--dav-focus);
+  outline-offset: 1px;
+}
+.dav-btn[aria-pressed="true"],
+.dav-btn[aria-pressed="true"]:hover:not(:disabled) {
+  background: var(--dav-selected);
+  color: var(--dav-selected-fg);
+}
+.dav-btn[hidden] {
+  display: none;
 }
 
 .dav-step-select,
-.dav-speed-select {
-  background: #0f1629;
-  border-color: var(--dav-border);
-  font-weight: 700;
+.dav-speed-select,
+.dav-step-select:hover:not(:disabled),
+.dav-speed-select:hover:not(:disabled) {
+  background: var(--dav-input-bg);
+  border-color: var(--dav-input-border);
+  color: var(--dav-input-fg);
 }
 .dav-step-select {
-  color: var(--dav-text);
-  padding: 3px 8px;
+  display: inline-block;
   max-width: 260px;
+  padding: 0 4px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .dav-speed-select {
-  color: var(--dav-gold);
-  padding: 3px 6px;
+  display: inline-block;
+  padding: 0 2px;
   font-variant-numeric: tabular-nums;
-}
-
-.dav-zoom-group .dav-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: #141c33;
-  border-color: #475569;
-  padding: 3px 7px;
-  min-height: 26px;
-}
-.dav-zoom-group .dav-btn-icon {
-  padding: 3px 6px;
-}
-.dav-zoom-group .dav-btn:hover:not(:disabled) {
-  background: #233156;
-  border-color: var(--dav-border-bright);
-}
-.dav-zoom-group .dav-btn[aria-pressed="true"] {
-  background: #1d4ed8;
-  border-color: var(--dav-gold);
-  color: var(--dav-gold);
-  transform: translate(1px, 1px);
-  box-shadow: 1px 1px 0 var(--dav-shadow);
-}
-.dav-zoom-group .dav-btn[aria-pressed="true"]:hover:not(:disabled) {
-  background: #2563eb;
-  border-color: #fef08a;
-  color: #fef08a;
-}
-.dav-btn[hidden] {
-  display: none;
 }
 
 .dav-viewport {
@@ -225,10 +267,7 @@
   overflow: hidden;
   cursor: grab;
   touch-action: none;
-  background:
-    linear-gradient(90deg, rgba(51, 65, 85, 0.22) 1px, transparent 1px),
-    linear-gradient(rgba(51, 65, 85, 0.22) 1px, transparent 1px), var(--dav-bg);
-  background-size: 24px 24px;
+  background: var(--dav-bg);
 }
 .dav-viewport.dav-dragging {
   cursor: grabbing;
@@ -240,41 +279,108 @@
   user-select: none;
 }
 
+.dav-zoom-group {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  background: var(--dav-panel);
+  border: 1px solid var(--dav-border);
+  border-radius: 3px;
+  box-shadow: 0 2px 8px var(--dav-shadow);
+}
+.dav-zoom-label {
+  min-width: 40px;
+  text-align: center;
+  font-family: var(--dav-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--dav-muted);
+  user-select: none;
+}
+
 .dav-dock {
   contain: content;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 10px 16px;
-  background: #0a0e1d;
-  border-bottom: 3px solid var(--dav-border-bright);
-  box-shadow:
-    inset 0 -2px 0 #0a0e1d,
-    inset 0 -4px 0 #475569;
+  border-bottom: 1px solid var(--dav-border);
 }
 .dav-step-info {
-  flex: 1;
+  padding: 6px 12px 5px;
   min-width: 0;
 }
-.dav-dock-head {
+.dav-step-no {
+  margin-right: 10px;
+  font-family: var(--dav-mono);
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--dav-muted);
+}
+
+/* Step ruler: one numbered graduation per step, like the sheet index of a drawing set. */
+.dav-timeline {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 3px;
+  border-top: 1px solid var(--dav-border);
+}
+.dav-timeline[hidden] {
+  display: none;
+}
+.dav-tick {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 20px;
+  padding: 0 0 0 5px;
+  border: 0;
+  border-left: 1px solid var(--dav-border);
+  background: transparent;
+  color: var(--dav-muted);
+  font-family: var(--dav-mono);
+  font-size: 10.5px;
+  text-align: left;
+  overflow: hidden;
+  cursor: pointer;
+}
+.dav-tick:first-child {
+  border-left: 0;
+}
+.dav-tick:hover {
+  background: var(--dav-hover);
+}
+.dav-tick:focus-visible {
+  outline: 1px solid var(--dav-focus);
+  outline-offset: -1px;
+}
+.dav-tick-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--dav-border-strong);
+  transform: scaleX(0);
+  transform-origin: left;
+}
+.dav-tick.is-current {
+  color: var(--dav-fg);
+}
+.dav-tick.is-current .dav-tick-fill {
+  background: var(--dav-accent);
 }
 .dav-step-title {
-  font-size: 14.5px;
+  font-size: 14px;
   font-weight: 700;
-  letter-spacing: 0.02em;
-  color: var(--dav-gold);
-  text-shadow: 2px 2px 0 var(--dav-shadow);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .dav-step-desc {
-  font-size: 13.5px;
-  line-height: 1.55;
-  color: #f1f5f9;
-  text-shadow: 1px 1px 0 var(--dav-shadow);
+  margin-top: 1px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--dav-fg);
   white-space: pre-line;
   min-height: 1.5em;
 }
@@ -283,61 +389,52 @@
   font-family: inherit;
 }
 .dav-node-label,
-.dav-group-label,
 .dav-packet-label {
   font-weight: 700;
 }
-.dav-packet-desc {
-  font-weight: 600;
-}
 .dav-layer-packets,
 .dav-edge-label,
-.dav-flow,
-.dav-halo {
+.dav-flow {
   pointer-events: none;
 }
 .dav-node,
 .dav-edge,
 .dav-edge-label,
 .dav-group {
-  transition: opacity 0.25s steps(4, end);
+  transition: opacity 0.2s ease;
 }
 .dav-dimmed {
-  opacity: 0.22;
+  opacity: 0.38;
 }
-.dav-status-muted {
-  opacity: 0.6;
-}
-.dav-status-muted.dav-dimmed {
-  opacity: 0.18;
-}
-.dav-halo[hidden],
 .dav-flow[hidden] {
   display: none;
 }
+/* Widths are in drawing units, so every line keeps its proportion at any zoom. */
+.dav-rail {
+  stroke-width: 4px;
+}
 .dav-flow {
-  stroke-dasharray: 8 8;
-  animation: dav-dash 0.6s steps(6, end) infinite;
-  opacity: 0.95;
+  stroke-width: 4px;
 }
-.dav-halo {
-  animation: dav-pulse 1s steps(2, end) infinite;
+
+.dav-layer-stops {
+  pointer-events: none;
 }
-@keyframes dav-dash {
-  to {
-    stroke-dashoffset: -16;
-  }
+.dav-stop circle {
+  fill: var(--dav-fg);
 }
-@keyframes dav-pulse {
-  50% {
-    stroke-opacity: 0.2;
-  }
+.dav-stop text {
+  fill: var(--dav-bg);
+  font-weight: 700;
+}
+.dav-stop.is-current circle {
+  fill: var(--dav-accent);
+  r: 14px;
+}
+.dav-stop.is-current text {
+  fill: #ffffff;
 }
 @media (prefers-reduced-motion: reduce) {
-  .dav-flow,
-  .dav-halo {
-    animation: none;
-  }
   .dav-node,
   .dav-edge,
   .dav-edge-label,

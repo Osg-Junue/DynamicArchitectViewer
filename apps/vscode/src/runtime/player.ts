@@ -43,10 +43,18 @@ const HOLD_MS = 1800;
 const SPEEDS = [0.5, 1, 1.5, 2] as const;
 const MIN_ZOOM = 0.15;
 const MAX_ZOOM = 4;
+const MAX_FIT_ZOOM = 1.4;
+
+interface PacketEntry {
+  packet: Packet;
+  box: PacketCalloutBox | null;
+  dotEl: SVGGElement | null;
+  bubbleEl: SVGPathElement | null;
+}
 
 /**
  * Self-contained diagram player used both by the exported HTML and the webview app.
- * Renders with DOM APIs only (CSP-friendly, no innerHTML, no inline styles).
+ * Renders with DOM APIs only (CSP-friendly: no innerHTML, no style attributes; CSSOM only).
  */
 export class Player {
   private data: PlayerData;
@@ -62,12 +70,7 @@ export class Player {
   private elapsed = 0;
   private lastFrame = 0;
   private frame = 0;
-  private packetEls: Array<{
-    packet: Packet;
-    box: PacketCalloutBox | null;
-    dotEl: SVGGElement | null;
-    bubbleEl: SVGPathElement | null;
-  }> = [];
+  private packetEls: PacketEntry[] = [];
 
   private zoom = 1;
   private panX = 0;
@@ -85,6 +88,8 @@ export class Player {
   private readonly titleEl: HTMLElement;
   private readonly stepTitleEl: HTMLElement;
   private readonly stepDescEl: HTMLElement;
+  private readonly timelineEl: HTMLElement;
+  private tickFills: HTMLElement[] = [];
   private readonly stepSelect: HTMLSelectElement;
   private readonly playBtn: HTMLButtonElement;
   private readonly playAllBtn: HTMLButtonElement;
@@ -126,6 +131,12 @@ export class Player {
     this.zoomLabel = html('span', { class: 'dav-zoom-label', 'aria-live': 'polite' });
     this.stepTitleEl = html('div', { class: 'dav-step-title' });
     this.stepDescEl = html('div', { class: 'dav-step-desc' });
+    this.timelineEl = html('div', {
+      class: 'dav-timeline',
+      role: 'group',
+      'aria-label': 'Steps',
+      'data-testid': 'step-timeline',
+    });
 
     this.stepSelect = html('select', {
       class: 'dav-btn dav-step-select',
@@ -207,7 +218,7 @@ export class Player {
           viewBox: '0 0 24 24',
           fill: 'none',
           stroke: 'currentColor',
-          'stroke-width': 2.2,
+          'stroke-width': 1.75,
           'stroke-linecap': 'round',
           'stroke-linejoin': 'round',
           'aria-hidden': 'true',
@@ -223,7 +234,7 @@ export class Player {
         this.followAnim = false;
         this.followBtn.setAttribute('aria-pressed', 'false');
       }
-      this.fit(true);
+      this.fit();
     });
 
     this.followBtn = html(
@@ -244,7 +255,7 @@ export class Player {
           viewBox: '0 0 24 24',
           fill: 'none',
           stroke: 'currentColor',
-          'stroke-width': 2.2,
+          'stroke-width': 1.75,
           'stroke-linecap': 'round',
           'stroke-linejoin': 'round',
           'aria-hidden': 'true',
@@ -275,29 +286,24 @@ export class Player {
       this.followBtn,
     );
 
-    const viewport = html('main', { class: 'dav-viewport' }, this.svgEl, zoomOverlay);
+    const viewport = html('main', { class: 'dav-viewport' }, this.svgEl, this.titleEl, zoomOverlay);
     this.root = html(
       'div',
       { class: 'dav-app', tabindex: '0' },
       html(
         'header',
         { class: 'dav-topbar' },
-        !options.playbackSlot &&
-          html('div', { class: 'dav-topbar-main' }, this.playbackBar, this.titleEl),
+        !options.playbackSlot && html('div', { class: 'dav-topbar-main' }, this.playbackBar),
         html(
           'div',
           { class: 'dav-dock', 'data-testid': 'top-step-dock' },
           html(
             'div',
             { class: 'dav-step-info', 'aria-live': 'polite' },
-            html(
-              'div',
-              { class: 'dav-dock-head' },
-              this.stepTitleEl,
-              options.playbackSlot ? this.titleEl : null,
-            ),
+            this.stepTitleEl,
             this.stepDescEl,
           ),
+          this.timelineEl,
         ),
       ),
       viewport,
@@ -309,7 +315,7 @@ export class Player {
     if (typeof ResizeObserver !== 'undefined') {
       const ro = new ResizeObserver(() => {
         if (this.followAnim) this.focusCurrentPhase(false);
-        else if (!this.userMoved) this.fit(false);
+        else if (!this.userMoved) this.frameStep(false);
       });
       ro.observe(viewport);
       this.cleanups.push(() => ro.disconnect());
@@ -317,7 +323,7 @@ export class Player {
 
     this.renderChrome();
     this.showStep(this.stepIndex);
-    this.fit(false);
+    this.frameStep(false);
   }
 
   /** Replaces the diagram (e.g. after an edit) while keeping the current step if possible. */
@@ -332,7 +338,7 @@ export class Player {
     this.renderChrome();
     this.showStep(index, { keepPhase: true });
     if (this.followAnim) this.focusCurrentPhase(false);
-    else if (!this.userMoved) this.fit(false);
+    else if (!this.userMoved) this.frameStep(false);
   }
 
   destroy(): void {
@@ -457,7 +463,7 @@ export class Player {
       this.userMoved = false;
       this.focusCurrentPhase(false);
     } else {
-      this.fit(true);
+      this.fit();
     }
   }
 
@@ -478,6 +484,27 @@ export class Player {
     doc.steps.forEach((step, i) => {
       this.stepSelect.append(html('option', { value: String(i) }, `${i + 1}. ${step.title}`));
     });
+
+    clear(this.timelineEl);
+    this.timelineEl.hidden = noSteps;
+    this.tickFills = doc.steps.map(() =>
+      html('span', { class: 'dav-tick-fill', 'aria-hidden': 'true' }),
+    );
+    doc.steps.forEach((step, i) => {
+      const tick = html(
+        'button',
+        {
+          type: 'button',
+          class: 'dav-tick',
+          title: step.title,
+          'aria-label': `${i + 1}. ${step.title}`,
+        },
+        String(i + 1).padStart(2, '0'),
+        this.tickFills[i],
+      );
+      tick.addEventListener('click', () => this.showStep(i));
+      this.timelineEl.append(tick);
+    });
   }
 
   private showStep(index: number | null, opts: { keepPhase?: boolean } = {}): void {
@@ -491,6 +518,7 @@ export class Player {
     }
     this.renderPackets();
     this.updateDock();
+    if (!opts.keepPhase && !this.followAnim && !this.userMoved) this.frameStep(true);
     this.ensureLoop();
     this.onStepChange?.(this.stepIndex);
   }
@@ -516,19 +544,14 @@ export class Player {
   }
 
   /**
-   * Restricts the dashed `.dav-halo` node boxes and `.dav-flow` edge dashes to only the
-   * endpoints and edges of the currently active animation phase (e.g., A & B during A->B,
-   * then B & C during B->C).
+   * Shows the `.dav-flow` rail overlay only on the edges of the current animation phase.
    */
   private syncPhaseHighlights(): void {
     const phases = this.view.phases;
     if (phases.length === 0 || this.reducedMotion) return;
     const currentPackets = phases[Math.min(this.phase, phases.length - 1)] ?? [];
-    const activeNodes = new Set<string>();
     const activeEdges = new Set<string>();
     for (const pkt of currentPackets) {
-      activeNodes.add(pkt.from);
-      activeNodes.add(pkt.to);
       for (const e of this.view.edges) {
         if (
           (e.from === pkt.from && e.to === pkt.to) ||
@@ -538,14 +561,6 @@ export class Player {
         }
       }
     }
-    for (const nodeEl of Array.from(this.sceneLayer.querySelectorAll<SVGGElement>('.dav-node'))) {
-      const id = nodeEl.getAttribute('data-id') ?? '';
-      const halo = nodeEl.querySelector<SVGElement>('.dav-halo');
-      if (halo) {
-        if (activeNodes.has(id)) halo.removeAttribute('hidden');
-        else halo.setAttribute('hidden', '');
-      }
-    }
     for (const edgeEl of Array.from(this.sceneLayer.querySelectorAll<SVGGElement>('.dav-edge'))) {
       const id = edgeEl.getAttribute('data-id') ?? '';
       const flow = edgeEl.querySelector<SVGElement>('.dav-flow');
@@ -553,6 +568,10 @@ export class Player {
         if (activeEdges.has(id)) flow.removeAttribute('hidden');
         else flow.setAttribute('hidden', '');
       }
+    }
+    const currentPhase = String(Math.min(this.phase, phases.length - 1));
+    for (const stop of Array.from(this.sceneLayer.querySelectorAll('.dav-stop'))) {
+      stop.classList.toggle('is-current', stop.getAttribute('data-phase') === currentPhase);
     }
   }
 
@@ -566,15 +585,7 @@ export class Player {
     this.placePacket(entry, t);
   }
 
-  private placePacket(
-    entry: {
-      packet: Packet;
-      box: PacketCalloutBox | null;
-      dotEl: SVGGElement | null;
-      bubbleEl: SVGPathElement | null;
-    },
-    t: number,
-  ): void {
+  private placePacket(entry: PacketEntry, t: number): void {
     const p = packetPosition(entry.packet, t);
     entry.dotEl?.setAttribute('transform', `translate(${p.x.toFixed(1)} ${p.y.toFixed(1)})`);
     if (entry.bubbleEl && entry.box) {
@@ -590,12 +601,38 @@ export class Player {
       this.stepDescEl.textContent = s.overviewHint;
       this.stepSelect.value = 'overview';
     } else {
-      this.stepTitleEl.textContent = `${s.stepLabel(this.view.stepIndex + 1, steps.length)} — ${this.view.stepTitle ?? ''}`;
+      clear(this.stepTitleEl);
+      this.stepTitleEl.append(
+        html('span', { class: 'dav-step-no' }, s.stepLabel(this.view.stepIndex + 1, steps.length)),
+        this.view.stepTitle ?? '',
+      );
       this.stepDescEl.textContent = this.view.description ?? '';
       this.stepSelect.value = String(this.view.stepIndex);
     }
 
+    const current = this.view.stepIndex;
+    Array.from(this.timelineEl.children).forEach((tick, i) => {
+      tick.classList.toggle('is-current', i === current);
+      tick.classList.toggle('is-past', current !== null && i < current);
+      if (i === current) tick.setAttribute('aria-current', 'step');
+      else tick.removeAttribute('aria-current');
+    });
+    this.tickFills.forEach((fill, i) => {
+      fill.style.transform = current !== null && i < current ? 'scaleX(1)' : 'scaleX(0)';
+    });
+    this.updateStepProgress();
+
     this.updatePlayButton();
+  }
+
+  /** Fills the current step's ruler graduation in proportion to its animation phases. */
+  private updateStepProgress(): void {
+    const fill = this.stepIndex === null ? undefined : this.tickFills[this.stepIndex];
+    if (!fill) return;
+    const total = this.view.phases.length;
+    const done = this.phase + (this.phase < total ? Math.min(1, this.elapsed / PHASE_MS) : 0);
+    const progress = total === 0 || this.reducedMotion ? 1 : Math.min(1, done / total);
+    fill.style.transform = `scaleX(${progress.toFixed(3)})`;
   }
 
   private updatePlayButton(): void {
@@ -744,6 +781,8 @@ export class Player {
       this.renderPackets();
     }
 
+    this.updateStepProgress();
+
     if (this.playMode !== 'node' || phases.length > 0 || this.cameraTarget !== null) {
       this.frame = requestAnimationFrame((t) => this.tick(t));
     }
@@ -836,21 +875,38 @@ export class Player {
     this.ensureLoop();
   }
 
-  private fit(user: boolean): void {
-    if (user) this.userMoved = false;
-    this.cameraTarget = null;
-    const box = this.svgEl.getBoundingClientRect();
-    if (box.width === 0 || box.height === 0) return;
+  /** Shows the whole diagram and hands the camera back to automatic framing. */
+  private fit(): void {
+    this.userMoved = false;
+    this.setCameraTarget(this.wholeDiagramBounds(), MAX_FIT_ZOOM, false);
+  }
+
+  private wholeDiagramBounds(): Rect {
     const { nodes, groups } = this.data.layout;
-    const b = boundsOf([...Object.values(nodes), ...Object.values(groups)]);
-    const zoom = Math.min(
-      MAX_ZOOM,
-      Math.max(MIN_ZOOM, Math.min(box.width / b.width, box.height / b.height, 1.25)),
-    );
-    this.zoom = zoom;
-    this.panX = (box.width - b.width * zoom) / 2 - b.x * zoom;
-    this.panY = (box.height - b.height * zoom) / 2 - b.y * zoom;
-    this.applyTransform();
+    return boundsOf([...Object.values(nodes), ...Object.values(groups)]);
+  }
+
+  /**
+   * Frames what the current step is about, so text stays legible on wide diagrams.
+   * Steps without a focus (and the overview) show the whole diagram.
+   */
+  private frameStep(smooth: boolean): void {
+    const rects = this.view.nodes.filter((n) => n.focused).map((n) => n.rect);
+    if (rects.length === 0) {
+      this.setCameraTarget(this.wholeDiagramBounds(), MAX_FIT_ZOOM, smooth);
+      return;
+    }
+    for (const packet of this.view.phases.flat()) {
+      const callout = computePacketCalloutBox(packet);
+      if (!callout) continue;
+      rects.push({
+        x: callout.cx - callout.halfW,
+        y: callout.boxTop,
+        width: callout.halfW * 2,
+        height: callout.boxBottom - callout.boxTop,
+      });
+    }
+    this.setCameraTarget(boundsOf(rects), MAX_FIT_ZOOM, smooth);
   }
 
   private zoomBy(factor: number, cx?: number, cy?: number): void {

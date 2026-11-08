@@ -86,9 +86,9 @@ export function mountApp(container: HTMLElement): void {
         viewBox: '0 0 24 24',
         fill: 'none',
         stroke: 'currentColor',
-        'stroke-width': 2.2,
-        'stroke-linecap': 'square',
-        'stroke-linejoin': 'miter',
+        'stroke-width': 1.75,
+        'stroke-linecap': 'round',
+        'stroke-linejoin': 'round',
         'aria-hidden': 'true',
       },
       svg('path', { d: 'M4 3h11l5 5v13H4z' }),
@@ -210,11 +210,11 @@ export function mountApp(container: HTMLElement): void {
     highlightLayer.append(
       svg('rect', {
         class: 'editor-cursor-highlight',
-        x: rect.x - 5,
-        y: rect.y - 5,
-        width: rect.width + 10,
-        height: rect.height + 10,
-        rx: 14,
+        x: rect.x - 3,
+        y: rect.y - 3,
+        width: rect.width + 6,
+        height: rect.height + 6,
+        rx: 2,
       }),
     );
   }
