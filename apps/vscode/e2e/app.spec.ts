@@ -51,10 +51,13 @@ test.describe('code-only authoring & live preview', () => {
     await topStepSelect.selectOption('2');
     await expect(page.locator('.dav-step-title')).toContainText('Step 3 / 4');
 
-    // Toggle play/pause from top toolbar and verify English accessible label/title updates
+    // Toggle play/pause from top toolbar: icon-only button (no text label) with double play arrow SVG
+    await expect(topPlayBtn).toHaveText('');
+    await expect(topPlayBtn.locator('svg polygon')).toHaveCount(2);
     await expect(topPlayBtn).toHaveAttribute('aria-label', 'Play');
     await topPlayBtn.click();
     await expect(topPlayBtn).toHaveAttribute('aria-pressed', 'true');
+    await expect(topPlayBtn).toHaveText('');
     await expect(topPlayBtn).toHaveAttribute('aria-label', 'Pause');
     await expect(topPlayBtn).toHaveAttribute('title', 'Pause');
     await topPlayBtn.click();

@@ -412,8 +412,38 @@ export class Player {
 
   private updatePlayButton(): void {
     const action = this.playing ? this.strings.pause : this.strings.play;
-    const label = this.playing ? `❚❚ ${action}` : `▶ ${action}`;
-    this.playBtn.textContent = label;
+    clear(this.playBtn);
+    if (this.playing) {
+      this.playBtn.append(
+        svg(
+          'svg',
+          {
+            width: 15,
+            height: 15,
+            viewBox: '0 0 24 24',
+            fill: 'currentColor',
+            'aria-hidden': 'true',
+          },
+          svg('rect', { x: 6, y: 5, width: 4, height: 14, rx: 1 }),
+          svg('rect', { x: 14, y: 5, width: 4, height: 14, rx: 1 }),
+        ),
+      );
+    } else {
+      this.playBtn.append(
+        svg(
+          'svg',
+          {
+            width: 16,
+            height: 16,
+            viewBox: '0 0 24 24',
+            fill: 'currentColor',
+            'aria-hidden': 'true',
+          },
+          svg('polygon', { points: '2 5 12 12 2 19 2 5' }),
+          svg('polygon', { points: '12 5 22 12 12 19 12 5' }),
+        ),
+      );
+    }
     this.playBtn.title = action;
     this.playBtn.setAttribute('aria-label', action);
     this.playBtn.setAttribute('aria-pressed', String(this.playing));
