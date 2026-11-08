@@ -980,6 +980,13 @@ export const DOC_PAGES: readonly DocPage[] = [
               ),
             ],
             [
+              t('アニメーションのオン / オフ', 'Animation on / off'),
+              t(
+                'オフにすると動きを止め、そのステップの状態と使う線をまとめて表示します。ステップを移動してもオフのままで、再生すると自動でオンに戻ります。オフの間にノードをクリックすると、そのフェーズのパケットと吹き出しを線の途中に止めて表示します。',
+                'Off stops all motion and shows the step’s state and every rail it uses. It stays off across steps and turns back on when you play. While off, clicking a node parks that phase’s packet and callout on its rail.',
+              ),
+            ],
+            [
               t('ステップ選択 / 目盛り', 'Step menu / ruler'),
               t('任意のステップへ移動します。', 'Jumps to a step.'),
             ],
@@ -1020,8 +1027,8 @@ export const DOC_PAGES: readonly DocPage[] = [
         ),
         note(
           t(
-            'OSの「視差効果を減らす」設定が有効な場合、パケットは動かず経路の途中に静止して表示されます。',
-            'When the OS requests reduced motion, packets stay still along their paths.',
+            'OSの「視差効果を減らす」設定が有効な場合、アニメーションは常にオフになります。',
+            'When the OS requests reduced motion, animation is always off.',
           ),
         ),
       ];

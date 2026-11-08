@@ -334,6 +334,39 @@ test.describe('webview preview', () => {
   });
 });
 
+test('animation can be stopped for a still view of each step', async ({ page }) => {
+  await openWebview(page);
+  const motion = page.locator('header.toolbar').getByTestId('btn-motion');
+  await expect(page.locator('.dav-packet')).not.toHaveCount(0);
+  await expect(motion).toHaveAttribute('aria-pressed', 'false');
+  await expect(motion).toHaveAttribute('aria-label', 'Stop animation');
+
+  // Stopped: no packets, and every rail of the step is highlighted.
+  await motion.click();
+  await expect(motion).toHaveAttribute('aria-pressed', 'true');
+  await expect(motion).toHaveAttribute('aria-label', 'Start animation');
+  await expect(page.locator('.dav-packet')).toHaveCount(0);
+  await expect(page.locator('.dav-flow')).not.toHaveCount(0);
+  await expect(page.locator('.dav-flow[hidden]')).toHaveCount(0);
+  await expect(page.locator('.dav-stop')).not.toHaveCount(0);
+
+  // A click parks that node's phase; clicking past its last phase clears it.
+  await page.locator('.dav-node[data-id="waf"]').click();
+  await expect(page.locator('.dav-packet .dav-packet-label')).toHaveText('Pass ACL');
+  await page.locator('.dav-node[data-id="waf"]').click();
+  await expect(page.locator('.dav-packet')).toHaveCount(0);
+
+  // It stays stopped across steps, and playing turns animation back on.
+  await page.getByTestId('select-step').selectOption('1');
+  await expect(page.locator('.dav-step-title')).toContainText('Step 2 / 4');
+  await expect(motion).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.dav-packet')).toHaveCount(0);
+
+  await page.locator('header.toolbar').getByTestId('btn-play').click();
+  await expect(motion).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('.dav-packet')).not.toHaveCount(0);
+});
+
 test('documentation examples keep the source where the reader scrolled it', async ({ page }) => {
   await openWebview(page);
   await expect(page.locator('.dav-node')).not.toHaveCount(0);
@@ -406,7 +439,15 @@ test.describe('exported HTML', () => {
     await writeExport(file);
     const viewer = await context.newPage();
     await viewer.goto(pathToFileURL(file).href);
+    await expect(viewer.locator('.dav-node')).not.toHaveCount(0);
     await expect(viewer.getByTestId('btn-play')).toHaveAttribute('aria-pressed', 'false');
+    await expect(viewer.getByTestId('btn-motion')).toHaveAttribute('aria-pressed', 'true');
+    await expect(viewer.getByTestId('btn-motion')).toBeDisabled();
+    await expect(viewer.locator('.dav-packet')).toHaveCount(0);
+
+    // A node's phase can still be inspected, parked on its rail.
+    await viewer.locator('.dav-node[data-id="waf"]').click();
+    await expect(viewer.locator('.dav-packet .dav-packet-label')).toHaveText('Pass ACL');
     const before = await viewer.locator('.dav-packet-dot').first().getAttribute('transform');
     await viewer.waitForTimeout(600);
     expect(await viewer.locator('.dav-packet-dot').first().getAttribute('transform')).toBe(before);

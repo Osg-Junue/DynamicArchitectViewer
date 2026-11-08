@@ -6,6 +6,8 @@ export interface ViewerStrings {
   play: string;
   playAll: string;
   pause: string;
+  stopMotion: string;
+  startMotion: string;
   speed: string;
   zoomIn: string;
   zoomOut: string;
@@ -21,6 +23,8 @@ export const VIEWER_STRINGS: Record<ViewerLocale, ViewerStrings> = {
     play: 'Play step',
     playAll: 'Play all steps',
     pause: 'Pause',
+    stopMotion: 'Stop animation',
+    startMotion: 'Start animation',
     speed: 'Playback speed',
     zoomIn: 'Zoom in',
     zoomOut: 'Zoom out',
@@ -34,6 +38,8 @@ export const VIEWER_STRINGS: Record<ViewerLocale, ViewerStrings> = {
     play: 'Play step',
     playAll: 'Play all steps',
     pause: 'Pause',
+    stopMotion: 'Stop animation',
+    startMotion: 'Start animation',
     speed: 'Playback speed',
     zoomIn: 'Zoom in',
     zoomOut: 'Zoom out',

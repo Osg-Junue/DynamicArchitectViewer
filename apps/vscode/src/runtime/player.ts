@@ -74,6 +74,10 @@ export class Player {
   private view!: ResolvedView;
 
   private phase = 0;
+  /** The reader turned animation off. */
+  private motionOff = false;
+  /** While stopped: `phase` was picked by clicking a node and shows its packets. */
+  private pinned = false;
   private elapsed = 0;
   private lastFrame = 0;
   private frame = 0;
@@ -100,6 +104,7 @@ export class Player {
   private readonly stepSelect: HTMLSelectElement;
   private readonly playBtn: HTMLButtonElement;
   private readonly playAllBtn: HTMLButtonElement;
+  private readonly motionBtn: HTMLButtonElement;
   private readonly speedSelect: HTMLSelectElement;
   private readonly zoomLabel: HTMLElement;
   private readonly followBtn: HTMLButtonElement;
@@ -179,6 +184,27 @@ export class Player {
     );
     this.playAllBtn.dataset.testid = 'btn-play-all';
 
+    this.motionBtn = html(
+      'button',
+      { class: 'dav-btn dav-btn-icon', type: 'button', 'data-testid': 'btn-motion' },
+      svg(
+        'svg',
+        {
+          width: 15,
+          height: 15,
+          viewBox: '0 0 24 24',
+          fill: 'none',
+          stroke: 'currentColor',
+          'stroke-width': 1.75,
+          'stroke-linecap': 'round',
+          'aria-hidden': 'true',
+        },
+        svg('path', { d: 'M2 12h20' }),
+        svg('circle', { cx: 12, cy: 12, r: 4, fill: 'currentColor' }),
+      ),
+    );
+    this.motionBtn.addEventListener('click', () => this.toggleMotion());
+
     this.speedSelect = html('select', {
       class: 'dav-btn dav-speed-select',
       'aria-label': s.speed,
@@ -206,6 +232,7 @@ export class Player {
       html('span', { class: 'dav-toolbar-sep', 'aria-hidden': 'true' }),
       this.playBtn,
       this.playAllBtn,
+      this.motionBtn,
       html('span', { class: 'dav-toolbar-sep', 'aria-hidden': 'true' }),
       this.speedSelect,
     );
@@ -336,6 +363,7 @@ export class Player {
     }
 
     this.renderChrome();
+    this.updateMotionButton();
     this.showStep(this.stepIndex);
     this.frameStep(false);
   }
@@ -411,8 +439,39 @@ export class Player {
     else this.showStep(this.stepIndex - 1);
   }
 
+  /** Turns animation off (a still view of the step) or back on. */
+  toggleMotion(): void {
+    this.setMotionOff(!this.motionOff);
+    this.playMode = 'node';
+    this.phase = 0;
+    this.elapsed = 0;
+    this.renderPackets();
+    this.updatePlayButton();
+    this.updateStepProgress();
+    this.ensureLoop();
+  }
+
+  private setMotionOff(off: boolean): void {
+    this.motionOff = off;
+    this.pinned = false;
+    this.updateMotionButton();
+  }
+
+  private updateMotionButton(): void {
+    const off = this.isStopped();
+    const action = off ? this.strings.startMotion : this.strings.stopMotion;
+    this.motionBtn.title = action;
+    this.motionBtn.setAttribute('aria-label', action);
+    this.motionBtn.setAttribute('aria-pressed', String(off));
+  }
+
+  private isStopped(): boolean {
+    return this.motionOff || this.reducedMotion;
+  }
+
   togglePlay(): void {
     if (this.data.document.steps.length === 0) return;
+    this.setMotionOff(false);
     this.playMode = this.playMode === 'step' ? 'node' : 'step';
     if (this.playMode === 'step') {
       if (this.stepIndex === null) {
@@ -429,6 +488,7 @@ export class Player {
 
   togglePlayAll(): void {
     if (this.data.document.steps.length === 0) return;
+    this.setMotionOff(false);
     this.playMode = this.playMode === 'all' ? 'node' : 'all';
     if (this.playMode === 'all') {
       if (this.stepIndex === null) {
@@ -457,6 +517,14 @@ export class Player {
     if (matching.length === 0) return;
 
     const currentPos = matching.indexOf(this.phase);
+    if (this.isStopped()) {
+      // Each click shows the node's next phase; past the last one the still view returns.
+      const picked = this.pinned && currentPos >= 0 ? matching[currentPos + 1] : matching[0];
+      this.pinned = picked !== undefined;
+      this.phase = picked ?? 0;
+      this.renderPackets();
+      return;
+    }
     const nextPhase =
       this.playMode === 'node' && currentPos >= 0
         ? (matching[(currentPos + 1) % matching.length] ?? matching[0] ?? 0)
@@ -492,6 +560,7 @@ export class Player {
     const noSteps = doc.steps.length === 0;
     this.playBtn.disabled = noSteps;
     this.playAllBtn.disabled = noSteps;
+    this.motionBtn.disabled = noSteps || this.reducedMotion;
     this.speedSelect.disabled = noSteps;
     clear(this.stepSelect);
     this.stepSelect.append(html('option', { value: 'overview' }, this.strings.overview));
@@ -529,6 +598,7 @@ export class Player {
     if (!opts.keepPhase || this.phase >= this.view.phases.length) {
       this.phase = 0;
       this.elapsed = 0;
+      this.pinned = false;
     }
     this.renderPackets();
     this.updateDock();
@@ -539,31 +609,37 @@ export class Player {
   private renderPackets(): void {
     clear(this.packetLayer);
     this.packetEls = [];
-    this.onPhaseChange?.(this.view, this.phase);
+    const stopped = this.isStopped();
+    this.onPhaseChange?.(this.view, stopped && !this.pinned ? -1 : this.phase);
     const phases = this.view.phases;
     if (phases.length === 0) {
       if (this.followAnim) this.focusCurrentPhase(true);
       return;
     }
 
-    if (this.reducedMotion) {
-      // Static: every packet of the step, parked at the middle of its path.
-      for (const packet of phases.flat()) this.addPacket(packet, packet.roundTrip ? 0.25 : 0.5);
-      if (this.followAnim) this.focusCurrentPhase(false);
-      return;
+    if (!stopped) {
+      for (const packet of phases[this.phase] ?? []) this.addPacket(packet, 0);
+    } else if (this.pinned) {
+      // A picked phase is parked at the middle of its path.
+      for (const packet of phases[this.phase] ?? []) {
+        this.addPacket(packet, packet.roundTrip ? 0.25 : 0.5);
+      }
     }
-    for (const packet of phases[this.phase] ?? []) this.addPacket(packet, 0);
     this.syncPhaseHighlights();
-    if (this.followAnim) this.focusCurrentPhase(true);
+    if (this.followAnim) this.focusCurrentPhase(!stopped);
   }
 
   /**
-   * Shows the `.dav-flow` rail overlay only on the edges of the current animation phase.
+   * Shows the `.dav-flow` rail overlay only on the edges of the current animation phase,
+   * or on every edge of the step while animation is stopped.
    */
   private syncPhaseHighlights(): void {
     const phases = this.view.phases;
-    if (phases.length === 0 || this.reducedMotion) return;
-    const currentPackets = phases[Math.min(this.phase, phases.length - 1)] ?? [];
+    if (phases.length === 0) return;
+    const stopped = this.isStopped();
+    const currentPackets = stopped
+      ? phases.flat()
+      : (phases[Math.min(this.phase, phases.length - 1)] ?? []);
     const activeEdges = new Set<string>();
     for (const pkt of currentPackets) {
       for (const e of this.view.edges) {
@@ -585,7 +661,8 @@ export class Player {
       label.setAttribute('fill', fill ?? 'var(--dav-fg)');
       label.setAttribute('font-weight', active ? '700' : '400');
     }
-    const currentPhase = String(Math.min(this.phase, phases.length - 1));
+    const currentPhase =
+      stopped && !this.pinned ? null : String(Math.min(this.phase, phases.length - 1));
     for (const stop of Array.from(this.sceneLayer.querySelectorAll('.dav-stop'))) {
       const current = stop.getAttribute('data-phase') === currentPhase;
       stop.classList.toggle('is-current', current);
@@ -652,7 +729,7 @@ export class Player {
     if (!fill) return;
     const total = this.view.phases.length;
     const done = this.phase + (this.phase < total ? Math.min(1, this.elapsed / PHASE_MS) : 0);
-    const progress = total === 0 || this.reducedMotion ? 1 : Math.min(1, done / total);
+    const progress = total === 0 || this.isStopped() ? 1 : Math.min(1, done / total);
     fill.style.transform = `scaleX(${progress.toFixed(3)})`;
   }
 
@@ -739,7 +816,7 @@ export class Player {
 
   private ensureLoop(): void {
     const animating =
-      !this.reducedMotion && (this.view.phases.length > 0 || this.cameraTarget !== null);
+      this.cameraTarget !== null || (!this.isStopped() && this.view.phases.length > 0);
     if (!animating && this.playMode === 'node') return;
     if (this.frame) return;
     this.lastFrame = performance.now();
@@ -771,7 +848,7 @@ export class Player {
       this.applyTransform();
     }
 
-    const phases = this.reducedMotion ? [] : this.view.phases;
+    const phases = this.isStopped() ? [] : this.view.phases;
     if (this.playMode === 'node') {
       if (phases.length > 0) {
         const t = Math.min(1, this.elapsed / PHASE_MS);
@@ -822,7 +899,7 @@ export class Player {
     const packets =
       phases.length === 0
         ? []
-        : this.reducedMotion
+        : this.isStopped() && !this.pinned
           ? phases.flat()
           : (phases[Math.min(this.phase, phases.length - 1)] ?? []);
 
