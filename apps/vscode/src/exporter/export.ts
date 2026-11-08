@@ -19,7 +19,19 @@ export interface ExportPayload {
   layout: Layout;
 }
 
-const PAGE_STYLES = `html,body{margin:0;height:100%;background:#0b0f19;overflow:hidden}\n${playerStyles}`;
+/** Strips CSS comments and collapses whitespace to minimize inline <style> payload size. */
+export function minifyCss(css: string): string {
+  return css
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/\s*([{}:;,>])\s*/g, '$1')
+    .replace(/;}/g, '}')
+    .trim();
+}
+
+const PAGE_STYLES = minifyCss(
+  `html,body{margin:0;height:100%;background:#080b16;overflow:hidden}${playerStyles}`,
+);
 
 export interface ExportOptions {
   locale?: 'ja' | 'en';

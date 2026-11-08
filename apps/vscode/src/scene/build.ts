@@ -401,6 +401,13 @@ export function buildPacket(packet: Packet, t = 0): VElement {
     callout = h(
       'g',
       { class: 'dav-packet-callout' },
+      h('rect', {
+        x: cx - halfW + 4,
+        y: boxTop + 4,
+        width: halfW * 2,
+        height: boxBottom - boxTop,
+        fill: '#03050a',
+      }),
       h('path', {
         d: packetBubblePath(box, dot),
         fill: '#0a0e1d',
