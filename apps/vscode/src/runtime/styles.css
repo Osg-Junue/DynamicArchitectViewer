@@ -350,6 +350,9 @@
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 8px;
   margin-top: 2px;
+  max-height: 152px;
+  overflow-y: auto;
+  padding-right: 2px;
 }
 .dav-anim-list[hidden] {
   display: none;

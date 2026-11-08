@@ -464,6 +464,17 @@ export class Player {
     for (const child of Array.from(this.animListEl.children) as HTMLElement[]) {
       const isCurrent = Number(child.dataset.phase) === activePhase;
       child.classList.toggle('dav-active', isCurrent);
+      if (isCurrent && this.animListEl.clientHeight > 0) {
+        const listTop = this.animListEl.scrollTop;
+        const listBottom = listTop + this.animListEl.clientHeight;
+        const itemTop = child.offsetTop - this.animListEl.offsetTop;
+        const itemBottom = itemTop + child.offsetHeight;
+        if (itemTop < listTop) {
+          this.animListEl.scrollTop = itemTop;
+        } else if (itemBottom > listBottom) {
+          this.animListEl.scrollTop = itemBottom - this.animListEl.clientHeight;
+        }
+      }
     }
   }
 
