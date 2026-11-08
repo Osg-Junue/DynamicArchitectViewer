@@ -64,7 +64,7 @@ export function sceneBounds(view: ResolvedView): Rect {
 export function boundsOf(rects: readonly Rect[]): Rect {
   if (rects.length === 0) return { x: 0, y: 0, width: 400, height: 300 };
   const minX = Math.min(...rects.map((r) => r.x)) - SCENE_PADDING;
-  const minY = Math.min(...rects.map((r) => r.y)) - SCENE_PADDING - 36;
+  const minY = Math.min(...rects.map((r) => r.y)) - SCENE_PADDING - 56;
   const maxX = Math.max(...rects.map((r) => r.x + r.width)) + SCENE_PADDING;
   const maxY = Math.max(...rects.map((r) => r.y + r.height)) + SCENE_PADDING;
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
@@ -291,17 +291,17 @@ export interface PacketCalloutBox {
  * eliminates eye-tracking fatigue when reading multi-line descriptions.
  */
 export function computePacketCalloutBox(packet: Packet): PacketCalloutBox | null {
-  const label = packet.label ? fitText(packet.label, 12.5, 360) : '';
-  const descLines = packet.description ? wrapText(packet.description, 11.5, 360, 4) : [];
+  const label = packet.label ? fitText(packet.label, 16, 480) : '';
+  const descLines = packet.description ? wrapText(packet.description, 15, 480, 4) : [];
   if (!label && descLines.length === 0) return null;
 
-  const labelW = label ? estimateTextWidth(label, 12.5) : 0;
-  const descW = descLines.reduce((m, line) => Math.max(m, estimateTextWidth(line, 11.5)), 0);
-  const padX = descLines.length > 0 ? 16 : 12;
-  const minW = descLines.length > 0 ? 220 : 60;
+  const labelW = label ? estimateTextWidth(label, 16) : 0;
+  const descW = descLines.reduce((m, line) => Math.max(m, estimateTextWidth(line, 15)), 0);
+  const padX = descLines.length > 0 ? 20 : 14;
+  const minW = descLines.length > 0 ? 280 : 72;
   const width = Math.max(minW, Math.ceil(Math.max(labelW, descW) + padX * 2));
   const halfW = width / 2;
-  const height = descLines.length === 0 ? 30 : (label ? 36 : 16) + descLines.length * 16;
+  const height = descLines.length === 0 ? 36 : (label ? 46 : 20) + descLines.length * 22;
 
   const mid = pointAt(packet.path, 0.5);
   const minY = Math.min(
@@ -312,7 +312,7 @@ export function computePacketCalloutBox(packet: Packet): PacketCalloutBox | null
     mid.y,
   );
   const cx = mid.x;
-  const boxBottom = Math.min(mid.y - 34, minY - 24);
+  const boxBottom = Math.min(mid.y - 36, minY - 26);
   const boxTop = boxBottom - height;
 
   return { cx, halfW, boxTop, boxBottom, padX, label, descLines };
@@ -377,9 +377,9 @@ export function buildPacket(packet: Packet, t = 0): VElement {
             'text',
             {
               x: descLines.length > 0 ? cx - halfW + padX : cx,
-              y: descLines.length > 0 ? boxTop + 21 : boxTop + 19,
+              y: descLines.length > 0 ? boxTop + 26 : boxTop + 23,
               ...(descLines.length === 0 ? { 'text-anchor': 'middle' } : {}),
-              'font-size': 12.5,
+              'font-size': 16,
               fill: descLines.length > 0 ? packet.color : '#f8fafc',
               class: 'dav-packet-label',
             },
@@ -391,9 +391,9 @@ export function buildPacket(packet: Packet, t = 0): VElement {
           'text',
           {
             x: cx - halfW + padX,
-            y: boxTop + (label ? 40 : 21) + i * 16,
-            'font-size': 11.5,
-            fill: '#e2e8f0',
+            y: boxTop + (label ? 50 : 25) + i * 22,
+            'font-size': 15,
+            fill: '#f1f5f9',
             class: 'dav-packet-desc',
           },
           line,
