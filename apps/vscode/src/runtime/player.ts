@@ -156,7 +156,52 @@ export class Player {
       options.playbackSlot.append(this.playbackBar);
     }
 
-    const viewport = html('main', { class: 'dav-viewport' }, this.svgEl);
+    const fitBtn = html(
+      'button',
+      {
+        class: 'dav-btn dav-btn-icon',
+        type: 'button',
+        title: s.fit,
+        'aria-label': s.fit,
+        'data-testid': 'btn-zoom-fit',
+      },
+      svg(
+        'svg',
+        {
+          width: 15,
+          height: 15,
+          viewBox: '0 0 24 24',
+          fill: 'none',
+          stroke: 'currentColor',
+          'stroke-width': 2.2,
+          'stroke-linecap': 'round',
+          'stroke-linejoin': 'round',
+          'aria-hidden': 'true',
+        },
+        svg('path', { d: 'M8 3H5a2 2 0 0 0-2 2v3' }),
+        svg('path', { d: 'M21 8V5a2 2 0 0 0-2-2h-3' }),
+        svg('path', { d: 'M3 16v3a2 2 0 0 0 2 2h3' }),
+        svg('path', { d: 'M16 21h3a2 2 0 0 0 2-2v-3' }),
+      ),
+    );
+    fitBtn.addEventListener('click', () => this.fit(true));
+
+    const zoomOverlay = html(
+      'div',
+      {
+        class: 'dav-zoom-group',
+        role: 'group',
+        'aria-label': 'Zoom controls',
+        'data-testid': 'canvas-zoom-controls',
+      },
+      this.button('−', s.zoomOut, () => this.zoomBy(1 / 1.2)),
+      this.zoomLabel,
+      this.button('+', s.zoomIn, () => this.zoomBy(1.2)),
+      html('span', { class: 'dav-toolbar-sep', 'aria-hidden': 'true' }),
+      fitBtn,
+    );
+
+    const viewport = html('main', { class: 'dav-viewport' }, this.svgEl, zoomOverlay);
     this.root = html(
       'div',
       { class: 'dav-app', tabindex: '0' },
@@ -165,14 +210,6 @@ export class Player {
         { class: 'dav-topbar' },
         this.titleEl,
         !options.playbackSlot && this.playbackBar,
-        html(
-          'div',
-          { class: 'dav-row dav-zoom-group' },
-          this.button('−', s.zoomOut, () => this.zoomBy(1 / 1.2)),
-          this.zoomLabel,
-          this.button('+', s.zoomIn, () => this.zoomBy(1.2)),
-          this.button(s.fit, s.fit, () => this.fit(true)),
-        ),
       ),
       viewport,
       html(
@@ -469,6 +506,7 @@ export class Player {
     let drag: { id: number; x: number; y: number; captured: boolean } | null = null;
     const down = (e: PointerEvent) => {
       if (e.button !== 0 || e.defaultPrevented) return;
+      if ((e.target as Element | null)?.closest('.dav-zoom-group')) return;
       drag = { id: e.pointerId, x: e.clientX, y: e.clientY, captured: false };
     };
     const move = (e: PointerEvent) => {

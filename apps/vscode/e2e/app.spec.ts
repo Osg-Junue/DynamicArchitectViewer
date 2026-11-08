@@ -33,6 +33,15 @@ test.describe('code-only authoring & live preview', () => {
     await expect(page.locator('[data-testid="btn-locale-toggle"]')).toHaveCount(0);
     await expect(page.locator('.dav-topbar').getByRole('button', { name: 'DSL' })).toHaveCount(0);
 
+    // Zoom percentage & icon Fit button are mounted inside the diagram canvas viewport corner
+    await expect(
+      page.locator('main.dav-viewport [data-testid="canvas-zoom-controls"]'),
+    ).toBeVisible();
+    await expect(
+      page.locator('header.dav-topbar [data-testid="canvas-zoom-controls"]'),
+    ).toHaveCount(0);
+    await expect(page.locator('main.dav-viewport [data-testid="btn-zoom-fit"] svg')).toBeVisible();
+
     // Toggle play/pause from top toolbar and verify English accessible label/title updates
     await expect(topPlayBtn).toHaveAttribute('aria-label', 'Play');
     await topPlayBtn.click();

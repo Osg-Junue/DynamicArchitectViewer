@@ -18,9 +18,11 @@ function setAttributes(el: Element, node: VElement): void {
 export function svg<K extends keyof SVGElementTagNameMap>(
   tag: K,
   attrs: Record<string, string | number> = {},
+  ...children: Node[]
 ): SVGElementTagNameMap[K] {
   const el = document.createElementNS(SVG_NS, tag);
   for (const [name, value] of Object.entries(attrs)) el.setAttribute(name, String(value));
+  for (const child of children) el.appendChild(child);
   return el;
 }
 
