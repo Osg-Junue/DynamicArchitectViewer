@@ -37,14 +37,28 @@ test.describe('code-only authoring & live preview', () => {
     await expect(topPlayBtn).toHaveAttribute('aria-pressed', 'false');
     await expect(page.locator('footer.dav-dock [data-testid="btn-play"]')).toHaveCount(0);
 
-    // Zoom percentage & icon Fit button are mounted inside the diagram canvas viewport corner
+    // Zoom percentage, icon Fit button, and Follow Animation icon button are mounted inside the diagram canvas viewport corner
     await expect(
       page.locator('main.dav-viewport [data-testid="canvas-zoom-controls"]'),
     ).toBeVisible();
     await expect(
       page.locator('header.dav-topbar [data-testid="canvas-zoom-controls"]'),
     ).toHaveCount(0);
-    await expect(page.locator('main.dav-viewport [data-testid="btn-zoom-fit"] svg')).toBeVisible();
+    const fitBtn = page.locator('main.dav-viewport [data-testid="btn-zoom-fit"]');
+    const followBtn = page.locator('main.dav-viewport [data-testid="btn-follow-anim"]');
+    await expect(fitBtn.locator('svg')).toBeVisible();
+    await expect(followBtn.locator('svg')).toBeVisible();
+    await expect(followBtn).toHaveAttribute('aria-pressed', 'false');
+
+    // Toggling Follow Animation focuses (zooms/pans) onto the active animation and Fit resets it
+    const initialTransform = await page.locator('.dav-world').getAttribute('transform');
+    await followBtn.click();
+    await expect(followBtn).toHaveAttribute('aria-pressed', 'true');
+    const focusedTransform = await page.locator('.dav-world').getAttribute('transform');
+    expect(focusedTransform).not.toBe(initialTransform);
+    await fitBtn.click();
+    await expect(followBtn).toHaveAttribute('aria-pressed', 'false');
+    expect(await page.locator('.dav-world').getAttribute('transform')).toBe(initialTransform);
 
     // Selecting a step from the top dropdown updates the bottom dock narrative and packet speech bubble
     await expect(page.locator('.dav-step-title')).toContainText('Step 1 / 4');
@@ -293,7 +307,7 @@ test.describe('exported HTML', () => {
     await download.saveAs(file);
     const viewer = await context.newPage();
     await viewer.goto(pathToFileURL(file).href);
-    await expect(viewer.locator('.dav-btn[aria-pressed]')).toHaveAttribute('aria-pressed', 'false');
+    await expect(viewer.getByTestId('btn-play')).toHaveAttribute('aria-pressed', 'false');
     const before = await viewer.locator('.dav-packet-dot').first().getAttribute('transform');
     await viewer.waitForTimeout(600);
     expect(await viewer.locator('.dav-packet-dot').first().getAttribute('transform')).toBe(before);

@@ -1,4 +1,4 @@
-import type { Layout } from '../layout';
+import type { Layout, Rect } from '../layout';
 import type { DavDocument } from '../model/types';
 import {
   boundsOf,
@@ -73,6 +73,8 @@ export class Player {
   private panX = 0;
   private panY = 0;
   private userMoved = false;
+  private followAnim = false;
+  private cameraTarget: { zoom: number; panX: number; panY: number } | null = null;
 
   private readonly root: HTMLElement;
   private readonly playbackBar: HTMLElement;
@@ -87,6 +89,7 @@ export class Player {
   private readonly playBtn: HTMLButtonElement;
   private readonly speedSelect: HTMLSelectElement;
   private readonly zoomLabel: HTMLElement;
+  private readonly followBtn: HTMLButtonElement;
   private readonly onStepChange?: ((stepIndex: number | null) => void) | undefined;
   private readonly cleanups: Array<() => void> = [];
 
@@ -205,7 +208,46 @@ export class Player {
         svg('path', { d: 'M16 21h3a2 2 0 0 0 2-2v-3' }),
       ),
     );
-    fitBtn.addEventListener('click', () => this.fit(true));
+    fitBtn.addEventListener('click', () => {
+      if (this.followAnim) {
+        this.followAnim = false;
+        this.followBtn.setAttribute('aria-pressed', 'false');
+      }
+      this.fit(true);
+    });
+
+    this.followBtn = html(
+      'button',
+      {
+        class: 'dav-btn dav-btn-icon dav-btn-follow',
+        type: 'button',
+        title: s.followAnim,
+        'aria-label': s.followAnim,
+        'aria-pressed': 'false',
+        'data-testid': 'btn-follow-anim',
+      },
+      svg(
+        'svg',
+        {
+          width: 15,
+          height: 15,
+          viewBox: '0 0 24 24',
+          fill: 'none',
+          stroke: 'currentColor',
+          'stroke-width': 2.2,
+          'stroke-linecap': 'round',
+          'stroke-linejoin': 'round',
+          'aria-hidden': 'true',
+        },
+        svg('circle', { cx: 12, cy: 12, r: 7 }),
+        svg('circle', { cx: 12, cy: 12, r: 2 }),
+        svg('path', { d: 'M12 2v3' }),
+        svg('path', { d: 'M12 19v3' }),
+        svg('path', { d: 'M2 12h3' }),
+        svg('path', { d: 'M19 12h3' }),
+      ),
+    );
+    this.followBtn.addEventListener('click', () => this.toggleFollowAnim());
 
     const zoomOverlay = html(
       'div',
@@ -220,6 +262,7 @@ export class Player {
       this.button('+', s.zoomIn, () => this.zoomBy(1.2)),
       html('span', { class: 'dav-toolbar-sep', 'aria-hidden': 'true' }),
       fitBtn,
+      this.followBtn,
     );
 
     const viewport = html('main', { class: 'dav-viewport' }, this.svgEl, zoomOverlay);
@@ -255,7 +298,8 @@ export class Player {
     this.bindKeyboard(options.globalKeyboard ? window : this.root);
     if (typeof ResizeObserver !== 'undefined') {
       const ro = new ResizeObserver(() => {
-        if (!this.userMoved) this.fit(false);
+        if (this.followAnim) this.focusCurrentPhase(false);
+        else if (!this.userMoved) this.fit(false);
       });
       ro.observe(viewport);
       this.cleanups.push(() => ro.disconnect());
@@ -277,7 +321,8 @@ export class Player {
       this.stepIndex === null ? null : count === 0 ? null : Math.min(this.stepIndex, count - 1);
     this.renderChrome();
     this.showStep(index, { keepPhase: true });
-    if (!this.userMoved) this.fit(false);
+    if (this.followAnim) this.focusCurrentPhase(false);
+    else if (!this.userMoved) this.fit(false);
   }
 
   destroy(): void {
@@ -344,6 +389,17 @@ export class Player {
     this.ensureLoop();
   }
 
+  toggleFollowAnim(): void {
+    this.followAnim = !this.followAnim;
+    this.followBtn.setAttribute('aria-pressed', String(this.followAnim));
+    if (this.followAnim) {
+      this.userMoved = false;
+      this.focusCurrentPhase(false);
+    } else {
+      this.fit(true);
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Rendering
   // ---------------------------------------------------------------------------
@@ -381,14 +437,19 @@ export class Player {
     clear(this.packetLayer);
     this.packetEls = [];
     const phases = this.view.phases;
-    if (phases.length === 0) return;
+    if (phases.length === 0) {
+      if (this.followAnim) this.focusCurrentPhase(true);
+      return;
+    }
 
     if (this.reducedMotion) {
       // Static: every packet of the step, parked at the middle of its path.
       for (const packet of phases.flat()) this.addPacket(packet, 0.5);
+      if (this.followAnim) this.focusCurrentPhase(false);
       return;
     }
     for (const packet of phases[this.phase] ?? []) this.addPacket(packet, 0);
+    if (this.followAnim) this.focusCurrentPhase(true);
   }
 
   private addPacket(packet: Packet, t: number): void {
@@ -477,7 +538,8 @@ export class Player {
   // ---------------------------------------------------------------------------
 
   private ensureLoop(): void {
-    const animating = !this.reducedMotion && this.view.phases.length > 0;
+    const animating =
+      !this.reducedMotion && (this.view.phases.length > 0 || this.cameraTarget !== null);
     if (!animating && !this.playing) return;
     if (this.frame) return;
     this.lastFrame = performance.now();
@@ -486,9 +548,28 @@ export class Player {
 
   private tick(now: number): void {
     this.frame = 0;
-    const dt = Math.min(100, now - this.lastFrame) * this.speed;
+    const rawDt = Math.min(100, now - this.lastFrame);
+    const dt = rawDt * this.speed;
     this.lastFrame = now;
     this.elapsed += dt;
+
+    if (this.cameraTarget) {
+      const alpha = 1 - Math.exp(-rawDt / 160);
+      this.zoom += (this.cameraTarget.zoom - this.zoom) * alpha;
+      this.panX += (this.cameraTarget.panX - this.panX) * alpha;
+      this.panY += (this.cameraTarget.panY - this.panY) * alpha;
+      if (
+        Math.abs(this.cameraTarget.zoom - this.zoom) < 0.002 &&
+        Math.abs(this.cameraTarget.panX - this.panX) < 0.5 &&
+        Math.abs(this.cameraTarget.panY - this.panY) < 0.5
+      ) {
+        this.zoom = this.cameraTarget.zoom;
+        this.panX = this.cameraTarget.panX;
+        this.panY = this.cameraTarget.panY;
+        this.cameraTarget = null;
+      }
+      this.applyTransform();
+    }
 
     const phases = this.reducedMotion ? [] : this.view.phases;
     if (this.phase < phases.length) {
@@ -512,7 +593,7 @@ export class Player {
       this.renderPackets();
     }
 
-    if (this.playing || phases.length > 0) {
+    if (this.playing || phases.length > 0 || this.cameraTarget !== null) {
       this.frame = requestAnimationFrame((t) => this.tick(t));
     }
   }
@@ -521,8 +602,92 @@ export class Player {
   // Pan & zoom
   // ---------------------------------------------------------------------------
 
+  private focusCurrentPhase(smooth: boolean): void {
+    const box = this.svgEl.getBoundingClientRect();
+    if (box.width === 0 || box.height === 0) return;
+
+    const phases = this.view.phases;
+    const packets =
+      phases.length === 0
+        ? []
+        : this.reducedMotion
+          ? phases.flat()
+          : (phases[Math.min(this.phase, phases.length - 1)] ?? []);
+
+    if (packets.length === 0) {
+      const { nodes, groups } = this.data.layout;
+      const b = boundsOf([...Object.values(nodes), ...Object.values(groups)]);
+      this.setCameraTarget(b, 1.25, smooth);
+      return;
+    }
+
+    const rects: Rect[] = [];
+    const { nodes } = this.data.layout;
+    for (const pkt of packets) {
+      const fromRect = nodes[pkt.from];
+      const toRect = nodes[pkt.to];
+      if (fromRect) rects.push(fromRect);
+      if (toRect) rects.push(toRect);
+      const callout = computePacketCalloutBox(pkt);
+      if (callout) {
+        rects.push({
+          x: callout.cx - callout.halfW,
+          y: callout.boxTop,
+          width: callout.halfW * 2,
+          height: callout.boxBottom - callout.boxTop,
+        });
+      }
+      const xs = [pkt.path.p0.x, pkt.path.p1.x, pkt.path.p2.x, pkt.path.p3.x];
+      const ys = [pkt.path.p0.y, pkt.path.p1.y, pkt.path.p2.y, pkt.path.p3.y];
+      const minX = Math.min(...xs);
+      const minY = Math.min(...ys);
+      rects.push({
+        x: minX,
+        y: minY,
+        width: Math.max(...xs) - minX,
+        height: Math.max(...ys) - minY,
+      });
+    }
+
+    const pad = 56;
+    const minX = Math.min(...rects.map((r) => r.x)) - pad;
+    const minY = Math.min(...rects.map((r) => r.y)) - pad;
+    const maxX = Math.max(...rects.map((r) => r.x + r.width)) + pad;
+    const maxY = Math.max(...rects.map((r) => r.y + r.height)) + pad;
+    const targetBounds: Rect = {
+      x: minX,
+      y: minY,
+      width: Math.max(200, maxX - minX),
+      height: Math.max(160, maxY - minY),
+    };
+    this.setCameraTarget(targetBounds, 1.65, smooth);
+  }
+
+  private setCameraTarget(b: Rect, maxAutoZoom: number, smooth: boolean): void {
+    const box = this.svgEl.getBoundingClientRect();
+    if (box.width === 0 || box.height === 0) return;
+    const zoom = Math.min(
+      MAX_ZOOM,
+      Math.max(MIN_ZOOM, Math.min(box.width / b.width, box.height / b.height, maxAutoZoom)),
+    );
+    const panX = (box.width - b.width * zoom) / 2 - b.x * zoom;
+    const panY = (box.height - b.height * zoom) / 2 - b.y * zoom;
+
+    if (!smooth || this.reducedMotion) {
+      this.cameraTarget = null;
+      this.zoom = zoom;
+      this.panX = panX;
+      this.panY = panY;
+      this.applyTransform();
+      return;
+    }
+    this.cameraTarget = { zoom, panX, panY };
+    this.ensureLoop();
+  }
+
   private fit(user: boolean): void {
     if (user) this.userMoved = false;
+    this.cameraTarget = null;
     const box = this.svgEl.getBoundingClientRect();
     if (box.width === 0 || box.height === 0) return;
     const { nodes, groups } = this.data.layout;
@@ -538,6 +703,7 @@ export class Player {
   }
 
   private zoomBy(factor: number, cx?: number, cy?: number): void {
+    this.cameraTarget = null;
     const box = this.svgEl.getBoundingClientRect();
     const x = cx ?? box.width / 2;
     const y = cy ?? box.height / 2;
@@ -575,6 +741,7 @@ export class Player {
         viewport.setPointerCapture(e.pointerId);
         viewport.classList.add('dav-dragging');
       }
+      this.cameraTarget = null;
       this.panX += dx;
       this.panY += dy;
       drag.x = e.clientX;
