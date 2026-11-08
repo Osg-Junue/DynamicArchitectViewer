@@ -60,11 +60,11 @@ export function sceneBounds(view: ResolvedView): Rect {
   return boundsOf([...view.groups.map((g) => g.rect), ...view.nodes.map((n) => n.rect)]);
 }
 
-/** Bounding box of rectangles plus scene padding. */
+/** Bounding box of rectangles plus scene padding (extra top headroom for speech bubbles). */
 export function boundsOf(rects: readonly Rect[]): Rect {
   if (rects.length === 0) return { x: 0, y: 0, width: 400, height: 300 };
   const minX = Math.min(...rects.map((r) => r.x)) - SCENE_PADDING;
-  const minY = Math.min(...rects.map((r) => r.y)) - SCENE_PADDING;
+  const minY = Math.min(...rects.map((r) => r.y)) - SCENE_PADDING - 36;
   const maxX = Math.max(...rects.map((r) => r.x + r.width)) + SCENE_PADDING;
   const maxY = Math.max(...rects.map((r) => r.y + r.height)) + SCENE_PADDING;
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
@@ -275,48 +275,100 @@ function pill(center: Point, text: string, color: string): VElement[] {
   ];
 }
 
-/** A moving packet (dot + speech-bubble callout) drawn at the origin; position it with a transform. */
-export function buildPacket(packet: Packet): VElement {
-  const label = packet.label ? fitText(packet.label, 11, 250) : '';
-  const descLines = packet.description ? wrapText(packet.description, 10.5, 250, 3) : [];
-  const hasCallout = Boolean(label) || descLines.length > 0;
+export interface PacketCalloutBox {
+  cx: number;
+  halfW: number;
+  boxTop: number;
+  boxBottom: number;
+  padX: number;
+  label: string;
+  descLines: string[];
+}
 
+/**
+ * Computes the stationary speech-bubble box positioned above the packet's edge path.
+ * Keeping the bubble body stationary while only its pointer tip tracks the moving dot
+ * eliminates eye-tracking fatigue when reading multi-line descriptions.
+ */
+export function computePacketCalloutBox(packet: Packet): PacketCalloutBox | null {
+  const label = packet.label ? fitText(packet.label, 12.5, 360) : '';
+  const descLines = packet.description ? wrapText(packet.description, 11.5, 360, 4) : [];
+  if (!label && descLines.length === 0) return null;
+
+  const labelW = label ? estimateTextWidth(label, 12.5) : 0;
+  const descW = descLines.reduce((m, line) => Math.max(m, estimateTextWidth(line, 11.5)), 0);
+  const padX = descLines.length > 0 ? 16 : 12;
+  const minW = descLines.length > 0 ? 220 : 60;
+  const width = Math.max(minW, Math.ceil(Math.max(labelW, descW) + padX * 2));
+  const halfW = width / 2;
+  const height = descLines.length === 0 ? 30 : (label ? 36 : 16) + descLines.length * 16;
+
+  const mid = pointAt(packet.path, 0.5);
+  const minY = Math.min(
+    packet.path.p0.y,
+    packet.path.p1.y,
+    packet.path.p2.y,
+    packet.path.p3.y,
+    mid.y,
+  );
+  const cx = mid.x;
+  const boxBottom = Math.min(mid.y - 34, minY - 24);
+  const boxTop = boxBottom - height;
+
+  return { cx, halfW, boxTop, boxBottom, padX, label, descLines };
+}
+
+/**
+ * Builds the closed SVG path for the stationary rounded speech bubble whose bottom pointer tip
+ * dynamically follows `dot` along the edge path.
+ */
+export function packetBubblePath(box: PacketCalloutBox, dot: Point): string {
+  const { cx, halfW, boxTop, boxBottom } = box;
+  const r = 10;
+  const maxOffset = Math.max(0, halfW - r - 12);
+  const baseX = cx + Math.max(-maxOffset, Math.min(maxOffset, (dot.x - cx) * 0.25));
+  const halfBase = Math.min(9, Math.max(5, halfW - r - 2));
+  const dx = dot.x - baseX;
+  const dy = Math.max(12, dot.y - boxBottom);
+  const dist = Math.hypot(dx, dy);
+  const pull = Math.min(9, dist * 0.35);
+  const tipX = dot.x - (dx / dist) * pull;
+  const tipY = dot.y - (dy / dist) * pull;
+
+  return [
+    `M ${(cx - halfW + r).toFixed(1)} ${boxTop.toFixed(1)}`,
+    `H ${(cx + halfW - r).toFixed(1)}`,
+    `A ${r} ${r} 0 0 1 ${(cx + halfW).toFixed(1)} ${(boxTop + r).toFixed(1)}`,
+    `V ${(boxBottom - r).toFixed(1)}`,
+    `A ${r} ${r} 0 0 1 ${(cx + halfW - r).toFixed(1)} ${boxBottom.toFixed(1)}`,
+    `H ${(baseX + halfBase).toFixed(1)}`,
+    `L ${tipX.toFixed(1)} ${tipY.toFixed(1)}`,
+    `L ${(baseX - halfBase).toFixed(1)} ${boxBottom.toFixed(1)}`,
+    `H ${(cx - halfW + r).toFixed(1)}`,
+    `A ${r} ${r} 0 0 1 ${(cx - halfW).toFixed(1)} ${(boxBottom - r).toFixed(1)}`,
+    `V ${(boxTop + r).toFixed(1)}`,
+    `A ${r} ${r} 0 0 1 ${(cx - halfW + r).toFixed(1)} ${boxTop.toFixed(1)}`,
+    'Z',
+  ].join(' ');
+}
+
+/** A packet (stationary speech-bubble callout + moving dot & pointer tip) in world coordinates. */
+export function buildPacket(packet: Packet, t = 0): VElement {
+  const dot = packetPosition(packet, t);
+  const box = computePacketCalloutBox(packet);
   let callout: VElement | null = null;
-  if (hasCallout) {
-    const labelW = label ? estimateTextWidth(label, 11) : 0;
-    const descW = descLines.reduce((m, line) => Math.max(m, estimateTextWidth(line, 10.5)), 0);
-    const padX = descLines.length > 0 ? 12 : 10;
-    const width = Math.max(44, Math.ceil(Math.max(labelW, descW) + padX * 2));
-    const halfW = width / 2;
-    const height = descLines.length === 0 ? 24 : (label ? 29 : 14) + descLines.length * 14;
-    const boxBottom = -16;
-    const boxTop = boxBottom - height;
-    const r = 8;
-    const bubblePath = [
-      `M ${-halfW + r} ${boxTop}`,
-      `H ${halfW - r}`,
-      `A ${r} ${r} 0 0 1 ${halfW} ${boxTop + r}`,
-      `V ${boxBottom - r}`,
-      `A ${r} ${r} 0 0 1 ${halfW - r} ${boxBottom}`,
-      'H 6',
-      `L 0 ${boxBottom + 6}`,
-      `L -6 ${boxBottom}`,
-      `H ${-halfW + r}`,
-      `A ${r} ${r} 0 0 1 ${-halfW} ${boxBottom - r}`,
-      `V ${boxTop + r}`,
-      `A ${r} ${r} 0 0 1 ${-halfW + r} ${boxTop}`,
-      'Z',
-    ].join(' ');
 
+  if (box) {
+    const { cx, halfW, boxTop, padX, label, descLines } = box;
     callout = h(
       'g',
       { class: 'dav-packet-callout' },
       h('path', {
-        d: bubblePath,
+        d: packetBubblePath(box, dot),
         fill: '#0b1220',
-        'fill-opacity': 0.94,
+        'fill-opacity': 0.95,
         stroke: packet.color,
-        'stroke-width': 1.5,
+        'stroke-width': 1.75,
         'stroke-linejoin': 'round',
         class: 'dav-packet-bubble',
       }),
@@ -324,10 +376,10 @@ export function buildPacket(packet: Packet): VElement {
         ? h(
             'text',
             {
-              x: descLines.length > 0 ? -halfW + padX : 0,
-              y: descLines.length > 0 ? boxTop + 17 : boxTop + 16,
+              x: descLines.length > 0 ? cx - halfW + padX : cx,
+              y: descLines.length > 0 ? boxTop + 21 : boxTop + 19,
               ...(descLines.length === 0 ? { 'text-anchor': 'middle' } : {}),
-              'font-size': 11,
+              'font-size': 12.5,
               fill: descLines.length > 0 ? packet.color : '#f8fafc',
               class: 'dav-packet-label',
             },
@@ -338,9 +390,9 @@ export function buildPacket(packet: Packet): VElement {
         h(
           'text',
           {
-            x: -halfW + padX,
-            y: boxTop + (label ? 32 : 17) + i * 14,
-            'font-size': 10.5,
+            x: cx - halfW + padX,
+            y: boxTop + (label ? 40 : 21) + i * 16,
+            'font-size': 11.5,
             fill: '#e2e8f0',
             class: 'dav-packet-desc',
           },
@@ -353,9 +405,16 @@ export function buildPacket(packet: Packet): VElement {
   return h(
     'g',
     { class: 'dav-packet' },
-    h('circle', { r: 11, fill: packet.color, 'fill-opacity': 0.25 }),
-    h('circle', { r: 6, fill: packet.color, stroke: '#ffffff', 'stroke-width': 1.5 }),
     callout,
+    h(
+      'g',
+      {
+        class: 'dav-packet-dot',
+        transform: `translate(${dot.x.toFixed(1)} ${dot.y.toFixed(1)})`,
+      },
+      h('circle', { r: 11, fill: packet.color, 'fill-opacity': 0.25 }),
+      h('circle', { r: 6, fill: packet.color, stroke: '#ffffff', 'stroke-width': 1.5 }),
+    ),
   );
 }
 

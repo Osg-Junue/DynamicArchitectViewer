@@ -294,9 +294,9 @@ test.describe('exported HTML', () => {
     const viewer = await context.newPage();
     await viewer.goto(pathToFileURL(file).href);
     await expect(viewer.locator('.dav-btn[aria-pressed]')).toHaveAttribute('aria-pressed', 'false');
-    const before = await viewer.locator('.dav-packet').first().getAttribute('transform');
+    const before = await viewer.locator('.dav-packet-dot').first().getAttribute('transform');
     await viewer.waitForTimeout(600);
-    expect(await viewer.locator('.dav-packet').first().getAttribute('transform')).toBe(before);
+    expect(await viewer.locator('.dav-packet-dot').first().getAttribute('transform')).toBe(before);
     await context.close();
   });
 });

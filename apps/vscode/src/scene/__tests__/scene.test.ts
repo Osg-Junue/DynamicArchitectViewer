@@ -144,19 +144,33 @@ describe('buildScene', () => {
     expect(attrs).not.toMatch(/on\w+=/);
   });
 
-  it('renders a speech-bubble callout with wrapped description on packets', () => {
+  it('renders a stationary speech-bubble callout whose pointer tip tracks the moving dot', () => {
     const doc = parse(
       'dav 1\nnode a "A"\nnode b "B"\na --> b\nstep "S" {\n  animate a --> b : "POST /v1/charges" [desc: "Edge WAF inspects payload and verifies mTLS before forwarding"]\n}\n',
     ).document;
     const pkt = resolveView(doc, computeLayout(doc), 0).phases[0]?.[0];
     expect(pkt).toBeDefined();
     if (!pkt) return;
-    const vnode = buildPacket(pkt);
-    const callouts = findAll(vnode, (e) => e.attrs.class === 'dav-packet-callout');
+    const v0 = buildPacket(pkt, 0);
+    const v1 = buildPacket(pkt, 1);
+    const callouts = findAll(v0, (e) => e.attrs.class === 'dav-packet-callout');
     expect(callouts).toHaveLength(1);
-    const texts = collectText(vnode).join(' ');
+    const texts = collectText(v0).join(' ');
     expect(texts).toContain('POST /v1/charges');
     expect(texts).toContain('Edge WAF inspects payload');
+
+    // Text elements stay stationary while bubble tail path and dot transform move from t=0 to t=1
+    const label0 = findAll(v0, (e) => e.attrs.class === 'dav-packet-label')[0];
+    const label1 = findAll(v1, (e) => e.attrs.class === 'dav-packet-label')[0];
+    expect(label0?.attrs).toEqual(label1?.attrs);
+
+    const bubble0 = findAll(v0, (e) => e.attrs.class === 'dav-packet-bubble')[0];
+    const bubble1 = findAll(v1, (e) => e.attrs.class === 'dav-packet-bubble')[0];
+    expect(bubble0?.attrs.d).not.toEqual(bubble1?.attrs.d);
+
+    const dot0 = findAll(v0, (e) => e.attrs.class === 'dav-packet-dot')[0];
+    const dot1 = findAll(v1, (e) => e.attrs.class === 'dav-packet-dot')[0];
+    expect(dot0?.attrs.transform).not.toEqual(dot1?.attrs.transform);
   });
 
   it.each(SAMPLE_TEMPLATES.map((s) => [s.id, s.dsl] as const))(

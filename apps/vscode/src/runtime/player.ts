@@ -5,7 +5,10 @@ import {
   buildDefs,
   buildPacket,
   buildScene,
+  computePacketCalloutBox,
   type Packet,
+  type PacketCalloutBox,
+  packetBubblePath,
   packetPosition,
   type ResolvedView,
   resolveView,
@@ -59,7 +62,12 @@ export class Player {
   private elapsed = 0;
   private lastFrame = 0;
   private frame = 0;
-  private packetEls: Array<{ packet: Packet; el: SVGGElement }> = [];
+  private packetEls: Array<{
+    packet: Packet;
+    box: PacketCalloutBox | null;
+    dotEl: SVGGElement | null;
+    bubbleEl: SVGPathElement | null;
+  }> = [];
 
   private zoom = 1;
   private panX = 0;
@@ -384,15 +392,29 @@ export class Player {
   }
 
   private addPacket(packet: Packet, t: number): void {
-    const el = renderSvg(buildPacket(packet)) as SVGGElement;
+    const el = renderSvg(buildPacket(packet, t)) as SVGGElement;
     this.packetLayer.append(el);
-    this.packetEls.push({ packet, el });
-    this.placePacket(el, packet, t);
+    const dotEl = el.querySelector('.dav-packet-dot') as SVGGElement | null;
+    const bubbleEl = el.querySelector('.dav-packet-bubble') as SVGPathElement | null;
+    const entry = { packet, box: computePacketCalloutBox(packet), dotEl, bubbleEl };
+    this.packetEls.push(entry);
+    this.placePacket(entry, t);
   }
 
-  private placePacket(el: SVGGElement, packet: Packet, t: number): void {
-    const p = packetPosition(packet, t);
-    el.setAttribute('transform', `translate(${p.x.toFixed(1)} ${p.y.toFixed(1)})`);
+  private placePacket(
+    entry: {
+      packet: Packet;
+      box: PacketCalloutBox | null;
+      dotEl: SVGGElement | null;
+      bubbleEl: SVGPathElement | null;
+    },
+    t: number,
+  ): void {
+    const p = packetPosition(entry.packet, t);
+    entry.dotEl?.setAttribute('transform', `translate(${p.x.toFixed(1)} ${p.y.toFixed(1)})`);
+    if (entry.bubbleEl && entry.box) {
+      entry.bubbleEl.setAttribute('d', packetBubblePath(entry.box, p));
+    }
   }
 
   private updateDock(): void {
@@ -471,7 +493,7 @@ export class Player {
     const phases = this.reducedMotion ? [] : this.view.phases;
     if (this.phase < phases.length) {
       const t = Math.min(1, this.elapsed / PHASE_MS);
-      for (const { el, packet } of this.packetEls) this.placePacket(el, packet, t);
+      for (const entry of this.packetEls) this.placePacket(entry, t);
       if (this.elapsed >= PHASE_MS) {
         this.phase++;
         this.elapsed = 0;
