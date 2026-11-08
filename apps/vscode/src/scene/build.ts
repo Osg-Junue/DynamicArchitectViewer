@@ -43,6 +43,7 @@ export function buildScene(view: ResolvedView): VElement {
       ...[...view.groups].sort((a, b) => a.depth - b.depth).map(groupElement),
     ),
     h('g', { class: 'dav-layer-edges' }, ...view.edges.map(edgeElement)),
+    h('g', { class: 'dav-layer-flows' }, ...view.edges.map(flowElement)),
     h('g', { class: 'dav-layer-labels' }, ...view.edges.map(edgeLabelElement)),
     h('g', { class: 'dav-layer-stops' }, ...stopElements(view)),
     h('g', { class: 'dav-layer-nodes' }, ...view.nodes.map(nodeElement)),
@@ -112,36 +113,45 @@ function groupElement(g: ResolvedGroup): VElement {
   );
 }
 
+const ARROW = 'url(#dav-arrow)';
+
+function arrowStart(e: ResolvedEdge): string | undefined {
+  return e.direction === 'bidirectional' ? ARROW : undefined;
+}
+
 function edgeElement(e: ResolvedEdge): VElement {
-  const d = svgPath(e.path);
-  const arrowEnd = 'url(#dav-arrow)';
-  const arrowStart = e.direction === 'bidirectional' ? arrowEnd : undefined;
   return h(
     'g',
     { class: dimClass('dav-edge', e.dimmed), 'data-id': e.id },
     h('path', {
-      d,
+      d: svgPath(e.path),
       fill: 'none',
       stroke: paint(e.color),
       'stroke-dasharray': e.style === 'dashed' ? '1 9' : undefined,
       'stroke-linecap': 'round',
-      'marker-end': arrowEnd,
-      'marker-start': arrowStart,
+      'marker-end': ARROW,
+      'marker-start': arrowStart(e),
       class: 'dav-rail',
     }),
-    // Only the edge of the running phase shows this overlay (see Player.syncPhaseHighlights).
-    e.active
-      ? h('path', {
-          d,
-          fill: 'none',
-          stroke: e.flowColor ? paint(e.flowColor) : COLOR.accent,
-          'stroke-linecap': 'round',
-          'marker-end': arrowEnd,
-          'marker-start': arrowStart,
-          class: 'dav-flow',
-        })
-      : null,
   );
+}
+
+/**
+ * The colored overlay of an active edge, in a layer above every rail so that no other rail
+ * can cover it. Only the running phase's overlays are shown (see Player.syncPhaseHighlights).
+ */
+function flowElement(e: ResolvedEdge): VElement | null {
+  if (!e.active) return null;
+  return h('path', {
+    d: svgPath(e.path),
+    fill: 'none',
+    stroke: e.flowColor ? paint(e.flowColor) : COLOR.accent,
+    'stroke-linecap': 'round',
+    'marker-end': ARROW,
+    'marker-start': arrowStart(e),
+    class: 'dav-flow',
+    'data-edge': e.id,
+  });
 }
 
 function edgeLabelElement(e: ResolvedEdge): VElement | null {

@@ -561,13 +561,9 @@ export class Player {
         }
       }
     }
-    for (const edgeEl of Array.from(this.sceneLayer.querySelectorAll<SVGGElement>('.dav-edge'))) {
-      const id = edgeEl.getAttribute('data-id') ?? '';
-      const flow = edgeEl.querySelector<SVGElement>('.dav-flow');
-      if (flow) {
-        if (activeEdges.has(id)) flow.removeAttribute('hidden');
-        else flow.setAttribute('hidden', '');
-      }
+    for (const flow of Array.from(this.sceneLayer.querySelectorAll<SVGElement>('.dav-flow'))) {
+      if (activeEdges.has(flow.getAttribute('data-edge') ?? '')) flow.removeAttribute('hidden');
+      else flow.setAttribute('hidden', '');
     }
     const currentPhase = String(Math.min(this.phase, phases.length - 1));
     for (const stop of Array.from(this.sceneLayer.querySelectorAll('.dav-stop'))) {

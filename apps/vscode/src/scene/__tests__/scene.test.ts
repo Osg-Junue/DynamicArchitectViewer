@@ -243,6 +243,18 @@ describe('buildScene', () => {
     }
   });
 
+  it('draws active flows above every rail', () => {
+    const doc = parse(
+      'dav 1\nnode a\nnode b\nnode c\na --> c\nb --> c\nstep "S" {\n  animate a --> c\n}\n',
+    ).document;
+    const scene = buildScene(resolveView(doc, computeLayout(doc), 0));
+    const layers = scene.children.map((c) => (typeof c === 'string' ? '' : c.attrs.class));
+    expect(layers.indexOf('dav-layer-flows')).toBe(layers.indexOf('dav-layer-edges') + 1);
+    const rails = findAll(scene, (e) => String(e.attrs.class).startsWith('dav-edge'));
+    expect(rails.flatMap((rail) => findAll(rail, (e) => e.attrs.class === 'dav-flow'))).toEqual([]);
+    expect(findAll(scene, (e) => e.attrs.class === 'dav-flow')[0]?.attrs['data-edge']).toBe('a->c');
+  });
+
   it('leaves stations along the direction of travel', () => {
     const doc = parse('dav 1\nnode a\nnode b\nnode c\na --> b\na --> c\n').document;
     const v = resolveView(doc, computeLayout(doc), null);
