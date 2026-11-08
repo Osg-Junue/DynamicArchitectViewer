@@ -7,12 +7,12 @@ body,
 #root {
   margin: 0;
   height: 100%;
-  background: #070b14;
-  color: #e5e7eb;
+  background: #080b16;
+  color: #f8fafc;
   font-family:
-    "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Hiragino Sans", "Noto Sans JP",
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
+    "Cascadia Mono", "JetBrains Mono", "Consolas", "Courier New", ui-monospace,
+    "Hiragino Kaku Gothic ProN", "Noto Sans JP", monospace;
+  font-variant-ligatures: none;
 }
 
 .shell {
@@ -26,13 +26,15 @@ body,
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 8px 12px;
+  gap: 8px 10px;
   min-height: 52px;
-  padding: 6px 16px;
-  background: linear-gradient(180deg, #111827 0%, #0b1120 100%);
-  border-bottom: 1px solid rgba(51, 65, 85, 0.7);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
-  font-size: 12.5px;
+  padding: 6px 12px;
+  background: #0c1022;
+  border-bottom: 3px solid #e2e8f0;
+  box-shadow:
+    inset 0 -2px 0 #0c1022,
+    inset 0 -4px 0 #475569;
+  font-size: 12px;
   z-index: 10;
 }
 
@@ -40,7 +42,7 @@ body,
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
 }
 
@@ -60,34 +62,13 @@ body,
   justify-content: flex-end;
 }
 
-.brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13.5px;
-  font-weight: 700;
-  letter-spacing: -0.015em;
-  color: #f8fafc;
-  margin-right: 6px;
-  white-space: nowrap;
-}
-
-.brand-mark {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 3px;
-  background: linear-gradient(135deg, #38bdf8 0%, #3b82f6 50%, #6366f1 100%);
-  box-shadow: 0 0 8px rgba(56, 189, 248, 0.55);
-}
-
 .toolbar-label {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   color: #94a3b8;
-  font-size: 12px;
-  font-weight: 500;
+  font-size: 11.5px;
+  font-weight: 700;
   white-space: nowrap;
 }
 
@@ -97,59 +78,59 @@ body,
 
 .btn,
 .toolbar select:not(.dav-speed-select):not(.dav-step-select) {
-  background: rgba(30, 41, 59, 0.85);
-  color: #e2e8f0;
-  border: 1px solid rgba(71, 85, 105, 0.65);
-  border-radius: 6px;
-  padding: 5px 10px;
+  background: #161f38;
+  color: #f8fafc;
+  border: 2px solid #64748b;
+  border-radius: 0;
+  padding: 4px 9px;
   font: inherit;
-  font-weight: 500;
+  font-weight: 700;
   white-space: nowrap;
   flex-shrink: 0;
   cursor: pointer;
-  transition:
-    background 0.15s ease,
-    border-color 0.15s ease,
-    color 0.15s ease,
-    box-shadow 0.15s ease;
+  box-shadow: 2px 2px 0 #03050a;
 }
 
 .toolbar select:not(.dav-speed-select):not(.dav-step-select) {
-  max-width: 210px;
+  max-width: 190px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .btn:hover:not(:disabled),
 .toolbar select:not(.dav-speed-select):not(.dav-step-select):hover {
-  background: rgba(51, 65, 85, 0.9);
-  border-color: rgba(100, 116, 139, 0.85);
+  background: #233156;
+  border-color: #e2e8f0;
   color: #ffffff;
+}
+
+.btn:active:not(:disabled) {
+  transform: translate(2px, 2px);
+  box-shadow: 0 0 0 #03050a;
 }
 
 .btn.primary {
-  background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
-  border-color: #60a5fa;
+  background: #1d4ed8;
+  border-color: #93c5fd;
   color: #ffffff;
-  font-weight: 600;
-  box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  font-weight: 700;
+  box-shadow: 2px 2px 0 #03050a;
 }
 
 .btn.primary:hover:not(:disabled) {
-  background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
-  border-color: #93c5fd;
+  background: #2563eb;
+  border-color: #ffffff;
 }
 
 .toast {
-  color: #38bdf8;
-  font-size: 12px;
-  font-weight: 500;
-  padding: 4px 10px;
-  background: rgba(56, 189, 248, 0.12);
-  border: 1px solid rgba(56, 189, 248, 0.35);
-  border-radius: 6px;
+  color: #facc15;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 4px 9px;
+  background: #0a0e1d;
+  border: 2px solid #facc15;
+  border-radius: 0;
+  box-shadow: 2px 2px 0 #03050a;
   white-space: nowrap;
 }
 
@@ -173,8 +154,8 @@ body,
 .editor-pane {
   display: grid;
   grid-template-rows: 42px 1fr 124px;
-  border-right: 1px solid rgba(51, 65, 85, 0.65);
-  background: #070b14;
+  border-right: 3px solid #475569;
+  background: #080b16;
 }
 
 @media (max-width: 768px) {
@@ -185,7 +166,7 @@ body,
 
   .editor-pane {
     border-right: 0;
-    border-bottom: 1px solid rgba(51, 65, 85, 0.65);
+    border-bottom: 3px solid #475569;
     grid-template-rows: 38px 1fr 90px;
   }
 }
@@ -195,44 +176,46 @@ body,
   align-items: center;
   justify-content: space-between;
   padding: 0 14px;
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.95) 0%, rgba(11, 17, 32, 0.95) 100%);
-  border-bottom: 1px solid rgba(51, 65, 85, 0.65);
+  background: #0c1022;
+  border-bottom: 2px solid #475569;
   font-size: 12px;
   color: #94a3b8;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .pane-title {
-  color: #cbd5e1;
-  letter-spacing: 0.01em;
+  color: #facc15;
+  letter-spacing: 0.03em;
+  text-shadow: 1px 1px 0 #03050a;
 }
 
 .diag-badge {
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
   padding: 2px 8px;
-  border-radius: 999px;
-  background: rgba(30, 41, 59, 0.8);
-  border: 1px solid rgba(71, 85, 105, 0.5);
-  color: #94a3b8;
+  border-radius: 0;
+  background: #141c33;
+  border: 2px solid #64748b;
+  color: #cbd5e1;
+  box-shadow: 2px 2px 0 #03050a;
 }
 
 .diag-badge.is-ok {
   color: #4ade80;
-  background: rgba(34, 197, 94, 0.1);
-  border-color: rgba(34, 197, 94, 0.3);
+  background: #052e16;
+  border-color: #22c55e;
 }
 
 .diag-badge.has-warning {
-  color: #fbbf24;
-  background: rgba(245, 158, 11, 0.12);
-  border-color: rgba(245, 158, 11, 0.35);
+  color: #facc15;
+  background: #422006;
+  border-color: #eab308;
 }
 
 .diag-badge.has-error {
   color: #f87171;
-  background: rgba(239, 68, 68, 0.12);
-  border-color: rgba(239, 68, 68, 0.35);
+  background: #450a0a;
+  border-color: #ef4444;
 }
 
 .dsl-input {
@@ -242,19 +225,18 @@ body,
   border: 0;
   outline: none;
   padding: 14px 16px;
-  background: #070b14;
+  background: #060913;
   color: #e2e8f0;
   font:
-    12.5px / 1.6 ui-monospace,
-    "Cascadia Code",
-    "Source Code Pro",
-    Menlo,
-    Consolas,
+    12.5px / 1.6 "Cascadia Mono",
+    "JetBrains Mono",
+    "Consolas",
+    ui-monospace,
     monospace;
 }
 
 .dsl-input:focus {
-  background: #080d18;
+  background: #080c18;
 }
 
 .problems {
@@ -262,8 +244,8 @@ body,
   flex-direction: column;
   gap: 3px;
   padding: 8px 12px;
-  border-top: 1px solid rgba(51, 65, 85, 0.65);
-  background: #0b1120;
+  border-top: 2px solid #475569;
+  background: #0a0e1d;
   font-size: 12px;
   overflow-y: auto;
 }
@@ -273,14 +255,13 @@ body,
   background: transparent;
   border: 0;
   padding: 4px 6px;
-  border-radius: 5px;
+  border-radius: 0;
   font: inherit;
   cursor: pointer;
-  transition: background 0.12s ease;
 }
 
 .problems button:hover {
-  background: rgba(30, 41, 59, 0.85);
+  background: #161f38;
 }
 
 .problems .error {
@@ -288,11 +269,12 @@ body,
 }
 
 .problems .warning {
-  color: #fbbf24;
+  color: #facc15;
 }
 
 .problems .ok {
   color: #4ade80;
+  font-weight: 700;
   padding: 2px 4px;
 }
 
@@ -310,25 +292,28 @@ body,
 
 .editor-cursor-highlight {
   fill: none;
-  stroke: #38bdf8;
-  stroke-width: 2;
+  stroke: #facc15;
+  stroke-width: 2.5;
   stroke-dasharray: 6 4;
 }
 
-/* Help & AI Prompt Modal */
+/* 8-bit RPG Window Help & AI Prompt Modal */
 .help-dialog {
   width: min(840px, 92vw);
   max-height: 86vh;
   padding: 0;
-  border: 1px solid #334155;
-  border-radius: 10px;
-  background: #0f172a;
-  color: #e2e8f0;
-  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.6);
+  border: 3px solid #f8fafc;
+  border-radius: 0;
+  background: #0a0e1d;
+  color: #f8fafc;
+  box-shadow:
+    inset 0 0 0 2px #0a0e1d,
+    inset 0 0 0 4px #475569,
+    8px 8px 0 #03050a;
 }
 
 .help-dialog::backdrop {
-  background: rgba(2, 6, 23, 0.72);
+  background: rgba(3, 5, 10, 0.78);
 }
 
 .help-header {
@@ -337,8 +322,8 @@ body,
   justify-content: space-between;
   gap: 12px;
   padding: 12px 16px;
-  background: #0b1120;
-  border-bottom: 1px solid #1e293b;
+  background: #0c1022;
+  border-bottom: 2px solid #475569;
 }
 
 .help-header-left {
@@ -349,8 +334,9 @@ body,
 }
 
 .help-title {
-  font-weight: 600;
-  color: #f8fafc;
+  font-weight: 700;
+  color: #facc15;
+  text-shadow: 2px 2px 0 #03050a;
 }
 
 .help-tabs {
@@ -359,18 +345,21 @@ body,
 }
 
 .help-tab {
-  background: #1e293b;
+  background: #161f38;
   color: #cbd5e1;
-  border: 1px solid #334155;
-  border-radius: 6px;
+  border: 2px solid #475569;
+  border-radius: 0;
   padding: 4px 10px;
-  font-size: 12.5px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
   cursor: pointer;
+  box-shadow: 2px 2px 0 #03050a;
 }
 
 .help-tab.active {
-  background: #2563eb;
-  border-color: #3b82f6;
+  background: #1d4ed8;
+  border-color: #93c5fd;
   color: #ffffff;
 }
 
@@ -413,17 +402,16 @@ body,
   width: 100%;
   min-height: 360px;
   resize: vertical;
-  background: #0b0f19;
-  color: #cbd5e1;
-  border: 1px solid #334155;
-  border-radius: 6px;
+  background: #060913;
+  color: #e2e8f0;
+  border: 2px solid #475569;
+  border-radius: 0;
   padding: 10px 12px;
   font:
-    12px / 1.5 ui-monospace,
-    "Cascadia Code",
-    "Source Code Pro",
-    Menlo,
-    Consolas,
+    12px / 1.5 "Cascadia Mono",
+    "JetBrains Mono",
+    "Consolas",
+    ui-monospace,
     monospace;
 }
 
@@ -436,7 +424,8 @@ body,
 .help-section h3 {
   margin: 10px 0 8px;
   font-size: 13.5px;
-  color: #f8fafc;
+  color: #facc15;
+  text-shadow: 1px 1px 0 #03050a;
 }
 
 .help-section h3:first-child {
@@ -454,9 +443,10 @@ body,
   align-items: center;
   gap: 8px;
   padding: 6px 8px;
-  background: #0b0f19;
-  border: 1px solid #1e293b;
-  border-radius: 6px;
+  background: #060913;
+  border: 2px solid #334155;
+  border-radius: 0;
+  box-shadow: 2px 2px 0 #03050a;
   font-size: 12px;
 }
 
@@ -468,7 +458,7 @@ body,
 
 .icon-card-meta span {
   font-size: 10.5px;
-  color: #64748b;
+  color: #94a3b8;
 }
 
 .ref-kv-list {
@@ -476,24 +466,23 @@ body,
   flex-direction: column;
   gap: 6px;
   font-size: 12.5px;
-  background: #0b0f19;
-  border: 1px solid #1e293b;
-  border-radius: 6px;
+  background: #060913;
+  border: 2px solid #334155;
+  border-radius: 0;
   padding: 8px 10px;
 }
 
 .help-code {
   margin: 0;
   padding: 10px 12px;
-  background: #0b0f19;
-  border: 1px solid #1e293b;
-  border-radius: 6px;
+  background: #060913;
+  border: 2px solid #334155;
+  border-radius: 0;
   font:
-    12px / 1.45 ui-monospace,
-    "Cascadia Code",
-    "Source Code Pro",
-    Menlo,
-    Consolas,
+    12px / 1.45 "Cascadia Mono",
+    "JetBrains Mono",
+    "Consolas",
+    ui-monospace,
     monospace;
   overflow-x: auto;
 }
