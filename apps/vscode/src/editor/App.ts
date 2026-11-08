@@ -73,11 +73,30 @@ export function mountApp(container: HTMLElement): void {
     'button',
     {
       type: 'button',
-      class: 'btn',
+      class: 'btn btn-icon',
       title: STRINGS.helpTitle,
+      'aria-label': STRINGS.helpTitle,
       'data-testid': 'btn-open-help',
     },
-    STRINGS.help,
+    svg(
+      'svg',
+      {
+        width: 16,
+        height: 16,
+        viewBox: '0 0 24 24',
+        fill: 'none',
+        stroke: 'currentColor',
+        'stroke-width': 2.2,
+        'stroke-linecap': 'square',
+        'stroke-linejoin': 'miter',
+        'aria-hidden': 'true',
+      },
+      svg('path', { d: 'M4 3h11l5 5v13H4z' }),
+      svg('path', { d: 'M14 3v6h6' }),
+      svg('path', { d: 'M8 9h3' }),
+      svg('path', { d: 'M8 13h8' }),
+      svg('path', { d: 'M8 17h8' }),
+    ),
   );
   const openFileBtn = html(
     'button',
@@ -151,10 +170,9 @@ export function mountApp(container: HTMLElement): void {
       html(
         'div',
         { class: 'toolbar-group toolbar-left' },
+        playbackSlot,
         !isVsCodeWebview && sampleLabelWrap,
-        helpBtn,
       ),
-      playbackSlot,
       html(
         'div',
         { class: 'toolbar-group toolbar-right' },
@@ -162,6 +180,7 @@ export function mountApp(container: HTMLElement): void {
         !isVsCodeWebview && openFileBtn,
         !isVsCodeWebview && fileInput,
         exportBtn,
+        helpBtn,
       ),
     ),
     workspaceEl,

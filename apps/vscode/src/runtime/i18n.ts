@@ -10,7 +10,6 @@ export interface ViewerStrings {
   zoomOut: string;
   fit: string;
   followAnim: string;
-  hint: string;
   stepLabel: (n: number, total: number) => string;
 }
 
@@ -25,7 +24,6 @@ export const VIEWER_STRINGS: Record<ViewerLocale, ViewerStrings> = {
     zoomOut: 'Zoom out',
     fit: 'Fit',
     followAnim: 'Focus on active animation',
-    hint: 'Drag: pan / Wheel: zoom / ← → Space',
     stepLabel: (n, total) => `Step ${n} / ${total}`,
   },
   en: {
@@ -38,7 +36,6 @@ export const VIEWER_STRINGS: Record<ViewerLocale, ViewerStrings> = {
     zoomOut: 'Zoom out',
     fit: 'Fit',
     followAnim: 'Focus on active animation',
-    hint: 'Drag: pan / Wheel: zoom / ← → Space',
     stepLabel: (n, total) => `Step ${n} / ${total}`,
   },
 };

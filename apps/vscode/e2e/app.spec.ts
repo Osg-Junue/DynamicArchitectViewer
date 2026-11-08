@@ -60,8 +60,11 @@ test.describe('code-only authoring & live preview', () => {
     await expect(followBtn).toHaveAttribute('aria-pressed', 'false');
     expect(await page.locator('.dav-world').getAttribute('transform')).toBe(initialTransform);
 
-    // Step narrative (title + description) is mounted in the top header above the canvas viewport (no bottom footer)
+    // Step narrative (title + description) is mounted in the top header above the canvas viewport (no bottom footer or keyboard hint)
     await expect(page.locator('footer.dav-dock')).toHaveCount(0);
+    await expect(page.locator('.dav-hint')).toHaveCount(0);
+    await expect(page.getByTestId('btn-open-help').locator('svg')).toBeVisible();
+    await expect(page.getByTestId('btn-open-help')).toHaveText('');
     await expect(page.locator('header.dav-topbar .dav-dock .dav-step-title')).toContainText(
       'Step 1 / 4',
     );
