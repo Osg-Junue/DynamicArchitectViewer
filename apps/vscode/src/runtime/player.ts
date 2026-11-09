@@ -54,7 +54,7 @@ export interface PlayerOptions {
 export { PHASE_MS };
 /** Pause after a step's last phase at 1x. */
 export const HOLD_MS = 1800;
-export const SPEEDS = [0.5, 1, 1.5, 2] as const;
+export const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
 const MIN_ZOOM = 0.15;
 const MAX_ZOOM = 4;
 const MAX_FIT_ZOOM = 1.4;
@@ -117,6 +117,7 @@ export class Player {
   #zoneOfNode = new Map<string, string>();
   #zoneLabels: Array<{ el: SVGTextElement; rect: Rect }> = [];
   #miniView: SVGRectElement | null = null;
+  #miniZones = new Map<string, SVGRectElement>();
 
   readonly #root: HTMLElement;
   readonly #viewportEl: HTMLElement;
@@ -684,6 +685,7 @@ export class Player {
     this.#zoneOfNode = new Map();
     clear(this.#minimap);
     this.#miniView = null;
+    this.#miniZones = new Map();
     if (!this.#large) {
       this.#minimap.setAttribute('hidden', '');
       return;
@@ -709,19 +711,29 @@ export class Player {
       const r = layout.groups[zone.id];
       if (!r) continue;
       const color = zone.color ? paint(zone.color) : 'var(--dav-border-strong)';
-      this.#minimap.append(
-        svg('rect', {
-          x: r.x,
-          y: r.y,
-          width: r.width,
-          height: r.height,
-          rx: 16,
-          fill: `color-mix(in srgb, ${color} 55%, transparent)`,
-        }),
-      );
+      const rect = svg('rect', {
+        x: r.x,
+        y: r.y,
+        width: r.width,
+        height: r.height,
+        rx: 16,
+        fill: `color-mix(in srgb, ${color} 55%, transparent)`,
+      });
+      this.#miniZones.set(zone.id, rect);
+      this.#minimap.append(rect);
     }
     this.#miniView = svg('rect', { class: 'dav-minimap-view' });
     this.#minimap.append(this.#miniView);
+  }
+
+  /** The minimap shows only the zones the current step is about, at their usual places. */
+  #syncMinimapZones(): void {
+    for (const group of this.#view.groups) {
+      const rect = this.#miniZones.get(group.id);
+      if (!rect) continue;
+      if (group.dimmed) rect.setAttribute('visibility', 'hidden');
+      else rect.removeAttribute('visibility');
+    }
   }
 
   #panToMinimapPoint(e: MouseEvent): void {
@@ -744,6 +756,7 @@ export class Player {
     clear(this.#sceneLayer);
     this.#sceneLayer.append(renderSvg(buildScene(this.#view, this.#data.icons)));
     this.#collectZoneLabels();
+    this.#syncMinimapZones();
     if (!opts.keepPhase) this.#holdFrame = false;
     if (!opts.keepPhase || this.#phase >= this.#view.phases.length) {
       this.#phase = 0;
