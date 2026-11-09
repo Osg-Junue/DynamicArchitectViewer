@@ -2,7 +2,7 @@
   "name": "dynamic-architect-viewer",
   "displayName": "DynamicArchitectViewer",
   "description": "Write architecture and screen-flow diagrams as text, play them step by step, and export them as a standalone HTML file.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "osg-junue",
   "preview": true,
   "icon": "media/icon.png",
