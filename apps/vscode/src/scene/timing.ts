@@ -13,22 +13,26 @@ const ROUND_TRIP_SPEED = 0.75;
 export const MIN_PACKET_MS = 1300;
 const MIN_LEG_MS = 1100;
 const TURN_PAUSE_MS = 180;
-export const MAX_PHASE_MS = 5000;
 /** The part of a round trip that may go to resting at the far end. */
 const MAX_TURN_SHARE = 0.3;
 
 /**
- * Times a phase by how far its packets travel, and returns its duration.
+ * Times a phase by how far its packets travel, and returns its duration. There is no upper
+ * limit: a very long line takes longer rather than going too fast to follow.
  * Packets leave together; those with less distance arrive first.
  */
 export function pacePhase(phase: Packet[]): number {
   const speed = MAX_SPEED / (1 + PARALLEL_SLOWDOWN * (phase.length - 1));
   for (const packet of phase) {
     const length = curveLength(packet.path);
-    const ideal = packet.roundTrip
-      ? Math.max(MIN_LEG_MS * 2 + TURN_PAUSE_MS, ((length * 2) / (speed * ROUND_TRIP_SPEED)) * 1000)
-      : Math.max(MIN_PACKET_MS, (length / speed) * 1000);
-    packet.durationMs = Math.round(Math.min(MAX_PHASE_MS, ideal));
+    packet.durationMs = Math.round(
+      packet.roundTrip
+        ? Math.max(
+            MIN_LEG_MS * 2 + TURN_PAUSE_MS,
+            ((length * 2) / (speed * ROUND_TRIP_SPEED)) * 1000,
+          )
+        : Math.max(MIN_PACKET_MS, (length / speed) * 1000),
+    );
   }
   return Math.max(...phase.map((packet) => packet.durationMs));
 }

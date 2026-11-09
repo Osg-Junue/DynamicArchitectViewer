@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
 import { computeLayout } from '../../layout';
 import { packetPosition, resolveView, zoneMoves } from '../index';
+import type { Packet } from '../resolve';
+import { pacePhase } from '../timing';
 
 function diagram(size: number, zones: number): string {
   const lines = ['dav 1'];
@@ -29,8 +31,21 @@ describe('packet timing', () => {
     expect(view.phaseDurations).toHaveLength(view.phases.length);
     for (const ms of view.phaseDurations) {
       expect(ms).toBeGreaterThanOrEqual(1300);
-      expect(ms).toBeLessThanOrEqual(5000);
     }
+  });
+
+  it('takes longer on a very long line rather than exceeding the top speed', () => {
+    const packet = (roundTrip: boolean) => {
+      const at = (x: number) => ({ x, y: 0 });
+      const path = { p0: at(0), p1: at(1000), p2: at(3000), p3: at(4000) };
+      return { path, roundTrip, durationMs: 0 } as Packet;
+    };
+    const oneWay = pacePhase([packet(false)]);
+    expect(4000 / (oneWay / 1000)).toBeLessThanOrEqual(260.1);
+    const roundTrip = pacePhase([packet(true)]);
+    expect(8000 / (roundTrip / 1000)).toBeLessThanOrEqual(260 * 0.75 + 0.1);
+    const crowded = pacePhase([packet(false), packet(false), packet(false)]);
+    expect(crowded).toBeGreaterThan(oneWay);
   });
 
   it('gives a round trip a minimum for each leg and the turn', () => {
