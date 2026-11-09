@@ -10,7 +10,7 @@ const MAX_SPEED = 260;
 const PARALLEL_SLOWDOWN = 0.3;
 /** Coming back on the same rail is harder to follow, so a round trip goes slower. */
 const ROUND_TRIP_SPEED = 0.75;
-const MIN_PACKET_MS = 900;
+const MIN_PACKET_MS = 1300;
 const MIN_LEG_MS = 1100;
 const TURN_PAUSE_MS = 180;
 const MAX_PHASE_MS = 5000;

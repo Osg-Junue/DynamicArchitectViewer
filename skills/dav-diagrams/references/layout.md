@@ -178,7 +178,7 @@ A diagram with at least 40 nodes and 4 top-level zones is placed by `layout/larg
 
 The result is deterministic. Zones no longer share columns, so a column does not line up across the diagram. The search takes up to about a second, so the last result is reused until the nodes, groups, edges or round trips change.
 
-Such a diagram is also played differently: phases last 0.9 to 5 seconds according to how far their packets travel, and the player names the zones a phase moves between. See `scene/timing.ts`.
+Such a diagram is also played differently: phases last 1.3 to 5 seconds according to how far their packets travel, and the player names the zones a phase moves between. See `scene/timing.ts`.
 
 ### Invariants
 

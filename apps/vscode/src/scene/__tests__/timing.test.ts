@@ -29,7 +29,7 @@ describe('packet timing', () => {
     const durations = view.phaseDurations as number[];
     expect(durations).toHaveLength(view.phases.length);
     for (const ms of durations) {
-      expect(ms).toBeGreaterThanOrEqual(900);
+      expect(ms).toBeGreaterThanOrEqual(1300);
       expect(ms).toBeLessThanOrEqual(5000);
     }
   });
