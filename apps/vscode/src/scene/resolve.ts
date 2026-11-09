@@ -179,7 +179,16 @@ export function resolveView(
   const focus = new Set<string>();
   if (step) {
     for (const id of step.focus) focus.add(id);
-    for (const st of step.states) focus.add(st.target);
+    for (const st of step.states) {
+      // Hiding something leaves nothing to look at, so it does not draw attention.
+      if (st.visible === false) continue;
+      focus.add(st.target);
+      const edge = doc.edges.find((e) => e.id === st.target);
+      if (edge) {
+        focus.add(edge.from);
+        focus.add(edge.to);
+      }
+    }
     for (const a of step.animations) {
       focus.add(a.from);
       focus.add(a.to);

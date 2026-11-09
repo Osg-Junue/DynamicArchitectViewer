@@ -813,6 +813,10 @@ export const DOC_PAGES: readonly DocPage[] = [
             '`state` targets and `animate` endpoints are focused automatically.',
           ),
           t(
+            'ただし `visible: false` にする `state` は対象に数えません。エッジを指定した `state` は両端のノードも対象にします。',
+            'A `state` with `visible: false` does not count. A `state` on an edge also focuses both of its nodes.',
+          ),
+          t(
             '両端のノードが対象のエッジも減光されません。',
             'An edge between two focused nodes stays lit.',
           ),
@@ -880,8 +884,8 @@ export const DOC_PAGES: readonly DocPage[] = [
             'An empty `state a []` warns (`empty-state`).',
           ),
           t(
-            '`state` の対象は、そのステップで自動的に `focus` されます。',
-            'A `state` target is automatically focused for that step.',
+            '`state` の対象は、そのステップで自動的に `focus` されます（`visible: false` にする場合を除く）。',
+            'A `state` target is automatically focused for that step, unless it sets `visible: false`.',
           ),
         ]),
       ];
@@ -999,6 +1003,13 @@ export const DOC_PAGES: readonly DocPage[] = [
               t(
                 '全ステップを順に再生し、最後まで行くと先頭へ戻ります。',
                 'Plays every step and loops back to the first.',
+              ),
+            ],
+            [
+              t('一時停止', 'Pause'),
+              t(
+                '再生中に同じボタンを押すと、その位置で止まります。もう一度押すと続きから再生します。',
+                'Pressing the running button freezes playback in place. Pressing it again continues from there.',
               ),
             ],
             [

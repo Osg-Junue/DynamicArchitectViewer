@@ -521,3 +521,40 @@ describe('edges between the same stations', () => {
     expect(rail.p0.x === cx || Math.abs(fromCenter - station.width / 2) < 0.01).toBe(true);
   });
 });
+
+describe('focus from state', () => {
+  const stepView = (dsl: string) => {
+    const { document } = parse(dsl);
+    return resolveView(document, computeLayout(document), 0);
+  };
+
+  it('does not dim the diagram for a step that only hides something', () => {
+    const view = stepView(
+      'dav 1\nnode a\nnode b\nnode c\na --> b\nstep "S" {\n  state c [visible: false]\n}\n',
+    );
+    expect(view.nodes.map((n) => [n.id, n.dimmed])).toEqual([
+      ['a', false],
+      ['b', false],
+    ]);
+  });
+
+  it('lights both nodes of a state on an edge', () => {
+    const view = stepView(
+      'dav 1\nnode a\nnode b\nnode c\na --> b [id: e]\nstep "S" {\n  state e [color: red]\n}\n',
+    );
+    expect(view.nodes.map((n) => [n.id, n.dimmed])).toEqual([
+      ['a', false],
+      ['b', false],
+      ['c', true],
+    ]);
+    expect(view.edges[0]?.dimmed).toBe(false);
+  });
+
+  it('still focuses an ordinary state target', () => {
+    const view = stepView('dav 1\nnode a\nnode b\nstep "S" {\n  state a [badge: "x"]\n}\n');
+    expect(view.nodes.map((n) => [n.id, n.focused, n.dimmed])).toEqual([
+      ['a', true, false],
+      ['b', false, true],
+    ]);
+  });
+});

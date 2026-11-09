@@ -372,6 +372,27 @@ test('follow mode keeps a single animation loop', async ({ page }) => {
   expect(perFrame).toBeLessThan(1.5);
 });
 
+test('pause freezes the packet and play continues from the same place', async ({ page }) => {
+  await openWebview(page);
+  const play = page.locator('header.toolbar').getByTestId('btn-play');
+  await expect(page.locator('.dav-packet')).not.toHaveCount(0);
+  await play.click();
+  await page.waitForTimeout(500);
+
+  await play.click();
+  await expect(play).toHaveAttribute('aria-label', 'Play step');
+  const dot = page.locator('.dav-packet-dot').first();
+  const label = await page.locator('.dav-packet-label').first().textContent();
+  const frozen = await dot.getAttribute('transform');
+  await page.waitForTimeout(500);
+  expect(await dot.getAttribute('transform')).toBe(frozen);
+
+  await play.click();
+  await expect(play).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(() => dot.getAttribute('transform')).not.toBe(frozen);
+  expect(await page.locator('.dav-packet-label').first().textContent()).toBe(label);
+});
+
 test('Play step only reads as playing while there is something to play', async ({ page }) => {
   await openWebview(page);
   await expect(page.locator('.dav-node')).not.toHaveCount(0);
