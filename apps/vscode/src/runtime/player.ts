@@ -65,8 +65,6 @@ const MIN_ZONE_FRAME_ZOOM = 0.6;
 const MAX_CALM_ZOOM = 1.25;
 /** How close to the screen's edge a moving packet may get before the camera follows. */
 const CALM_EDGE_MARGIN = 40;
-/** The moving-zones line sits along the top of the canvas; zone names stay below it. */
-const ZONE_HUD_BAND = 34;
 const ZONE_LABEL_SIZE = 12;
 const MAX_HUD_PAIRS = 3;
 const MINIMAP_PAD = 40;
@@ -379,7 +377,6 @@ export class Player {
       { class: 'dav-viewport' },
       this.#svgEl,
       this.#titleEl,
-      this.#zoneHud,
       this.#minimap,
       zoomOverlay,
     );
@@ -403,6 +400,7 @@ export class Player {
           this.#timelineEl,
         ),
       ),
+      this.#zoneHud,
       viewport,
     );
     container.append(this.#root);
@@ -686,6 +684,8 @@ export class Player {
     clear(this.#minimap);
     this.#miniView = null;
     this.#miniZones = new Map();
+    // The strip stays while the zones change, so that the canvas never resizes during playback.
+    this.#zoneHud.hidden = !this.#large;
     if (!this.#large) {
       this.#minimap.setAttribute('hidden', '');
       return;
@@ -823,8 +823,6 @@ export class Player {
     const phases = this.#view.phases;
     const packets = phases[Math.min(this.#phase, phases.length - 1)] ?? [];
     const showing = this.#large && packets.length > 0 && (!this.#isStopped() || this.#pinned);
-    this.#zoneHud.hidden = !showing;
-    this.#viewportEl.classList.toggle('has-zone-hud', showing);
     if (!showing) return;
 
     const groupById = new Map(this.#view.groups.map((g) => [g.id, g]));
@@ -918,7 +916,7 @@ export class Player {
     const unit = 1 / this.#zoom;
     for (const { el, rect } of this.#zoneLabels) {
       const left = Math.max(rect.x, world.x);
-      const top = Math.max(rect.y, world.y + ZONE_HUD_BAND * unit);
+      const top = Math.max(rect.y, world.y);
       const right = Math.min(rect.x + rect.width, world.x + world.width);
       const bottom = Math.min(rect.y + rect.height, world.y + world.height);
       if (right <= left || bottom <= top) {

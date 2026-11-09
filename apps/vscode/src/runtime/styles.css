@@ -306,31 +306,20 @@
   color: var(--dav-muted);
 }
 
-/* Step ruler: one numbered graduation per step, like the sheet index of a drawing set. */
-.dav-viewport.has-zone-hud::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto 0;
-  z-index: 4;
-  height: 64px;
-  background: linear-gradient(var(--dav-bg), transparent);
-  pointer-events: none;
-}
+/* A strip of its own above the canvas: nothing in the diagram can run under it. */
 .dav-zone-hud {
-  position: absolute;
-  top: 10px;
-  left: 50%;
-  z-index: 5;
   display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 4px 18px;
-  max-width: calc(100% - 24px);
-  transform: translateX(-50%);
+  flex: none;
+  align-items: center;
+  justify-content: safe center;
+  gap: 18px;
+  height: 36px;
+  padding: 0 12px;
+  overflow: hidden;
+  background: var(--dav-bg);
   color: var(--dav-fg);
   font-size: 14px;
   font-weight: 600;
-  pointer-events: none;
 }
 .dav-zone-hud[hidden] {
   display: none;
@@ -413,6 +402,7 @@
   }
 }
 
+/* Step ruler: one numbered graduation per step, like the sheet index of a drawing set. */
 .dav-timeline {
   display: flex;
   border-top: 1px solid var(--dav-border);
