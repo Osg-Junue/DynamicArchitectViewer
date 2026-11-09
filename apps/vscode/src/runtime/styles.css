@@ -456,13 +456,6 @@
   transform: scaleX(0);
   transform-origin: left;
 }
-.dav-tick-phase {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: var(--dav-border);
-}
 .dav-tick.is-current {
   color: var(--dav-fg);
 }

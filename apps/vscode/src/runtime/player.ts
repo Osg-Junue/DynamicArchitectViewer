@@ -672,25 +672,8 @@ export class Player {
         this.#tickFills[i],
       );
       tick.addEventListener('click', () => this.#showStep(i));
-      if (this.#large) this.#scaleTick(tick, i);
       this.#timelineEl.append(tick);
     });
-  }
-
-  /** On a paced diagram a step's graduation is as wide as the step is long. */
-  #scaleTick(tick: HTMLElement, stepIndex: number): void {
-    const durations =
-      resolveView(this.#data.document, this.#data.layout, stepIndex).phaseDurations ?? [];
-    const total = durations.reduce((sum, ms) => sum + ms, 0);
-    if (total === 0) return;
-    tick.style.flexGrow = String(total);
-    let elapsed = 0;
-    for (const ms of durations.slice(0, -1)) {
-      elapsed += ms;
-      const mark = html('span', { class: 'dav-tick-phase', 'aria-hidden': 'true' });
-      mark.style.left = `${((elapsed / total) * 100).toFixed(2)}%`;
-      tick.append(mark);
-    }
   }
 
   /** Recomputes what depends on the diagram's size, after a new document arrived. */
