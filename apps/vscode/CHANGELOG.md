@@ -3,6 +3,10 @@
 This project follows [Semantic Versioning](https://semver.org/). The `0.x` series is a preview.
 The `dav` language version is separate from the extension version.
 
+## Unreleased
+
+- Large diagrams (40 or more nodes in 4 or more zones): zones are placed freely to shorten the links between them, packets are timed by the distance they travel, and the player shows which zones a phase moves between, keeps zone names on screen, moves the camera less and adds a minimap
+
 ## 0.2.0 (2026-11-09)
 
 - AI agent skill for writing and validating `.dav` files, with a command to install it for Claude Code, GitHub Copilot and Codex

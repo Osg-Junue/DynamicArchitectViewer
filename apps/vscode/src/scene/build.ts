@@ -12,6 +12,7 @@ import { type Bezier, curveLength, type Point, pointAt, svgPath } from './geomet
 import type { IconShapes } from './icons';
 import type { Packet, ResolvedEdge, ResolvedGroup, ResolvedNode, ResolvedView } from './resolve';
 import { estimateTextWidth, fitText } from './text';
+import { PHASE_MS, pacedProgress } from './timing';
 import { h, type VElement } from './vnode';
 
 /**
@@ -517,6 +518,10 @@ function packetMarker(packet: Packet, icons: IconShapes): VElement[] {
 }
 
 export function packetPosition(packet: Packet, t: number): Point {
+  if (packet.paced) {
+    const ms = packet.durationMs ?? PHASE_MS;
+    return pointAt(packet.path, pacedProgress(t, packet.roundTrip, ms));
+  }
   // A round trip covers the path twice in the time of a one-way trip.
   const progress = packet.roundTrip ? 1 - Math.abs(2 * t - 1) : t;
   return pointAt(packet.path, easeInOut(progress));

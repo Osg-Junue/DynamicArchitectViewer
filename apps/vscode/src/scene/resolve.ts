@@ -1,4 +1,4 @@
-import { type Layout, type Rect, stationRect } from '../layout';
+import { isLargeDiagram, type Layout, type Rect, stationRect } from '../layout';
 import { estimateTextWidth } from '../model/text';
 import {
   COLOR_RESET,
@@ -18,6 +18,7 @@ import {
   selfLoop,
   shiftLeft,
 } from './geometry';
+import { pacePhase } from './timing';
 
 export const DEFAULT_FLOW_COLOR = 'var(--dav-accent)';
 const DEFAULT_EDGE_COLOR = 'var(--dav-edge)';
@@ -84,6 +85,10 @@ export interface Packet {
   clearTop: number;
   /** Zone names on the canvas, which the callout must not cover. */
   labelAreas: readonly Rect[];
+  /** How long this packet travels, when the diagram is paced by distance. */
+  durationMs?: number;
+  /** Moves with the gentler easing of a paced diagram. */
+  paced?: boolean;
 }
 
 export interface ResolvedView {
@@ -97,6 +102,8 @@ export interface ResolvedView {
   edges: ResolvedEdge[];
   /** Sequential phases; packets within a phase play in parallel. */
   phases: Packet[][];
+  /** Duration of each phase, when the diagram is paced by distance. */
+  phaseDurations?: number[];
 }
 
 const TRACK_OFFSET = 12;
@@ -359,6 +366,7 @@ export function resolveView(
     else phases.push([packet]);
   }
   for (const phase of phases) separatePhaseCallouts(phase);
+  const phaseDurations = isLargeDiagram(doc) ? phases.map(pacePhase) : undefined;
 
   // 7. Edges.
   const edges: ResolvedEdge[] = [];
@@ -396,6 +404,7 @@ export function resolveView(
     edges,
     phases,
   };
+  if (phaseDurations) view.phaseDurations = phaseDurations;
   if (step) {
     view.stepTitle = step.title;
     view.description = step.description;

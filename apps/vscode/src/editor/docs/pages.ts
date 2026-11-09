@@ -1084,8 +1084,8 @@ export const DOC_PAGES: readonly DocPage[] = [
         timingBar(t),
         p(
           t(
-            `1フェーズは ${PHASE_MS / 1000} 秒、最後のフェーズの後に ${HOLD_MS / 1000} 秒保持します。速度は ${SPEEDS[0]}x〜${SPEEDS[SPEEDS.length - 1]}x に変更できます。`,
-            `Each phase takes ${PHASE_MS / 1000}s, followed by a ${HOLD_MS / 1000}s hold after the last one. Speed ranges from ${SPEEDS[0]}x to ${SPEEDS[SPEEDS.length - 1]}x.`,
+            `1フェーズは ${PHASE_MS / 1000} 秒、最後のフェーズの後に ${HOLD_MS / 1000} 秒保持します。速度は ${SPEEDS[0]}x〜${SPEEDS[SPEEDS.length - 1]}x に変更できます。40 ノード以上かつゾーンが 4 つ以上の大きな図では、パケットの移動距離に応じて 1 フェーズが 0.9〜5 秒になります。`,
+            `Each phase takes ${PHASE_MS / 1000}s, followed by a ${HOLD_MS / 1000}s hold after the last one. Speed ranges from ${SPEEDS[0]}x to ${SPEEDS[SPEEDS.length - 1]}x. In large diagrams (40 or more nodes in 4 or more zones), a phase lasts 0.9 to 5 seconds, according to how far its packets travel.`,
           ),
         ),
         h2(t('操作', 'Controls')),

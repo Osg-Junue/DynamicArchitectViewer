@@ -307,6 +307,112 @@
 }
 
 /* Step ruler: one numbered graduation per step, like the sheet index of a drawing set. */
+.dav-viewport.has-zone-hud::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  z-index: 4;
+  height: 64px;
+  background: linear-gradient(var(--dav-bg), transparent);
+  pointer-events: none;
+}
+.dav-zone-hud {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 18px;
+  max-width: calc(100% - 24px);
+  transform: translateX(-50%);
+  color: var(--dav-fg);
+  font-size: 14px;
+  font-weight: 600;
+  pointer-events: none;
+}
+.dav-zone-hud[hidden] {
+  display: none;
+}
+.dav-zone-pair,
+.dav-zone-name {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+.dav-zone-pair {
+  gap: 9px;
+}
+.dav-zone-name {
+  gap: 6px;
+}
+.dav-zone-name.is-from {
+  color: var(--dav-muted);
+}
+.dav-zone-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+.dav-zone-inside {
+  color: var(--dav-muted);
+  font-weight: 400;
+}
+.dav-zone-line {
+  position: relative;
+  display: block;
+  width: 72px;
+  height: 2px;
+  background: var(--dav-border-strong);
+}
+.dav-zone-line i {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 2px;
+  animation: dav-zone-progress 2s ease-in-out forwards;
+}
+.dav-zone-hud.is-paused .dav-zone-line i {
+  animation-play-state: paused;
+}
+@keyframes dav-zone-progress {
+  to {
+    width: 100%;
+  }
+}
+.dav-group.is-zone-active rect {
+  stroke-width: 1.75px;
+  vector-effect: non-scaling-stroke;
+}
+.dav-minimap {
+  position: absolute;
+  left: 12px;
+  bottom: 44px;
+  z-index: 5;
+  width: 230px;
+  height: 140px;
+  background: var(--dav-panel);
+  border: 1px solid var(--dav-border);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.dav-minimap[hidden] {
+  display: none;
+}
+.dav-minimap-view {
+  fill: color-mix(in srgb, var(--dav-fg) 12%, transparent);
+  stroke: var(--dav-fg);
+  stroke-width: 1.5px;
+  vector-effect: non-scaling-stroke;
+}
+@media (max-width: 560px), (max-height: 420px) {
+  .dav-minimap {
+    display: none;
+  }
+}
+
 .dav-timeline {
   display: flex;
   border-top: 1px solid var(--dav-border);
@@ -350,6 +456,13 @@
   transform: scaleX(0);
   transform-origin: left;
 }
+.dav-tick-phase {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--dav-border);
+}
 .dav-tick.is-current {
   color: var(--dav-fg);
 }
@@ -384,6 +497,9 @@
   stroke: var(--dav-bg);
   stroke-width: 1.5px;
   stroke-linejoin: round;
+}
+.dav-large .dav-group-label {
+  font-weight: 500;
 }
 .dav-node-label,
 .dav-packet-label {

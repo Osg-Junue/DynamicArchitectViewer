@@ -1,5 +1,8 @@
 import { EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH, estimateTextWidth } from '../model/text';
 import type { DavDocument, IconName } from '../model/types';
+import { computeZonedLayout, isLargeDiagram, structureKey } from './large';
+
+export { isLargeDiagram, LARGE_DIAGRAM_NODES } from './large';
 
 export interface Rect {
   x: number;
@@ -69,8 +72,36 @@ export function defaultNodeSize(_icon: IconName): { width: number; height: numbe
  * - Every group wraps its descendants (plus header and padding).
  * - The vertical order is then refined by barycenter sweeps. A result is kept only if it has
  *   fewer crossings, or as many with shorter rails, so refinement never makes a diagram worse.
+ *
+ * Large diagrams are placed zone by zone instead (see `computeZonedLayout`).
  */
 export function computeLayout(doc: DavDocument): Layout {
+  if (!isLargeDiagram(doc)) return computeColumnLayout(doc);
+  // The zoned search takes a noticeable moment; most edits do not change the structure.
+  const key = structureKey(doc);
+  if (zonedMemo?.key === key) return zonedMemo.layout;
+  const layout = computeZonedLayout(
+    doc,
+    computeColumnLayout,
+    countCrossings,
+    {
+      node: NODE_SIZE,
+      stationCenter: STATION_CENTER,
+      groupPadding: GROUP_PADDING,
+      groupHeader: GROUP_HEADER,
+      selfLoopRoom: SELF_LOOP_ROOM,
+      selfLoopExtraRoom: SELF_LOOP_EXTRA_ROOM,
+      emptyGroup: EMPTY_GROUP_CONTENT,
+    },
+    ORIGIN.x,
+  );
+  zonedMemo = { key, layout };
+  return layout;
+}
+
+let zonedMemo: { key: string; layout: Layout } | undefined;
+
+function computeColumnLayout(doc: DavDocument): Layout {
   const sizes = new Map(doc.nodes.map((n) => [n.id, defaultNodeSize(n.icon)] as const));
   const emptyGroups = findEmptyGroups(doc);
   const loopRoom = selfLoopRoom(doc);

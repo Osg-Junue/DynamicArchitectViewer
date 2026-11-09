@@ -24,4 +24,5 @@ export {
   resolveView,
 } from './resolve';
 export { estimateTextWidth, fitText } from './text';
+export { PHASE_MS } from './timing';
 export { h, type VElement, type VNode } from './vnode';

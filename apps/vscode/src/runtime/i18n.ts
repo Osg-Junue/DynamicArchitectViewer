@@ -19,6 +19,7 @@ export interface ViewerStrings {
   playback: string;
   zoomControls: string;
   diagram: string;
+  zoneInside: string;
   stepLabel: (n: number, total: number) => string;
 }
 
@@ -42,6 +43,7 @@ export const VIEWER_STRINGS: Record<ViewerLocale, ViewerStrings> = {
     playback: '再生',
     zoomControls: 'ズーム操作',
     diagram: '図',
+    zoneInside: '内',
     stepLabel: (n, total) => `ステップ ${n} / ${total}`,
   },
   en: {
@@ -63,6 +65,7 @@ export const VIEWER_STRINGS: Record<ViewerLocale, ViewerStrings> = {
     playback: 'Playback',
     zoomControls: 'Zoom controls',
     diagram: 'Diagram',
+    zoneInside: 'inside',
     stepLabel: (n, total) => `Step ${n} / ${total}`,
   },
 };
