@@ -9,18 +9,19 @@ export interface SampleTemplate {
 export const SAMPLE_TEMPLATES: readonly SampleTemplate[] = [
   {
     id: 'infra-ha-failover',
-    name: 'インフラ構成図：冗長Web構成とDBフェイルオーバー',
+    name: 'Infrastructure: redundant web stack and database failover',
     category: 'infra',
-    description: 'CDN・ALB・API・Redisキャッシュ・Primary/Standby DBの通常通信と障害切替ステップ',
+    description:
+      'CDN, load balancer, API, Redis cache and primary/standby databases, with normal traffic and a failover',
     dsl: `dav 1
-title "AWS マルチAZ Webアーキテクチャ & DBフェイルオーバー"
+title "AWS multi-AZ web architecture & database failover"
 
 group edge_net "Edge & Security" {
   node cdn "CloudFront CDN" [icon: cdn, sub: "Edge Cache"]
   node waf "AWS WAF" [icon: firewall, sub: "Rate Limit / ACL"]
 }
 
-group vpc "Production VPC (ap-northeast-1)" {
+group vpc "Production VPC (us-east-1)" {
   node alb "Application LB" [icon: lb, sub: "Ingress HTTPS"]
   node api "Order API" [icon: container, sub: "ECS Fargate x4"]
   node redis "ElastiCache" [icon: cache, sub: "Redis Cluster"]
@@ -28,7 +29,7 @@ group vpc "Production VPC (ap-northeast-1)" {
   node db_sby "Standby DB" [icon: database, sub: "Aurora Reader (AZ-c)", badge: "STANDBY"]
 }
 
-node client "Web Browser" [icon: browser, sub: "エンドユーザー"]
+node client "Web Browser" [icon: browser, sub: "End user"]
 
 client --> cdn : "HTTPS"
 cdn --> waf : "Origin Fetch"
@@ -39,118 +40,116 @@ api --> db_pri : "Read / Write"
 db_pri ..> db_sby : "Sync Replication"
 api ..> db_sby : "Failover Route" [id: e_failover, visible: false, color: yellow]
 
-step "エッジ検証とALBへのルーティング" {
-  desc "ブラウザからのリクエストをCloudFrontが受け取り、WAFで検査した後にVPC内のALBへ転送します。"
+step "Edge inspection and routing to the load balancer" {
+  desc "CloudFront receives the request, and WAF inspects it before it is forwarded to the load balancer in the VPC."
   focus client, cdn, waf, alb
-  animate client --> cdn : "GET /products" [desc: "ブラウザからCloudFrontエッジロケーションへHTTPSリクエストを送信"]
-  animate cdn --> waf : "Inspect Request" [desc: "キャッシュミス時、AWS WAFへ転送してACL・レート制限ルールで検査"]
-  animate waf --> alb : "Pass ACL" [desc: "検査を通過した正常なリクエストのみをVPC内のALBへルーティング"]
+  animate client --> cdn : "GET /products" [desc: "The browser sends an HTTPS request to a CloudFront edge location"]
+  animate cdn --> waf : "Inspect Request" [desc: "On a cache miss, AWS WAF checks ACL and rate-limit rules"]
+  animate waf --> alb : "Pass ACL" [desc: "Only requests that pass inspection reach the load balancer"]
 }
 
-step "キャッシュヒットによる高速応答" {
-  desc "Order APIがRedisを参照し、キャッシュヒットした場合はDBへアクセスせず即座にレスポンスを返します。"
+step "Fast response from the cache" {
+  desc "The Order API checks Redis. On a cache hit, it responds without touching the database."
   focus alb, api, redis
   state redis [color: green, badge: "CACHE HIT"]
-  animate alb --> api : "Forward" [desc: "ALBがターゲットグループ内のECS Fargateタスクへリクエストを振り分け"]
-  animate api --> redis : "GET product:101" [desc: "ElastiCache (Redis) からインメモリで商品データを高速取得"]
+  animate alb --> api : "Forward" [desc: "The load balancer picks an ECS Fargate task from the target group"]
+  animate api --> redis : "GET product:101" [desc: "Product data comes from memory in ElastiCache"]
 }
 
-step "注文トランザクションの書き込みとDB同期" {
-  desc "注文確定リクエスト（POST）はPrimary DBへ書き込まれ、Standby DBへレプリケーションされます。"
+step "Writing the order and replicating it" {
+  desc "The order is written to the primary database and replicated to the standby."
   focus api, db_pri, db_sby
   state redis [color: none, badge: ""]
   state db_pri [color: green, badge: "COMMIT"]
-  animate api --> db_pri : "INSERT INTO orders" [desc: "Primary DB (AZ-a) に対して注文トランザクションを書き込みコミット"]
-  animate db_pri --> db_sby : "Replicate WAL" [desc: "別AZのStandby DB (AZ-c) へストレージレベルでWALを同期レプリケーション"]
+  animate api --> db_pri : "INSERT INTO orders" [desc: "The order transaction commits on the primary in AZ-a"]
+  animate db_pri --> db_sby : "Replicate WAL" [desc: "The write-ahead log is replicated to the standby in AZ-c"]
 }
 
-step "Primary DB障害発生と自動フェイルオーバー" {
-  desc "Primary DBで障害が発生。ヘルスチェック失敗を検知し、Standby DBをWriterに昇格させて経路を自動切替します。"
+step "Primary failure and automatic failover" {
+  desc "The primary database fails its health checks, so the standby is promoted to writer and traffic moves to it."
   focus api, db_pri, db_sby
   state db_pri [color: red, badge: "DOWN"]
   state db_sby [color: green, badge: "PROMOTED"]
   state e_failover [visible: true]
-  animate api --> db_sby : "Reconnect Writer" [color: yellow, desc: "クラスターエンドポイントのDNS切替により、昇格したStandby DBへ自動再接続"]
+  animate api --> db_sby : "Reconnect Writer" [color: yellow, desc: "The cluster endpoint now resolves to the promoted standby"]
 }
 `,
   },
   {
     id: 'screen-flow-checkout',
-    name: '画面遷移図＋API連携：ログイン〜EC決済フロー',
+    name: 'Screen flow with API calls: sign-in to checkout',
     category: 'screen',
-    description:
-      'フロントエンドの画面遷移（ログイン→商品一覧→決済モーダル→完了画面）とバックエンドAPI通信の連動可視化',
+    description: 'Screen transitions together with the backend calls behind them',
     dsl: `dav 1
-title "ECアプリ 画面遷移 & バックエンドAPI連携シーケンス"
+title "Online store: screen flow and backend calls"
 
-group frontend "フロントエンド画面遷移 (SPA)" {
-  node scr_login "ログイン画面" [icon: screen, sub: "/login | ID・PW入力フォーム"]
-  node scr_catalog "商品一覧・カート画面" [icon: screen, sub: "/catalog | カート追加・在庫表示"]
-  node mod_pay "決済確認モーダル" [icon: modal, sub: "Modal | クレジットカード確認", visible: false]
-  node scr_done "注文完了画面" [icon: screen, sub: "/complete | 注文番号表示"]
+group frontend "Screens (SPA)" {
+  node scr_login "Sign-in" [icon: screen, sub: "/login | Credentials form"]
+  node scr_catalog "Catalog and cart" [icon: screen, sub: "/catalog | Stock and cart"]
+  node mod_pay "Payment dialog" [icon: modal, sub: "Modal | Confirm card", visible: false]
+  node scr_done "Order complete" [icon: screen, sub: "/complete | Order number"]
 }
 
-group backend "バックエンド & 外部連携" {
-  node auth_api "Auth Service" [icon: auth, sub: "JWT発行 / OAuth"]
-  node shop_api "Checkout API" [icon: server, sub: "在庫引当・注文管理"]
-  node stripe "Stripe決済GW" [icon: external, sub: "External Payment API"]
+group backend "Backend and external services" {
+  node auth_api "Auth Service" [icon: auth, sub: "JWT / OAuth"]
+  node shop_api "Checkout API" [icon: server, sub: "Stock and orders"]
+  node stripe "Stripe" [icon: external, sub: "External Payment API"]
 }
 
-scr_login --> scr_catalog : "認証成功後遷移"
-scr_catalog --> mod_pay : "「購入へ進む」押下"
-mod_pay --> scr_done : "決済完了"
+scr_login --> scr_catalog : "After sign-in"
+scr_catalog --> mod_pay : "Click Checkout"
+mod_pay --> scr_done : "Paid"
 scr_login --> auth_api : "POST /auth/login"
 scr_catalog --> shop_api : "GET /items"
 mod_pay --> shop_api : "POST /checkout"
 shop_api --> stripe : "Charge API"
 
-step "ログイン認証とトークン発行" {
-  desc "ユーザーがログイン画面で認証情報を送信。Auth Serviceで検証後、JWTを発行して商品一覧画面へ遷移します。"
+step "Signing in and getting a token" {
+  desc "The user submits credentials. The Auth Service verifies them and issues a JWT, then the app opens the catalog."
   focus scr_login, auth_api, scr_catalog
   state scr_login [badge: "INPUT"]
-  animate scr_login --> auth_api : "POST /auth/login" [desc: "入力されたID・パスワードをAuth Serviceへ送信し、認証トークン(JWT)を取得"]
-  animate scr_login --> scr_catalog : "Redirect /catalog" [desc: "認証成功後、SPAルーターにより商品一覧・カート画面へ遷移"]
+  animate scr_login --> auth_api : "POST /auth/login" [desc: "The credentials are sent to the Auth Service in exchange for a JWT"]
+  animate scr_login --> scr_catalog : "Redirect /catalog" [desc: "After sign-in, the SPA router opens the catalog"]
 }
 
-step "商品一覧取得と決済モーダル表示" {
-  desc "商品一覧画面で最新在庫をAPIから取得。ユーザーが「購入へ進む」を押すと決済確認モーダルが立ち上がります。"
+step "Loading products and opening the payment dialog" {
+  desc "The catalog loads current stock from the API. Clicking Checkout opens the payment dialog."
   focus scr_catalog, shop_api, mod_pay
   state scr_login [badge: ""]
   state mod_pay [visible: true, badge: "OPEN"]
-  animate scr_catalog --> shop_api : "GET /items (200 OK)" [desc: "Checkout APIから最新の商品カタログおよび在庫ステータスを取得"]
-  animate scr_catalog --> mod_pay : "Open Modal" [desc: "カート内商品の確認後、画面遷移せずに決済確認モーダルをオーバーレイ表示"]
+  animate scr_catalog --> shop_api : "GET /items (200 OK)" [desc: "The Checkout API returns the catalog and stock status"]
+  animate scr_catalog --> mod_pay : "Open Modal" [desc: "The payment dialog opens over the catalog, without a page change"]
 }
 
-step "決済実行と外部決済GW連携" {
-  desc "決済モーダルで「注文確定」を押下。Checkout APIがStripe決済GWと通信して与信枠を確保します。"
+step "Charging the card" {
+  desc "The user confirms the order. The Checkout API calls Stripe to authorize the payment."
   focus mod_pay, shop_api, stripe
   state mod_pay [badge: "PROCESSING"]
-  animate mod_pay --> shop_api : "POST /checkout" [desc: "決済トークンと注文内容をCheckout APIへ送信し、二重送信防止ロックを開始"]
-  animate shop_api --> stripe : "POST /v1/charges" [desc: "バックエンドからStripe決済ゲートウェイを呼び出し、カード決済を実行"]
+  animate mod_pay --> shop_api : "POST /checkout" [desc: "The payment token and order are sent, and a lock prevents double submission"]
+  animate shop_api --> stripe : "POST /v1/charges" [desc: "The backend calls Stripe to charge the card"]
 }
 
-step "注文完了画面への遷移" {
-  desc "決済承認が完了し、モーダルを閉じて注文完了画面へ遷移します。"
+step "Showing the confirmation" {
+  desc "The payment is approved, so the dialog closes and the confirmation page opens."
   focus mod_pay, scr_done
   state mod_pay [badge: ""]
   state scr_done [badge: "COMPLETED"]
-  animate mod_pay --> scr_done : "Navigate /complete" [desc: "決済完了レスポンスを受け取り、モーダルを閉じて注文完了画面へ遷移"]
+  animate mod_pay --> scr_done : "Navigate /complete" [desc: "On success, the dialog closes and the confirmation page opens"]
 }
 `,
   },
   {
     id: 'event-driven-async',
-    name: 'マイクロサービス：非同期イベント駆動パイプライン',
+    name: 'Microservices: event-driven async pipeline',
     category: 'infra',
-    description:
-      'API Gateway・SQSキュー・Lambdaワーカー・S3ストレージによる非同期レポート生成フロー',
+    description: 'A queue, a worker and object storage for slow background jobs',
     dsl: `dav 1
-title "非同期イベント駆動 レポート生成アーキテクチャ"
+title "Event-driven report generation"
 
-node user "クライアント画面" [icon: screen, sub: "管理ダッシュボード"]
+node user "Client" [icon: screen, sub: "Admin dashboard"]
 node apigw "API Gateway" [icon: router, sub: "REST Endpoint"]
 
-group async_core "非同期処理パイプライン" {
+group async_core "Async pipeline" {
   node queue "SQS Queue" [icon: queue, sub: "ReportJobQueue"]
   node worker "Lambda Worker" [icon: function, sub: "PDF Generator"]
   node s3 "S3 Bucket" [icon: storage, sub: "Report Archive"]
@@ -162,43 +161,42 @@ queue --> worker : "Trigger Batch"
 worker --> s3 : "PutObject (PDF)"
 user ..> s3 : "Signed URL DL" [id: e_dl, visible: false, color: green]
 
-step "ジョブ登録と即時受付応答 (202 Accepted)" {
-  desc "重たいPDF生成処理を同期実行せず、SQSへジョブを投入して即座に 202 Accepted を返却します。"
+step "Accepting the job (202 Accepted)" {
+  desc "PDF generation is too slow to run in the request, so the job goes to SQS and the API returns 202 Accepted."
   focus user, apigw, queue
   state queue [badge: "QUEUED: 1"]
-  animate user --> apigw : "POST /reports" [desc: "管理ダッシュボードから月次レポート生成リクエストをAPI Gatewayへ送信"]
-  animate apigw --> queue : "SendMessage" [desc: "API GatewayからSQSへジョブメッセージをエンキューし、即座に受付完了を応答"]
+  animate user --> apigw : "POST /reports" [desc: "The dashboard requests a monthly report"]
+  animate apigw --> queue : "SendMessage" [desc: "API Gateway enqueues the job and responds right away"]
 }
 
-step "非同期ワーカー起動とPDF生成・保存" {
-  desc "SQSをトリガーにLambda Workerが起動し、レポートPDFを生成してS3バケットへ保存します。"
+step "Generating and storing the PDF" {
+  desc "SQS triggers the Lambda worker, which generates the PDF and stores it in S3."
   focus queue, worker, s3
   state queue [badge: ""]
   state worker [badge: "RUNNING"]
   state s3 [badge: "SAVED"]
-  animate queue --> worker : "Invoke Worker" [desc: "SQSイベントソースマッピングによりLambda Workerを非同期起動"]
-  animate worker --> s3 : "PutObject report.pdf" [desc: "生成したPDFファイルをS3バケットのアーカイブ領域へアップロード"]
+  animate queue --> worker : "Invoke Worker" [desc: "An SQS event source mapping starts the worker"]
+  animate worker --> s3 : "PutObject report.pdf" [desc: "The finished PDF is uploaded to the archive bucket"]
 }
 
-step "署名付きURLによる直接ダウンロード" {
-  desc "生成完了後、クライアントはS3のPresigned URLから直接PDFをダウンロードします。"
+step "Downloading with a signed URL" {
+  desc "When the report is ready, the client downloads it directly from S3 with a presigned URL."
   focus user, s3
   state worker [badge: ""]
   state s3 [badge: ""]
   state e_dl [visible: true]
   state user [badge: "DOWNLOADED"]
-  animate user --> s3 : "GET Presigned URL" [desc: "APIサーバーを経由せず、S3の署名付きURLからブラウザへ直接PDFをダウンロード"]
+  animate user --> s3 : "GET Presigned URL" [desc: "The browser downloads the PDF from S3 without going through the API"]
 }
 `,
   },
   {
     id: 'enterprise-zero-trust-10anim',
-    name: '大規模構成：ゼロトラスト決済 & AI不正検知基盤 (10アニメーション)',
+    name: 'Large system: zero-trust payments and AI fraud detection',
     category: 'infra',
-    description:
-      '5グループ・14ノード構成でエッジ防御・OIDC認証・AI不正推論・分散Saga・外部決済まで10段階のアニメーションを再生する大規模サンプル',
+    description: 'A long flow across five zones, with a fraud case that rolls back',
     dsl: `dav 1
-title "グローバルEC ゼロトラスト決済 & リアルタイム不正検知基盤 (10-Animation Flow)"
+title "Global commerce: zero-trust payments and real-time fraud detection"
 
 group client_edge "Client & Global Edge" [color: teal] {
   node mobile "Mobile App" [icon: mobile, sub: "iOS / Android (Passkey)"]
@@ -244,187 +242,186 @@ pay_svc --> kafka : "PaymentEvent"
 order_svc --> kafka : "OrderEvent"
 kafka ..> s3_audit : "Audit Sink"
 
-step "エンドツーエンド決済・不正検知・オーケストレーション (10アニメーション)" {
-  desc "モバイル端末からの決済要求がエッジ防御・ゼロトラスト認証・AI不正検知・分散Saga・外部カード決済・監査証跡保管まで10段階のアニメーションで処理されます。"
+step "End-to-end payment in ten animations" {
+  desc "A payment from the mobile app passes through edge protection, zero-trust authentication, AI fraud checks, a distributed saga, and the card network."
   focus mobile, cdn, waf, apigw, idp, bff, redis, fraud_ai, order_svc, aurora, pay_svc, stripe, kafka, s3_audit
   state waf [badge: "INSPECT"]
   state fraud_ai [color: green, badge: "SCORE: 0.02"]
   state aurora [color: green, badge: "COMMIT"]
   state pay_svc [color: green, badge: "AUTHORIZED"]
   state s3_audit [badge: "LOCKED"]
-  animate mobile --> cdn : "1. POST /checkout" [desc: "モバイルアプリから最寄りのCloudFrontエッジPoPへTLS 1.3で注文確定リクエストを送信"]
-  animate cdn --> waf : "2. WAF Inspect" [desc: "AWS WAFでBotシグネチャ・IPレピュテーション・リクエストレート制限を検査"]
-  animate waf --> apigw : "3. Origin mTLS" [desc: "検査を通過したリクエストにオリジン検証ヘッダを付与しAPI Gatewayへ転送"]
-  animate apigw <-> idp : "4. Verify JWT" [desc: "OIDC IdPと連携し、Passkey署名付きJWTの有効期限・スコープ・端末バインディングを検証"]
-  animate apigw --> bff : "5. Route BFF" [desc: "認証済みユーザーコンテキストを付与してEKS内のCheckout BFFへルーティング"]
-  animate bff <-> redis : "6. Lock Idempotency" [desc: "RedisクラスタでIdempotency-Keyを原子的にロックし、ネットワーク再送による二重決済を防止"]
-  animate bff <-> fraud_ai : "7. AI Risk Check" [desc: "Fraud AIエンジンへデバイス指紋・購買行動ベクトルを送り、12msで不正リスクスコアを推論"]
-  animate bff --> order_svc : "8. Start Order Saga" [desc: "リスク判定クリア後、Order Serviceを起動して分散トランザクション(Saga)を開始"]
-  animate order_svc --> aurora : "9. INSERT Order" [desc: "Aurora PostgreSQLプライマリへ注文レコードとOutboxイベントを単一トランザクションで保存"]
-  animate order_svc --> pay_svc : "10. Capture & Audit" [desc: "PCI-DSS分離セグメントのPayment ServiceからStripe与信枠の売上確定と監査イベント発行を実行"]
+  animate mobile --> cdn : "1. POST /checkout" [desc: "The app sends the order to the nearest CloudFront edge over TLS 1.3"]
+  animate cdn --> waf : "2. WAF Inspect" [desc: "AWS WAF checks bot signatures, IP reputation and rate limits"]
+  animate waf --> apigw : "3. Origin mTLS" [desc: "Requests that pass get an origin verification header and go to API Gateway"]
+  animate apigw <-> idp : "4. Verify JWT" [desc: "The IdP verifies the expiry, scope and device binding of the passkey-signed JWT"]
+  animate apigw --> bff : "5. Route BFF" [desc: "The authenticated user context is attached and the request reaches the Checkout BFF"]
+  animate bff <-> redis : "6. Lock Idempotency" [desc: "Redis atomically locks the idempotency key, preventing a double charge on retries"]
+  animate bff <-> fraud_ai : "7. AI Risk Check" [desc: "The fraud engine scores device fingerprint and purchase behavior in 12 ms"]
+  animate bff --> order_svc : "8. Start Order Saga" [desc: "With the risk check passed, the Order Service starts the distributed transaction"]
+  animate order_svc --> aurora : "9. INSERT Order" [desc: "The order and its outbox event are saved in a single transaction"]
+  animate order_svc --> pay_svc : "10. Capture & Audit" [desc: "The isolated Payment Service captures the charge and emits the audit event"]
 }
 
-step "不正検知ブロックと補償トランザクション (異常系シナリオ)" {
-  desc "AI不正検知または3Dセキュア検証で高リスクと判定された場合、即座にSaga補償処理を実行して注文をロールバックし、WAFブラックリストを更新します。"
+step "Blocking fraud with a compensating transaction" {
+  desc "When a payment is judged high risk, the saga compensates at once: the order is rolled back and the WAF blocklist is updated."
   focus bff, fraud_ai, order_svc, aurora, kafka, s3_audit, waf
   state fraud_ai [color: red, badge: "HIGH RISK: 0.96"]
   state pay_svc [color: gray, badge: "SKIPPED"]
   state aurora [color: yellow, badge: "ABORTED"]
   state waf [color: red, badge: "BLOCKLISTED"]
-  animate bff <-> fraud_ai : "1. Score 0.96 ( Fraud )" [color: red, desc: "異常なカード試行パターンを検知し、Fraud AIエンジンが高リスク判定(0.96)を返却"]
-  animate bff --> order_svc : "2. Cancel Saga" [color: red, desc: "Checkout BFFが決済処理を中断し、Order Serviceへ補償トランザクション(Cancel)を指示"]
-  animate order_svc --> aurora : "3. UPDATE REJECTED" [color: red, desc: "Aurora内の注文ステータスをREJECTEDへ更新し、仮引当在庫を即時解放"]
-  animate order_svc --> kafka : "4. FraudAlertEvent" [color: red, desc: "セキュリティ監視トピックへ不正試行アラートイベントを非同期配信"]
-  animate kafka --> s3_audit : "5. Write Forensics" [color: red, desc: "改ざん防止(WORM)設定のAudit S3 Vaultへフォレンジック証跡ログを永続化"]
+  animate bff <-> fraud_ai : "1. Score 0.96 ( Fraud )" [color: red, desc: "The engine detects an abnormal card pattern and returns a high risk score"]
+  animate bff --> order_svc : "2. Cancel Saga" [color: red, desc: "The BFF stops the payment and tells the Order Service to compensate"]
+  animate order_svc --> aurora : "3. UPDATE REJECTED" [color: red, desc: "The order is marked REJECTED and reserved stock is released"]
+  animate order_svc --> kafka : "4. FraudAlertEvent" [color: red, desc: "A fraud alert is published to the security monitoring topic"]
+  animate kafka --> s3_audit : "5. Write Forensics" [color: red, desc: "Forensic logs are stored in the write-once audit vault"]
 }
 `,
   },
   {
     id: 'sequence-payment-retry',
-    name: 'シーケンス図：決済リトライと非同期配送',
+    name: 'Sequence: payment retries and async delivery',
     category: 'infra',
     description:
-      '流量制御・状態遷移・決済のバックオフ再試行を自己ループで表現した注文処理シーケンス',
+      'Rate limiting, retries with backoff, and a dead letter queue, with icons on packets',
     dsl: `dav 1
-title "注文決済シーケンス：流量制御・決済リトライ・非同期配送"
+title "Order payment sequence: rate limiting, retries and async delivery"
 
-node client "Web Client" [icon: browser, sub: "購入者"]
+node client "Web Client" [icon: browser, sub: "Customer"]
 
 group edge_layer "Edge" [color: teal] {
-  node gw "API Gateway" [icon: router, sub: "認証・流量制御"]
+  node gw "API Gateway" [icon: router, sub: "Auth and rate limits"]
 }
 
-group core "注文・決済ドメイン" [color: blue] {
+group core "Orders and payments" [color: blue] {
   node order "Order Service" [icon: container, sub: "Saga Orchestrator"]
-  node payment "Payment Service" [icon: function, sub: "決済実行"]
-  node stock "Inventory" [icon: database, sub: "在庫引当"]
-  node psp "決済代行" [icon: external, sub: "PSP API"]
+  node payment "Payment Service" [icon: function, sub: "Runs payments"]
+  node stock "Inventory" [icon: database, sub: "Stock reservation"]
+  node psp "Payment provider" [icon: external, sub: "PSP API"]
 }
 
-group async "非同期処理" [color: purple] {
+group async "Async processing" [color: purple] {
   node queue "Event Queue" [icon: queue, sub: "OrderEvents"]
-  node worker "Fulfillment Worker" [icon: server, sub: "出荷処理"]
-  node dlq "Dead Letter Queue" [icon: storage, sub: "要調査", visible: false]
+  node worker "Fulfillment Worker" [icon: server, sub: "Shipping"]
+  node dlq "Dead Letter Queue" [icon: storage, sub: "Needs review", visible: false]
 }
 
 client --> gw : "POST /orders"
-gw --> client : "応答"
-gw --> gw : "レート判定"
+gw --> client : "Response"
+gw --> gw : "Rate check"
 gw --> order : "CreateOrder"
-order --> gw : "結果"
-order --> order : "状態遷移"
+order --> gw : "Result"
+order --> order : "Transition"
 order --> stock : "Reserve"
 stock --> order : "Reserved"
 order --> payment : "Charge"
 payment --> order : "Charged"
-payment --> payment : "バックオフ"
+payment --> payment : "Backoff"
 payment --> psp : "Authorize"
-psp --> payment : "結果"
+psp --> payment : "Result"
 order ..> queue : "OrderConfirmed"
 queue --> worker : "Deliver"
-worker --> worker : "再試行"
-worker ..> dlq : "隔離" [id: e_dlq, visible: false, color: red]
+worker --> worker : "Retry"
+worker ..> dlq : "Quarantine" [id: e_dlq, visible: false, color: red]
 
-step "注文の受付と流量制御" {
-  desc "Gatewayは自身のレート制限カウンタを確認してから、注文をOrder Serviceへ転送します。"
+step "Accepting the order and limiting the rate" {
+  desc "The gateway checks its rate limit counter, then forwards the order to the Order Service."
   state gw [badge: "98 req/s"]
-  animate client --> gw : "POST /orders" [icon: file, desc: "購入者が注文を送信"]
-  animate gw --> gw : "Rate Check" [color: teal, desc: "トークンバケットの残量を確認し、許可を判定"]
-  animate gw --> order : "CreateOrder" [icon: file, desc: "認証済みの注文要求を転送"]
+  animate client --> gw : "POST /orders" [icon: file, desc: "The customer submits an order"]
+  animate gw --> gw : "Rate Check" [color: teal, desc: "The token bucket decides whether to allow the request"]
+  animate gw --> order : "CreateOrder" [icon: file, desc: "The authenticated order is forwarded"]
 }
 
-step "注文の作成と在庫引当" {
-  desc "Order Serviceは注文をPENDINGへ遷移させ、在庫を仮引当します。"
+step "Creating the order and reserving stock" {
+  desc "The Order Service moves the order to PENDING and reserves stock."
   state gw [badge: ""]
   state order [badge: "PENDING", color: yellow]
-  animate order --> order : "→ PENDING" [color: yellow, desc: "Sagaを開始し、注文の状態をPENDINGへ遷移"]
-  animate order --> stock : "Reserve" [icon: database, desc: "商品ごとの在庫を仮引当"]
-  animate stock --> order : "Reserved" [color: green, desc: "全商品の仮引当が成功"]
+  animate order --> order : "→ PENDING" [color: yellow, desc: "The saga starts and the order becomes PENDING"]
+  animate order --> stock : "Reserve" [icon: database, desc: "Stock is reserved for each item"]
+  animate stock --> order : "Reserved" [color: green, desc: "Every item was reserved"]
 }
 
-step "決済の一時障害" {
-  desc "決済代行が503を返しました。Payment Serviceは失敗を確定せず、再試行に切り替えます。"
+step "A temporary payment failure" {
+  desc "The payment provider returns 503. The Payment Service does not give up, and switches to retrying."
   state stock [badge: "HOLD", color: green]
   state psp [badge: "503", color: red]
-  animate order --> payment : "Charge" [icon: payment, desc: "仮引当の完了後に決済を依頼"]
-  animate payment --> psp : "Authorize" [icon: payment, desc: "決済代行へオーソリを要求"]
-  animate psp --> payment : "503" [color: red, desc: "一時的なサービス障害を応答"]
+  animate order --> payment : "Charge" [icon: payment, desc: "With stock reserved, payment is requested"]
+  animate payment --> psp : "Authorize" [icon: payment, desc: "The provider is asked to authorize the charge"]
+  animate psp --> payment : "503" [color: red, desc: "The provider is temporarily unavailable"]
 }
 
-step "バックオフ再試行：1回目" {
-  desc "1秒待ってから、同じ冪等キーで再送します。障害はまだ続いています。"
+step "Backoff and first retry" {
+  desc "After one second, the request is sent again with the same idempotency key. The outage continues."
   state payment [badge: "RETRY 1", color: orange]
-  animate payment --> payment : "Wait 1s" [color: orange, desc: "1回目の再試行まで待機"]
-  animate payment --> psp : "Retry #1" [icon: payment, desc: "同じ冪等キーで再送"]
-  animate psp --> payment : "503" [color: red, desc: "障害が継続"]
+  animate payment --> payment : "Wait 1s" [color: orange, desc: "Waits before the first retry"]
+  animate payment --> psp : "Retry #1" [icon: payment, desc: "Sent again with the same idempotency key"]
+  animate psp --> payment : "503" [color: red, desc: "The outage continues"]
 }
 
-step "バックオフ再試行：2回目" {
-  desc "待機時間を2秒に倍増して再送し、決済が成功します。"
+step "Backoff and second retry" {
+  desc "The wait doubles to two seconds, and this time the payment succeeds."
   state payment [badge: "RETRY 2"]
   state psp [badge: "200", color: green]
-  animate payment --> payment : "Wait 2s" [color: orange, desc: "待機時間を倍にして再試行を準備"]
-  animate payment --> psp : "Retry #2" [icon: payment, desc: "同じ冪等キーで再送"]
-  animate psp --> payment : "200 OK" [color: green, desc: "オーソリが成功"]
+  animate payment --> payment : "Wait 2s" [color: orange, desc: "Doubles the wait before retrying"]
+  animate payment --> psp : "Retry #2" [icon: payment, desc: "Sent again with the same idempotency key"]
+  animate psp --> payment : "200 OK" [color: green, desc: "The charge is authorized"]
 }
 
-step "注文の確定と応答" {
-  desc "決済結果を受けて注文を確定します。購入者への応答とイベント発行は同時に行います。"
+step "Confirming the order and responding" {
+  desc "The order is confirmed. The customer's response and the event are sent at the same time."
   state psp [badge: "", color: none]
   state payment [badge: "PAID", color: green]
   state order [badge: "CONFIRMED", color: green]
-  animate payment --> order : "Charged" [color: green, desc: "決済完了を通知"]
-  animate order --> order : "→ CONFIRMED" [color: green, desc: "注文の状態をCONFIRMEDへ遷移"]
-  animate order --> gw : "201 Created" [desc: "作成済みの注文を返却"]
-  animate order --> queue : "OrderConfirmed" [icon: mail, parallel: true, color: purple, desc: "出荷処理用のイベントを発行"]
-  animate gw --> client : "201 Created" [desc: "購入者へ注文完了を応答"]
+  animate payment --> order : "Charged" [color: green, desc: "Reports that payment is complete"]
+  animate order --> order : "→ CONFIRMED" [color: green, desc: "The order becomes CONFIRMED"]
+  animate order --> gw : "201 Created" [desc: "Returns the created order"]
+  animate order --> queue : "OrderConfirmed" [icon: mail, parallel: true, color: purple, desc: "Publishes an event for fulfillment"]
+  animate gw --> client : "201 Created" [desc: "Tells the customer the order is complete"]
 }
 
-step "非同期の出荷処理" {
-  desc "Workerはキューからイベントを受け取り、倉庫APIの失敗に備えて自身で再試行します。"
+step "Asynchronous fulfillment" {
+  desc "The worker receives the event from the queue, and retries on its own if the warehouse API fails."
   state queue [badge: "1 msg"]
   state worker [badge: "RUNNING", color: orange]
-  animate queue --> worker : "Deliver" [icon: mail, color: purple, desc: "イベントをWorkerへ配信"]
-  animate worker --> worker : "Attempt 1..3" [color: orange, desc: "倉庫APIの呼び出しを最大3回試行"]
+  animate queue --> worker : "Deliver" [icon: mail, color: purple, desc: "The event is delivered to the worker"]
+  animate worker --> worker : "Attempt 1..3" [color: orange, desc: "Calls the warehouse API up to three times"]
 }
 
-step "再試行の上限と隔離" {
-  desc "3回とも失敗したイベントはDead Letter Queueへ隔離し、キューの滞留を防ぎます。"
+step "Giving up and quarantining" {
+  desc "An event that fails all three attempts goes to the dead letter queue, so it does not block the queue."
   state queue [badge: ""]
   state worker [badge: "FAILED", color: red]
   state dlq [visible: true, badge: "1 msg", color: red]
   state e_dlq [visible: true]
-  animate worker --> dlq : "Quarantine" [icon: mail, color: red, desc: "失敗したイベントを隔離して調査待ちにする"]
+  animate worker --> dlq : "Quarantine" [icon: mail, color: red, desc: "The failed event is set aside for review"]
 }
 `,
   },
   {
     id: 'lan-office-network',
-    name: '社内LAN：本社と支店の拠点間VPNと回線切替',
+    name: 'Office LAN: site-to-site VPN and link failover',
     category: 'infra',
-    description:
-      'スイッチ・無線AP・複合機・ファイルサーバーの社内通信、拠点間VPN、回線障害とLTE切替のステップ',
+    description: 'Switches, Wi-Fi, a printer and a file server, with a VPN and failover to LTE',
     dsl: `dav 1
-title "社内LAN：本社と支店の拠点間VPNと回線切替"
+title "Office LAN: site-to-site VPN and link failover"
 
-group office "本社 LAN (192.168.10.0/24)" {
-  node pc "業務PC" [icon: desktop, sub: "有線 / VLAN 10"]
-  node tablet "タブレット" [icon: mobile, sub: "社内Wi-Fi"]
-  node ap "無線AP" [icon: wifi, sub: "SSID: corp-wifi"]
-  node floor "フロアスイッチ" [icon: hub, sub: "PoE 24ポート"]
-  node printer "複合機" [icon: printer, sub: "192.168.10.50"]
-  node core "コアスイッチ" [icon: hub, sub: "VLAN 10 / 20"]
-  node nas "ファイルサーバー" [icon: storage, sub: "NAS / RAID 6"]
+group office "Head office LAN (192.168.10.0/24)" {
+  node pc "Desktop PC" [icon: desktop, sub: "Wired / VLAN 10"]
+  node tablet "Tablet" [icon: mobile, sub: "Office Wi-Fi"]
+  node ap "Access point" [icon: wifi, sub: "SSID: corp-wifi"]
+  node floor "Floor switch" [icon: hub, sub: "PoE 24-port"]
+  node printer "Printer" [icon: printer, sub: "192.168.10.50"]
+  node core "Core switch" [icon: hub, sub: "VLAN 10 / 20"]
+  node nas "File server" [icon: storage, sub: "NAS / RAID 6"]
   node utm "UTM" [icon: firewall, sub: "192.168.10.1"]
 }
 
-node wan "インターネットVPN" [icon: cloud, sub: "IPsec"]
-node lte "LTEルーター" [icon: router, sub: "バックアップ回線", visible: false]
-node dc "データセンター" [icon: building, sub: "遠隔バックアップ"]
+node wan "Internet VPN" [icon: cloud, sub: "IPsec"]
+node lte "LTE router" [icon: router, sub: "Backup link", visible: false]
+node dc "Data center" [icon: building, sub: "Off-site backup"]
 
-group branch "大阪支店 (192.168.20.0/24)" {
-  node branch_gw "支店ルーター" [icon: router, sub: "VPN終端"]
-  node branch_pc "支店PC" [icon: desktop, sub: "有線"]
+group branch "Branch office (192.168.20.0/24)" {
+  node branch_gw "Branch router" [icon: router, sub: "VPN endpoint"]
+  node branch_pc "Branch PC" [icon: desktop, sub: "Wired"]
 }
 
 pc <-> floor : "1GbE"
@@ -434,79 +431,79 @@ floor <-> printer : "IPP"
 floor <-> core : "Uplink"
 core <-> nas : "10GbE"
 core <-> utm : "Default GW"
-utm <-> wan : "光回線" [id: e_main]
-utm <.> lte : "切替" [id: e_lte_up, visible: false, color: yellow]
-lte <.> wan : "モバイル回線" [id: e_lte_wan, visible: false, color: yellow]
+utm <-> wan : "Fiber" [id: e_main]
+utm <.> lte : "Failover" [id: e_lte_up, visible: false, color: yellow]
+lte <.> wan : "Mobile link" [id: e_lte_wan, visible: false, color: yellow]
 wan --> dc : "Backup"
 wan <-> branch_gw : "IPsec"
 branch_gw <-> branch_pc : "LAN"
 
-step "有線PCから複合機へ印刷" {
-  desc "同じフロアの通信はフロアスイッチの中で完結し、上位のコアスイッチやUTMには流れません。"
+step "Printing from a wired PC" {
+  desc "Traffic on one floor stays inside the floor switch, and never reaches the core switch or the UTM."
   focus pc, floor, printer
   state printer [color: green, badge: "PRINT"]
-  animate pc --> floor : "Print Job" [desc: "業務PCから印刷データをフロアスイッチへ送信"]
-  animate floor --> printer : "IPP" [desc: "スイッチが宛先MACアドレスを見て、複合機のポートだけに転送"]
+  animate pc --> floor : "Print Job" [desc: "The PC sends the print data to the floor switch"]
+  animate floor --> printer : "IPP" [desc: "The switch reads the destination MAC address and forwards to the printer's port only"]
 }
 
-step "無線端末からファイルサーバーへアクセス" {
-  desc "タブレットは無線APからフロアスイッチ、コアスイッチを経由してファイルサーバーへ接続します。"
+step "Opening the file server over Wi-Fi" {
+  desc "The tablet reaches the file server through the access point, the floor switch and the core switch."
   focus tablet, ap, floor, core, nas
   state printer [color: none, badge: ""]
   state nas [color: green, badge: "SMB"]
-  animate tablet --> ap : "WPA3" [desc: "社内SSIDへ接続し、暗号化された無線で通信"]
-  animate ap --> floor : "Bridge" [desc: "無線フレームを有線LANへブリッジ"]
-  animate floor --> core : "VLAN 10" [desc: "タグ付きのフレームをコアスイッチへ転送"]
-  animate core <-> nas : "SMB Read" [desc: "VLAN間をルーティングしてファイルサーバーのデータを読み出す"]
+  animate tablet --> ap : "WPA3" [desc: "The tablet joins the office SSID over encrypted Wi-Fi"]
+  animate ap --> floor : "Bridge" [desc: "Wireless frames are bridged to the wired LAN"]
+  animate floor --> core : "VLAN 10" [desc: "Tagged frames are forwarded to the core switch"]
+  animate core <-> nas : "SMB Read" [desc: "The core routes between VLANs and reads from the file server"]
 }
 
-step "支店から本社のファイルサーバーへ接続" {
-  desc "支店のPCは拠点間VPNを通して、本社のLANにあるファイルサーバーを利用します。"
+step "Reaching the file server from the branch" {
+  desc "A PC at the branch uses the file server on the head office LAN through the site-to-site VPN."
   focus branch_pc, branch_gw, wan, utm, core, nas
-  animate branch_pc --> branch_gw : "SMB" [desc: "本社宛てのパケットを支店ルーターへ送信"]
-  animate branch_gw --> wan : "ESP" [desc: "IPsecで暗号化してインターネットへ送出"]
-  animate wan --> utm : "ESP" [desc: "本社のUTMがVPNトンネルを終端して復号"]
-  animate utm --> core : "Inspected" [desc: "ポリシーで許可された通信だけを社内へ転送"]
-  animate core <-> nas : "SMB Read" [desc: "ファイルサーバーの応答を同じ経路で支店へ返す"]
+  animate branch_pc --> branch_gw : "SMB" [desc: "Traffic for the head office goes to the branch router"]
+  animate branch_gw --> wan : "ESP" [desc: "IPsec encrypts it and sends it over the internet"]
+  animate wan --> utm : "ESP" [desc: "The UTM at the head office ends the tunnel and decrypts"]
+  animate utm --> core : "Inspected" [desc: "Only traffic allowed by policy enters the LAN"]
+  animate core <-> nas : "SMB Read" [desc: "The file server's response returns the same way"]
 }
 
-step "データセンターへ夜間バックアップ" {
-  desc "夜間にファイルサーバーの差分データを、VPN経由でデータセンターへ転送します。"
+step "Nightly backup to the data center" {
+  desc "At night, changes on the file server are copied to the data center over the VPN."
   focus nas, core, utm, wan, dc
   state nas [color: blue, badge: "BACKUP"]
   state dc [color: blue, badge: "SYNC"]
-  animate nas --> core : "Snapshot" [desc: "当日分の差分スナップショットを送出"]
-  animate core --> utm : "Backup VLAN" [desc: "バックアップ用VLANでUTMへ転送"]
-  animate utm --> wan : "ESP" [desc: "暗号化してデータセンターへ向けて送出"]
-  animate wan --> dc : "Replicate" [desc: "遠隔地のストレージへ複製"]
+  animate nas --> core : "Snapshot" [desc: "Sends the day's incremental snapshot"]
+  animate core --> utm : "Backup VLAN" [desc: "Forwards to the UTM on the backup VLAN"]
+  animate utm --> wan : "ESP" [desc: "Encrypts and sends toward the data center"]
+  animate wan --> dc : "Replicate" [desc: "Copies to off-site storage"]
 }
 
-step "光回線の障害でVPNが切断" {
-  desc "主回線の障害をUTMが検知します。支店とデータセンターへの通信が止まり、社内LANの通信だけが継続します。"
+step "The fiber link fails and the VPN drops" {
+  desc "The UTM detects the failure. Traffic to the branch and data center stops, while the office LAN keeps working."
   focus utm, wan, branch_gw, dc
   state nas [color: none, badge: ""]
   state dc [color: red, badge: "UNREACHABLE"]
   state e_main [color: red]
   state utm [color: red, badge: "WAN DOWN"]
-  state branch_gw [color: red, badge: "VPN断"]
-  animate utm --> wan : "Keepalive" [color: red, desc: "死活監視の応答が途絶え、主回線の断を検知"]
+  state branch_gw [color: red, badge: "VPN DOWN"]
+  animate utm --> wan : "Keepalive" [color: red, desc: "Keepalive replies stop, so the UTM declares the link down"]
 }
 
-step "LTE回線へ自動切替" {
-  desc "UTMがLTEルーターへ経路を切り替えてVPNを再確立します。帯域が狭いためバックアップは止めたままにします。"
+step "Automatic failover to LTE" {
+  desc "The UTM routes through the LTE router and rebuilds the VPN. Backups stay paused because the bandwidth is low."
   focus utm, lte, wan, branch_gw
   state lte [visible: true, color: yellow, badge: "ACTIVE"]
   state e_lte_up [visible: true]
   state e_lte_wan [visible: true]
   state utm [color: yellow, badge: "FAILOVER"]
-  state branch_gw [color: green, badge: "VPN再接続"]
-  animate utm --> lte : "Route Change" [color: yellow, desc: "デフォルト経路をLTEルーター側へ切替"]
-  animate lte --> wan : "IKE" [color: yellow, desc: "モバイル回線でVPNのネゴシエーションをやり直す"]
-  animate wan --> branch_gw : "Tunnel Up" [color: yellow, desc: "支店ルーターとのVPNトンネルが再確立"]
+  state branch_gw [color: green, badge: "VPN UP"]
+  animate utm --> lte : "Route Change" [color: yellow, desc: "The default route moves to the LTE router"]
+  animate lte --> wan : "IKE" [color: yellow, desc: "The VPN is negotiated again over the mobile link"]
+  animate wan --> branch_gw : "Tunnel Up" [color: yellow, desc: "The tunnel to the branch router is back"]
 }
 
-step "光回線の復旧" {
-  desc "主回線が復旧すると経路を元に戻し、LTE回線は待機状態になります。止めていたバックアップも再開します。"
+step "The fiber link recovers" {
+  desc "With the main link back, the route returns to it and LTE goes back on standby. Paused backups resume."
   focus utm, wan, branch_gw, dc
   state lte [visible: false, color: none, badge: ""]
   state e_lte_up [visible: false]
@@ -515,9 +512,9 @@ step "光回線の復旧" {
   state utm [color: green, badge: "NORMAL"]
   state branch_gw [color: none, badge: ""]
   state dc [color: none, badge: ""]
-  animate utm --> wan : "Failback" [color: green, desc: "主回線の疎通を確認して経路を戻す"]
-  animate wan --> branch_gw : "Tunnel Up" [desc: "光回線経由のVPNトンネルへ切り戻し"]
-  animate wan --> dc : "Resume" [desc: "止めていた差分バックアップを再開", parallel: true]
+  animate utm --> wan : "Failback" [color: green, desc: "Confirms the main link and moves the route back"]
+  animate wan --> branch_gw : "Tunnel Up" [desc: "The tunnel returns to the fiber link"]
+  animate wan --> dc : "Resume" [desc: "The paused incremental backup resumes", parallel: true]
 }
 `,
   },

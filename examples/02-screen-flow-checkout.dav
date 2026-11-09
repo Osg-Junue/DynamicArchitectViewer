@@ -1,56 +1,56 @@
 dav 1
-title "ECアプリ 画面遷移 & バックエンドAPI連携シーケンス"
+title "Online store: screen flow and backend calls"
 
-group frontend "フロントエンド画面遷移 (SPA)" {
-  node scr_login "ログイン画面" [icon: screen, sub: "/login | ID・PW入力フォーム"]
-  node scr_catalog "商品一覧・カート画面" [icon: screen, sub: "/catalog | カート追加・在庫表示"]
-  node mod_pay "決済確認モーダル" [icon: modal, sub: "Modal | クレジットカード確認", visible: false]
-  node scr_done "注文完了画面" [icon: screen, sub: "/complete | 注文番号表示"]
+group frontend "Screens (SPA)" {
+  node scr_login "Sign-in" [icon: screen, sub: "/login | Credentials form"]
+  node scr_catalog "Catalog and cart" [icon: screen, sub: "/catalog | Stock and cart"]
+  node mod_pay "Payment dialog" [icon: modal, sub: "Modal | Confirm card", visible: false]
+  node scr_done "Order complete" [icon: screen, sub: "/complete | Order number"]
 }
 
-group backend "バックエンド & 外部連携" {
-  node auth_api "Auth Service" [icon: auth, sub: "JWT発行 / OAuth"]
-  node shop_api "Checkout API" [icon: server, sub: "在庫引当・注文管理"]
-  node stripe "Stripe決済GW" [icon: external, sub: "External Payment API"]
+group backend "Backend and external services" {
+  node auth_api "Auth Service" [icon: auth, sub: "JWT / OAuth"]
+  node shop_api "Checkout API" [icon: server, sub: "Stock and orders"]
+  node stripe "Stripe" [icon: external, sub: "External Payment API"]
 }
 
-scr_login --> scr_catalog : "認証成功後遷移"
-scr_catalog --> mod_pay : "「購入へ進む」押下"
-mod_pay --> scr_done : "決済完了"
+scr_login --> scr_catalog : "After sign-in"
+scr_catalog --> mod_pay : "Click Checkout"
+mod_pay --> scr_done : "Paid"
 scr_login --> auth_api : "POST /auth/login"
 scr_catalog --> shop_api : "GET /items"
 mod_pay --> shop_api : "POST /checkout"
 shop_api --> stripe : "Charge API"
 
-step "ログイン認証とトークン発行" {
-  desc "ユーザーがログイン画面で認証情報を送信。Auth Serviceで検証後、JWTを発行して商品一覧画面へ遷移します。"
+step "Signing in and getting a token" {
+  desc "The user submits credentials. The Auth Service verifies them and issues a JWT, then the app opens the catalog."
   focus scr_login, auth_api, scr_catalog
   state scr_login [badge: "INPUT"]
-  animate scr_login --> auth_api : "POST /auth/login" [desc: "入力されたID・パスワードをAuth Serviceへ送信し、認証トークン(JWT)を取得"]
-  animate scr_login --> scr_catalog : "Redirect /catalog" [desc: "認証成功後、SPAルーターにより商品一覧・カート画面へ遷移"]
+  animate scr_login --> auth_api : "POST /auth/login" [desc: "The credentials are sent to the Auth Service in exchange for a JWT"]
+  animate scr_login --> scr_catalog : "Redirect /catalog" [desc: "After sign-in, the SPA router opens the catalog"]
 }
 
-step "商品一覧取得と決済モーダル表示" {
-  desc "商品一覧画面で最新在庫をAPIから取得。ユーザーが「購入へ進む」を押すと決済確認モーダルが立ち上がります。"
+step "Loading products and opening the payment dialog" {
+  desc "The catalog loads current stock from the API. Clicking Checkout opens the payment dialog."
   focus scr_catalog, shop_api, mod_pay
   state scr_login [badge: ""]
   state mod_pay [visible: true, badge: "OPEN"]
-  animate scr_catalog --> shop_api : "GET /items (200 OK)" [desc: "Checkout APIから最新の商品カタログおよび在庫ステータスを取得"]
-  animate scr_catalog --> mod_pay : "Open Modal" [desc: "カート内商品の確認後、画面遷移せずに決済確認モーダルをオーバーレイ表示"]
+  animate scr_catalog --> shop_api : "GET /items (200 OK)" [desc: "The Checkout API returns the catalog and stock status"]
+  animate scr_catalog --> mod_pay : "Open Modal" [desc: "The payment dialog opens over the catalog, without a page change"]
 }
 
-step "決済実行と外部決済GW連携" {
-  desc "決済モーダルで「注文確定」を押下。Checkout APIがStripe決済GWと通信して与信枠を確保します。"
+step "Charging the card" {
+  desc "The user confirms the order. The Checkout API calls Stripe to authorize the payment."
   focus mod_pay, shop_api, stripe
   state mod_pay [badge: "PROCESSING"]
-  animate mod_pay --> shop_api : "POST /checkout" [desc: "決済トークンと注文内容をCheckout APIへ送信し、二重送信防止ロックを開始"]
-  animate shop_api --> stripe : "POST /v1/charges" [desc: "バックエンドからStripe決済ゲートウェイを呼び出し、カード決済を実行"]
+  animate mod_pay --> shop_api : "POST /checkout" [desc: "The payment token and order are sent, and a lock prevents double submission"]
+  animate shop_api --> stripe : "POST /v1/charges" [desc: "The backend calls Stripe to charge the card"]
 }
 
-step "注文完了画面への遷移" {
-  desc "決済承認が完了し、モーダルを閉じて注文完了画面へ遷移します。"
+step "Showing the confirmation" {
+  desc "The payment is approved, so the dialog closes and the confirmation page opens."
   focus mod_pay, scr_done
   state mod_pay [badge: ""]
   state scr_done [badge: "COMPLETED"]
-  animate mod_pay --> scr_done : "Navigate /complete" [desc: "決済完了レスポンスを受け取り、モーダルを閉じて注文完了画面へ遷移"]
+  animate mod_pay --> scr_done : "Navigate /complete" [desc: "On success, the dialog closes and the confirmation page opens"]
 }

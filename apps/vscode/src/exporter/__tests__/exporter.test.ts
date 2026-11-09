@@ -25,9 +25,7 @@ describe('exportHtml', () => {
     expect(html.startsWith('<!DOCTYPE html>')).toBe(true);
     expect(html).not.toMatch(/(src|href)=["']?(https?:)?\/\//i);
     expect(html).not.toMatch(/@import|url\(\s*["']?https?:/i);
-    expect(html).toContain(
-      '<title>AWS マルチAZ Webアーキテクチャ &amp; DBフェイルオーバー</title>',
-    );
+    expect(html).toContain('<title>AWS multi-AZ web architecture &amp; database failover</title>');
   });
 
   it('sets a strict CSP whose hashes match the inline script and style', async () => {

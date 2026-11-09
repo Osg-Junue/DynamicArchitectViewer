@@ -1,12 +1,12 @@
 dav 1
-title "AWS マルチAZ Webアーキテクチャ & DBフェイルオーバー"
+title "AWS multi-AZ web architecture & database failover"
 
 group edge_net "Edge & Security" {
   node cdn "CloudFront CDN" [icon: cdn, sub: "Edge Cache"]
   node waf "AWS WAF" [icon: firewall, sub: "Rate Limit / ACL"]
 }
 
-group vpc "Production VPC (ap-northeast-1)" {
+group vpc "Production VPC (us-east-1)" {
   node alb "Application LB" [icon: lb, sub: "Ingress HTTPS"]
   node api "Order API" [icon: container, sub: "ECS Fargate x4"]
   node redis "ElastiCache" [icon: cache, sub: "Redis Cluster"]
@@ -14,7 +14,7 @@ group vpc "Production VPC (ap-northeast-1)" {
   node db_sby "Standby DB" [icon: database, sub: "Aurora Reader (AZ-c)", badge: "STANDBY"]
 }
 
-node client "Web Browser" [icon: browser, sub: "エンドユーザー"]
+node client "Web Browser" [icon: browser, sub: "End user"]
 
 client --> cdn : "HTTPS"
 cdn --> waf : "Origin Fetch"
@@ -25,36 +25,36 @@ api --> db_pri : "Read / Write"
 db_pri ..> db_sby : "Sync Replication"
 api ..> db_sby : "Failover Route" [id: e_failover, visible: false, color: yellow]
 
-step "エッジ検証とALBへのルーティング" {
-  desc "ブラウザからのリクエストをCloudFrontが受け取り、WAFで検査した後にVPC内のALBへ転送します。"
+step "Edge inspection and routing to the load balancer" {
+  desc "CloudFront receives the request, and WAF inspects it before it is forwarded to the load balancer in the VPC."
   focus client, cdn, waf, alb
-  animate client --> cdn : "GET /products" [desc: "ブラウザからCloudFrontエッジロケーションへHTTPSリクエストを送信"]
-  animate cdn --> waf : "Inspect Request" [desc: "キャッシュミス時、AWS WAFへ転送してACL・レート制限ルールで検査"]
-  animate waf --> alb : "Pass ACL" [desc: "検査を通過した正常なリクエストのみをVPC内のALBへルーティング"]
+  animate client --> cdn : "GET /products" [desc: "The browser sends an HTTPS request to a CloudFront edge location"]
+  animate cdn --> waf : "Inspect Request" [desc: "On a cache miss, AWS WAF checks ACL and rate-limit rules"]
+  animate waf --> alb : "Pass ACL" [desc: "Only requests that pass inspection reach the load balancer"]
 }
 
-step "キャッシュヒットによる高速応答" {
-  desc "Order APIがRedisを参照し、キャッシュヒットした場合はDBへアクセスせず即座にレスポンスを返します。"
+step "Fast response from the cache" {
+  desc "The Order API checks Redis. On a cache hit, it responds without touching the database."
   focus alb, api, redis
   state redis [color: green, badge: "CACHE HIT"]
-  animate alb --> api : "Forward" [desc: "ALBがターゲットグループ内のECS Fargateタスクへリクエストを振り分け"]
-  animate api --> redis : "GET product:101" [desc: "ElastiCache (Redis) からインメモリで商品データを高速取得"]
+  animate alb --> api : "Forward" [desc: "The load balancer picks an ECS Fargate task from the target group"]
+  animate api --> redis : "GET product:101" [desc: "Product data comes from memory in ElastiCache"]
 }
 
-step "注文トランザクションの書き込みとDB同期" {
-  desc "注文確定リクエスト（POST）はPrimary DBへ書き込まれ、Standby DBへレプリケーションされます。"
+step "Writing the order and replicating it" {
+  desc "The order is written to the primary database and replicated to the standby."
   focus api, db_pri, db_sby
   state redis [color: none, badge: ""]
   state db_pri [color: green, badge: "COMMIT"]
-  animate api --> db_pri : "INSERT INTO orders" [desc: "Primary DB (AZ-a) に対して注文トランザクションを書き込みコミット"]
-  animate db_pri --> db_sby : "Replicate WAL" [desc: "別AZのStandby DB (AZ-c) へストレージレベルでWALを同期レプリケーション"]
+  animate api --> db_pri : "INSERT INTO orders" [desc: "The order transaction commits on the primary in AZ-a"]
+  animate db_pri --> db_sby : "Replicate WAL" [desc: "The write-ahead log is replicated to the standby in AZ-c"]
 }
 
-step "Primary DB障害発生と自動フェイルオーバー" {
-  desc "Primary DBで障害が発生。ヘルスチェック失敗を検知し、Standby DBをWriterに昇格させて経路を自動切替します。"
+step "Primary failure and automatic failover" {
+  desc "The primary database fails its health checks, so the standby is promoted to writer and traffic moves to it."
   focus api, db_pri, db_sby
   state db_pri [color: red, badge: "DOWN"]
   state db_sby [color: green, badge: "PROMOTED"]
   state e_failover [visible: true]
-  animate api --> db_sby : "Reconnect Writer" [color: yellow, desc: "クラスターエンドポイントのDNS切替により、昇格したStandby DBへ自動再接続"]
+  animate api --> db_sby : "Reconnect Writer" [color: yellow, desc: "The cluster endpoint now resolves to the promoted standby"]
 }

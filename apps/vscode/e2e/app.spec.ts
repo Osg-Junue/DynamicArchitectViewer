@@ -128,7 +128,9 @@ test.describe('webview preview', () => {
     );
     await expect(page.locator('.dav-packet .dav-packet-callout')).toHaveCount(1);
     await expect(page.locator('.dav-packet .dav-packet-label')).toHaveText('GET /products');
-    await expect(page.locator('.dav-packet .dav-packet-desc').first()).toContainText('CloudFront');
+    await expect(page.locator('.dav-packet .dav-packet-desc').first()).toContainText(
+      'The browser sends',
+    );
 
     // Clicking a node on the canvas repeats that node's animation phase
     await page.locator('.dav-node[data-id="waf"]').click();
