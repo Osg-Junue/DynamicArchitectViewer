@@ -120,7 +120,7 @@ describe('icon values', () => {
     const res = computeCompletions('dav 1\nnode a [icon: ', 20, true);
     const sheetItem = res?.items.find((i) => i.label === 'sheet');
     expect(sheetItem?.detail).toContain('Spreadsheet');
-    expect(res?.items).toHaveLength(35);
+    expect(res?.items).toHaveLength(38);
   });
 
   it.each([

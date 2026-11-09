@@ -23,6 +23,11 @@ export const ICON_SHAPES: Record<IconName, readonly Shape[]> = {
     ['line', { x1: 12, y1: 22.08, x2: 12, y2: 12 }],
   ],
   function: [['polygon', { points: '13 2 3 14 12 14 11 22 21 10 12 10 13 2' }]],
+  runtime: [
+    ['path', { d: 'M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5a2 2 0 0 0 2 2h1' }],
+    ['path', { d: 'M16 3h1a2 2 0 0 1 2 2v5a2 2 0 0 0 2 2 2 2 0 0 0-2 2v5a2 2 0 0 1-2 2h-1' }],
+    ['polygon', { points: '10 9 15 12 10 15 10 9' }],
+  ],
   database: [
     ['ellipse', { cx: 12, cy: 5, rx: 9, ry: 3 }],
     ['path', { d: 'M21 12c0 1.66-4 3-9 3s-9-1.34-9-3' }],
@@ -68,6 +73,14 @@ export const ICON_SHAPES: Record<IconName, readonly Shape[]> = {
     ],
   ],
   cloud: [['path', { d: 'M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z' }]],
+  building: [
+    ['rect', { x: 5, y: 2, width: 14, height: 20, rx: 2 }],
+    ['line', { x1: 9.5, y1: 7, x2: 9.51, y2: 7 }],
+    ['line', { x1: 14.5, y1: 7, x2: 14.51, y2: 7 }],
+    ['line', { x1: 9.5, y1: 12, x2: 9.51, y2: 12 }],
+    ['line', { x1: 14.5, y1: 12, x2: 14.51, y2: 12 }],
+    ['path', { d: 'M10 22v-5h4v5' }],
+  ],
   router: [
     ['rect', { x: 3, y: 13, width: 18, height: 7, rx: 2 }],
     ['line', { x1: 7, y1: 16.5, x2: 7.01, y2: 16.5 }],
@@ -94,6 +107,12 @@ export const ICON_SHAPES: Record<IconName, readonly Shape[]> = {
     ],
     ['path', { d: 'M19 3v4' }],
     ['path', { d: 'M21 5h-4' }],
+  ],
+  api: [
+    ['path', { d: 'M1.5 17 5 7l3.5 10' }],
+    ['path', { d: 'M2.7 13.5h4.6' }],
+    ['path', { d: 'M11 17V7h3.2a3 3 0 0 1 0 6H11' }],
+    ['path', { d: 'M20.5 7v10' }],
   ],
   mail: [
     ['rect', { x: 2, y: 4, width: 20, height: 16, rx: 2 }],
@@ -149,9 +168,11 @@ export const ICON_SHAPES: Record<IconName, readonly Shape[]> = {
     ['rect', { x: 8, y: 13, width: 8, height: 3, rx: 1 }],
   ],
   browser: [
-    ['rect', { x: 2, y: 3, width: 20, height: 14, rx: 2 }],
-    ['line', { x1: 8, y1: 21, x2: 16, y2: 21 }],
-    ['line', { x1: 12, y1: 17, x2: 12, y2: 21 }],
+    ['path', { d: 'M21 11V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h6' }],
+    ['line', { x1: 3, y1: 8, x2: 21, y2: 8 }],
+    ['line', { x1: 6.5, y1: 5.5, x2: 6.51, y2: 5.5 }],
+    ['line', { x1: 10, y1: 5.5, x2: 10.01, y2: 5.5 }],
+    ['polygon', { points: '13 13 22 16.5 18 18 16.5 22 13 13' }],
   ],
   mobile: [
     ['rect', { x: 6, y: 2, width: 12, height: 20, rx: 2 }],

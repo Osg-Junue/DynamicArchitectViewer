@@ -12,6 +12,10 @@ export const ICON_META: Record<IconName, IconMeta> = {
   server: { category: 'infra', description: ['サーバー / VM（既定）', 'Server or VM (default)'] },
   container: { category: 'infra', description: ['コンテナ / Pod', 'Container or pod'] },
   function: { category: 'infra', description: ['サーバーレス関数', 'Serverless function'] },
+  runtime: {
+    category: 'infra',
+    description: ['ランタイム / 実行環境', 'Runtime or execution environment'],
+  },
   database: { category: 'infra', description: ['データベース', 'Database'] },
   cache: { category: 'infra', description: ['キャッシュ', 'Cache'] },
   queue: { category: 'infra', description: ['キュー / ストリーム', 'Queue or stream'] },
@@ -26,16 +30,21 @@ export const ICON_META: Record<IconName, IconMeta> = {
     category: 'infra',
     description: ['クラウド / マネージドサービス', 'Cloud or managed service'],
   },
+  building: {
+    category: 'infra',
+    description: ['拠点 / オンプレミス / データセンター', 'Site, on-premises or data center'],
+  },
   router: { category: 'infra', description: ['ルーター / ゲートウェイ', 'Router or gateway'] },
   external: { category: 'infra', description: ['外部システム', 'External system'] },
   auth: {
     category: 'infra',
-    description: ['認証 / IdP / 鍵管理', 'Auth, IdP or secret manager'],
+    description: ['認証 / IdP / アクセス制御', 'Auth, IdP or access control'],
   },
   ai: {
     category: 'infra',
     description: ['AI / LLM / ML推論', 'AI, LLM or ML inference'],
   },
+  api: { category: 'infra', description: ['API / API Gateway', 'API or API gateway'] },
   mail: {
     category: 'infra',
     description: ['メール / 通知配信', 'Mail or notification service'],
@@ -66,7 +75,7 @@ export const ICON_META: Record<IconName, IconMeta> = {
   },
   key: {
     category: 'infra',
-    description: ['鍵管理 / トークン / 証明書', 'Key, token or certificate'],
+    description: ['鍵 / シークレット管理 / トークン / 証明書', 'Key, secret, token or certificate'],
   },
   screen: { category: 'screen', description: ['画面（ウィンドウ形）', 'Screen (window shape)'] },
   modal: {

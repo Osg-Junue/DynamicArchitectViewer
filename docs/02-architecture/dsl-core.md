@@ -23,7 +23,7 @@ flowchart LR
 | ファイル | 役割 |
 | :--- | :--- |
 | `model/types.ts` | `DavDocument` 等の純粋データ型。座標・位置情報を持たない |
-| `model/icons.ts` | 35種の内蔵アイコンのカテゴリ・用途説明（SVG は描画層の責務） |
+| `model/icons.ts` | 38種の内蔵アイコンのカテゴリ・用途説明（SVG は描画層の責務） |
 | `dsl/grammar/dav.grammar` | Lezer 文法。`@lezer/generator` によりビルド時に生成 |
 | `dsl/syntax.ts` | 構文木の走査、文字列のエスケープ/アンエスケープ |
 | `dsl/schema.ts` | 属性スキーマ（対象ごとの属性名と型）、識別子・色の検証 |

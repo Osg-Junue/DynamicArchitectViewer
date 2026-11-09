@@ -307,7 +307,7 @@ test.describe('webview preview', () => {
     // All icons render, and the filter narrows them.
     await page.getByTestId('doc-nav-icons').click();
     const icons = page.getByTestId('doc-icon-catalog').locator('.doc-icon-card');
-    await expect(icons).toHaveCount(35);
+    await expect(icons).toHaveCount(38);
     await expect(icons.first().locator('.dav-station')).toHaveCount(1);
     await page.getByTestId('doc-icon-search').fill('database');
     await expect(icons).toHaveCount(1);

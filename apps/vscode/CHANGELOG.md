@@ -11,6 +11,6 @@ First public preview.
 - Automatic layout from edges and groups, with crossing reduction
 - Live preview with step playback, pause, and speed control
 - Self-contained HTML export, and extracting the DSL back from an exported file
-- 35 built-in icons
+- 38 built-in icons
 - AI prompt template for writing `.dav` files
 - Japanese and English UI, following the VS Code display language

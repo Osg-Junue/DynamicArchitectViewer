@@ -88,8 +88,8 @@ node db_pri "Primary DB" [icon: database, sub: "Aurora Writer", badge: "WRITER",
 ```
 
 - **属性**:
-  - `icon`: 下記 35 種の組み込みアイコン名（省略時: `server`、大文字小文字は区別しない）
-    - インフラ・ロジック系 (23種): `server`, `container`, `function`, `database`, `cache`, `queue`, `storage`, `lb`, `firewall`, `cdn`, `cloud`, `router`, `external`, `auth`, `ai`, `mail`, `monitor`, `schedule`, `search`, `logic`, `webhook`, `payment`, `key`
+  - `icon`: 下記 38 種の組み込みアイコン名（省略時: `server`、大文字小文字は区別しない）
+    - インフラ・ロジック系 (26種): `server`, `container`, `function`, `runtime`, `database`, `cache`, `queue`, `storage`, `lb`, `firewall`, `cdn`, `cloud`, `building`, `router`, `external`, `auth`, `ai`, `api`, `mail`, `monitor`, `schedule`, `search`, `logic`, `webhook`, `payment`, `key`
     - 画面・アクター・ドキュメント系 (12種): `screen`, `modal`, `browser`, `mobile`, `terminal`, `device`, `chat`, `sheet`, `file`, `user`, `users`, `bot`
   - `sub`: `<string>`（ノード下部の補足ラベル）
   - `badge`: `<string>`（駅の上に表示されるバッジ）
@@ -156,7 +156,7 @@ step "Primary DB障害発生と自動フェイルオーバー" {
 | `invalid-attribute-value` | Error | 属性値の型または列挙値が不正 |
 | `attribute-not-applicable` | Warning | `state` の対象種別に適用できない属性を指定した |
 | `empty-state` | Warning | `state` の属性ブロックが空 `[]` |
-| `unknown-icon` | Error | 35種以外のアイコン名を指定した（最近傍候補をサジェスト） |
+| `unknown-icon` | Error | 38種以外のアイコン名を指定した（最近傍候補をサジェスト） |
 | `invalid-color` | Error | 定義済みの色名以外の色指定（16 進カラーコードを含む。色名のタイプミスには最も近い色名をサジェスト） |
 | `invalid-animate-arrow` | Error | `animate` に点線の矢印を指定した |
 | `invalid-self-arrow` | Error | 自己ループに双方向の矢印を指定した |
