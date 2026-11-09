@@ -91,17 +91,74 @@ function computeColumnLayout(doc: DavDocument): Layout {
     doc.nodes.map((n) => n.id),
     doc.edges.map((e) => [e.from, e.to] as const),
   );
+  const frames = measureFrameEdges(doc, ranks.rank, emptyGroups);
 
   const place = (guide?: SweepGuide): Layout => {
     const nodes = rectRecord();
     const placeholders = rectRecord();
     if (doc.nodes.length > 0 || emptyGroups.size > 0) {
-      placeAuto(doc, emptyGroups, ranks, sizes, nodes, placeholders, loopRoom, guide);
+      placeAuto(doc, emptyGroups, ranks, sizes, nodes, placeholders, loopRoom, frames, guide);
     }
-    return { nodes, groups: computeGroupRects(doc, nodes, placeholders, loopRoom) };
+    return { nodes, groups: computeGroupRects(doc, nodes, placeholders, loopRoom, frames) };
   };
 
   return refineOrder(doc, ranks.rank, place);
+}
+
+interface FrameEdges {
+  /** Columns that some zone's frame ends at, or starts at. */
+  endsAt: ReadonlySet<number>;
+  startsAt: ReadonlySet<number>;
+  /** Sideways padding of each frame. */
+  pads: ReadonlyMap<string, { left: number; right: number }>;
+}
+
+/**
+ * Finds where zone frames meet the gaps between columns. Frames nested along one edge share
+ * that edge's padding, so that the room they take does not grow with the nesting.
+ */
+function measureFrameEdges(
+  doc: DavDocument,
+  rank: ReadonlyMap<string, number>,
+  emptyGroups: ReadonlySet<string>,
+): FrameEdges {
+  type Span = { min: number; max: number; left: number; right: number };
+  const spans = new Map<string, Span>();
+  const endsAt = new Set<number>();
+  const startsAt = new Set<number>();
+  // Children come after their parents in the document, so this goes from the inside out.
+  for (const g of [...doc.groups].reverse()) {
+    const inner = doc.groups.flatMap((c) => (c.parentId === g.id ? (spans.get(c.id) ?? []) : []));
+    const columns = [
+      ...doc.nodes.filter((n) => n.parentId === g.id).map((n) => rank.get(n.id) ?? 0),
+      ...(emptyGroups.has(g.id) ? [0] : []),
+      ...inner.flatMap((c) => [c.min, c.max]),
+    ];
+    if (columns.length === 0) continue;
+    const min = Math.min(...columns);
+    const max = Math.max(...columns);
+    spans.set(g.id, {
+      min,
+      max,
+      left: 1 + Math.max(0, ...inner.filter((c) => c.min === min).map((c) => c.left)),
+      right: 1 + Math.max(0, ...inner.filter((c) => c.max === max).map((c) => c.right)),
+    });
+    startsAt.add(min);
+    endsAt.add(max);
+  }
+
+  const pads = new Map<string, { left: number; right: number }>();
+  for (const g of doc.groups) {
+    const span = spans.get(g.id);
+    if (!span) continue;
+    const parent = g.parentId === undefined ? undefined : spans.get(g.parentId);
+    const parentPads = g.parentId === undefined ? undefined : pads.get(g.parentId);
+    pads.set(g.id, {
+      left: parent?.min === span.min && parentPads ? parentPads.left : GROUP_PADDING / span.left,
+      right: parent?.max === span.max && parentPads ? parentPads.right : GROUP_PADDING / span.right,
+    });
+  }
+  return { endsAt, startsAt, pads };
 }
 
 /** Directs a placement by the positions of the previous one. */
@@ -247,6 +304,7 @@ function placeAuto(
   out: Record<string, Rect>,
   placeholders: Record<string, Rect>,
   loopRoom: ReadonlyMap<string, number>,
+  frames: FrameEdges,
   guide?: SweepGuide,
 ): void {
   const needsLayout = (cluster: Cluster): boolean =>
@@ -283,7 +341,12 @@ function placeAuto(
   };
   const maxDepth = Math.max(0, ...doc.groups.map((g) => depthOf(g.id)));
   const inset = maxDepth * GROUP_PADDING;
-  const groupClearance = maxDepth * GROUP_PADDING * 2;
+
+  // A gap only needs room for the zone edges inside it, however deeply those zones are nested.
+  const clearanceAfter = (rank: number) =>
+    (frames.endsAt.has(rank) ? GROUP_PADDING : 0) +
+    (frames.startsAt.has(rank + 1) ? GROUP_PADDING : 0);
+
   // A labeled edge between adjacent columns needs room for its whole label.
   const labelGap = new Map<number, number>();
   for (const e of doc.edges) {
@@ -299,7 +362,7 @@ function placeAuto(
     columnX.push(x);
     // A label may use the whole rail, which also runs under the width of both nodes' labels.
     const needed = (labelGap.get(rank) ?? 0) - (NODE_SIZE.width - STATION_SIZE);
-    x += w + Math.max(COLUMN_GAP, needed) + groupClearance;
+    x += w + Math.max(COLUMN_GAP, needed) + clearanceAfter(rank);
   });
 
   const collectColumns = (cluster: Cluster): number[] => {
@@ -437,6 +500,7 @@ function computeGroupRects(
   nodes: Record<string, Rect>,
   placeholders: Record<string, Rect>,
   loopRoom: ReadonlyMap<string, number>,
+  frames: FrameEdges,
 ): Record<string, Rect> {
   const groups = rectRecord();
   const childrenOf = new Map<string, string[]>();
@@ -469,9 +533,11 @@ function computeGroupRects(
     if (childRects.length === 0) {
       rect = { ...ORIGIN, width: 240, height: 140 };
     } else {
-      const minX = Math.min(...childRects.map((r) => r.x)) - GROUP_PADDING;
+      const pad = frames.pads.get(groupId);
+      const minX = Math.min(...childRects.map((r) => r.x)) - (pad?.left ?? GROUP_PADDING);
       const minY = Math.min(...childRects.map((r) => r.y)) - GROUP_PADDING - GROUP_HEADER;
-      const maxX = Math.max(...childRects.map((r) => r.x + r.width)) + GROUP_PADDING;
+      const maxX =
+        Math.max(...childRects.map((r) => r.x + r.width)) + (pad?.right ?? GROUP_PADDING);
       const maxY = Math.max(...childRects.map((r) => r.y + r.height)) + GROUP_PADDING;
       rect = {
         x: minX,

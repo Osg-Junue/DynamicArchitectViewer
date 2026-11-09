@@ -141,7 +141,7 @@ This section is for changing the layout code in [`layout/index.ts`](../apps/vsco
 ### Columns
 
 - Rank is the longest path. Cycles are broken by ignoring back edges of a depth-first search in declaration order. Self-loops are ignored.
-- The gap between columns is `max(36, needed - 132) + depth * 32`, where `depth` is the deepest group nesting. `needed` is `min(180, label width) + 32` for the widest label between those columns. The 132 is the node width (176) minus the station width (44), since a label can use the space beside the stations.
+- The gap between columns is `max(36, needed - 132) + 16 * edges`, where `edges` is 1 if some group frame ends at the left column, plus 1 if some frame starts at the right one. Frames nested along one edge share its 16 of padding, so the gap does not depend on the nesting. `needed` is `min(180, label width) + 32` for the widest label between those columns. The 132 is the node width (176) minus the station width (44), since a label can use the space beside the stations.
 - The left and top margins are `40 + depth * 16`.
 
 ### Rows
