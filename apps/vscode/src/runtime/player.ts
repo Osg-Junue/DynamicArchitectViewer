@@ -8,7 +8,6 @@ import {
   buildScene,
   calloutRect,
   computePacketCalloutBox,
-  estimateTextWidth,
   flowColors,
   type IconShapes,
   type Packet,
@@ -19,6 +18,7 @@ import {
   paint,
   type ResolvedView,
   resolveView,
+  ZONE_LABEL,
   type ZoneMove,
   zoneColor,
   zoneMoves,
@@ -69,20 +69,10 @@ const MIN_ZONE_FRAME_ZOOM = 0.6;
 const MAX_CALM_ZOOM = 1.25;
 /** How close to the screen's edge a moving packet may get before the camera follows. */
 const CALM_EDGE_MARGIN = 40;
-/** A zone name's size in the diagram, so that it grows and shrinks with everything else. */
-const ZONE_LABEL_SIZE = 12;
-/** Zoomed far out, a name grows a little to stay readable, up to these limits. */
-const ZONE_LABEL_MIN_ON_SCREEN = 9;
-const ZONE_LABEL_MAX_SIZE = 28;
-const ZONE_LABEL_INSET = 14;
-
 interface ZoneLabel {
   el: SVGTextElement;
   rect: Rect;
-  /** Width of the name at a font size of 1. */
-  em: number;
-  /** What was last written, to skip writes that change nothing on every camera frame. */
-  font: string;
+  /** What was last written, to skip a write that changes nothing on every camera frame. */
   hidden: boolean;
 }
 
@@ -852,8 +842,7 @@ export class Player {
       const rect = rects.get(holder?.getAttribute('data-id') ?? '');
       if (!holder || !rect) return [];
       this.#zoneLabelLayer.append(holder);
-      const em = estimateTextWidth(label.textContent ?? '', 1);
-      return [{ el: label, rect, em, font: '', hidden: false }];
+      return [{ el: label, rect, hidden: false }];
     });
     this.#updateCameraOverlays();
   }
@@ -892,7 +881,6 @@ export class Player {
   #updateCameraOverlays(): void {
     const world = this.#visibleWorld({ zoom: this.#zoom, panX: this.#panX, panY: this.#panY });
     if (!world) return;
-    const unit = 1 / this.#zoom;
     for (const label of this.#zoneLabels) {
       const { el, rect } = label;
       const left = Math.max(rect.x, world.x);
@@ -906,19 +894,11 @@ export class Player {
         else el.removeAttribute('visibility');
       }
       if (hidden) continue;
-      const fits = (rect.width - ZONE_LABEL_INSET * 2) / label.em;
-      const size = Math.max(
-        ZONE_LABEL_SIZE,
-        Math.min(ZONE_LABEL_MIN_ON_SCREEN * unit, ZONE_LABEL_MAX_SIZE, fits),
+      el.setAttribute('x', (left + ZONE_LABEL.inset).toFixed(1));
+      el.setAttribute(
+        'y',
+        Math.min(top + ZONE_LABEL.baseline, rect.y + rect.height - 6).toFixed(1),
       );
-      const font = size.toFixed(2);
-      if (font !== label.font) {
-        label.font = font;
-        el.setAttribute('font-size', font);
-        el.style.setProperty('stroke-width', `${(size / 4).toFixed(2)}px`);
-      }
-      el.setAttribute('x', (left + (size * ZONE_LABEL_INSET) / ZONE_LABEL_SIZE).toFixed(1));
-      el.setAttribute('y', Math.min(top + size * 1.6, rect.y + rect.height - size / 3).toFixed(1));
     }
     this.#minimap.setCamera(world);
   }

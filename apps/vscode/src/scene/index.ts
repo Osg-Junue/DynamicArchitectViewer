@@ -9,6 +9,7 @@ export {
   paint,
   SCENE_PADDING,
   sceneBounds,
+  ZONE_LABEL,
 } from './build';
 export { calloutRect, computePacketCalloutBox, type PacketCalloutBox } from './callout';
 export { type Bezier, connect, type Point, pointAt, reverse, svgPath } from './geometry';

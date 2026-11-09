@@ -135,6 +135,9 @@ function groupElement(g: ResolvedGroup): VElement {
   );
 }
 
+/** Where a zone's name sits inside its zone; a part of the diagram, so it zooms with it. */
+export const ZONE_LABEL = { size: 18, inset: 14, baseline: 25, height: 26 } as const;
+
 /** A zone's name, in a layer above the rails so that no line can run over it. */
 function groupLabelElement(g: ResolvedGroup): VElement {
   const { x, y, width } = g.rect;
@@ -143,8 +146,14 @@ function groupLabelElement(g: ResolvedGroup): VElement {
     { class: dimClass('dav-group', g.dimmed), 'data-id': g.id },
     h(
       'text',
-      { x: x + 14, y: y + 19, class: 'dav-group-label', 'font-size': 12, fill: COLOR.fg },
-      fitText(g.label, 12, Math.max(40, width - 28)),
+      {
+        x: x + ZONE_LABEL.inset,
+        y: y + ZONE_LABEL.baseline,
+        class: 'dav-group-label',
+        'font-size': ZONE_LABEL.size,
+        fill: COLOR.fg,
+      },
+      fitText(g.label, ZONE_LABEL.size, Math.max(40, width - ZONE_LABEL.inset * 2)),
     ),
   );
 }
