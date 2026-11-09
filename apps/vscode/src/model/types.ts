@@ -18,6 +18,8 @@ export const ICON_NAMES = [
   'cloud',
   'building',
   'router',
+  'hub',
+  'wifi',
   'external',
   'auth',
   'ai',
@@ -33,9 +35,11 @@ export const ICON_NAMES = [
   'screen',
   'modal',
   'browser',
+  'desktop',
   'mobile',
   'terminal',
   'device',
+  'printer',
   'chat',
   'sheet',
   'file',
@@ -117,6 +121,8 @@ export interface Animation {
   label?: string;
   description?: string;
   color?: string;
+  /** What the packet carries; a plain dot when absent. */
+  icon?: IconName;
   parallel: boolean;
 }
 

@@ -27,6 +27,7 @@ apps/vscode/src/
 ├── scene/                       # DOM非依存のシーン解決・SVG仮想ノード構築
 │   ├── resolve.ts               # resolveView(doc, layout, stepIndex) → ResolvedView
 │   ├── geometry.ts              # ポート選択、3次ベジェ曲線、パケット座標補間
+│   ├── callout.ts               # パケットの吹き出しの配置、同じフェーズでの重なりの回避
 │   ├── build.ts                 # buildScene(view) / buildDefs() / buildPacket(packet) → VElement
 │   ├── icons.ts                 # 内蔵SVGアイコン定義（外部アセット不要）
 │   └── text.ts                  # ラベル折り返し・テキスト幅推定
@@ -90,6 +91,8 @@ apps/vscode/src/
   - キーボード操作（`ArrowLeft` / `ArrowRight` でステップ移動、`Space` で再生/一時停止、`Home` で全体ビュー）
 - **アニメーションフェーズ**:
   - 各ステップ内の `animate` 文を順番（直列フェーズ）または `parallel: true`（前フェーズと並列）で再生
+  - パケットは点で描き、`icon` を指定した `animate` はアイコン付きのチップで描く
+  - 同じフェーズの吹き出しが重なるときは、記述順に配置して、ぶつかるものだけを最小の距離で横にずらす（`separatePhaseCallouts`）
   - OSの `prefers-reduced-motion: reduce` 設定時はアニメーションを常にオフにする（ノードのクリックでフェーズのパケットを経路上に静止表示）
 - **キャンバスナビゲーション**:
   - ポインタドラッグによるパン、ホイールおよび `−` / `+` ボタンによるズーム、`Fit` ボタンによる全体フィット、再生中のパケットへの追従

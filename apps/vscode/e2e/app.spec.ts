@@ -3,6 +3,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { expect, type Page, test } from '@playwright/test';
 import { createServer } from 'vite';
+import { ICON_NAMES } from '../src/model/types';
 import { DEFAULT_SAMPLE } from '../src/samples';
 
 interface PostedMessage {
@@ -255,6 +256,24 @@ test.describe('webview preview', () => {
     expect(exportMsg).toBe(true);
   });
 
+  for (const [lang, nav, close] of [
+    ['ja', '診断メッセージ', '閉じる'],
+    ['en', 'Diagnostics', 'Close'],
+  ]) {
+    test(`shows the documentation in the display language: ${lang}`, async ({ page }) => {
+      // The extension host writes the VS Code display language into <html lang>.
+      await page.route(/\/$/, async (route) => {
+        const response = await route.fetch();
+        const body = (await response.text()).replace(/<html[^>]*>/, `<html lang="${lang}">`);
+        await route.fulfill({ response, body });
+      });
+      await openWebview(page);
+      await page.getByTestId('btn-open-help').click();
+      await expect(page.getByTestId('doc-nav-diagnostics')).toHaveText(nav as string);
+      await expect(page.getByTestId('help-close-btn')).toHaveText(close as string);
+    });
+  }
+
   test('opens the documentation and wraps cleanly on narrow viewports', async ({ page }) => {
     const errors = watchErrors(page);
     // The same restrictions the extension host puts on the webview.
@@ -307,14 +326,14 @@ test.describe('webview preview', () => {
     // All icons render, and the filter narrows them.
     await page.getByTestId('doc-nav-icons').click();
     const icons = page.getByTestId('doc-icon-catalog').locator('.doc-icon-card');
-    await expect(icons).toHaveCount(38);
+    await expect(icons).toHaveCount(ICON_NAMES.length);
     await expect(icons.first().locator('.dav-station')).toHaveCount(1);
     await page.getByTestId('doc-icon-search').fill('database');
     await expect(icons).toHaveCount(1);
 
     // Animation pages show the phases of the running step.
     await page.getByTestId('doc-nav-animate').click();
-    await expect(page.getByTestId('doc-figure')).toHaveCount(5);
+    await expect(page.getByTestId('doc-figure')).toHaveCount(6);
     await expect(page.getByTestId('doc-phase-strip').first().locator('.doc-phase')).toHaveCount(3);
     await expect(page.locator('.doc-phase.is-active').first()).toBeVisible();
 
@@ -326,10 +345,6 @@ test.describe('webview preview', () => {
 
     await page.getByTestId('doc-nav-diagnostics').click();
     await expect(page.getByTestId('doc-diagnostics').locator('tbody tr')).toHaveCount(19);
-
-    await page.getByTestId('doc-locale-ja').click();
-    await expect(page.getByTestId('doc-nav-diagnostics')).toHaveText('診断メッセージ');
-    await page.getByTestId('doc-locale-en').click();
 
     await page.getByTestId('doc-nav-prompt').click();
     await expect(page.getByTestId('ai-prompt-textarea')).toHaveValue(/dav 1/);

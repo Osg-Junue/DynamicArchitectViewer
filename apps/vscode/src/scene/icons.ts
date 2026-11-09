@@ -88,6 +88,23 @@ export const ICON_SHAPES: Record<IconName, readonly Shape[]> = {
     ['path', { d: 'M12 13V4' }],
     ['polyline', { points: '9 7 12 4 15 7' }],
   ],
+  hub: [
+    ['circle', { cx: 12, cy: 12, r: 3 }],
+    ['circle', { cx: 4.5, cy: 4.5, r: 2 }],
+    ['circle', { cx: 19.5, cy: 4.5, r: 2 }],
+    ['circle', { cx: 4.5, cy: 19.5, r: 2 }],
+    ['circle', { cx: 19.5, cy: 19.5, r: 2 }],
+    ['line', { x1: 6, y1: 6, x2: 9.9, y2: 9.9 }],
+    ['line', { x1: 18, y1: 6, x2: 14.1, y2: 9.9 }],
+    ['line', { x1: 6, y1: 18, x2: 9.9, y2: 14.1 }],
+    ['line', { x1: 18, y1: 18, x2: 14.1, y2: 14.1 }],
+  ],
+  wifi: [
+    ['path', { d: 'M2 8.82a15 15 0 0 1 20 0' }],
+    ['path', { d: 'M5 12.86a10 10 0 0 1 14 0' }],
+    ['path', { d: 'M8.5 16.43a5 5 0 0 1 7 0' }],
+    ['line', { x1: 12, y1: 20, x2: 12.01, y2: 20 }],
+  ],
   external: [
     ['path', { d: 'M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6' }],
     ['polyline', { points: '15 3 21 3 21 9' }],
@@ -174,6 +191,11 @@ export const ICON_SHAPES: Record<IconName, readonly Shape[]> = {
     ['line', { x1: 10, y1: 5.5, x2: 10.01, y2: 5.5 }],
     ['polygon', { points: '13 13 22 16.5 18 18 16.5 22 13 13' }],
   ],
+  desktop: [
+    ['rect', { x: 2, y: 3, width: 20, height: 14, rx: 2 }],
+    ['line', { x1: 8, y1: 21, x2: 16, y2: 21 }],
+    ['line', { x1: 12, y1: 17, x2: 12, y2: 21 }],
+  ],
   mobile: [
     ['rect', { x: 6, y: 2, width: 12, height: 20, rx: 2 }],
     ['line', { x1: 12, y1: 18, x2: 12.01, y2: 18 }],
@@ -194,6 +216,11 @@ export const ICON_SHAPES: Record<IconName, readonly Shape[]> = {
     ['line', { x1: 2, y1: 15, x2: 6, y2: 15 }],
     ['line', { x1: 18, y1: 9, x2: 22, y2: 9 }],
     ['line', { x1: 18, y1: 15, x2: 22, y2: 15 }],
+  ],
+  printer: [
+    ['path', { d: 'M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2' }],
+    ['path', { d: 'M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6' }],
+    ['rect', { x: 6, y: 14, width: 12, height: 8, rx: 1 }],
   ],
   chat: [
     ['path', { d: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' }],

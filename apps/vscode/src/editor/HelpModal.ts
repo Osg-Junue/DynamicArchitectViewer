@@ -1,17 +1,13 @@
 import { clear, html } from '../runtime/dom';
-import { detectLocale, type ViewerLocale } from '../runtime/i18n';
+import { detectLocale } from '../runtime/i18n';
 import type { Translate } from './docs/figures';
 import { DOC_GROUPS, DOC_PAGES, type DocContext, rich } from './docs/pages';
-
-const LOCALE_LABELS: ReadonlyArray<readonly [ViewerLocale, string]> = [
-  ['ja', '日本語'],
-  ['en', 'English'],
-];
 
 /** The viewer's documentation: a page per topic, with live examples on the active page only. */
 export class HelpModal {
   readonly element: HTMLDialogElement;
-  private locale: ViewerLocale = detectLocale();
+  /** Follows the VS Code display language, like the rest of the UI. */
+  private readonly locale = detectLocale();
   private currentDsl = '';
   private pageId: string = DOC_PAGES[0]?.id ?? '';
   private readonly promptState = { includeCurrent: false };
@@ -20,7 +16,6 @@ export class HelpModal {
   private readonly contentEl: HTMLElement;
   private readonly titleEl: HTMLElement;
   private readonly closeBtn: HTMLButtonElement;
-  private readonly localeButtons = new Map<ViewerLocale, HTMLButtonElement>();
 
   constructor() {
     this.titleEl = html('span', { class: 'doc-title' });
@@ -33,34 +28,10 @@ export class HelpModal {
     });
     this.closeBtn.addEventListener('click', () => this.close());
 
-    const localeSwitch = html('div', {
-      class: 'doc-locale',
-      role: 'group',
-      'aria-label': 'Language',
-    });
-    for (const [locale, label] of LOCALE_LABELS) {
-      const button = html(
-        'button',
-        { type: 'button', class: 'doc-locale-btn', 'data-testid': `doc-locale-${locale}` },
-        label,
-      );
-      button.addEventListener('click', () => {
-        this.locale = locale;
-        this.render();
-      });
-      this.localeButtons.set(locale, button);
-      localeSwitch.append(button);
-    }
-
     this.element = html(
       'dialog',
       { class: 'doc-dialog', 'data-testid': 'help-dialog' },
-      html(
-        'header',
-        { class: 'doc-header' },
-        this.titleEl,
-        html('div', { class: 'doc-header-tools' }, localeSwitch, this.closeBtn),
-      ),
+      html('header', { class: 'doc-header' }, this.titleEl, this.closeBtn),
       html('div', { class: 'doc-layout' }, this.navEl, this.contentEl),
     );
 
@@ -114,10 +85,6 @@ export class HelpModal {
     this.element.setAttribute('aria-label', this.titleEl.textContent);
     this.element.lang = this.locale;
     this.closeBtn.textContent = t('閉じる', 'Close');
-    for (const [locale, button] of this.localeButtons) {
-      button.classList.toggle('active', locale === this.locale);
-      button.setAttribute('aria-pressed', String(locale === this.locale));
-    }
     this.renderNav();
 
     const page = DOC_PAGES.find((candidate) => candidate.id === this.pageId);

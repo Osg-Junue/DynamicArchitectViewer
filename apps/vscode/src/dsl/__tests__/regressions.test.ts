@@ -1,5 +1,8 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { computeLayout } from '../../layout';
+import { ICON_NAMES } from '../../model/types';
 import { computeCompletions, parse } from '../index';
 
 const labels = (text: string) =>
@@ -120,7 +123,7 @@ describe('icon values', () => {
     const res = computeCompletions('dav 1\nnode a [icon: ', 20, true);
     const sheetItem = res?.items.find((i) => i.label === 'sheet');
     expect(sheetItem?.detail).toContain('Spreadsheet');
-    expect(res?.items).toHaveLength(38);
+    expect(res?.items).toHaveLength(ICON_NAMES.length);
   });
 
   it.each([
@@ -134,6 +137,31 @@ describe('icon values', () => {
     const details = [...(top?.items ?? []), ...(icons?.items ?? [])].map((i) => i.detail ?? '');
     const japanese = /[぀-ヿ一-鿿]/;
     if (locale === 'en') expect(details.filter((d) => japanese.test(d))).toEqual([]);
+  });
+
+  it('highlights exactly the built-in icons', () => {
+    const grammar = readFileSync(
+      resolve(__dirname, '../../../syntaxes/dav.tmLanguage.json'),
+      'utf8',
+    );
+    expect(/\(\?i:(server[^)]*)\)/.exec(grammar)?.[1]?.split('|')).toEqual([...ICON_NAMES]);
+  });
+
+  it('accepts an icon on animate and leaves it unset by default', () => {
+    const { document, diagnostics } = parse(
+      'dav 1\nnode a\nnode b\na --> b\nstep "s" {\n  animate a --> b [icon: KEY]\n  animate a --> b\n}',
+    );
+    expect(diagnostics).toEqual([]);
+    expect(document.steps[0]?.animations[0]?.icon).toBe('key');
+    expect(document.steps[0]?.animations[1]).not.toHaveProperty('icon');
+  });
+
+  it('rejects an unknown icon on animate and suggests the closest name', () => {
+    const [diagnostic] = parse(
+      'dav 1\nnode a\nnode b\na --> b\nstep "s" {\n  animate a --> b [icon: mial]\n}',
+    ).diagnostics;
+    expect(diagnostic?.code).toBe('unknown-icon');
+    expect(diagnostic?.args.suggestion).toBe('mail');
   });
 
   it('does not falsely suggest 2-char icons for unrelated short words', () => {
@@ -199,7 +227,12 @@ describe('computeCompletions context', () => {
     expect(labels('step "s" {\n  animate a --> b [')?.sort()).toEqual([
       'color',
       'desc',
+      'icon',
       'parallel',
     ]);
+  });
+
+  it('completes icon names inside animate attributes', () => {
+    expect(labels('step "s" {\n  animate a --> b [icon: ')).toContain('mail');
   });
 });

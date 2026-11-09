@@ -75,7 +75,7 @@
           }
         },
         {
-          "match": "\\b(icon)\\s*(:)\\s*((?i:server|container|function|runtime|database|cache|queue|storage|lb|firewall|cdn|cloud|building|router|external|auth|ai|api|mail|monitor|schedule|search|logic|webhook|payment|key|screen|modal|browser|mobile|terminal|device|chat|sheet|file|user|users|bot))\\b",
+          "match": "\\b(icon)\\s*(:)\\s*((?i:server|container|function|runtime|database|cache|queue|storage|lb|firewall|cdn|cloud|building|router|hub|wifi|external|auth|ai|api|mail|monitor|schedule|search|logic|webhook|payment|key|screen|modal|browser|desktop|mobile|terminal|device|printer|chat|sheet|file|user|users|bot))\\b",
           "captures": {
             "1": { "name": "variable.other.property.dav" },
             "2": { "name": "punctuation.separator.key-value.dav" },

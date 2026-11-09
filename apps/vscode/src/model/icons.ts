@@ -35,6 +35,11 @@ export const ICON_META: Record<IconName, IconMeta> = {
     description: ['拠点 / オンプレミス / データセンター', 'Site, on-premises or data center'],
   },
   router: { category: 'infra', description: ['ルーター / ゲートウェイ', 'Router or gateway'] },
+  hub: { category: 'infra', description: ['ハブ / L2スイッチ', 'Hub or network switch'] },
+  wifi: {
+    category: 'infra',
+    description: ['無線LAN / アクセスポイント', 'Wi-Fi or wireless access point'],
+  },
   external: { category: 'infra', description: ['外部システム', 'External system'] },
   auth: {
     category: 'infra',
@@ -83,6 +88,7 @@ export const ICON_META: Record<IconName, IconMeta> = {
     description: ['モーダル（ウィンドウ形）', 'Modal (window shape)'],
   },
   browser: { category: 'screen', description: ['ブラウザ', 'Web browser'] },
+  desktop: { category: 'screen', description: ['PC / デスクトップ端末', 'PC or desktop computer'] },
   mobile: { category: 'screen', description: ['モバイル端末', 'Mobile device'] },
   terminal: {
     category: 'screen',
@@ -91,6 +97,10 @@ export const ICON_META: Record<IconName, IconMeta> = {
   device: {
     category: 'screen',
     description: ['IoT / 専用端末 / ハードウェア', 'IoT device, sensor or hardware'],
+  },
+  printer: {
+    category: 'screen',
+    description: ['プリンター / 複合機', 'Printer or multifunction device'],
   },
   chat: {
     category: 'screen',

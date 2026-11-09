@@ -328,9 +328,9 @@ worker ..> dlq : "隔離" [id: e_dlq, visible: false, color: red]
 step "注文の受付と流量制御" {
   desc "Gatewayは自身のレート制限カウンタを確認してから、注文をOrder Serviceへ転送します。"
   state gw [badge: "98 req/s"]
-  animate client --> gw : "POST /orders" [desc: "購入者が注文を送信"]
+  animate client --> gw : "POST /orders" [icon: file, desc: "購入者が注文を送信"]
   animate gw --> gw : "Rate Check" [color: teal, desc: "トークンバケットの残量を確認し、許可を判定"]
-  animate gw --> order : "CreateOrder" [desc: "認証済みの注文要求を転送"]
+  animate gw --> order : "CreateOrder" [icon: file, desc: "認証済みの注文要求を転送"]
 }
 
 step "注文の作成と在庫引当" {
@@ -338,7 +338,7 @@ step "注文の作成と在庫引当" {
   state gw [badge: ""]
   state order [badge: "PENDING", color: yellow]
   animate order --> order : "→ PENDING" [color: yellow, desc: "Sagaを開始し、注文の状態をPENDINGへ遷移"]
-  animate order --> stock : "Reserve" [desc: "商品ごとの在庫を仮引当"]
+  animate order --> stock : "Reserve" [icon: database, desc: "商品ごとの在庫を仮引当"]
   animate stock --> order : "Reserved" [color: green, desc: "全商品の仮引当が成功"]
 }
 
@@ -346,8 +346,8 @@ step "決済の一時障害" {
   desc "決済代行が503を返しました。Payment Serviceは失敗を確定せず、再試行に切り替えます。"
   state stock [badge: "HOLD", color: green]
   state psp [badge: "503", color: red]
-  animate order --> payment : "Charge" [desc: "仮引当の完了後に決済を依頼"]
-  animate payment --> psp : "Authorize" [desc: "決済代行へオーソリを要求"]
+  animate order --> payment : "Charge" [icon: payment, desc: "仮引当の完了後に決済を依頼"]
+  animate payment --> psp : "Authorize" [icon: payment, desc: "決済代行へオーソリを要求"]
   animate psp --> payment : "503" [color: red, desc: "一時的なサービス障害を応答"]
 }
 
@@ -355,7 +355,7 @@ step "バックオフ再試行：1回目" {
   desc "1秒待ってから、同じ冪等キーで再送します。障害はまだ続いています。"
   state payment [badge: "RETRY 1", color: orange]
   animate payment --> payment : "Wait 1s" [color: orange, desc: "1回目の再試行まで待機"]
-  animate payment --> psp : "Retry #1" [desc: "同じ冪等キーで再送"]
+  animate payment --> psp : "Retry #1" [icon: payment, desc: "同じ冪等キーで再送"]
   animate psp --> payment : "503" [color: red, desc: "障害が継続"]
 }
 
@@ -364,7 +364,7 @@ step "バックオフ再試行：2回目" {
   state payment [badge: "RETRY 2"]
   state psp [badge: "200", color: green]
   animate payment --> payment : "Wait 2s" [color: orange, desc: "待機時間を倍にして再試行を準備"]
-  animate payment --> psp : "Retry #2" [desc: "同じ冪等キーで再送"]
+  animate payment --> psp : "Retry #2" [icon: payment, desc: "同じ冪等キーで再送"]
   animate psp --> payment : "200 OK" [color: green, desc: "オーソリが成功"]
 }
 
@@ -376,7 +376,7 @@ step "注文の確定と応答" {
   animate payment --> order : "Charged" [color: green, desc: "決済完了を通知"]
   animate order --> order : "→ CONFIRMED" [color: green, desc: "注文の状態をCONFIRMEDへ遷移"]
   animate order --> gw : "201 Created" [desc: "作成済みの注文を返却"]
-  animate order --> queue : "OrderConfirmed" [parallel: true, color: purple, desc: "出荷処理用のイベントを発行"]
+  animate order --> queue : "OrderConfirmed" [icon: mail, parallel: true, color: purple, desc: "出荷処理用のイベントを発行"]
   animate gw --> client : "201 Created" [desc: "購入者へ注文完了を応答"]
 }
 
@@ -384,7 +384,7 @@ step "非同期の出荷処理" {
   desc "Workerはキューからイベントを受け取り、倉庫APIの失敗に備えて自身で再試行します。"
   state queue [badge: "1 msg"]
   state worker [badge: "RUNNING", color: orange]
-  animate queue --> worker : "Deliver" [color: purple, desc: "イベントをWorkerへ配信"]
+  animate queue --> worker : "Deliver" [icon: mail, color: purple, desc: "イベントをWorkerへ配信"]
   animate worker --> worker : "Attempt 1..3" [color: orange, desc: "倉庫APIの呼び出しを最大3回試行"]
 }
 
@@ -394,7 +394,130 @@ step "再試行の上限と隔離" {
   state worker [badge: "FAILED", color: red]
   state dlq [visible: true, badge: "1 msg", color: red]
   state e_dlq [visible: true]
-  animate worker --> dlq : "Quarantine" [color: red, desc: "失敗したイベントを隔離して調査待ちにする"]
+  animate worker --> dlq : "Quarantine" [icon: mail, color: red, desc: "失敗したイベントを隔離して調査待ちにする"]
+}
+`,
+  },
+  {
+    id: 'lan-office-network',
+    name: '社内LAN：本社と支店の拠点間VPNと回線切替',
+    category: 'infra',
+    description:
+      'スイッチ・無線AP・複合機・ファイルサーバーの社内通信、拠点間VPN、回線障害とLTE切替のステップ',
+    dsl: `dav 1
+title "社内LAN：本社と支店の拠点間VPNと回線切替"
+
+group office "本社 LAN (192.168.10.0/24)" {
+  node pc "業務PC" [icon: desktop, sub: "有線 / VLAN 10"]
+  node tablet "タブレット" [icon: mobile, sub: "社内Wi-Fi"]
+  node ap "無線AP" [icon: wifi, sub: "SSID: corp-wifi"]
+  node floor "フロアスイッチ" [icon: hub, sub: "PoE 24ポート"]
+  node printer "複合機" [icon: printer, sub: "192.168.10.50"]
+  node core "コアスイッチ" [icon: hub, sub: "VLAN 10 / 20"]
+  node nas "ファイルサーバー" [icon: storage, sub: "NAS / RAID 6"]
+  node utm "UTM" [icon: firewall, sub: "192.168.10.1"]
+}
+
+node wan "インターネットVPN" [icon: cloud, sub: "IPsec"]
+node lte "LTEルーター" [icon: router, sub: "バックアップ回線", visible: false]
+node dc "データセンター" [icon: building, sub: "遠隔バックアップ"]
+
+group branch "大阪支店 (192.168.20.0/24)" {
+  node branch_gw "支店ルーター" [icon: router, sub: "VPN終端"]
+  node branch_pc "支店PC" [icon: desktop, sub: "有線"]
+}
+
+pc <-> floor : "1GbE"
+tablet <.> ap : "Wi-Fi 6"
+ap <-> floor : "PoE"
+floor <-> printer : "IPP"
+floor <-> core : "Uplink"
+core <-> nas : "10GbE"
+core <-> utm : "Default GW"
+utm <-> wan : "光回線" [id: e_main]
+utm <.> lte : "切替" [id: e_lte_up, visible: false, color: yellow]
+lte <.> wan : "モバイル回線" [id: e_lte_wan, visible: false, color: yellow]
+wan --> dc : "Backup"
+wan <-> branch_gw : "IPsec"
+branch_gw <-> branch_pc : "LAN"
+
+step "有線PCから複合機へ印刷" {
+  desc "同じフロアの通信はフロアスイッチの中で完結し、上位のコアスイッチやUTMには流れません。"
+  focus pc, floor, printer
+  state printer [color: green, badge: "PRINT"]
+  animate pc --> floor : "Print Job" [desc: "業務PCから印刷データをフロアスイッチへ送信"]
+  animate floor --> printer : "IPP" [desc: "スイッチが宛先MACアドレスを見て、複合機のポートだけに転送"]
+}
+
+step "無線端末からファイルサーバーへアクセス" {
+  desc "タブレットは無線APからフロアスイッチ、コアスイッチを経由してファイルサーバーへ接続します。"
+  focus tablet, ap, floor, core, nas
+  state printer [color: none, badge: ""]
+  state nas [color: green, badge: "SMB"]
+  animate tablet --> ap : "WPA3" [desc: "社内SSIDへ接続し、暗号化された無線で通信"]
+  animate ap --> floor : "Bridge" [desc: "無線フレームを有線LANへブリッジ"]
+  animate floor --> core : "VLAN 10" [desc: "タグ付きのフレームをコアスイッチへ転送"]
+  animate core <-> nas : "SMB Read" [desc: "VLAN間をルーティングしてファイルサーバーのデータを読み出す"]
+}
+
+step "支店から本社のファイルサーバーへ接続" {
+  desc "支店のPCは拠点間VPNを通して、本社のLANにあるファイルサーバーを利用します。"
+  focus branch_pc, branch_gw, wan, utm, core, nas
+  animate branch_pc --> branch_gw : "SMB" [desc: "本社宛てのパケットを支店ルーターへ送信"]
+  animate branch_gw --> wan : "ESP" [desc: "IPsecで暗号化してインターネットへ送出"]
+  animate wan --> utm : "ESP" [desc: "本社のUTMがVPNトンネルを終端して復号"]
+  animate utm --> core : "Inspected" [desc: "ポリシーで許可された通信だけを社内へ転送"]
+  animate core <-> nas : "SMB Read" [desc: "ファイルサーバーの応答を同じ経路で支店へ返す"]
+}
+
+step "データセンターへ夜間バックアップ" {
+  desc "夜間にファイルサーバーの差分データを、VPN経由でデータセンターへ転送します。"
+  focus nas, core, utm, wan, dc
+  state nas [color: blue, badge: "BACKUP"]
+  state dc [color: blue, badge: "SYNC"]
+  animate nas --> core : "Snapshot" [desc: "当日分の差分スナップショットを送出"]
+  animate core --> utm : "Backup VLAN" [desc: "バックアップ用VLANでUTMへ転送"]
+  animate utm --> wan : "ESP" [desc: "暗号化してデータセンターへ向けて送出"]
+  animate wan --> dc : "Replicate" [desc: "遠隔地のストレージへ複製"]
+}
+
+step "光回線の障害でVPNが切断" {
+  desc "主回線の障害をUTMが検知します。支店とデータセンターへの通信が止まり、社内LANの通信だけが継続します。"
+  focus utm, wan, branch_gw, dc
+  state nas [color: none, badge: ""]
+  state dc [color: red, badge: "UNREACHABLE"]
+  state e_main [color: red]
+  state utm [color: red, badge: "WAN DOWN"]
+  state branch_gw [color: red, badge: "VPN断"]
+  animate utm --> wan : "Keepalive" [color: red, desc: "死活監視の応答が途絶え、主回線の断を検知"]
+}
+
+step "LTE回線へ自動切替" {
+  desc "UTMがLTEルーターへ経路を切り替えてVPNを再確立します。帯域が狭いためバックアップは止めたままにします。"
+  focus utm, lte, wan, branch_gw
+  state lte [visible: true, color: yellow, badge: "ACTIVE"]
+  state e_lte_up [visible: true]
+  state e_lte_wan [visible: true]
+  state utm [color: yellow, badge: "FAILOVER"]
+  state branch_gw [color: green, badge: "VPN再接続"]
+  animate utm --> lte : "Route Change" [color: yellow, desc: "デフォルト経路をLTEルーター側へ切替"]
+  animate lte --> wan : "IKE" [color: yellow, desc: "モバイル回線でVPNのネゴシエーションをやり直す"]
+  animate wan --> branch_gw : "Tunnel Up" [color: yellow, desc: "支店ルーターとのVPNトンネルが再確立"]
+}
+
+step "光回線の復旧" {
+  desc "主回線が復旧すると経路を元に戻し、LTE回線は待機状態になります。止めていたバックアップも再開します。"
+  focus utm, wan, branch_gw, dc
+  state lte [visible: false, color: none, badge: ""]
+  state e_lte_up [visible: false]
+  state e_lte_wan [visible: false]
+  state e_main [color: none]
+  state utm [color: green, badge: "NORMAL"]
+  state branch_gw [color: none, badge: ""]
+  state dc [color: none, badge: ""]
+  animate utm --> wan : "Failback" [color: green, desc: "主回線の疎通を確認して経路を戻す"]
+  animate wan --> branch_gw : "Tunnel Up" [desc: "光回線経由のVPNトンネルへ切り戻し"]
+  animate wan --> dc : "Resume" [desc: "止めていた差分バックアップを再開", parallel: true]
 }
 `,
   },

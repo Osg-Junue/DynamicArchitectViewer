@@ -16,7 +16,7 @@ apps/vscode/
 ├── syntaxes/
 │   └── dav.tmLanguage.json      # TextMate シンタックスハイライト定義
 └── src/
-    ├── model/                   # AST 型・内蔵アイコンカタログ (38種)
+    ├── model/                   # AST 型・内蔵アイコンカタログ
     ├── dsl/                     # Lezer パーサー・検証・補完計算・フォーマッタ
     ├── layout/                  # トポロジ & グループ階層からの 100% 自動レイアウト
     ├── scene/                   # ステップ状態解決・幾何計算・DOM非依存シーン構築
@@ -37,7 +37,7 @@ apps/vscode/
 2. **Quick Fix (`CodeActionProvider`)**:
    - アイコン名や色名のタイポ等で `d.args.suggestion` が存在する場合、`Ctrl+.`（`⌘.`）で1クリック修正アクションを提供します。
 3. **コンテキスト認識補完 (`CompletionItemProvider`)**:
-   - `computeCompletions(text, offset, true)` により、定義済みノード/グループ ID、キーワード、属性名、アイコン名（38種）、色名（9種）を補完します。
+   - `computeCompletions(text, offset, true)` により、定義済みノード/グループ ID、キーワード、属性名、アイコン名、色名（9種）を補完します。
 4. **ドキュメント整形 (`DocumentFormattingEditProvider`)**:
    - `Shift+Alt+F` または保存時フォーマットにより、コメントを保持したまま `format(text)` で `.dav` ファイルを整形します。
 5. **アウトライン・パンくずリスト (`DocumentSymbolProvider`)**:
@@ -49,7 +49,9 @@ apps/vscode/
    - `dav.newFromTemplate`: 内蔵サンプルテンプレートから新規 `.dav` 図を作成。
    - `dav.copyAiPrompt`: AI エージェント用 DSL v1 仕様プロンプトをクリップボードにコピー。
 7. **表示言語**:
-   - `vscode.env.language` が日本語なら日本語、それ以外は英語で表示します。診断、Quick Fix、補完の説明、通知、AI プロンプトが対象で、コマンド名は `package.nls*.json` で切り替えます。Webview には `<html lang>` で伝えます。
+   - `vscode.env.language` が日本語なら日本語、それ以外は英語で表示します。診断、Quick Fix、補完の説明、通知、AI プロンプトが対象で、コマンド名は `package.nls*.json` で切り替えます。Webview には `<html lang>` で伝え、プレビューのドキュメント画面も同じ言語で表示します（画面内の言語切替はありません）。
+8. **ファイルアイコン**:
+   - `contributes.languages[].icon` で `.dav` のアイコンをライト / ダーク別に指定します（`media/file-icon-*.svg`）。使用中のファイルアイコンテーマによっては表示されません。
 
 ---
 

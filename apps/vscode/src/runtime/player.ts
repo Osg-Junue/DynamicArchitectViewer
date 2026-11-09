@@ -6,6 +6,7 @@ import {
   buildDefs,
   buildPacket,
   buildScene,
+  calloutRect,
   computePacketCalloutBox,
   flowColors,
   type Packet,
@@ -955,14 +956,7 @@ export class Player {
       if (fromRect) rects.push(fromRect);
       if (toRect) rects.push(toRect);
       const callout = computePacketCalloutBox(pkt);
-      if (callout) {
-        rects.push({
-          x: callout.cx - callout.halfW,
-          y: callout.boxTop,
-          width: callout.halfW * 2,
-          height: callout.boxBottom - callout.boxTop,
-        });
-      }
+      if (callout) rects.push(calloutRect(callout));
       const xs = [pkt.path.p0.x, pkt.path.p1.x, pkt.path.p2.x, pkt.path.p3.x];
       const ys = [pkt.path.p0.y, pkt.path.p1.y, pkt.path.p2.y, pkt.path.p3.y];
       const minX = Math.min(...xs);
@@ -1019,7 +1013,13 @@ export class Player {
 
   private wholeDiagramBounds(): Rect {
     const { nodes, groups } = this.data.layout;
-    return boundsOf([...Object.values(nodes), ...Object.values(groups)]);
+    // A callout moved aside can reach past the diagram.
+    const movedCallouts = this.view.phases
+      .flat()
+      .filter((packet) => packet.calloutShift !== undefined)
+      .flatMap((packet) => computePacketCalloutBox(packet) ?? [])
+      .map(calloutRect);
+    return boundsOf([...Object.values(nodes), ...Object.values(groups), ...movedCallouts]);
   }
 
   /**
@@ -1034,13 +1034,7 @@ export class Player {
     }
     for (const packet of this.view.phases.flat()) {
       const callout = computePacketCalloutBox(packet);
-      if (!callout) continue;
-      rects.push({
-        x: callout.cx - callout.halfW,
-        y: callout.boxTop,
-        width: callout.halfW * 2,
-        height: callout.boxBottom - callout.boxTop,
-      });
+      if (callout) rects.push(calloutRect(callout));
     }
     this.setCameraTarget(boundsOf(rects), MAX_FIT_ZOOM, smooth);
   }

@@ -27,35 +27,8 @@
   padding: 8px 12px 8px 16px;
   border-bottom: 1px solid var(--dav-border);
 }
-.doc-header-tools,
-.doc-locale {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-.doc-header-tools {
-  gap: 10px;
-}
 .doc-title {
   font-weight: 600;
-}
-.doc-locale-btn {
-  height: 26px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--dav-muted);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-.doc-locale-btn:hover {
-  background: var(--dav-hover);
-}
-.doc-locale-btn.active {
-  background: var(--dav-selected);
-  color: var(--dav-selected-fg);
 }
 
 /* Operators such as --> must read as the characters a user types. */
@@ -191,8 +164,7 @@
 .doc-copy:focus-visible,
 .doc-chip:focus-visible,
 .doc-search:focus-visible,
-.doc-icon-card:focus-visible,
-.doc-locale-btn:focus-visible {
+.doc-icon-card:focus-visible {
   outline: 1px solid var(--dav-focus);
   outline-offset: 1px;
 }

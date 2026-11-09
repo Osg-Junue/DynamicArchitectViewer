@@ -149,7 +149,7 @@ flowchart LR
 
 ### M4: 公開・AI連携・パッケージング整備（完了）
 
-- ドキュメント画面の日英切替（ビュアー本体の UI と出力 HTML は英語）
+- 日英対応（ビュアー、ドキュメント画面、出力 HTML とも VS Code の表示言語に追従）
 - DSL v1 リファレンス & 内蔵アイコン一覧モーダル（`HelpModal`）
 - AI エージェントに渡すための DSL v1 仕様プロンプトテンプレート生成・ワンクリックコピー（コマンドパレット `dav.copyAiPrompt` および Webview モーダル）
 - `@vscode/vsce` による `.vsix` パッケージビルド（`npm run package`）と GitHub Actions アーティファクト出力
@@ -159,7 +159,6 @@ flowchart LR
 
 - テーマ（ライト/印刷）、PNG/SVG静止画出力
 - カスタムアイコン
-- 分岐シナリオ（正常系/障害系の切替）
 - URL共有（DSLを圧縮してURLハッシュに格納 — サーバー不要で共有可能。長大な図向けの短縮URLが必要になればCloud Run側にAPI＋Firestoreを追加）
 - PWA化（オフライン利用）
 
