@@ -113,66 +113,91 @@ export function computeCompletions(
   const wordMatch = /[A-Za-z_][A-Za-z0-9_]*$/.exec(beforeOnLine);
   const from = wordMatch ? pos - wordMatch[0].length : pos;
 
-  // 1. Inside attribute value after `key: `
-  const attrValMatch = /\b(icon|color|visible|parallel)\s*:\s*([A-Za-z_]*)$/.exec(beforeOnLine);
-  if (attrValMatch) {
-    const key = attrValMatch[1];
-    const valFrom = pos - (attrValMatch[2]?.length ?? 0);
-    if (key === 'icon') return { from: valFrom, to: pos, items: [...ICON_COMPLETIONS] };
-    if (key === 'color') {
-      const items = [...COLOR_COMPLETIONS];
-      if (attributeOwner(beforeOnLine) === 'state') {
-        items.push({ label: COLOR_RESET, kind: 'constant', detail: 'Back to the declared color' });
+  // 1. Inside an attribute block, which may span lines.
+  const open = unclosedBracket(text, pos);
+  if (open >= 0) {
+    const inside = text.slice(open + 1, pos);
+    const owner = attributeOwner(text.slice(text.lastIndexOf('\n', open) + 1, open));
+    const value = /\b(icon|color|visible|parallel)\s*:\s*([A-Za-z_]*)$/.exec(inside);
+    if (value) {
+      const key = value[1];
+      const valFrom = pos - (value[2]?.length ?? 0);
+      if (key === 'icon') return { from: valFrom, to: pos, items: [...ICON_COMPLETIONS] };
+      if (key === 'color') {
+        const items = [...COLOR_COMPLETIONS];
+        if (owner === 'state') {
+          items.push({
+            label: COLOR_RESET,
+            kind: 'constant',
+            detail: 'Back to the declared color',
+          });
+        }
+        return { from: valFrom, to: pos, items };
       }
-      return { from: valFrom, to: pos, items };
+      return { from: valFrom, to: pos, items: [...BOOL_COMPLETIONS] };
     }
-    return { from: valFrom, to: pos, items: [...BOOL_COMPLETIONS] };
+    if ((inside.split(',').pop() ?? '').includes(':')) return null;
+    const schema = owner ? ATTRIBUTE_SCHEMA[owner] : undefined;
+    const items = schema
+      ? ATTRIBUTE_KEYS.filter((key) => Object.hasOwn(schema, key.label))
+      : [...ATTRIBUTE_KEYS];
+    return { from, to: pos, items };
   }
 
-  // 2. Inside attribute block `[...` at key position
-  const lastOpenBracket = beforeOnLine.lastIndexOf('[');
-  const lastCloseBracket = beforeOnLine.lastIndexOf(']');
-  if (lastOpenBracket > lastCloseBracket) {
-    const insideBrackets = beforeOnLine.slice(lastOpenBracket + 1);
-    const afterLastComma = insideBrackets.split(',').pop() ?? '';
-    if (!afterLastComma.includes(':')) {
-      const owner = attributeOwner(beforeOnLine.slice(0, lastOpenBracket));
-      const schema = owner ? ATTRIBUTE_SCHEMA[owner] : undefined;
-      const items = schema
-        ? ATTRIBUTE_KEYS.filter((key) => Object.hasOwn(schema, key.label))
-        : [...ATTRIBUTE_KEYS];
-      return { from, to: pos, items };
-    }
-  }
+  // 2. Outside attributes: strings are irrelevant, and `:` is always followed by a string.
+  const code = beforeOnLine.replace(/"(?:[^"\\]|\\.)*"/g, '""');
+  if (code.includes(':') || /^\s*(?:node|group|title|step|desc)\b/.test(code)) return null;
 
-  // 3. Collect defined node and group IDs from the document
   const { document } = parse(text);
-  const idCompletions: DslCompletionItem[] = [
-    ...document.nodes.map((n) => ({
-      label: n.id,
-      kind: 'variable' as const,
-      detail: `node "${n.label}"`,
-    })),
-    ...document.groups.map((g) => ({
-      label: g.id,
-      kind: 'class' as const,
-      detail: `group "${g.label}"`,
-    })),
-  ];
+  const nodes: DslCompletionItem[] = document.nodes.map((n) => ({
+    label: n.id,
+    kind: 'variable',
+    detail: `node "${n.label}"`,
+  }));
+  const groups: DslCompletionItem[] = document.groups.map((g) => ({
+    label: g.id,
+    kind: 'class',
+    detail: `group "${g.label}"`,
+  }));
+  const edges: DslCompletionItem[] = document.edges
+    .filter((e) => e.explicitId)
+    .map((e) => ({ label: e.id, kind: 'variable', detail: `edge ${e.from} -> ${e.to}` }));
 
-  // 4. Context expecting an element ID: after arrow, `focus`, `state`, `animate`
-  if (
-    /(?:-->|<->|\.\.>|<\.>)\s*[A-Za-z0-9_]*$/.test(beforeOnLine) ||
-    /\b(?:focus|state|animate)\b[^[\]{}]*$/.test(beforeOnLine)
-  ) {
-    return { from, to: pos, items: idCompletions };
+  // 3. Each statement references only the kinds of element the analyzer accepts there.
+  if (/^\s*focus\b/.test(code)) return { from, to: pos, items: [...nodes, ...groups] };
+  if (/^\s*state\s+\w*$/.test(code))
+    return { from, to: pos, items: [...nodes, ...groups, ...edges] };
+  if (/^\s*state\b/.test(code)) return null;
+  if (/(?:-->|<->|\.\.>|<\.>)\s*\w*$/.test(code) || /^\s*animate\s+\w*$/.test(code)) {
+    return { from, to: pos, items: nodes };
   }
+  if (/-->|<->|\.\.>|<\.>|^\s*animate\b/.test(code)) return null;
 
   if (!wordMatch && !explicit) return null;
 
   return {
     from,
     to: pos,
-    items: [...STATEMENT_KEYWORDS, ...idCompletions],
+    items: [...STATEMENT_KEYWORDS, ...nodes, ...groups],
   };
+}
+
+/** Offset of the `[` still open at `pos`, ignoring strings and comments, or -1. */
+function unclosedBracket(text: string, pos: number): number {
+  let open = -1;
+  for (let i = 0; i < pos; i++) {
+    const ch = text[i];
+    if (ch === '"') {
+      for (i++; i < pos && text[i] !== '"' && text[i] !== '\n'; i++) {
+        if (text[i] === '\\') i++;
+      }
+    } else if (ch === '/' && text[i + 1] === '/') {
+      while (i < pos && text[i] !== '\n') i++;
+    } else if (ch === '[') {
+      open = i;
+    } else if (ch === ']') {
+      open = -1;
+    }
+  }
+  return open;
 }

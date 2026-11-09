@@ -29,7 +29,7 @@ export class HelpModal {
   constructor() {
     this.titleEl = html('span', { class: 'doc-title' });
     this.navEl = html('nav', { class: 'doc-nav' });
-    this.contentEl = html('main', { class: 'doc-content' });
+    this.contentEl = html('div', { class: 'doc-content' });
     this.closeBtn = html('button', {
       type: 'button',
       class: 'btn',
@@ -115,6 +115,8 @@ export class HelpModal {
     const { t } = this;
     this.disposePage();
     this.titleEl.textContent = t('ドキュメント', 'Documentation');
+    this.element.setAttribute('aria-label', this.titleEl.textContent);
+    this.element.lang = this.locale;
     this.closeBtn.textContent = t('閉じる', 'Close');
     for (const [locale, button] of this.localeButtons) {
       button.classList.toggle('active', locale === this.locale);

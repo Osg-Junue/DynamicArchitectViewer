@@ -227,7 +227,7 @@ export class Player {
       {
         class: 'dav-playback-bar',
         role: 'toolbar',
-        'aria-label': s.speed,
+        'aria-label': 'Playback',
         'data-testid': 'playback-toolbar',
       },
       this.stepSelect,
@@ -584,7 +584,7 @@ export class Player {
   private renderChrome(): void {
     const { document: doc } = this.data;
     this.titleEl.textContent = doc.title;
-    this.svgEl.setAttribute('aria-label', doc.title);
+    this.svgEl.setAttribute('aria-label', doc.title || 'Diagram');
     const noSteps = doc.steps.length === 0;
     this.playBtn.disabled = noSteps;
     this.playAllBtn.disabled = noSteps;

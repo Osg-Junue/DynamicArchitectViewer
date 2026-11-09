@@ -56,7 +56,7 @@
     "strings": {
       "name": "string.quoted.double.dav",
       "begin": "\"",
-      "end": "\"",
+      "end": "\"|$",
       "patterns": [
         {
           "name": "constant.character.escape.dav",

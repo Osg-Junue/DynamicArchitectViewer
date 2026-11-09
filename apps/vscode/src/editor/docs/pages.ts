@@ -296,6 +296,7 @@ function renderPrompt(ctx: DocContext): Node[] {
   });
   const textarea = html('textarea', {
     class: 'doc-prompt-text',
+    'aria-label': t('AI生成プロンプト', 'AI prompt'),
     readonly: true,
     'data-testid': 'ai-prompt-textarea',
   });

@@ -111,8 +111,13 @@ describe('resolveView', () => {
   });
 
   it('is deterministic regardless of navigation order', () => {
-    expect(view(2)).toEqual(view(2));
-    expect(JSON.stringify(view(1))).toBe(JSON.stringify(resolveView(document, layout, 1)));
+    const source = JSON.stringify(document);
+    const direct = JSON.stringify(view(1));
+    view(2);
+    view(0);
+    view(null);
+    expect(JSON.stringify(view(1))).toBe(direct);
+    expect(JSON.stringify(document)).toBe(source);
   });
 });
 
@@ -556,5 +561,17 @@ describe('focus from state', () => {
       ['a', true, false],
       ['b', false, true],
     ]);
+  });
+});
+
+describe('self-loop room', () => {
+  it('is kept for a node placed under a child group', () => {
+    const { document } = parse(
+      'dav 1\ngroup o {\n  group i {\n    node b\n    node d\n  }\n  node c\n}\nb --> d\nb --> c\nc --> c\n',
+    );
+    const layout = computeLayout(document);
+    const inner = layout.groups.i as Rect;
+    const node = layout.nodes.c as Rect;
+    expect(node.y - (inner.y + inner.height)).toBeGreaterThanOrEqual(58);
   });
 });

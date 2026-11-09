@@ -320,5 +320,8 @@ export function liveFigure(dsl: string, t: Translate, options: LiveFigureOptions
     },
   );
 
+  // The player's keyboard shortcuts are off while a dialog is open, so it is not a tab stop here.
+  element.querySelector('.dav-app')?.setAttribute('tabindex', '-1');
+
   return { element, destroy: () => player.destroy() };
 }

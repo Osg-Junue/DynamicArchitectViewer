@@ -305,7 +305,7 @@ function placeAuto(
         const childTop = Math.max(...colBottom.slice(minCol, maxCol + 1));
         const childBottom = layoutCluster(child, childTop);
         for (let r = minCol; r <= maxCol; r++) {
-          colBottom[r] = childBottom + CLUSTER_GAP;
+          colBottom[r] = childBottom + CLUSTER_GAP + room;
         }
         maxBottom = Math.max(maxBottom, childBottom);
       }

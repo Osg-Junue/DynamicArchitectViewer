@@ -1,5 +1,6 @@
-import { writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { gzipSync } from 'node:zlib';
 import { expect, type Page, test } from '@playwright/test';
 import { createServer } from 'vite';
 import { DEFAULT_SAMPLE } from '../src/samples';
@@ -252,6 +253,18 @@ test.describe('webview preview', () => {
 
   test('opens the documentation and wraps cleanly on narrow viewports', async ({ page }) => {
     const errors = watchErrors(page);
+    // The same restrictions the extension host puts on the webview.
+    await page.route(/\/$/, async (route) => {
+      const response = await route.fetch();
+      await route.fulfill({
+        response,
+        headers: {
+          ...response.headers(),
+          'content-security-policy':
+            "default-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'",
+        },
+      });
+    });
     await openWebview(page);
     await expect(page.locator('.dav-node')).not.toHaveCount(0);
 
@@ -303,7 +316,9 @@ test.describe('webview preview', () => {
 
     // State shows accumulated values, including the reset in the last step.
     await page.getByTestId('doc-nav-state').click();
-    await expect(page.getByTestId('doc-state-matrix').locator('tbody tr')).not.toHaveCount(0);
+    const badgeRow = page.getByTestId('doc-state-matrix').locator('tbody tr').first();
+    await expect(badgeRow.locator('th')).toHaveText('db.badge');
+    await expect(badgeRow.locator('td').last()).toHaveText('—');
 
     await page.getByTestId('doc-nav-diagnostics').click();
     await expect(page.getByTestId('doc-diagnostics').locator('tbody tr')).toHaveCount(19);
@@ -316,6 +331,16 @@ test.describe('webview preview', () => {
     await expect(page.getByTestId('ai-prompt-textarea')).toHaveValue(/dav 1/);
     await page.getByTestId('chk-include-current-dsl').check();
     await expect(page.getByTestId('ai-prompt-textarea')).toHaveValue(/AWS/);
+
+    // In a narrow split pane, pages reflow instead of scrolling sideways.
+    await page.setViewportSize({ width: 600, height: 800 });
+    for (const pageId of ['overview', 'animate', 'diagnostics']) {
+      await page.getByTestId(`doc-nav-${pageId}`).click();
+      const overflow = await dialog
+        .locator('.doc-content')
+        .evaluate((el) => el.scrollWidth - el.clientWidth);
+      expect(overflow).toBeLessThanOrEqual(0);
+    }
 
     await page.getByTestId('help-close-btn').click();
     await expect(dialog.locator('.dav-node')).toHaveCount(0);
@@ -557,6 +582,17 @@ test.describe('exported HTML', () => {
     );
 
     expect(errors).toEqual([]);
+  });
+
+  test('keeps its inline stylesheet minified and within budget', async ({ page: _ }, info) => {
+    const file = info.outputPath('style.html');
+    await writeExport(file);
+    const style = /<style>([\s\S]*?)<\/style>/.exec(await readFile(file, 'utf8'))?.[1] ?? '';
+    expect(style).toContain('.dav-app');
+    expect(style).not.toContain('/*');
+    expect(style).not.toContain('\n');
+    expect(Buffer.byteLength(style, 'utf8')).toBeLessThan(10 * 1024);
+    expect(gzipSync(style).length).toBeLessThan(3.5 * 1024);
   });
 
   test('honors prefers-reduced-motion', async ({ browser }, info) => {
