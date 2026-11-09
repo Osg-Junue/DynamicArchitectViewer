@@ -75,6 +75,10 @@ interface ZoneLabel {
   el: SVGTextElement;
   rect: Rect;
   width: number;
+  /** The enclosing zone's name, which this one has to stay below. */
+  parent: ZoneLabel | undefined;
+  /** Where the name currently sits. */
+  baseline: number;
   /** What was last written, to skip a write that changes nothing on every camera frame. */
   hidden: boolean;
 }
@@ -837,17 +841,29 @@ export class Player {
 
   #collectZoneLabels(): void {
     const rects = new Map(this.#view.groups.map((g) => [g.id, g.rect]));
+    const parents = new Map(this.#data.document.groups.map((g) => [g.id, g.parentId]));
+    const labels = new Map<string, ZoneLabel>();
     clear(this.#zoneLabelLayer);
-    this.#zoneLabels = Array.from(
+    // Groups come parents first, so that a name's parent is always known and placed before it.
+    for (const el of Array.from(
       this.#sceneLayer.querySelectorAll<SVGTextElement>('.dav-group-label'),
-    ).flatMap((label) => {
-      const holder = label.closest('[data-id]');
-      const rect = rects.get(holder?.getAttribute('data-id') ?? '');
-      if (!holder || !rect) return [];
+    )) {
+      const holder = el.closest('[data-id]');
+      const id = holder?.getAttribute('data-id') ?? '';
+      const rect = rects.get(id);
+      if (!holder || !rect) continue;
       this.#zoneLabelLayer.append(holder);
-      const width = estimateTextWidth(label.textContent ?? '', ZONE_LABEL.size);
-      return [{ el: label, rect, width, hidden: false }];
-    });
+      const parentId = parents.get(id);
+      labels.set(id, {
+        el,
+        rect,
+        width: estimateTextWidth(el.textContent ?? '', ZONE_LABEL.size),
+        parent: parentId === undefined ? undefined : labels.get(parentId),
+        baseline: 0,
+        hidden: false,
+      });
+    }
+    this.#zoneLabels = [...labels.values()];
     this.#updateCameraOverlays();
   }
 
@@ -891,7 +907,14 @@ export class Player {
       const top = Math.max(rect.y, world.y);
       const right = Math.min(rect.x + rect.width, world.x + world.width);
       const bottom = Math.min(rect.y + rect.height, world.y + world.height);
-      const hidden = right <= left || bottom <= top;
+      const lowest = rect.y + rect.height - 6;
+      // A nested zone's name stays below its nearest shown ancestor's, which follows the camera too.
+      let ancestor = label.parent;
+      while (ancestor?.hidden) ancestor = ancestor.parent;
+      const belowParent = ancestor
+        ? ancestor.baseline + ZONE_LABEL.height
+        : Number.NEGATIVE_INFINITY;
+      const hidden = right <= left || bottom <= top || belowParent > lowest;
       if (hidden !== label.hidden) {
         label.hidden = hidden;
         if (hidden) el.setAttribute('visibility', 'hidden');
@@ -904,10 +927,8 @@ export class Player {
         rect.x + rect.width - label.width - ZONE_LABEL.endGap,
       );
       el.setAttribute('x', Math.min(left + ZONE_LABEL.inset, lastX).toFixed(1));
-      el.setAttribute(
-        'y',
-        Math.min(top + ZONE_LABEL.baseline, rect.y + rect.height - 6).toFixed(1),
-      );
+      label.baseline = Math.max(Math.min(top + ZONE_LABEL.baseline, lowest), belowParent);
+      el.setAttribute('y', label.baseline.toFixed(1));
     }
     this.#minimap.setCamera(world);
   }
