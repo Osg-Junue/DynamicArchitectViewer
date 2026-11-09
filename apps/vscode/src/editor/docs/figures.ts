@@ -12,6 +12,7 @@ import {
   resolveView,
   sceneBounds,
 } from '../../scene';
+import { ICON_SHAPES } from '../../scene/icons';
 import { mapStepLines, renderCodeLines } from './code';
 
 export type Translate = (ja: string, en: string) => string;
@@ -31,7 +32,7 @@ export interface LiveFigureOptions {
 
 function compile(dsl: string): PlayerData {
   const { document } = parse(dsl);
-  return { document, layout: computeLayout(document) };
+  return { document, layout: computeLayout(document), icons: ICON_SHAPES };
 }
 
 export async function copyWithFeedback(
@@ -86,7 +87,7 @@ function svgFrame(frame: Rect, view: ResolvedView, label: string): SVGSVGElement
       viewBox: `${frame.x} ${frame.y} ${frame.width} ${frame.height}`,
     },
     renderSvg(buildDefs()) as SVGElement,
-    renderSvg(buildScene(view)) as SVGElement,
+    renderSvg(buildScene(view, ICON_SHAPES)) as SVGElement,
   );
 }
 
@@ -311,7 +312,7 @@ export function liveFigure(dsl: string, t: Translate, options: LiveFigureOptions
 
   const player = new Player(
     host,
-    { document, layout },
+    { document, layout, icons: ICON_SHAPES },
     {
       locale: t('ja', 'en') as ViewerLocale,
       autoplay: 'step',

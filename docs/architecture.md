@@ -53,7 +53,7 @@ All paths are under `apps/vscode/src`.
 | `layout/` | `computeLayout(doc)`. See [How diagrams are laid out](layout.md) | `model` |
 | `scene/` | Step state, rail geometry, callouts, virtual SVG. No DOM | `layout`, `model` |
 | `runtime/` | `Player`, shared by the preview and exported HTML | `scene`, `layout`, `model` |
-| `exporter/` | Standalone HTML export and import | `dsl`, `layout`, `model`, `runtime` |
+| `exporter/` | Standalone HTML export and import | `dsl`, `layout`, `model`, `scene`, `runtime` |
 | `prompt/` | Prompt template that teaches the language to AI agents | `model` |
 | `protocol/` | Types of the messages between extension and webview | Nothing |
 | `samples/` | Sample diagrams for the New Diagram command | Nothing |
@@ -118,6 +118,7 @@ findAtOffset(sourceMap, offset): { elementId: string | null; stepIndex: number |
 | `dsl` | The original text, for extracting it back |
 | `document` | The parsed model, so that the file needs no parser |
 | `layout` | The computed layout, so that the arrangement never changes |
+| `icons` | Artwork of the icons this diagram uses; the player bundles none |
 
 **Security.** Everything user-written is stored as JSON, with `<`, `>`, `&`, U+2028 and U+2029 escaped so it cannot end the script element. The Content Security Policy allows only the hashes of the inline script and style, with no `'unsafe-inline'`.
 

@@ -1,9 +1,10 @@
 import { parse } from '../dsl';
 import { computeLayout, type Layout } from '../layout';
-import type { DavDocument } from '../model/types';
+import type { DavDocument, IconName } from '../model/types';
 import { EXPORT_DATA_ELEMENT_ID } from '../runtime/constants';
+import playerStyles from '../runtime/generated/player.css?raw';
 import runtimeScript from '../runtime/generated/player.js?raw';
-import playerStyles from '../runtime/styles.css?raw';
+import { ICON_SHAPES, type IconShapes } from '../scene/icons';
 
 export const EXPORT_FORMAT = 'dynamic-architect-viewer';
 export const EXPORT_FORMAT_VERSION = 1;
@@ -17,21 +18,13 @@ export interface ExportPayload {
   dsl: string;
   document: DavDocument;
   layout: Layout;
+  /** Artwork of the icons this document uses; the runtime bundles none. */
+  icons: IconShapes;
 }
 
-/** Strips CSS comments and collapses whitespace to minimize inline <style> payload size. */
-export function minifyCss(css: string): string {
-  return css
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/\s+/g, ' ')
-    .replace(/\s*([{}:;,>])\s*/g, '$1')
-    .replace(/;}/g, '}')
-    .trim();
-}
-
-const PAGE_STYLES = minifyCss(
-  `html,body{margin:0;height:100%;background:var(--dav-bg);overflow:hidden}${playerStyles}`,
-);
+// Vite leaves a build marker comment at the end of the extracted CSS.
+const PLAYER_CSS = playerStyles.replace(/\/\*[\s\S]*?\*\//g, '').trim();
+const PAGE_STYLES = `html,body{margin:0;height:100%;background:var(--dav-bg);overflow:hidden}${PLAYER_CSS}`;
 
 export interface ExportOptions {
   locale?: 'ja' | 'en';
@@ -52,6 +45,7 @@ export async function exportHtml(dsl: string, options: ExportOptions = {}): Prom
     dsl,
     document,
     layout: computeLayout(document),
+    icons: usedIcons(document),
   };
 
   assertSafeInline(runtimeScript, 'runtime script');
@@ -85,6 +79,18 @@ export async function exportHtml(dsl: string, options: ExportOptions = {}): Prom
     '</html>',
     '',
   ].join('\n');
+}
+
+function usedIcons(document: DavDocument): IconShapes {
+  const names = new Set<IconName>(document.nodes.map((node) => node.icon));
+  for (const step of document.steps) {
+    for (const animation of step.animations) {
+      if (animation.icon !== undefined) names.add(animation.icon);
+    }
+  }
+  const icons: IconShapes = {};
+  for (const name of names) icons[name] = ICON_SHAPES[name];
+  return icons;
 }
 
 /**

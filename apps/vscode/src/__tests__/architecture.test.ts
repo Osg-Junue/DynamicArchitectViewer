@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 /**
  * Enforces the dependency direction from docs/architecture.md:
  *   model -> (nothing); dsl, layout -> model; scene -> layout, model;
- *   runtime -> scene, layout, model; exporter -> dsl, layout, model, runtime.
+ *   runtime -> scene, layout, model; exporter -> dsl, layout, model, scene, runtime.
  * No layer may depend on React.
  */
 const SRC = resolve(__dirname, '..');
@@ -24,7 +24,7 @@ const RULES: Record<string, { allowedLayers: string[]; forbiddenPackages: RegExp
     forbiddenPackages: /^(react|react-dom|@lezer\/)/,
   },
   exporter: {
-    allowedLayers: ['exporter', 'dsl', 'layout', 'model', 'runtime'],
+    allowedLayers: ['exporter', 'dsl', 'layout', 'model', 'scene', 'runtime'],
     forbiddenPackages: /^(react|react-dom|vscode)/,
   },
   protocol: {

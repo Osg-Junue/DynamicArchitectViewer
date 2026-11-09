@@ -2,6 +2,9 @@ import type { IconName } from '../model/types';
 
 type Shape = readonly [tag: string, attrs: Readonly<Record<string, string | number>>];
 
+/** Icon artwork passed to the scene. Exported HTML carries only the icons it uses. */
+export type IconShapes = Partial<Record<IconName, readonly Shape[]>>;
+
 /** 24×24 stroke icons (Lucide-style geometry). */
 export const ICON_SHAPES: Record<IconName, readonly Shape[]> = {
   server: [

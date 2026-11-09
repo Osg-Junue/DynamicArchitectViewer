@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite';
 
 /**
- * Builds the standalone player runtime (IIFE) that is inlined into exported HTML.
+ * Builds the standalone player runtime (IIFE) and its CSS, both inlined into exported HTML.
  * Output is consumed by src/exporter via `?raw` and is not committed.
  */
 export default defineConfig({
@@ -10,11 +10,14 @@ export default defineConfig({
     emptyOutDir: true,
     minify: true,
     target: 'es2022',
+    // Keep the stylesheet's syntax: lowering `light-dark()` only adds bytes.
+    cssTarget: 'esnext',
     lib: {
       entry: 'src/runtime/standalone.ts',
       formats: ['iife'],
       name: 'DavRuntime',
       fileName: () => 'player.js',
+      cssFileName: 'player',
     },
   },
 });
