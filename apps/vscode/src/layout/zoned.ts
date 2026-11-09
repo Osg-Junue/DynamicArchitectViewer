@@ -1,5 +1,5 @@
 import type { DavDocument, DavEdge } from '../model/types';
-import { zoneOfGroups } from '../model/zones';
+import { idPair, zoneOfGroups } from '../model/zones';
 import {
   countCrossings,
   linksOf,
@@ -29,7 +29,7 @@ export function hasZonesToPlace(doc: Pick<DavDocument, 'groups'>): boolean {
   return doc.groups.filter((g) => g.parentId === undefined).length >= MIN_ZONES;
 }
 
-const pairKey = (a: string, b: string) => (a < b ? `${a}\u0000${b}` : `${b}\u0000${a}`);
+const pairKey = (a: string, b: string) => (a < b ? idPair(a, b) : idPair(b, a));
 
 function roundTrips(doc: DavDocument): Set<string> {
   const pairs = new Set<string>();
@@ -373,6 +373,29 @@ function movedCost(
   return total;
 }
 
+/** How much a clear move would change the cost. Leaves the move applied. */
+function costChange(
+  links: readonly BlockLink[],
+  placed: readonly Placed[],
+  a: Placed,
+  b: Placed | undefined,
+  setMoved: (moved: boolean) => void,
+): number {
+  const before = movedCost(links, placed, a, b);
+  setMoved(true);
+  return movedCost(links, placed, a, b) - before;
+}
+
+function takeBack(
+  links: readonly BlockLink[],
+  a: Placed,
+  b: Placed | undefined,
+  setMoved: (moved: boolean) => void,
+): void {
+  setMoved(false);
+  for (const l of links) if (touches(l, a, b)) updateSegment(l);
+}
+
 function spreadCost(placed: readonly Placed[]): number {
   let left = Number.POSITIVE_INFINITY;
   let right = Number.NEGATIVE_INFINITY;
@@ -442,14 +465,10 @@ function anneal(links: readonly BlockLink[], placed: Placed[], random: () => num
         other.y = moved ? oy : otherY;
       }
     };
-    if (!isClear(a, placed) || (other && !isClear(other, placed))) {
-      setMoved(false);
-      continue;
-    }
+    const clear = isClear(a, placed) && (!other || isClear(other, placed));
     setMoved(false);
-    const before = movedCost(links, placed, a, other);
-    setMoved(true);
-    const change = movedCost(links, placed, a, other) - before;
+    if (!clear) continue;
+    const change = costChange(links, placed, a, other, setMoved);
     if (change <= 0 || random() < Math.exp(-change / temperature)) {
       current += change;
       if (current < best) {
@@ -457,8 +476,7 @@ function anneal(links: readonly BlockLink[], placed: Placed[], random: () => num
         bestState = placed.map((p) => ({ x: p.x, y: p.y, flip: p.flip }));
       }
     } else {
-      setMoved(false);
-      for (const l of links) if (touches(l, a, other)) updateSegment(l);
+      takeBack(links, a, other, setMoved);
     }
   }
   placed.forEach((p, i) => {
@@ -475,49 +493,35 @@ function alignmentCandidates(a: Placed, b: Placed): Array<{ x: number; y: number
   ];
 }
 
-/** Moves `a` to `to` if that costs almost nothing, and returns the cost to compare against. */
-function tryAlign(
-  a: Placed,
-  to: { x: number; y: number },
-  base: number,
-  current: { value: number },
-  links: readonly BlockLink[],
-  placed: readonly Placed[],
-): number {
-  const { x: ox, y: oy } = a;
-  const moved = to.x !== ox || to.y !== oy;
-  if (!moved || Math.abs(to.x - ox) > ALIGN_REACH || Math.abs(to.y - oy) > ALIGN_REACH) return base;
-  a.x = to.x;
-  a.y = to.y;
-  if (isClear(a, placed)) {
-    a.x = ox;
-    a.y = oy;
-    const before = movedCost(links, placed, a, undefined);
-    a.x = to.x;
-    a.y = to.y;
-    const cost = current.value - before + movedCost(links, placed, a, undefined);
-    if (cost <= base + ALIGN_TOLERANCE) {
-      current.value = cost;
-      return Math.min(base, cost);
-    }
-  }
-  a.x = ox;
-  a.y = oy;
-  for (const l of links) if (touches(l, a, undefined)) updateSegment(l);
-  return base;
-}
-
 /** Lines up zone edges where that barely costs anything, so that the result reads as tidy. */
 function alignEdges(links: readonly BlockLink[], placed: readonly Placed[]): void {
-  const current = { value: linkCost(links, placed) };
-  let base = current.value;
+  let current = linkCost(links, placed);
+  let base = current;
+  const tryAlign = (a: Placed, to: { x: number; y: number }) => {
+    const { x: ox, y: oy } = a;
+    const moved = to.x !== ox || to.y !== oy;
+    if (!moved || Math.abs(to.x - ox) > ALIGN_REACH || Math.abs(to.y - oy) > ALIGN_REACH) return;
+    const setMoved = (on: boolean) => {
+      a.x = on ? to.x : ox;
+      a.y = on ? to.y : oy;
+    };
+    setMoved(true);
+    const clear = isClear(a, placed);
+    setMoved(false);
+    if (!clear) return;
+    const change = costChange(links, placed, a, undefined, setMoved);
+    if (current + change <= base + ALIGN_TOLERANCE) {
+      current += change;
+      base = Math.min(base, current);
+    } else {
+      takeBack(links, a, undefined, setMoved);
+    }
+  };
   for (let round = 0; round < 3; round++) {
     for (const a of placed) {
       for (const b of placed) {
         if (a === b) continue;
-        for (const to of alignmentCandidates(a, b)) {
-          base = tryAlign(a, to, base, current, links, placed);
-        }
+        for (const to of alignmentCandidates(a, b)) tryAlign(a, to);
       }
     }
   }

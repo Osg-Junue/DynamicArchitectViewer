@@ -1,18 +1,23 @@
+import { readFileSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { expect, type Page, test } from '@playwright/test';
 import { createServer } from 'vite';
 import { ICON_NAMES } from '../src/model/types';
-import { DEFAULT_SAMPLE } from '../src/samples';
 
 interface PostedMessage {
   type: string;
   from?: number;
 }
 
+const DEFAULT_DSL = readFileSync(
+  new URL('../../../examples/01-infra-ha-failover.dav', import.meta.url),
+  'utf8',
+);
+
 /** Loads the webview the way the extension does: it reports `ready` and receives the document. */
-async function openWebview(page: Page, dsl: string = DEFAULT_SAMPLE.dsl): Promise<void> {
+async function openWebview(page: Page, dsl: string = DEFAULT_DSL): Promise<void> {
   await page.addInitScript((text) => {
     const posted: PostedMessage[] = [];
     (window as unknown as { __posted: PostedMessage[] }).__posted = posted;
@@ -59,7 +64,7 @@ async function loadExporter(): Promise<ExporterModule> {
 
 async function writeExport(
   file: string,
-  dsl: string = DEFAULT_SAMPLE.dsl,
+  dsl: string = DEFAULT_DSL,
   locale: 'ja' | 'en' = 'en',
 ): Promise<void> {
   exporter ??= loadExporter();
@@ -621,7 +626,7 @@ test.describe('exported HTML', () => {
 
   test('shows its UI in the language it was exported with', async ({ page }, info) => {
     const file = info.outputPath('ja.html');
-    await writeExport(file, DEFAULT_SAMPLE.dsl, 'ja');
+    await writeExport(file, DEFAULT_DSL, 'ja');
     await page.goto(pathToFileURL(file).href);
     await expect(page.getByTestId('btn-play-all')).toHaveAttribute(
       'aria-label',

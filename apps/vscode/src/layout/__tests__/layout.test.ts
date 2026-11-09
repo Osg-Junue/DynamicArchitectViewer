@@ -4,7 +4,7 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
 import { SAMPLE_TEMPLATES } from '../../samples';
-import { computeLayout, countCrossings, NODE_SIZE, type Rect, SCREEN_NODE_SIZE } from '../index';
+import { computeLayout, countCrossings, NODE_SIZE, type Rect } from '../index';
 
 describe('edge label spacing', () => {
   const gapFor = (label: string) => {
@@ -132,10 +132,10 @@ bottom --> r1`);
 });
 
 describe('layout', () => {
-  it('uses default node sizes and larger default size for screens', () => {
+  it('gives every node the same size, whatever its icon', () => {
     const { layout } = layoutOf('dav 1\nnode a\nnode s [icon: modal]');
     expect(layout.nodes.a).toMatchObject(NODE_SIZE);
-    expect(layout.nodes.s).toMatchObject(SCREEN_NODE_SIZE);
+    expect(layout.nodes.s).toMatchObject(NODE_SIZE);
   });
 
   it('ranks nodes left to right along edges', () => {

@@ -59,13 +59,3 @@ export function unescapeString(raw: string): { value: string; invalid: InvalidEs
   }
   return { value, invalid };
 }
-
-/** Encodes a value as a DSL string literal. */
-export function quoteString(value: string): string {
-  const escaped = value
-    .replace(/\\/g, '\\\\')
-    .replace(/"/g, '\\"')
-    .replace(/\n/g, '\\n')
-    .replace(/\t/g, '\\t');
-  return `"${escaped}"`;
-}

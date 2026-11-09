@@ -1,6 +1,6 @@
 import { type Rect, stationRect } from '../layout';
 import { EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH } from '../model/text';
-import { COLOR_NAMES, type IconName } from '../model/types';
+import type { IconName } from '../model/types';
 import {
   CALLOUT_DESC_SIZE,
   CALLOUT_LABEL_SIZE,
@@ -10,10 +10,12 @@ import {
 } from './callout';
 import { type Bezier, curveLength, type Point, pointAt, svgPath } from './geometry';
 import type { IconShapes } from './icons';
+import { paint } from './paint';
 import type { Packet, ResolvedEdge, ResolvedGroup, ResolvedNode, ResolvedView } from './resolve';
 import { estimateTextWidth, fitText } from './text';
 import { travelProgress } from './timing';
 import { h, type VElement } from './vnode';
+import { ZONE_LABEL, zoneLabelRoom } from './zones';
 
 /**
  * Builds the SVG scene as a route map: nodes are stations, edges are rails, groups are zones.
@@ -33,11 +35,6 @@ const COLOR = {
   nodeBg: 'var(--dav-node-bg)',
   zone: 'var(--dav-zone)',
 } as const;
-
-/** Color names resolve to a per-theme token; default colors are tokens already. */
-export function paint(color: string): string {
-  return (COLOR_NAMES as readonly string[]).includes(color) ? `var(--dav-c-${color})` : color;
-}
 
 export const SCENE_PADDING = 48;
 /** Extra room above a framed diagram for speech bubbles. */
@@ -133,21 +130,6 @@ function groupElement(g: ResolvedGroup): VElement {
       fill: g.color ? `color-mix(in srgb, ${paint(g.color)} 14%, transparent)` : COLOR.zone,
     }),
   );
-}
-
-/** Where a zone's name sits inside its zone; a part of the diagram, so it zooms with it. */
-export const ZONE_LABEL = {
-  size: 16,
-  inset: 14,
-  baseline: 24,
-  height: 24,
-  /** Gap kept between the end of the name and the zone's right edge. */
-  endGap: 4,
-} as const;
-
-/** How wide a zone's name may be: up to just before the zone's right edge. */
-export function zoneLabelRoom(zoneWidth: number): number {
-  return Math.max(40, zoneWidth - ZONE_LABEL.inset - ZONE_LABEL.endGap);
 }
 
 /** A zone's name, in a layer above the rails so that no line can run over it. */

@@ -121,7 +121,3 @@ export function formatDiagnostic(diagnostic: Diagnostic, locale: Locale = 'en'):
     return raw;
   });
 }
-
-export function hasErrors(diagnostics: readonly Diagnostic[]): boolean {
-  return diagnostics.some((d) => d.severity === 'error');
-}

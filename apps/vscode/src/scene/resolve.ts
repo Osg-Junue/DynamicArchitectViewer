@@ -7,8 +7,7 @@ import {
   type IconName,
   type LineStyle,
 } from '../model/types';
-import { zoneOfGroups } from '../model/zones';
-import { ZONE_LABEL, zoneLabelRoom } from './build';
+import { ancestorIds, idPair, zoneOfGroups } from '../model/zones';
 import { separatePhaseCallouts } from './callout';
 import {
   type Bezier,
@@ -21,6 +20,7 @@ import {
   shiftLeft,
 } from './geometry';
 import { PHASE_MS, pacePhase } from './timing';
+import { ZONE_LABEL, zoneLabelRoom } from './zones';
 
 export const DEFAULT_FLOW_COLOR = 'var(--dav-accent)';
 const DEFAULT_EDGE_COLOR = 'var(--dav-edge)';
@@ -221,11 +221,7 @@ export function resolveView(
     }
   }
   const groupParent = new Map(doc.groups.map((g) => [g.id, g.parentId]));
-  const ancestorsOf = (parentId: string | undefined): string[] => {
-    const out: string[] = [];
-    for (let g = parentId; g !== undefined; g = groupParent.get(g)) out.push(g);
-    return out;
-  };
+  const ancestorsOf = (parentId: string | undefined) => ancestorIds(groupParent, parentId);
   // A focused group keeps its whole subtree undimmed.
   const inFocusedGroup = (parentId: string | undefined) =>
     ancestorsOf(parentId).some((g) => focus.has(g));
@@ -288,7 +284,7 @@ export function resolveView(
   const labelAreas = groups.map(zoneLabelArea);
 
   // 5. Rails. Opposite directions between two stations run on parallel tracks.
-  const trackKey = (from: string, to: string) => `${from}\u0000${to}`;
+  const trackKey = idPair;
   const sharedRail = new Set(
     doc.edges
       .filter((e) => e.direction === 'bidirectional')

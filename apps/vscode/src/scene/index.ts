@@ -6,14 +6,13 @@ export {
   buildScene,
   packetBubblePath,
   packetPosition,
-  paint,
   SCENE_PADDING,
   sceneBounds,
-  ZONE_LABEL,
 } from './build';
 export { calloutRect, computePacketCalloutBox, type PacketCalloutBox } from './callout';
 export { type Bezier, connect, type Point, pointAt, reverse, svgPath } from './geometry';
 export type { IconShapes } from './icons';
+export { paint } from './paint';
 export {
   DEFAULT_FLOW_COLOR,
   flowColors,
@@ -27,4 +26,4 @@ export {
 export { estimateTextWidth, fitText } from './text';
 export { MIN_PACKET_MS, PHASE_MS } from './timing';
 export { h, type VElement, type VNode } from './vnode';
-export { type ZoneMove, type ZonePlace, zoneColor, zoneMoves } from './zones';
+export { ZONE_LABEL, type ZoneMove, type ZonePlace, zoneColor, zoneMoves } from './zones';

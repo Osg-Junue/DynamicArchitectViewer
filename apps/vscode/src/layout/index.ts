@@ -1,5 +1,6 @@
 import { EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH, estimateTextWidth } from '../model/text';
 import type { DavDocument, IconName } from '../model/types';
+import { ancestorIds } from '../model/zones';
 import { countCrossings, crossingsOf, type Link, linksOf, segmentsOf } from './links';
 import {
   EMPTY_GROUP_CONTENT,
@@ -26,8 +27,6 @@ import {
 export { countCrossings } from './links';
 export { type Layout, NODE_SIZE, type Rect } from './metrics';
 
-export const SCREEN_NODE_SIZE = NODE_SIZE;
-
 const STATION_SIZE = 44;
 const WINDOW_SIZE = { width: 54, height: 44 } as const;
 
@@ -53,10 +52,6 @@ export function stationRect(node: Rect, icon: IconName): Rect {
     y: node.y + STATION_CENTER - size.height / 2,
     ...size,
   };
-}
-
-export function defaultNodeSize(_icon: IconName): { width: number; height: number } {
-  return NODE_SIZE;
 }
 
 /**
@@ -103,7 +98,6 @@ function planZones(doc: DavDocument): ZonePlacement | undefined {
 }
 
 function computeColumnLayout(doc: DavDocument): Layout {
-  const sizes = new Map(doc.nodes.map((n) => [n.id, defaultNodeSize(n.icon)] as const));
   const emptyGroups = findEmptyGroups(doc);
   const loopRoom = selfLoopRoom(doc);
   const ranks = computeRanks(
@@ -116,7 +110,7 @@ function computeColumnLayout(doc: DavDocument): Layout {
     const nodes = rectRecord();
     const placeholders = rectRecord();
     if (doc.nodes.length > 0 || emptyGroups.size > 0) {
-      placeAuto(doc, emptyGroups, ranks, sizes, nodes, placeholders, loopRoom, frames, guide);
+      placeAuto(doc, emptyGroups, ranks, nodes, placeholders, loopRoom, frames, guide);
     }
     return { nodes, groups: computeGroupRects(doc, nodes, placeholders, loopRoom, frames) };
   };
@@ -319,7 +313,6 @@ function placeAuto(
   doc: DavDocument,
   emptyGroups: Set<string>,
   ranks: ReturnType<typeof computeRanks>,
-  sizes: Map<string, { width: number; height: number }>,
   out: Record<string, Rect>,
   placeholders: Record<string, Rect>,
   loopRoom: ReadonlyMap<string, number>,
@@ -344,21 +337,8 @@ function placeAuto(
   // Column x positions shared by all clusters.
   const rankOf = (id: string) => ranks.rank.get(id) ?? 0;
   const maxRank = Math.max(0, ...doc.nodes.map((n) => rankOf(n.id)));
-  const columnWidth: number[] = Array.from({ length: maxRank + 1 }, () => NODE_SIZE.width);
-  for (const n of doc.nodes) {
-    const r = rankOf(n.id);
-    columnWidth[r] = Math.max(columnWidth[r] ?? 0, sizes.get(n.id)?.width ?? NODE_SIZE.width);
-  }
-  const depthOf = (groupId: string | undefined): number => {
-    let depth = 0;
-    let current = groupId;
-    while (current !== undefined) {
-      depth++;
-      current = doc.groups.find((g) => g.id === current)?.parentId;
-    }
-    return depth;
-  };
-  const maxDepth = Math.max(0, ...doc.groups.map((g) => depthOf(g.id)));
+  const groupParent = new Map(doc.groups.map((g) => [g.id, g.parentId]));
+  const maxDepth = Math.max(0, ...doc.groups.map((g) => ancestorIds(groupParent, g.id).length));
   const inset = maxDepth * GROUP_PADDING;
 
   // A gap only needs room for the zone edges inside it, however deeply those zones are nested.
@@ -369,7 +349,7 @@ function placeAuto(
   // A labeled edge between adjacent columns needs room for its whole label.
   const labelGap = new Map<number, number>();
   for (const e of doc.edges) {
-    if (!e.label || !sizes.has(e.from) || !sizes.has(e.to)) continue;
+    if (!e.label || !ranks.rank.has(e.from) || !ranks.rank.has(e.to)) continue;
     const left = Math.min(rankOf(e.from), rankOf(e.to));
     if (Math.abs(rankOf(e.from) - rankOf(e.to)) !== 1) continue;
     const width = Math.min(EDGE_LABEL_MAX_WIDTH, estimateTextWidth(e.label, EDGE_LABEL_FONT_SIZE));
@@ -377,12 +357,12 @@ function placeAuto(
   }
   const columnX: number[] = [];
   let x = ORIGIN.x + inset;
-  columnWidth.forEach((w, rank) => {
+  for (let rank = 0; rank <= maxRank; rank++) {
     columnX.push(x);
     // A label may use the whole rail, which also runs under the width of both nodes' labels.
     const needed = (labelGap.get(rank) ?? 0) - (NODE_SIZE.width - STATION_SIZE);
-    x += w + Math.max(COLUMN_GAP, needed) + clearanceAfter(rank);
-  });
+    x += NODE_SIZE.width + Math.max(COLUMN_GAP, needed) + clearanceAfter(rank);
+  }
 
   const collectColumns = (cluster: Cluster): number[] => {
     const cols = cluster.nodes.map(rankOf);
@@ -473,11 +453,8 @@ function placeAuto(
         keyed.sort((a, b) => a.key - b.key || previousY(a.id) - previousY(b.id) || a.i - b.i);
         let colY = colBottom[rank] ?? startY;
         for (const { id } of keyed) {
-          const size = sizes.get(id) ?? NODE_SIZE;
-          const colX = columnX[rank] ?? ORIGIN.x;
-          const width = columnWidth[rank] ?? size.width;
-          out[id] = { x: colX + (width - size.width) / 2, y: colY, ...size };
-          colY += size.height + ROW_GAP + room;
+          out[id] = { x: columnX[rank] ?? ORIGIN.x, y: colY, ...NODE_SIZE };
+          colY += NODE_SIZE.height + ROW_GAP + room;
         }
         const bottom = colY - ROW_GAP - room;
         colBottom[rank] = bottom + CLUSTER_GAP;
@@ -508,7 +485,7 @@ function findEmptyGroups(doc: DavDocument): Set<string> {
   const withNodes = new Set<string>();
   const parentOf = new Map(doc.groups.map((g) => [g.id, g.parentId]));
   for (const n of doc.nodes) {
-    for (let g = n.parentId; g !== undefined; g = parentOf.get(g)) withNodes.add(g);
+    for (const g of ancestorIds(parentOf, n.parentId)) withNodes.add(g);
   }
   return new Set(doc.groups.filter((g) => !withNodes.has(g.id)).map((g) => g.id));
 }

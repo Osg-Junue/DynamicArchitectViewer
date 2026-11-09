@@ -8,3 +8,16 @@ export function zoneOfGroups(groups: readonly DavGroup[]): Map<string, string> {
   }
   return zones;
 }
+
+/** The groups enclosing something, innermost first, starting from the group it is directly in. */
+export function ancestorIds(
+  parentOf: ReadonlyMap<string, string | undefined>,
+  start: string | undefined,
+): string[] {
+  const out: string[] = [];
+  for (let g = start; g !== undefined; g = parentOf.get(g)) out.push(g);
+  return out;
+}
+
+/** A map key for an ordered pair of IDs. */
+export const idPair = (a: string, b: string): string => `${a}\u0000${b}`;
