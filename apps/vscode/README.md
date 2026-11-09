@@ -9,14 +9,15 @@ DynamicArchitectViewer is a lightweight VS Code extension for authoring **time-s
 - **`.dav` Language Support**:
   - Syntax highlighting, bracket matching, and code folding
   - Real-time diagnostics with Quick Fix suggestions (`Ctrl+.` / `⌘.`)
-  - Context-aware autocomplete for node/group IDs, keywords, attributes, color names, and 35 built-in icons
+  - Context-aware autocomplete for node/group IDs, keywords, attributes, color names, and 42 built-in icons
   - Comment-preserving formatter (`Shift+Alt+F`) and Document Outline / Breadcrumbs
 - **Code-Only Auto-Layout & Modern Live Preview (`Ctrl+Shift+V` / `⌘⇧V`)**:
   - 100% deterministic automatic layout from topology and group hierarchy — no manual coordinate (`@pos` / `@size`) maintenance
   - Pure Vanilla TypeScript DOM runtime (zero React dependency) for instant startup and minimal memory footprint
   - Visual Studio-style top playback toolbar (step selector, `▶ Play` / `❚❚ Pause`, Play All, animation on/off for a still view of each step, `0.5x`–`2x` speed; `←` / `→` keys move between steps)
   - Cursor-to-canvas highlight and double-click jump from canvas node/group to `.dav` source line
-- **Japanese and English UI**, following the VS Code display language
+  - Packets can show what they carry with an icon (`animate a --> b [icon: key]`)
+- **Japanese and English UI**, including the built-in documentation, following the VS Code display language
 - **AI Agent Ready**:
   - Run **DynamicArchitectViewer: Copy AI Prompt Template (DSL v1 Spec)** to copy a self-contained specification prompt for Claude Code, Antigravity, ChatGPT, or Copilot.
 - **Zero-Dependency Single-File HTML Export**:

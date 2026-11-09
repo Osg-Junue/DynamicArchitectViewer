@@ -7,6 +7,7 @@ import {
   type IconName,
   type LineStyle,
 } from '../model/types';
+import { separatePhaseCallouts } from './callout';
 import {
   type Bezier,
   bowLeft,
@@ -72,6 +73,10 @@ export interface Packet {
   label?: string;
   description?: string;
   color: string;
+  /** What the packet carries; a plain dot when absent. */
+  icon?: IconName;
+  /** Sideways move of the callout, set when it would cover another one of its phase. */
+  calloutShift?: number;
   path: Bezier;
   /** Written as `<->` in the `animate`: the packet goes to the end and comes back. */
   roundTrip: boolean;
@@ -348,10 +353,12 @@ export function resolveView(
     if (edge) packet.edgeId = edge.id;
     if (a.label !== undefined) packet.label = a.label;
     if (a.description !== undefined) packet.description = a.description;
+    if (a.icon !== undefined) packet.icon = a.icon;
     const current = phases[phases.length - 1];
     if (a.parallel && current) current.push(packet);
     else phases.push([packet]);
   }
+  for (const phase of phases) separatePhaseCallouts(phase);
 
   // 7. Edges.
   const edges: ResolvedEdge[] = [];

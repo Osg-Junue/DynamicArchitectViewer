@@ -418,6 +418,8 @@ class Analyzer {
     const label = this.readEdgeLabel(stmt);
     if (label !== undefined) animation.label = label;
     assignString(animation, 'color', attrs);
+    const icon = attrs.get('icon')?.value as IconName | undefined;
+    if (icon !== undefined) animation.icon = icon;
 
     const descs: string[] = [];
     const attrDesc = attrs.get('desc')?.value;

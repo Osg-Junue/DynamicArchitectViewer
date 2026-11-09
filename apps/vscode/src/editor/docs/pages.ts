@@ -36,6 +36,7 @@ import {
   NODE_GALLERY,
   NODE_PRELUDE,
   OVERVIEW_DSL,
+  PACKET_ICON_DSL,
   PARALLEL_DSL,
   ROUND_TRIP_DSL,
   SELF_LOOP_DSL,
@@ -500,8 +501,8 @@ export const DOC_PAGES: readonly DocPage[] = [
     group: 'catalog',
     title: ['アイコン', 'Icons'],
     lead: [
-      `全${ICON_NAMES.length}種です。タイルをクリックすると \`icon: 名前\` をコピーします。省略時は \`server\` です。`,
-      `All ${ICON_NAMES.length} icons. Click a tile to copy \`icon: name\`. The default is \`server\`.`,
+      `全${ICON_NAMES.length}種です。タイルをクリックすると \`icon: 名前\` をコピーします。\`node\` で省略すると \`server\` になります。\`animate\` に付けると、パケットにも表示できます。`,
+      `All ${ICON_NAMES.length} icons. Click a tile to copy \`icon: name\`. A \`node\` without one uses \`server\`. On an \`animate\`, the icon appears on the packet.`,
     ],
     render: ({ t }) => [iconCatalog(t)],
   },
@@ -906,6 +907,14 @@ export const DOC_PAGES: readonly DocPage[] = [
         syntax('animate <from> (--> | <->) <to> (: "label")? [attributes]? { desc "…"* }?'),
         attrTable(t, [
           [
+            '`icon`',
+            pageLink(ctx, 'icons', t('アイコン名', 'icon name')),
+            t(
+              'パケットをアイコン付きのチップにする（既定は点）',
+              'Turns the packet into an icon chip (a dot by default)',
+            ),
+          ],
+          [
             '`color`',
             attrValues(t).color,
             t(
@@ -934,8 +943,8 @@ export const DOC_PAGES: readonly DocPage[] = [
         h2(t('同時再生', 'Parallel')),
         p(
           t(
-            '`[parallel: true]` を付けると、直前の `animate` のフェーズに合流します。次の `animate` はまた新しいフェーズです。',
-            '`[parallel: true]` joins the preceding statement’s phase. The next plain `animate` starts a new one.',
+            '`[parallel: true]` を付けると、直前の `animate` のフェーズに合流します。次の `animate` はまた新しいフェーズです。吹き出しが重なる場合は、自動で横にずれます。',
+            '`[parallel: true]` joins the preceding statement’s phase. The next plain `animate` starts a new one. Callouts that would overlap move aside automatically.',
           ),
         ),
         live(ctx, PARALLEL_DSL, { phases: true }),
@@ -947,6 +956,14 @@ export const DOC_PAGES: readonly DocPage[] = [
           ),
         ),
         live(ctx, ROUND_TRIP_DSL, { phases: true }),
+        h2(t('運ぶものを示す', 'Showing what a packet carries')),
+        p(
+          t(
+            '`icon` を付けると、パケットがアイコン付きのチップになります。トークン、ファイル、イベントなど、流れているものの違いを動きの中で見せられます。シーケンス図のような用途で特に役立ちます。',
+            'With `icon`, the packet becomes a chip that shows what is moving, such as a token, a file or an event. This is most useful in sequence-style diagrams.',
+          ),
+        ),
+        live(ctx, PACKET_ICON_DSL, { phases: true }),
         h2(t('ラベル・説明・色', 'Label, description, color')),
         p(
           t(

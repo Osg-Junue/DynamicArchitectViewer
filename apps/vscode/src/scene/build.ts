@@ -1,10 +1,17 @@
 import { type Rect, stationRect } from '../layout';
 import { EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH } from '../model/text';
-import { COLOR_NAMES } from '../model/types';
+import { COLOR_NAMES, type IconName } from '../model/types';
+import {
+  CALLOUT_DESC_SIZE,
+  CALLOUT_LABEL_SIZE,
+  CALLOUT_LINE_HEIGHT,
+  computePacketCalloutBox,
+  type PacketCalloutBox,
+} from './callout';
 import { type Bezier, curveLength, type Point, pointAt, svgPath } from './geometry';
 import { ICON_SHAPES } from './icons';
 import type { Packet, ResolvedEdge, ResolvedGroup, ResolvedNode, ResolvedView } from './resolve';
-import { estimateTextWidth, fitText, wrapText } from './text';
+import { estimateTextWidth, fitText } from './text';
 import { h, type VElement } from './vnode';
 
 /**
@@ -260,6 +267,26 @@ const WINDOW_BAR = 10;
 const WINDOW_ICON_SIZE = 17;
 const NODE_LABEL_OFFSET = 94;
 
+/** A built-in icon, drawn from its 24×24 artwork and centered on a point. */
+function iconGlyph(
+  icon: IconName,
+  center: Point,
+  size: number,
+  attrs: Readonly<Record<string, string | number>>,
+): VElement {
+  return h(
+    'g',
+    {
+      transform: `translate(${center.x - size / 2} ${center.y - size / 2}) scale(${size / 24})`,
+      fill: 'none',
+      'stroke-linecap': 'round',
+      'stroke-linejoin': 'round',
+      ...attrs,
+    },
+    ...ICON_SHAPES[icon].map(([tag, shape]) => h(tag, { ...shape })),
+  );
+}
+
 function nodeElement(n: ResolvedNode): VElement {
   const { x, y, width } = n.rect;
   const station = stationRect(n.rect, n.icon);
@@ -295,18 +322,10 @@ function nodeElement(n: ResolvedNode): VElement {
         })
       : h('circle', { cx, cy, r: station.width / 2, ...shape }),
     isWindow ? windowBar(station, shape.stroke) : null,
-    h(
-      'g',
-      {
-        transform: `translate(${cx - iconSize / 2} ${iconCy - iconSize / 2}) scale(${iconSize / 24})`,
-        fill: 'none',
-        stroke: accent ?? COLOR.fg,
-        'stroke-width': 2,
-        'stroke-linecap': 'round',
-        'stroke-linejoin': 'round',
-      },
-      ...ICON_SHAPES[n.icon].map(([tag, attrs]) => h(tag, { ...attrs })),
-    ),
+    iconGlyph(n.icon, { x: cx, y: iconCy }, iconSize, {
+      stroke: accent ?? COLOR.fg,
+      'stroke-width': 2,
+    }),
     h(
       'text',
       {
@@ -372,71 +391,6 @@ function badge(cx: number, stationTop: number, text: string, color: string): VEl
       label,
     ),
   );
-}
-
-export interface PacketCalloutBox {
-  cx: number;
-  halfW: number;
-  boxTop: number;
-  boxBottom: number;
-  padX: number;
-  label: string;
-  descLines: string[];
-}
-
-const CALLOUT_MAX_TEXT_WIDTH = 360;
-const CALLOUT_LABEL_SIZE = 14;
-const CALLOUT_DESC_SIZE = 13;
-const CALLOUT_LINE_HEIGHT = 18;
-/** Keeps a callout above its endpoint nodes, including their badges and crop marks. */
-const CALLOUT_NODE_CLEARANCE = 16;
-const CALLOUT_LABEL_CLEARANCE = 6;
-
-/**
- * Computes the stationary speech-bubble box positioned above the packet's edge path.
- * Keeping the bubble body stationary while only its pointer tip tracks the moving dot
- * eliminates eye-tracking fatigue when reading multi-line descriptions.
- */
-export function computePacketCalloutBox(packet: Packet): PacketCalloutBox | null {
-  const label = packet.label
-    ? fitText(packet.label, CALLOUT_LABEL_SIZE, CALLOUT_MAX_TEXT_WIDTH)
-    : '';
-  const descLines = packet.description
-    ? wrapText(packet.description, CALLOUT_DESC_SIZE, CALLOUT_MAX_TEXT_WIDTH, 4)
-    : [];
-  if (!label && descLines.length === 0) return null;
-
-  const labelW = label ? estimateTextWidth(label, CALLOUT_LABEL_SIZE) : 0;
-  const descW = descLines.reduce(
-    (m, line) => Math.max(m, estimateTextWidth(line, CALLOUT_DESC_SIZE)),
-    0,
-  );
-  const padX = descLines.length > 0 ? 12 : 10;
-  const minW = descLines.length > 0 ? 200 : 56;
-  const width = Math.max(minW, Math.ceil(Math.max(labelW, descW) + padX * 2));
-  const halfW = width / 2;
-  const height =
-    descLines.length === 0 ? 30 : (label ? 36 : 14) + descLines.length * CALLOUT_LINE_HEIGHT;
-
-  const mid = pointAt(packet.path, 0.5);
-  const minY = Math.min(
-    packet.path.p0.y,
-    packet.path.p1.y,
-    packet.path.p2.y,
-    packet.path.p3.y,
-    mid.y,
-  );
-  const cx = mid.x;
-  let boxBottom = Math.min(mid.y - 36, minY - 26, packet.clearTop - CALLOUT_NODE_CLEARANCE);
-  // Moves up past each zone name in the way, nearest first.
-  for (const area of [...packet.labelAreas].sort((a, b) => b.y - a.y)) {
-    const overlapsX = cx - halfW < area.x + area.width && cx + halfW > area.x;
-    const overlapsY = boxBottom - height < area.y + area.height && boxBottom > area.y;
-    if (overlapsX && overlapsY) boxBottom = area.y - CALLOUT_LABEL_CLEARANCE;
-  }
-  const boxTop = boxBottom - height;
-
-  return { cx, halfW, boxTop, boxBottom, padX, label, descLines };
 }
 
 /**
@@ -535,9 +489,30 @@ export function buildPacket(packet: Packet, t = 0): VElement {
         class: 'dav-packet-dot',
         transform: `translate(${dot.x.toFixed(1)} ${dot.y.toFixed(1)})`,
       },
-      h('circle', { r: 8, fill: '#ffffff', stroke: paint(packet.color), 'stroke-width': 4 }),
+      ...packetMarker(packet),
     ),
   );
+}
+
+const PACKET_CHIP_RADIUS = 16;
+const PACKET_ICON_SIZE = 20;
+/** The same in both themes, so that a marker stands out on any rail. */
+const PACKET_MARKER_FILL = '#ffffff';
+const PACKET_ICON_COLOR = '#20282f';
+
+function packetMarker(packet: Packet): VElement[] {
+  const stroke = paint(packet.color);
+  if (!packet.icon) {
+    return [h('circle', { r: 8, fill: PACKET_MARKER_FILL, stroke, 'stroke-width': 4 })];
+  }
+  return [
+    h('circle', { r: PACKET_CHIP_RADIUS, fill: PACKET_MARKER_FILL, stroke, 'stroke-width': 3 }),
+    iconGlyph(packet.icon, { x: 0, y: 0 }, PACKET_ICON_SIZE, {
+      stroke: PACKET_ICON_COLOR,
+      'stroke-width': 2.2,
+      class: 'dav-packet-icon',
+    }),
+  ];
 }
 
 export function packetPosition(packet: Packet, t: number): Point {

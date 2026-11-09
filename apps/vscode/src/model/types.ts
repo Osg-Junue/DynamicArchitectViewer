@@ -7,6 +7,7 @@ export const ICON_NAMES = [
   'server',
   'container',
   'function',
+  'runtime',
   'database',
   'cache',
   'queue',
@@ -15,10 +16,14 @@ export const ICON_NAMES = [
   'firewall',
   'cdn',
   'cloud',
+  'building',
   'router',
+  'hub',
+  'wifi',
   'external',
   'auth',
   'ai',
+  'api',
   'mail',
   'monitor',
   'schedule',
@@ -30,9 +35,11 @@ export const ICON_NAMES = [
   'screen',
   'modal',
   'browser',
+  'desktop',
   'mobile',
   'terminal',
   'device',
+  'printer',
   'chat',
   'sheet',
   'file',
@@ -114,6 +121,8 @@ export interface Animation {
   label?: string;
   description?: string;
   color?: string;
+  /** What the packet carries; a plain dot when absent. */
+  icon?: IconName;
   parallel: boolean;
 }
 

@@ -88,9 +88,9 @@ node db_pri "Primary DB" [icon: database, sub: "Aurora Writer", badge: "WRITER",
 ```
 
 - **属性**:
-  - `icon`: 下記 35 種の組み込みアイコン名（省略時: `server`、大文字小文字は区別しない）
-    - インフラ・ロジック系 (23種): `server`, `container`, `function`, `database`, `cache`, `queue`, `storage`, `lb`, `firewall`, `cdn`, `cloud`, `router`, `external`, `auth`, `ai`, `mail`, `monitor`, `schedule`, `search`, `logic`, `webhook`, `payment`, `key`
-    - 画面・アクター・ドキュメント系 (12種): `screen`, `modal`, `browser`, `mobile`, `terminal`, `device`, `chat`, `sheet`, `file`, `user`, `users`, `bot`
+  - `icon`: 下記 42 種の組み込みアイコン名（省略時: `server`、大文字小文字は区別しない）
+    - インフラ・ロジック系 (28種): `server`, `container`, `function`, `runtime`, `database`, `cache`, `queue`, `storage`, `lb`, `firewall`, `cdn`, `cloud`, `building`, `router`, `hub`, `wifi`, `external`, `auth`, `ai`, `api`, `mail`, `monitor`, `schedule`, `search`, `logic`, `webhook`, `payment`, `key`
+    - 画面・アクター・ドキュメント系 (14種): `screen`, `modal`, `browser`, `desktop`, `mobile`, `terminal`, `device`, `printer`, `chat`, `sheet`, `file`, `user`, `users`, `bot`
   - `sub`: `<string>`（ノード下部の補足ラベル）
   - `badge`: `<string>`（駅の上に表示されるバッジ）
   - `visible`: `<bool>`（初期表示状態。省略時: `true`）
@@ -136,6 +136,7 @@ step "Primary DB障害発生と自動フェイルオーバー" {
   - `focus`（ハイライト対象）および `animate`（パケットアニメーション）は **そのステップのみ有効**。`focus` の対象はノードとグループのみで、エッジは指定できない。
   - `animate` には `desc: "..."` 属性（または `{ desc "..." }` ブロック）で各アニメーション動作の解説を記述でき、再生中のフェーズに合わせてパケットの吹き出しに表示される。
   - `animate` に `[parallel: true]` を指定すると、直前の `animate` と同じフェーズで同時再生される。
+  - `animate` に `[icon: <icon>]` を指定すると、パケットが点の代わりにアイコン付きのチップになり、運ぶものを示す。指定できる値は `node` の `icon` と同じで、省略時は点のまま。
   - `animate` で使える矢印は `-->`（片道）と `<->`（片道と同じ時間で往復）のみ。エッジの矢印の種類はパケットの動きに影響しない。
 
 ---
@@ -156,7 +157,7 @@ step "Primary DB障害発生と自動フェイルオーバー" {
 | `invalid-attribute-value` | Error | 属性値の型または列挙値が不正 |
 | `attribute-not-applicable` | Warning | `state` の対象種別に適用できない属性を指定した |
 | `empty-state` | Warning | `state` の属性ブロックが空 `[]` |
-| `unknown-icon` | Error | 35種以外のアイコン名を指定した（最近傍候補をサジェスト） |
+| `unknown-icon` | Error | 組み込み以外のアイコン名を指定した（最近傍候補をサジェスト） |
 | `invalid-color` | Error | 定義済みの色名以外の色指定（16 進カラーコードを含む。色名のタイプミスには最も近い色名をサジェスト） |
 | `invalid-animate-arrow` | Error | `animate` に点線の矢印を指定した |
 | `invalid-self-arrow` | Error | 自己ループに双方向の矢印を指定した |

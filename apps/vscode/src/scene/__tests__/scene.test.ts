@@ -3,7 +3,9 @@ import { parse } from '../../dsl';
 import { computeLayout, type Rect, stationRect } from '../../layout';
 import { ICON_NAMES } from '../../model/types';
 import { SAMPLE_TEMPLATES } from '../../samples';
+import { separatePhaseCallouts } from '../callout';
 import { type Bezier, pointAt } from '../geometry';
+import { ICON_SHAPES } from '../icons';
 import {
   activeLabelFill,
   buildPacket,
@@ -11,6 +13,7 @@ import {
   computePacketCalloutBox,
   DEFAULT_FLOW_COLOR,
   flowColors,
+  type Packet,
   packetPosition,
   resolveView,
   type VElement,
@@ -161,6 +164,26 @@ describe('buildScene', () => {
     const attrs = collectAttrs(scene).join('|');
     expect(attrs).not.toContain('<');
     expect(attrs).not.toMatch(/on\w+=/);
+  });
+
+  it('draws an icon chip on a packet only when the animate names an icon', () => {
+    const doc = parse(
+      'dav 1\nnode a\nnode b\na --> b\nstep "S" {\n  animate a --> b [icon: key, color: red]\n  animate a --> b\n}\n',
+    ).document;
+    const phases = resolveView(doc, computeLayout(doc), 0).phases;
+    const [withIcon, plain] = [phases[0]?.[0], phases[1]?.[0]];
+    if (!withIcon || !plain) throw new Error('missing packet');
+    expect(withIcon.icon).toBe('key');
+
+    const chip = buildPacket(withIcon, 0.5);
+    const icon = findAll(chip, (e) => e.attrs.class === 'dav-packet-icon')[0];
+    expect(icon?.children.length).toBe(ICON_SHAPES.key.length);
+    const marker = findAll(chip, (e) => e.tag === 'circle' && e.attrs.r === 16)[0];
+    expect(marker?.attrs.stroke).toBe('var(--dav-c-red)');
+
+    const dot = buildPacket(plain, 0.5);
+    expect(findAll(dot, (e) => e.attrs.class === 'dav-packet-icon')).toEqual([]);
+    expect(findAll(dot, (e) => e.tag === 'circle' && e.attrs.r === 8)).toHaveLength(1);
   });
 
   it('renders a stationary speech-bubble callout whose pointer tip tracks the moving dot', () => {
@@ -318,6 +341,83 @@ describe('buildScene', () => {
     },
   );
 
+  const CLOSE_PARALLEL = `dav 1
+node a
+node b
+node c
+a --> b
+a --> c
+step "S" {
+  animate a --> b : "First" [desc: "A description long enough to make this callout wide"]
+  animate a --> c : "Second" [parallel: true, desc: "Another description of a similar width"]
+  animate a --> b : "Third" [parallel: true, desc: "And a third one over the same rail"]
+}
+`;
+
+  it.each([
+    ['close parallel packets', CLOSE_PARALLEL] as const,
+    ...SAMPLE_TEMPLATES.map((s) => [s.id, s.dsl] as const),
+  ])('%s: callouts of one phase never overlap', (_, dsl) => {
+    const doc = parse(dsl).document;
+    const l = computeLayout(doc);
+    doc.steps.forEach((_step, i) => {
+      for (const phase of resolveView(doc, l, i).phases) {
+        const boxes = phase.flatMap((p) => computePacketCalloutBox(p) ?? []);
+        boxes.forEach((a, ai) => {
+          for (const b of boxes.slice(ai + 1)) {
+            const overlaps =
+              a.cx - a.halfW < b.cx + b.halfW &&
+              a.cx + a.halfW > b.cx - b.halfW &&
+              a.boxTop < b.boxBottom &&
+              a.boxBottom > b.boxTop;
+            expect(overlaps).toBe(false);
+          }
+        });
+      }
+    });
+  });
+
+  /** A packet parked at x, so that its callout sits at a chosen place. */
+  const packetAt = (x: number): Packet => {
+    const point = { x, y: 0 };
+    return {
+      from: 'a',
+      to: 'b',
+      fromLabel: 'A',
+      toLabel: 'B',
+      label: 'Callout',
+      color: 'red',
+      path: { p0: point, p1: point, p2: point, p3: point },
+      roundTrip: false,
+      clearTop: 0,
+      labelAreas: [],
+    };
+  };
+
+  it('keeps the first callout in place and moves only the ones in its way', () => {
+    const [first, far, clashing] = [packetAt(0), packetAt(1000), packetAt(0)] as const;
+    separatePhaseCallouts([first, far, clashing]);
+    expect(first).not.toHaveProperty('calloutShift');
+    expect(far).not.toHaveProperty('calloutShift');
+    expect(clashing.calloutShift).toBeDefined();
+  });
+
+  it('moves a clashing callout by the smallest distance that clears it', () => {
+    const [first, second] = [packetAt(100), packetAt(100)] as const;
+    separatePhaseCallouts([first, second]);
+    const halfW = computePacketCalloutBox(first)?.halfW ?? 0;
+    expect(Math.abs(second.calloutShift ?? 0)).toBeCloseTo(halfW * 2 + 13);
+  });
+
+  it('does not move callouts of packets that play one after another', () => {
+    const doc = parse(
+      'dav 1\nnode a\nnode b\na --> b\nstep "S" {\n  animate a --> b : "One"\n  animate a --> b : "Two"\n}\n',
+    ).document;
+    for (const phase of resolveView(doc, computeLayout(doc), 0).phases) {
+      expect(phase[0]).not.toHaveProperty('calloutShift');
+    }
+  });
+
   it('marks only active edge labels for emphasis', () => {
     const doc = parse(
       'dav 1\nnode a\nnode b\nnode c\na --> b : "on"\nb --> c : "off"\nstep "S" {\n  animate a --> b\n}\n',
@@ -434,13 +534,13 @@ describe('buildScene', () => {
     },
   );
 
-  it('renders all 35 built-in icons', () => {
+  it('renders every built-in icon', () => {
     const dsl = ['dav 1', ...ICON_NAMES.map((icon, i) => `node n${i} [icon: ${icon}]`)].join('\n');
     const { document, diagnostics } = parse(dsl);
     expect(diagnostics).toEqual([]);
     const scene = buildScene(resolveView(document, computeLayout(document), null));
     const stations = findAll(scene, (e) => e.attrs.class === 'dav-station');
-    expect(stations).toHaveLength(35);
+    expect(stations).toHaveLength(ICON_NAMES.length);
   });
 });
 

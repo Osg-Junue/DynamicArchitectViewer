@@ -253,6 +253,22 @@ step "One way vs round trip" {
   animate c <-> d : "<->" [parallel: true]
 }`;
 
+export const PACKET_ICON_DSL = `dav 1
+
+node client "Client" [icon: browser]
+node idp "IdP" [icon: auth]
+node api "API" [icon: api]
+node queue "Queue" [icon: queue]
+client <-> idp
+client --> api
+api --> queue
+
+step "Packets show what they carry" {
+  animate client <-> idp : "Token" [icon: key]
+  animate client --> api : "Upload" [icon: file]
+  animate api --> queue : "Event" [icon: mail]
+}`;
+
 export const CALLOUT_DSL = `dav 1
 
 node a "App" [icon: container]
@@ -393,6 +409,7 @@ export const ALL_EXAMPLE_DOCUMENTS: readonly string[] = [
   SEQUENTIAL_DSL,
   PARALLEL_DSL,
   ROUND_TRIP_DSL,
+  PACKET_ICON_DSL,
   CALLOUT_DSL,
   NO_EDGE_DSL,
   ...COLOR_NAMES.map(colorLabDsl),

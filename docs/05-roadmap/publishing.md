@@ -52,6 +52,7 @@ npm run package
 | `dist/extension.cjs` | Extension Host（依存パッケージを同梱） |
 | `dist/webview/` | プレビューの Webview |
 | `media/icon.png` | 拡張機能アイコン |
+| `media/file-icon-light.svg`、`media/file-icon-dark.svg` | `.dav` のファイルアイコン |
 | `syntaxes/`、`language-configuration.json` | 言語定義 |
 | `package.json`、`package.nls*.json` | マニフェストと翻訳 |
 | `readme.md`、`changelog.md`、`LICENSE.txt` | 文書 |

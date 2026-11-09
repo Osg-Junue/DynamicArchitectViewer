@@ -4,14 +4,13 @@ export {
   buildDefs,
   buildPacket,
   buildScene,
-  computePacketCalloutBox,
-  type PacketCalloutBox,
   packetBubblePath,
   packetPosition,
   paint,
   SCENE_PADDING,
   sceneBounds,
 } from './build';
+export { calloutRect, computePacketCalloutBox, type PacketCalloutBox } from './callout';
 export { type Bezier, connect, type Point, pointAt, reverse, svgPath } from './geometry';
 export {
   DEFAULT_FLOW_COLOR,
