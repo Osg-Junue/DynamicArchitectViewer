@@ -21,5 +21,10 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.6"
+  },
+  "overrides": {
+    "@vscode/vsce": {
+      "minimatch": "^11.0.5"
+    }
   }
 }
