@@ -120,7 +120,7 @@ lb --> db
 
 ## Exact rules
 
-This section is for changing the layout code in [`layout/index.ts`](../apps/vscode/src/layout/index.ts). Rail routing, such as curving around nodes and separating parallel lines, is not part of this stage. It lives in `scene/resolve.ts` and `scene/geometry.ts`.
+This section is for changing the layout code in [`layout/index.ts`](../apps/vscode/src/layout/index.ts). Rail routing, such as curving around nodes and separating parallel lines, is not part of this stage. It lives in `scene/rails.ts` and `scene/geometry.ts`.
 
 ### Inputs and outputs
 
