@@ -136,7 +136,19 @@ function groupElement(g: ResolvedGroup): VElement {
 }
 
 /** Where a zone's name sits inside its zone; a part of the diagram, so it zooms with it. */
-export const ZONE_LABEL = { size: 18, inset: 14, baseline: 25, height: 26 } as const;
+export const ZONE_LABEL = {
+  size: 16,
+  inset: 14,
+  baseline: 24,
+  height: 24,
+  /** Gap kept between the end of the name and the zone's right edge. */
+  endGap: 4,
+} as const;
+
+/** How wide a zone's name may be: up to just before the zone's right edge. */
+export function zoneLabelRoom(zoneWidth: number): number {
+  return Math.max(40, zoneWidth - ZONE_LABEL.inset - ZONE_LABEL.endGap);
+}
 
 /** A zone's name, in a layer above the rails so that no line can run over it. */
 function groupLabelElement(g: ResolvedGroup): VElement {
@@ -153,7 +165,7 @@ function groupLabelElement(g: ResolvedGroup): VElement {
         'font-size': ZONE_LABEL.size,
         fill: COLOR.fg,
       },
-      fitText(g.label, ZONE_LABEL.size, Math.max(40, width - ZONE_LABEL.inset * 2)),
+      fitText(g.label, ZONE_LABEL.size, zoneLabelRoom(width)),
     ),
   );
 }

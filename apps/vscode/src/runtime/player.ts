@@ -8,6 +8,7 @@ import {
   buildScene,
   calloutRect,
   computePacketCalloutBox,
+  estimateTextWidth,
   flowColors,
   type IconShapes,
   type Packet,
@@ -69,9 +70,11 @@ const MIN_ZONE_FRAME_ZOOM = 0.6;
 const MAX_CALM_ZOOM = 1.25;
 /** How close to the screen's edge a moving packet may get before the camera follows. */
 const CALM_EDGE_MARGIN = 40;
+
 interface ZoneLabel {
   el: SVGTextElement;
   rect: Rect;
+  width: number;
   /** What was last written, to skip a write that changes nothing on every camera frame. */
   hidden: boolean;
 }
@@ -842,7 +845,8 @@ export class Player {
       const rect = rects.get(holder?.getAttribute('data-id') ?? '');
       if (!holder || !rect) return [];
       this.#zoneLabelLayer.append(holder);
-      return [{ el: label, rect, hidden: false }];
+      const width = estimateTextWidth(label.textContent ?? '', ZONE_LABEL.size);
+      return [{ el: label, rect, width, hidden: false }];
     });
     this.#updateCameraOverlays();
   }
@@ -894,7 +898,12 @@ export class Player {
         else el.removeAttribute('visibility');
       }
       if (hidden) continue;
-      el.setAttribute('x', (left + ZONE_LABEL.inset).toFixed(1));
+      // The name follows the camera only as far as it still fits inside its own zone.
+      const lastX = Math.max(
+        rect.x + ZONE_LABEL.inset,
+        rect.x + rect.width - label.width - ZONE_LABEL.endGap,
+      );
+      el.setAttribute('x', Math.min(left + ZONE_LABEL.inset, lastX).toFixed(1));
       el.setAttribute(
         'y',
         Math.min(top + ZONE_LABEL.baseline, rect.y + rect.height - 6).toFixed(1),

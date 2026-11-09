@@ -8,7 +8,7 @@ import {
   type LineStyle,
 } from '../model/types';
 import { zoneOfGroups } from '../model/zones';
-import { ZONE_LABEL } from './build';
+import { ZONE_LABEL, zoneLabelRoom } from './build';
 import { separatePhaseCallouts } from './callout';
 import {
   type Bezier,
@@ -121,10 +121,7 @@ function zoneLabelArea(group: ResolvedGroup): Rect {
   return {
     x: x + ZONE_LABEL.inset,
     y: y + 6,
-    width: Math.min(
-      estimateTextWidth(group.label, ZONE_LABEL.size),
-      Math.max(40, width - ZONE_LABEL.inset * 2),
-    ),
+    width: Math.min(estimateTextWidth(group.label, ZONE_LABEL.size), zoneLabelRoom(width)),
     height: ZONE_LABEL.height,
   };
 }
