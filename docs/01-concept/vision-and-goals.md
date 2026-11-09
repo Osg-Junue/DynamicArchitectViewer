@@ -27,7 +27,7 @@ DynamicArchitectViewer は、上記4つの課題を以下のアプローチで�
 
 - **フォーカス強調 (`focus`)**: そのステップに関係するノード・経路のみをハイライトし、無関係な要素を減光（Dimming）
 - **パケット移動アニメーション (`animate`)**: 接続線上を移動するデータパケットとラベル（例: `POST /orders`, `INSERT`, `Redirect /catalog`）の連続再生
-- **状態オーバーライド (`state`)**: 特定ステップでのみ発生する障害表示（`status: error`, `badge: "DOWN"`）、スタンバイ昇格、非表示だったフェイルオーバー経路やモーダル画面の出現（`visible: true`）
+- **状態オーバーライド (`state`)**: ステップの進行に沿って累積する障害表示（`color: red`, `badge: "DOWN"`）、スタンバイ昇格、非表示だったフェイルオーバー経路やモーダル画面の出現（`visible: true`）
 
 ### ② コード記述のみ × 100% 自動レイアウト（Code-Only & Auto-Layout）
 

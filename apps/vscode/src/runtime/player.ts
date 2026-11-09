@@ -411,7 +411,12 @@ export class Player {
   }
 
   isPlaying(): boolean {
-    return this.playMode !== 'node';
+    return this.playMode === 'all' || this.isStepRunning();
+  }
+
+  /** "Play step" only runs while the current view has something to play. */
+  private isStepRunning(): boolean {
+    return this.playMode === 'step' && !this.isStopped() && this.view.phases.length > 0;
   }
 
   getSpeed(): number {
@@ -472,7 +477,7 @@ export class Player {
   togglePlay(): void {
     if (this.data.document.steps.length === 0) return;
     this.setMotionOff(false);
-    this.playMode = this.playMode === 'step' ? 'node' : 'step';
+    this.playMode = this.isStepRunning() ? 'node' : 'step';
     if (this.playMode === 'step') {
       if (this.stepIndex === null) {
         this.showStep(0);
@@ -520,9 +525,13 @@ export class Player {
     if (this.isStopped()) {
       // Each click shows the node's next phase; past the last one the still view returns.
       const picked = this.pinned && currentPos >= 0 ? matching[currentPos + 1] : matching[0];
-      this.pinned = picked !== undefined;
-      this.phase = picked ?? 0;
-      this.renderPackets();
+      if (picked !== undefined) {
+        this.selectPhase(picked);
+      } else {
+        this.pinned = false;
+        this.phase = 0;
+        this.renderPackets();
+      }
       return;
     }
     const nextPhase =
@@ -530,8 +539,19 @@ export class Player {
         ? (matching[(currentPos + 1) % matching.length] ?? matching[0] ?? 0)
         : (matching[0] ?? 0);
 
+    this.selectPhase(nextPhase);
+  }
+
+  /** Shows one phase: repeating it, or parked on its rail while animation is stopped. */
+  selectPhase(index: number): void {
+    if (!this.view.phases[index]) return;
+    this.phase = index;
+    if (this.isStopped()) {
+      this.pinned = true;
+      this.renderPackets();
+      return;
+    }
     this.playMode = 'node';
-    this.phase = nextPhase;
     this.elapsed = 0;
     this.renderPackets();
     this.updatePlayButton();
@@ -734,7 +754,7 @@ export class Player {
   }
 
   private updatePlayButton(): void {
-    const stepPlaying = this.playMode === 'step';
+    const stepPlaying = this.isStepRunning();
     const stepAction = stepPlaying ? this.strings.pause : this.strings.play;
     clear(this.playBtn);
     if (stepPlaying) {
@@ -882,7 +902,11 @@ export class Player {
     this.updateStepProgress();
 
     // A step with no phases has nothing to time unless the player must move on from it.
-    if (this.playMode === 'all' || phases.length > 0 || this.cameraTarget !== null) {
+    // Rendering a phase may already have scheduled the next frame through the camera.
+    if (
+      !this.frame &&
+      (this.playMode === 'all' || phases.length > 0 || this.cameraTarget !== null)
+    ) {
       this.frame = requestAnimationFrame((t) => this.tick(t));
     }
   }

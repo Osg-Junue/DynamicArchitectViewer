@@ -29,7 +29,7 @@ DynamicArchitectViewer の唯一の真実のソース（Single Source of Truth�
 
 ```ebnf
 Document      ::= Header Statement*
-Header        ::= "dav" "1"
+Header        ::= "dav" Number
 
 Statement     ::= TitleStmt | GroupDecl | NodeDecl | EdgeDecl | StepDecl
 TitleStmt     ::= "title" String
@@ -52,7 +52,7 @@ StateStmt     ::= "state" Identifier AttrBlock
 AnimateStmt   ::= "animate" Identifier AnimateArrow Identifier (":" String)? AttrBlock? ("{" DescStmt* "}")?
 
 AttrBlock     ::= "[" (Attr ("," Attr)* ","?)? "]"
-Attr          ::= (Identifier | "desc") ":" (String | Identifier | Color | Boolean)
+Attr          ::= (Identifier | "desc") ":" (String | Number | Color | Identifier | Boolean)
 ```
 
 ---
@@ -109,6 +109,7 @@ api ..> db_sby : "Failover Route" [id: e_failover, visible: false, color: yellow
   - `..>` : 破線・単方向
   - `<->` : 実線・双方向
   - `<.>` : 破線・双方向
+- **自己ループ**: `a --> a` のように同じノードを両端に指定すると、駅の右上にループを描く。`<->` と `<.>` は使用不可（`invalid-self-arrow`）。`animate a --> a` のパケットはループを1周する。
 - **属性**:
   - `id`: `<id>`（`step` 内の `state` からエッジを参照するために必須の明示的 ID。省略時の暗黙 ID `<from>-><to>` は内部の識別用で、識別子の字句規則に合わないため DSL からは参照できない）
   - `color`: `<color>`（線の色）
@@ -153,9 +154,10 @@ step "Primary DB障害発生と自動フェイルオーバー" {
 | `invalid-attribute-value` | Error | 属性値の型または列挙値が不正 |
 | `attribute-not-applicable` | Warning | `state` の対象種別に適用できない属性を指定した |
 | `empty-state` | Warning | `state` の属性ブロックが空 `[]` |
-| `unknown-icon` | Error | 31種以外のアイコン名を指定した（最近傍候補をサジェスト） |
+| `unknown-icon` | Error | 35種以外のアイコン名を指定した（最近傍候補をサジェスト） |
 | `invalid-color` | Error | 定義済みの色名以外の色指定（16 進カラーコードを含む。色名のタイプミスには最も近い色名をサジェスト） |
 | `invalid-animate-arrow` | Error | `animate` に点線の矢印を指定した |
+| `invalid-self-arrow` | Error | 自己ループに双方向の矢印を指定した |
 | `invalid-escape` | Error | 文字列内の未定義エスケープシーケンス |
-| `unexpected-eof` | Error | ブロック `{ ... }` または文字列が閉じられていない |
-| `syntax-error` | Error | その他の構文エラー |
+| `unexpected-eof` | Error | ブロック `{ ... }` が閉じられていない |
+| `syntax-error` | Error | その他の構文エラー（閉じられていない文字列を含む） |

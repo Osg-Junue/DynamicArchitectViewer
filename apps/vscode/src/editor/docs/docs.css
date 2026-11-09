@@ -330,6 +330,9 @@
 .is-copied {
   color: var(--dav-ok);
 }
+.is-copy-failed {
+  color: var(--dav-error);
+}
 
 .doc-stage {
   position: relative;
@@ -407,7 +410,11 @@
   border: 1px solid var(--dav-border);
   border-radius: 4px;
   background: var(--dav-bg);
+  color: inherit;
+  font: inherit;
   font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
 }
 .doc-phase.is-active {
   border-color: var(--dav-accent);

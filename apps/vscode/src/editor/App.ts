@@ -23,6 +23,7 @@ export function mountApp(container: HTMLElement): void {
   const vscodeApi = window.acquireVsCodeApi();
 
   let dsl = '';
+  let documentUri: string | undefined;
   let cursorTargetId: string | null = null;
 
   const empty = parse(dsl);
@@ -188,6 +189,18 @@ export function mountApp(container: HTMLElement): void {
     const msg = event.data;
     if (!isHostToWebviewMessage(msg)) return;
     if (msg.type === 'docChanged') {
+      if (msg.uri !== documentUri) {
+        // Nothing of the previous document may survive into another one.
+        documentUri = msg.uri;
+        lastValid = {
+          document: empty.document,
+          layout: computeLayout(empty.document),
+          sourceMap: empty.sourceMap,
+        };
+        cursorTargetId = null;
+        player?.destroy();
+        player = null;
+      }
       applyDsl(msg.dsl);
     } else if (msg.type === 'cursorMoved') {
       syncCursorOffset(msg.offset);

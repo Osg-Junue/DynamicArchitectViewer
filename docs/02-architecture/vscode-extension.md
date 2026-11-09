@@ -35,7 +35,7 @@ apps/vscode/
 1. **リアルタイム診断 (`DiagnosticCollection`)**:
    - `.dav` ファイルのオープン・変更時に `parse(doc.getText()).diagnostics` を実行し、VS Code の「問題 (Problems)」パネルおよびエディタ上の波線として表示します。
 2. **Quick Fix (`CodeActionProvider`)**:
-   - アイコン名や色名のタイポ等で `d.suggestion` が存在する場合、`Ctrl+.`（`⌘.`）で1クリック修正アクションを提供します。
+   - アイコン名や色名のタイポ等で `d.args.suggestion` が存在する場合、`Ctrl+.`（`⌘.`）で1クリック修正アクションを提供します。
 3. **コンテキスト認識補完 (`CompletionItemProvider`)**:
    - `computeCompletions(text, offset, true)` により、定義済みノード/グループ ID、キーワード、属性名、アイコン名（35種）、色名（9種）を補完します。
 4. **ドキュメント整形 (`DocumentFormattingEditProvider`)**:
@@ -58,4 +58,5 @@ apps/vscode/
   - `cursorMoved`: エディタ内のカーソル位置オフセットを通知。`findAtOffset(sourceMap, offset)` によりカーソル下のノード/グループをキャンバス上で破線ハイライトし、ステップブロック内にいる場合は自動的にそのステップへ切り替えます。
 - **Webview → エディタ (`WebviewToHostMessage`)**:
   - `revealRange`: キャンバス上の要素のダブルクリックから、該当する DSL 定義行へエディタをジャンプ・選択します。
-  - `exportHtml` / `formatDocument`: Webview 上部ツールバーから単一HTML出力やフォーマットを実行します。
+  - `exportHtml`: Webview 上部ツールバーから単一HTML出力を実行します。
+  - `formatDocument`: ホスト側でドキュメントを整形します（現在の Webview UI からは送信しません）。

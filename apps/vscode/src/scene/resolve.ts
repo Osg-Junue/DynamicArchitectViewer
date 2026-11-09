@@ -7,7 +7,16 @@ import {
   type IconName,
   type LineStyle,
 } from '../model/types';
-import { type Bezier, connect, connectStations, reverse, routeAround, shiftLeft } from './geometry';
+import {
+  type Bezier,
+  bowLeft,
+  connectStations,
+  connectVertical,
+  reverse,
+  routeAround,
+  selfLoop,
+  shiftLeft,
+} from './geometry';
 
 export const DEFAULT_FLOW_COLOR = 'var(--dav-accent)';
 const DEFAULT_EDGE_COLOR = 'var(--dav-edge)';
@@ -84,6 +93,8 @@ export interface ResolvedView {
 }
 
 const TRACK_OFFSET = 12;
+/** How far each further edge between the same stations bends away from the first. */
+const SHARED_RAIL_BOW = 36;
 const STATION_CLEARANCE = 12;
 const LABEL_AREA_WIDTH = 96;
 
@@ -125,11 +136,13 @@ function stationConnect(from: ResolvedNode, to: ResolvedNode): Bezier {
     ...station,
     height: node.rect.y + node.rect.height - station.y,
   });
-  return a.y < b.y ? connect(withLabels(a, from), b) : connect(a, withLabels(b, to));
+  return a.y < b.y
+    ? connectVertical(withLabels(a, from), b)
+    : connectVertical(a, withLabels(b, to));
 }
 
 /**
- * Resolves what the diagram looks like at a step (spec §5.5).
+ * Resolves what the diagram looks like at a step (spec §4.5).
  * `state` overrides accumulate over steps 1..k; `focus` and `animate` apply to step k only.
  * Pure and deterministic: jumping to any step gives the same result.
  */
@@ -248,22 +261,41 @@ export function resolveView(
   );
   const directions = new Set(
     [...doc.edges, ...doc.steps.flatMap((s) => s.animations)]
+      .filter((r) => r.from !== r.to)
       .map((r) => trackKey(r.from, r.to))
       .filter((key) => !sharedRail.has(key)),
   );
-  const railBetween = (from: ResolvedNode, to: ResolvedNode): Bezier => {
+  // Edges that would share one rail are told apart by their position among those edges.
+  const railUse = new Map<string, number>();
+  const railOrdinals = new Map(
+    doc.edges.map((e) => {
+      const forward = trackKey(e.from, e.to);
+      const backward = trackKey(e.to, e.from);
+      const both = e.direction === 'bidirectional';
+      const ordinal = Math.max(railUse.get(forward) ?? 0, both ? (railUse.get(backward) ?? 0) : 0);
+      railUse.set(forward, ordinal + 1);
+      if (both) railUse.set(backward, ordinal + 1);
+      return [e, ordinal] as const;
+    }),
+  );
+  const railBetween = (from: ResolvedNode, to: ResolvedNode, ordinal = 0): Bezier => {
+    if (from.id === to.id) return selfLoop(stationRect(from.rect, from.icon), ordinal);
     const others = nodes.filter((n) => n.id !== from.id && n.id !== to.id);
     const path = routeAround(stationConnect(from, to), others.map(stationArea));
-    return directions.has(trackKey(to.id, from.id)) ? shiftLeft(path, TRACK_OFFSET) : path;
+    const track = directions.has(trackKey(to.id, from.id)) ? shiftLeft(path, TRACK_OFFSET) : path;
+    return ordinal > 0 ? bowLeft(track, ordinal * SHARED_RAIL_BOW) : track;
   };
 
-  // 6. Animation phases.
-  const edgeFor = (from: string, to: string) =>
-    doc.edges.find(
+  // 6. Animation phases. Between parallel edges, a packet prefers one that is on screen.
+  const isShown = (e: DavDocument['edges'][number]) => overrides.get(e.id)?.visible ?? e.visible;
+  const edgeFor = (from: string, to: string) => {
+    const candidates = doc.edges.filter(
       (e) =>
         (e.from === from && e.to === to) ||
         (e.direction === 'bidirectional' && e.from === to && e.to === from),
     );
+    return candidates.find(isShown) ?? candidates[0];
+  };
   const phases: Packet[][] = [];
   const activeEdges = new Map<string, string>();
   for (const a of step?.animations ?? []) {
@@ -277,7 +309,7 @@ export function resolveView(
       const edgeFrom = nodeById.get(edge.from);
       const edgeTo = nodeById.get(edge.to);
       if (edgeFrom && edgeTo) {
-        const edgePath = railBetween(edgeFrom, edgeTo);
+        const edgePath = railBetween(edgeFrom, edgeTo, railOrdinals.get(edge));
         path = edge.from === a.from ? edgePath : reverse(edgePath);
       }
       if (!activeEdges.has(edge.id)) activeEdges.set(edge.id, color);
@@ -319,7 +351,7 @@ export function resolveView(
       style: e.style,
       direction: e.direction,
       color: ov.color ?? e.color ?? DEFAULT_EDGE_COLOR,
-      path: railBetween(from, to),
+      path: railBetween(from, to, railOrdinals.get(e)),
       active: activeColor !== undefined,
       dimmed: filtering && !focused,
     };

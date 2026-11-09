@@ -1,7 +1,7 @@
 import { type Rect, stationRect } from '../layout';
 import { EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH } from '../model/text';
 import { COLOR_NAMES } from '../model/types';
-import { type Point, pointAt, svgPath } from './geometry';
+import { type Bezier, curveLength, type Point, pointAt, svgPath } from './geometry';
 import { ICON_SHAPES } from './icons';
 import type { Packet, ResolvedEdge, ResolvedGroup, ResolvedNode, ResolvedView } from './resolve';
 import { estimateTextWidth, fitText, wrapText } from './text';
@@ -213,26 +213,46 @@ function edgeLabelElement(e: ResolvedEdge): VElement | null {
 /** Numbered stops showing the order of a step's animation phases. */
 function stopElements(view: ResolvedView): VElement[] {
   if (view.phases.length < 2) return [];
-  return view.phases.flatMap((packets, phase) =>
-    packets.map((packet) => {
-      const { x, y } = pointAt(packet.path, 0.5);
-      return h(
-        'g',
-        {
-          class: 'dav-stop',
-          'data-phase': phase,
-          // Read by Player.syncPhaseHighlights while this phase is running.
-          'data-active-fill': paint(packet.color),
-          'data-active-text': packet.color === COLOR.accent ? '#ffffff' : COLOR.bg,
-        },
-        h('circle', { cx: x, cy: y, r: 11, fill: COLOR.fg }),
-        h(
-          'text',
-          { x, y: y + 4, 'text-anchor': 'middle', 'font-size': 11, fill: COLOR.bg },
-          String(phase + 1),
-        ),
-      );
-    }),
+  // Phases that share a rail would stack their numbers at its middle, in either direction.
+  const byPlace = new Map<string, Array<{ packet: Packet; phase: number }>>();
+  view.phases.forEach((packets, phase) => {
+    for (const packet of packets) {
+      const mid = pointAt(packet.path, 0.5);
+      const place = `${Math.round(mid.x)},${Math.round(mid.y)}`;
+      byPlace.set(place, [...(byPlace.get(place) ?? []), { packet, phase }]);
+    }
+  });
+  return [...byPlace.values()].flatMap((stops) => {
+    const points = stopPoints((stops[0] as { packet: Packet }).packet.path, stops.length);
+    return stops.map(({ packet, phase }, i) => stopElement(packet, phase, points[i] as Point));
+  });
+}
+
+/** Wider than a stop's diameter, because a chord across a tight loop is shorter than its arc. */
+const STOP_SPACING = 32;
+
+/** Evenly spaced positions around the middle of a rail. */
+function stopPoints(path: Bezier, count: number): Point[] {
+  const step = count > 1 ? Math.min(STOP_SPACING / curveLength(path), 0.8 / (count - 1)) : 0;
+  return Array.from({ length: count }, (_, i) => pointAt(path, 0.5 + (i - (count - 1) / 2) * step));
+}
+
+function stopElement(packet: Packet, phase: number, { x, y }: Point): VElement {
+  return h(
+    'g',
+    {
+      class: 'dav-stop',
+      'data-phase': phase,
+      // Read by Player.syncPhaseHighlights while this phase is running.
+      'data-active-fill': paint(packet.color),
+      'data-active-text': packet.color === COLOR.accent ? '#ffffff' : COLOR.bg,
+    },
+    h('circle', { cx: x, cy: y, r: 11, fill: COLOR.fg }),
+    h(
+      'text',
+      { x, y: y + 4, 'text-anchor': 'middle', 'font-size': 11, fill: COLOR.bg },
+      String(phase + 1),
+    ),
   );
 }
 

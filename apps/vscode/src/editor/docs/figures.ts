@@ -38,26 +38,33 @@ export async function copyWithFeedback(
   button: HTMLElement,
   label: string,
   copiedLabel: string,
+  failedLabel: string,
   labelEl: HTMLElement = button,
 ): Promise<void> {
+  let copied = true;
   try {
     await navigator.clipboard.writeText(text);
   } catch {
-    return; // Clipboard access can be denied in insecure or embedded contexts.
+    copied = false; // Clipboard access can be denied in insecure or embedded contexts.
   }
-  labelEl.textContent = copiedLabel;
-  button.classList.add('is-copied');
+  const stateClass = copied ? 'is-copied' : 'is-copy-failed';
+  labelEl.textContent = copied ? copiedLabel : failedLabel;
+  button.classList.add(stateClass);
   window.setTimeout(() => {
     labelEl.textContent = label;
-    button.classList.remove('is-copied');
+    button.classList.remove(stateClass);
   }, 1400);
+}
+
+export function copyFailedLabel(t: Translate): string {
+  return t('コピー失敗', 'Copy failed');
 }
 
 export function copyButton(text: string, t: Translate): HTMLButtonElement {
   const label = t('コピー', 'Copy');
   const button = html('button', { type: 'button', class: 'doc-copy' }, label);
   button.addEventListener('click', () => {
-    void copyWithFeedback(text, button, label, t('コピー済み', 'Copied'));
+    void copyWithFeedback(text, button, label, t('コピー済み', 'Copied'), copyFailedLabel(t));
   });
   return button;
 }
@@ -86,7 +93,8 @@ function svgFrame(frame: Rect, view: ResolvedView, label: string): SVGSVGElement
 export function staticDiagram(dsl: string, label: string, stepIndex: number | null = null) {
   const { document, layout } = compile(dsl);
   const view = resolveView(document, layout, stepIndex);
-  return svgFrame(sceneBounds(view, 10, 0), view, label);
+  const headroom = view.edges.some((e) => e.from === e.to) ? 30 : 0;
+  return svgFrame(sceneBounds(view, 10, headroom), view, label);
 }
 
 /** A single icon exactly as it appears on the canvas, cropped to its station. */
@@ -114,7 +122,7 @@ export function stationPreview(icon: IconName, color?: string): SVGSVGElement {
   );
 }
 
-function phaseStrip(t: Translate) {
+function phaseStrip(t: Translate, onSelect: (phase: number) => void) {
   const element = html('div', { class: 'doc-phases', 'data-testid': 'doc-phase-strip' });
   let cells: HTMLElement[] = [];
 
@@ -124,17 +132,17 @@ function phaseStrip(t: Translate) {
       clear(element);
       cells = view.phases.map((packets, index) =>
         html(
-          'div',
-          { class: 'doc-phase' },
+          'button',
+          { type: 'button', class: 'doc-phase' },
           html(
-            'div',
+            'span',
             { class: 'doc-phase-head' },
             html('span', {}, `${t('フェーズ', 'Phase')} ${index + 1}`),
             html('span', { class: 'doc-phase-time' }, `${PHASE_MS / 1000}s`),
           ),
           ...packets.map((packet) =>
             html(
-              'div',
+              'span',
               { class: 'doc-phase-lane' },
               swatchDot(paint(packet.color)),
               `${packet.fromLabel} ${packet.roundTrip ? '⇄' : '→'} ${packet.toLabel}`,
@@ -142,6 +150,9 @@ function phaseStrip(t: Translate) {
           ),
         ),
       );
+      cells.forEach((cell, index) => {
+        cell.addEventListener('click', () => onSelect(index));
+      });
       element.append(...cells);
     },
     setPhase(phase: number): void {
@@ -237,7 +248,7 @@ export function liveFigure(dsl: string, t: Translate, options: LiveFigureOptions
   const pre = html('pre', { class: 'doc-code' }, ...lines);
   const toolbar = html('div', { class: 'doc-stage-tools' });
   const host = html('div', { class: 'doc-stage-host' });
-  const strip = options.phases ? phaseStrip(t) : null;
+  const strip = options.phases ? phaseStrip(t, (phase) => player.selectPhase(phase)) : null;
   const matrix = options.matrix ? stateMatrix(document, layout, t) : null;
 
   const scrollToLines = (from: number, to: number) => {

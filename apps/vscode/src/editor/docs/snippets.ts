@@ -106,9 +106,25 @@ step "State carries over" {
   animate b --> c : "query"
 }
 
-step "Only state, no motion" {
-  desc "A step with no animate just holds, then moves on."
+step "No motion" {
+  desc "A step with no animate has no packets."
   focus c
+}`;
+
+export const SELF_LOOP_DSL = `dav 1
+
+node client "Client" [icon: browser]
+node worker "Worker" [icon: function]
+node queue "Queue" [icon: queue]
+
+client --> worker : "job"
+worker --> worker : "retry"
+worker --> queue : "done"
+
+step "Retry until it succeeds" {
+  animate client --> worker : "job"
+  animate worker --> worker : "retry"
+  animate worker --> queue : "done"
 }`;
 
 export const FOCUS_DSL = `dav 1
@@ -310,10 +326,11 @@ export const EDGE_GALLERY: readonly string[] = [
   'a <.> b',
   'a --> b : "HTTPS"',
   'a --> b [color: blue]',
+  'a --> b\na --> a : "retry"',
 ];
 
 export const GRAMMAR_EBNF = `Document      ::= Header Statement*
-Header        ::= "dav" "1"
+Header        ::= "dav" Number
 
 Statement     ::= TitleStmt | GroupDecl | NodeDecl | EdgeDecl | StepDecl
 TitleStmt     ::= "title" String
@@ -337,7 +354,7 @@ AnimateArrow  ::= "-->" | "<->"
 
 AttrBlock     ::= "[" (Attr ("," Attr)* ","?)? "]"
 Attr          ::= (Identifier | "desc") ":" Value
-Value         ::= String | Identifier | Boolean`;
+Value         ::= String | Number | Color | Identifier | Boolean`;
 
 /** A minimal document that triggers each diagnostic; the message shown is the real one. */
 export const DIAGNOSTIC_EXAMPLES: Record<DiagnosticCode, string> = {
@@ -356,6 +373,7 @@ export const DIAGNOSTIC_EXAMPLES: Record<DiagnosticCode, string> = {
   'unknown-icon': 'dav 1\nnode a [icon: databse]',
   'invalid-color': 'dav 1\nnode a [color: #ff0000]',
   'invalid-animate-arrow': 'dav 1\nnode a\nnode b\nstep "S" {\n  animate a ..> b\n}',
+  'invalid-self-arrow': 'dav 1\nnode a\na <-> a',
   'invalid-escape': 'dav 1\ntitle "a\\q"',
   'attribute-not-applicable': 'dav 1\ngroup g { node a }\nstep "S" {\n  state g [badge: "x"]\n}',
   'empty-state': 'dav 1\nnode a\nstep "S" {\n  state a []\n}',
@@ -367,6 +385,7 @@ export const ALL_EXAMPLE_DOCUMENTS: readonly string[] = [
   BASICS_DSL,
   GROUPS_DSL,
   EDGE_STEPS_DSL,
+  SELF_LOOP_DSL,
   STEPS_DSL,
   FOCUS_DSL,
   STATE_DSL,

@@ -306,7 +306,7 @@ test.describe('webview preview', () => {
     await expect(page.getByTestId('doc-state-matrix').locator('tbody tr')).not.toHaveCount(0);
 
     await page.getByTestId('doc-nav-diagnostics').click();
-    await expect(page.getByTestId('doc-diagnostics').locator('tbody tr')).toHaveCount(18);
+    await expect(page.getByTestId('doc-diagnostics').locator('tbody tr')).toHaveCount(19);
 
     await page.getByTestId('doc-locale-ja').click();
     await expect(page.getByTestId('doc-nav-diagnostics')).toHaveText('診断メッセージ');
@@ -332,6 +332,111 @@ test.describe('webview preview', () => {
 
     expect(errors).toEqual([]);
   });
+});
+
+test('follow mode keeps a single animation loop', async ({ page }) => {
+  await page.addInitScript(() => {
+    const original = window.requestAnimationFrame.bind(window);
+    const counter = { callbacks: 0, uncounted: original };
+    (window as unknown as { __raf: typeof counter }).__raf = counter;
+    window.requestAnimationFrame = (callback) =>
+      original((time) => {
+        counter.callbacks++;
+        callback(time);
+      });
+  });
+  await openWebview(page);
+  await expect(page.locator('.dav-node')).not.toHaveCount(0);
+  await page.getByTestId('btn-follow-anim').click();
+  await page.getByTestId('select-speed').selectOption('2');
+  await page.locator('header.toolbar').getByTestId('btn-play').click();
+  await page.waitForTimeout(4500);
+
+  const perFrame = await page.evaluate(async () => {
+    const counter = (
+      window as unknown as {
+        __raf: { callbacks: number; uncounted: typeof requestAnimationFrame };
+      }
+    ).__raf;
+    const before = counter.callbacks;
+    let frames = 0;
+    await new Promise<void>((done) => {
+      const step = () => {
+        if (++frames === 30) done();
+        else counter.uncounted(step);
+      };
+      counter.uncounted(step);
+    });
+    return (counter.callbacks - before) / frames;
+  });
+  expect(perFrame).toBeLessThan(1.5);
+});
+
+test('Play step only reads as playing while there is something to play', async ({ page }) => {
+  await openWebview(page);
+  await expect(page.locator('.dav-node')).not.toHaveCount(0);
+  const play = page.locator('header.toolbar').getByTestId('btn-play');
+  await play.click();
+  await expect(play).toHaveAttribute('aria-pressed', 'true');
+  await page.getByTestId('select-step').selectOption('overview');
+  await expect(play).toHaveAttribute('aria-pressed', 'false');
+  await page.getByTestId('select-step').selectOption('1');
+  await expect(play).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('switching documents discards the previous one', async ({ page }) => {
+  await openWebview(
+    page,
+    'dav 1\ntitle "A"\nnode a\nnode b\na --> b\nstep "1" {\n focus a\n}\nstep "2" {\n focus b\n}\n',
+  );
+  await expect(page.locator('.dav-title')).toHaveText('A');
+  await page.evaluate(() => {
+    window.postMessage(
+      { type: 'docChanged', dsl: 'dav 1\ntitle "A"\nnode a', uri: 'file:///a.dav' },
+      '*',
+    );
+  });
+  await expect(page.locator('.dav-node')).toHaveCount(1);
+  await page.getByTestId('btn-export-html').waitFor();
+
+  await page.evaluate(() => {
+    window.postMessage({ type: 'docChanged', dsl: '', uri: 'file:///b.dav' }, '*');
+  });
+  await expect(page.locator('.dav-node')).toHaveCount(0);
+  await expect(page.locator('.dav-title')).toHaveText('');
+});
+
+test('documentation stays open, keeps focus, and reports clipboard failures', async ({ page }) => {
+  await openWebview(page);
+  await expect(page.locator('.dav-node')).not.toHaveCount(0);
+  await page.getByTestId('btn-open-help').click();
+  const dialog = page.getByTestId('help-dialog');
+
+  const nav = page.getByTestId('doc-nav-nodes');
+  await nav.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('doc-nav-nodes')).toBeFocused();
+
+  // A drag from the page that ends on the backdrop is not a click on the backdrop.
+  const heading = await dialog.locator('h1').boundingBox();
+  await page.mouse.move((heading?.x ?? 0) + 2, (heading?.y ?? 0) + 2);
+  await page.mouse.down();
+  await page.mouse.move(2, 2);
+  await page.mouse.up();
+  await expect(dialog).toBeVisible();
+
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: () => Promise.reject(new Error('denied')) },
+    });
+  });
+  await page.getByTestId('doc-nav-overview').click();
+  const copy = dialog.locator('.doc-copy').first();
+  await copy.click();
+  await expect(copy).toHaveText('Copy failed');
+
+  await page.mouse.click(2, 2);
+  await expect(dialog).toBeHidden();
 });
 
 test('animation can be stopped for a still view of each step', async ({ page }) => {

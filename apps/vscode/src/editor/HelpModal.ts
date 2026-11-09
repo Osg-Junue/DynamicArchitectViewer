@@ -68,8 +68,13 @@ export class HelpModal {
       html('div', { class: 'doc-layout' }, this.navEl, this.contentEl),
     );
 
+    // A drag that starts on the page and ends outside it also clicks the dialog.
+    let pressedBackdrop = false;
+    this.element.addEventListener('pointerdown', (e) => {
+      pressedBackdrop = e.target === this.element;
+    });
     this.element.addEventListener('click', (e) => {
-      if (e.target === this.element) this.close();
+      if (e.target === this.element && pressedBackdrop) this.close();
     });
     this.element.addEventListener('close', () => this.disposePage());
   }
@@ -102,6 +107,8 @@ export class HelpModal {
     this.pageId = pageId;
     this.render();
     this.contentEl.scrollTop = 0;
+    // Rendering replaced the nav buttons, including the one that held the focus.
+    this.navEl.querySelector<HTMLElement>('[aria-current="page"]')?.focus();
   }
 
   private render(): void {
@@ -125,7 +132,6 @@ export class HelpModal {
       prompt: this.promptState,
       go: (id) => this.go(id),
       track: (cleanup) => this.cleanups.push(cleanup),
-      rerender: () => this.render(),
     };
     this.contentEl.append(
       html(

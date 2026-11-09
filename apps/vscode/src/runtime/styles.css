@@ -1,6 +1,6 @@
 /*
  * Theme tokens. Inside VS Code every value follows the active color theme; the raw values
- * below only apply to exported HTML and the standalone browser build.
+ * below only apply to exported HTML.
  */
 :root {
   color-scheme: light dark;

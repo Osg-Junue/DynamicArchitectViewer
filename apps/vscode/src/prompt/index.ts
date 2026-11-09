@@ -6,6 +6,9 @@ export interface AiPromptOptions {
   includeCurrentDsl?: boolean;
 }
 
+const RESERVED_WORDS =
+  '`dav`, `title`, `group`, `node`, `step`, `desc`, `focus`, `state`, `animate`, `true`, `false`';
+
 export const PROMPT_EXAMPLE_DSL = `dav 1
 title "Order Processing Architecture"
 
@@ -62,6 +65,7 @@ export function buildAiPrompt(options: AiPromptOptions = {}): string {
       '- The first non-comment statement MUST be `dav 1`.',
       '- Diagram title: `title "Diagram Title"` (at most once).',
       '- Identifiers (`<id>`): `[A-Za-z_][A-Za-z0-9_]*`. Every group, node, and named edge ID must be unique.',
+      `- Reserved words cannot be IDs: ${RESERVED_WORDS}.`,
       '- Strings: always double-quoted `"..."` (escapes: `\\"`, `\\\\`, `\\n`, `\\t`).',
       '- Comments: `// single-line comment` anywhere.',
       '- Layout is 100% automatic from graph topology and group hierarchy (no manual coordinates).',
@@ -77,6 +81,8 @@ export function buildAiPrompt(options: AiPromptOptions = {}): string {
       '  `<from_id> <arrow> <to_id> : "Edge Label" [id: <edge_id>, color: gray, visible: true]`',
       '  - Allowed `<arrow>` tokens: `-->` (solid), `..>` (dashed), `<->` (solid bidirectional), `<.>` (dashed bidirectional).',
       '  - Note: a colon `:` is required before the edge label string (`a --> b : "Label"`).',
+      '  - A node can connect to itself with `-->` or `..>` (`a --> a`); `<->` and `<.>` cannot form a self-loop.',
+      '  - A second edge with the same direction and endpoints needs `[id: ...]`. `state` can target an edge only through its `id`.',
       '',
       '## 3. Time-Stepped Scenarios (`step`)',
       '- `step "Step Title" { ... }` (ordered sequentially). Inside `{ ... }`:',
@@ -115,6 +121,7 @@ export function buildAiPrompt(options: AiPromptOptions = {}): string {
     '- 先頭の文は必ず `dav 1` と記述する。',
     '- 図タイトルは `title "図タイトル"`（最大1回）。',
     '- 識別子（`<id>`）は `[A-Za-z_][A-Za-z0-9_]*`。グループ・ノード・明示エッジIDは図全体で一意にする。',
+    `- 次の予約語はIDに使用不可: ${RESERVED_WORDS}。`,
     '- 文字列はすべてダブルクォート `"..."` で囲む（エスケープ: `\\"`, `\\\\`, `\\n`, `\\t`）。',
     '- コメントは `// 行コメント`。',
     '- 配置はトポロジとグループ階層から100%自動レイアウトされる（座標指定は不要）。',
@@ -130,6 +137,8 @@ export function buildAiPrompt(options: AiPromptOptions = {}): string {
     '  `<from_id> <arrow> <to_id> : "ラベル" [id: <edge_id>, color: gray, visible: true]`',
     '  - 使用可能な `<arrow>`: `-->`（実線）, `..>`（破線）, `<->`（双方向実線）, `<.>`（双方向破線）',
     '  - ※エッジのラベル文字列の前にはコロン `:` が必須（例: `a --> b : "HTTPS"`）。',
+    '  - ノードから自身へのエッジは `-->` または `..>` で書ける（`a --> a`）。`<->` と `<.>` は自己ループに使用不可。',
+    '  - 同じ向き・同じ両端の2本目のエッジには `[id: ...]` が必須。`state` でエッジを指定するには `id` が必要。',
     '',
     '## 3. 時系列ステップ (`step`)',
     '- `step "ステップ名" { ... }` の中に以下を記述する:',

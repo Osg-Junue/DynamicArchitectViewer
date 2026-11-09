@@ -4,6 +4,7 @@ import { clear, html } from '../../runtime/dom';
 import { paint } from '../../scene';
 import {
   copyButton,
+  copyFailedLabel,
   copyWithFeedback,
   type LiveFigure,
   liveFigure,
@@ -137,7 +138,14 @@ function iconTile(icon: IconName, tint: ColorName | null, t: Translate): HTMLEle
     html('span', { class: 'doc-muted' }, t(...ICON_META[icon].description)),
   );
   tile.addEventListener('click', () => {
-    void copyWithFeedback(`icon: ${icon}`, tile, icon, t('コピー済み', 'Copied'), name);
+    void copyWithFeedback(
+      `icon: ${icon}`,
+      tile,
+      icon,
+      t('コピー済み', 'Copied'),
+      copyFailedLabel(t),
+      name,
+    );
   });
   return tile;
 }

@@ -119,7 +119,9 @@ function buildDsl(spec: GenSpec): string {
       const explicit = seenPairs.has(pairKey) ? ` [id: e${ei}]` : '';
       seenPairs.add(pairKey);
       const lbl = e.label !== undefined ? ` : ${escapeDslString(e.label)}` : '';
-      lines.push(`${from} ${e.arrow} ${to}${lbl}${explicit}`);
+      // A self-loop cannot be bidirectional.
+      const oneWay = e.arrow === '<->' ? '-->' : e.arrow === '<.>' ? '..>' : e.arrow;
+      lines.push(`${from} ${from === to ? oneWay : e.arrow} ${to}${lbl}${explicit}`);
     });
 
     for (const s of spec.steps) {

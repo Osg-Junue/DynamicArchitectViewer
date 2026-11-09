@@ -32,6 +32,9 @@ const GROUP_HEADER = 18;
 const CLUSTER_GAP = 28;
 const ORIGIN = { x: 40, y: 40 };
 const EMPTY_GROUP_CONTENT = { width: 160, height: 40 };
+/** Space above a node for its self-loop and that loop's label; further loops nest outside. */
+const SELF_LOOP_ROOM = 30;
+const SELF_LOOP_EXTRA_ROOM = 18;
 
 /** The station symbol within a node's rectangle. */
 export function stationRect(node: Rect, icon: IconName): Rect {
@@ -64,16 +67,28 @@ export function computeLayout(doc: DavDocument): Layout {
   const nodes = rectRecord();
   const emptyGroups = findEmptyGroups(doc);
   const placeholders = rectRecord();
+  const loopRoom = selfLoopRoom(doc);
 
   if (doc.nodes.length > 0 || emptyGroups.size > 0) {
     const ranks = computeRanks(
       doc.nodes.map((n) => n.id),
       doc.edges.map((e) => [e.from, e.to] as const),
     );
-    placeAuto(doc, emptyGroups, ranks, sizes, nodes, placeholders);
+    placeAuto(doc, emptyGroups, ranks, sizes, nodes, placeholders, loopRoom);
   }
 
-  return { nodes, groups: computeGroupRects(doc, nodes, placeholders) };
+  return { nodes, groups: computeGroupRects(doc, nodes, placeholders, loopRoom) };
+}
+
+/** Vertical space each node with self-loops needs above its rectangle. */
+function selfLoopRoom(doc: DavDocument): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const e of doc.edges) {
+    if (e.from === e.to) counts.set(e.from, (counts.get(e.from) ?? 0) + 1);
+  }
+  return new Map(
+    [...counts].map(([id, n]) => [id, SELF_LOOP_ROOM + (n - 1) * SELF_LOOP_EXTRA_ROOM]),
+  );
 }
 
 /** Prototype-less map: IDs such as `__proto__` or `constructor` must behave as plain keys. */
@@ -162,6 +177,7 @@ function placeAuto(
   sizes: Map<string, { width: number; height: number }>,
   out: Record<string, Rect>,
   placeholders: Record<string, Rect>,
+  loopRoom: ReadonlyMap<string, number>,
 ): void {
   const needsLayout = (cluster: Cluster): boolean =>
     cluster.nodes.length > 0 ||
@@ -235,7 +251,9 @@ function placeAuto(
 
   const layoutCluster = (cluster: Cluster, top: number): number => {
     const hasFrame = cluster.id !== undefined;
-    const startY = top + (hasFrame ? GROUP_HEADER + GROUP_PADDING : 0);
+    // Applied to the whole cluster so that rails between stations in a row stay straight.
+    const room = Math.max(0, ...cluster.nodes.map((id) => loopRoom.get(id) ?? 0));
+    const startY = top + (hasFrame ? GROUP_HEADER + GROUP_PADDING : 0) + room;
     const colBottom = Array.from({ length: maxRank + 1 }, () => startY);
     let maxBottom = startY;
 
@@ -277,9 +295,9 @@ function placeAuto(
           const colX = columnX[rank] ?? ORIGIN.x;
           const width = columnWidth[rank] ?? size.width;
           out[id] = { x: colX + (width - size.width) / 2, y: colY, ...size };
-          colY += size.height + ROW_GAP;
+          colY += size.height + ROW_GAP + room;
         }
-        const bottom = colY - ROW_GAP;
+        const bottom = colY - ROW_GAP - room;
         colBottom[rank] = bottom + CLUSTER_GAP;
         maxBottom = Math.max(maxBottom, bottom);
       } else {
@@ -318,6 +336,7 @@ function computeGroupRects(
   doc: DavDocument,
   nodes: Record<string, Rect>,
   placeholders: Record<string, Rect>,
+  loopRoom: ReadonlyMap<string, number>,
 ): Record<string, Rect> {
   const groups = rectRecord();
   const childrenOf = new Map<string, string[]>();
@@ -335,7 +354,12 @@ function computeGroupRects(
     const placeholder = placeholders[groupId];
     const childRects = [
       ...(placeholder ? [placeholder] : []),
-      ...(nodesOf.get(groupId) ?? []).flatMap((id) => (nodes[id] ? [nodes[id]] : [])),
+      ...(nodesOf.get(groupId) ?? []).flatMap((id) => {
+        const node = nodes[id];
+        if (!node) return [];
+        const room = loopRoom.get(id) ?? 0;
+        return [{ ...node, y: node.y - room, height: node.height + room }];
+      }),
       ...(childrenOf.get(groupId) ?? []).flatMap((id) => {
         const r = groups[id] ?? visit(id);
         return r ? [r] : [];
