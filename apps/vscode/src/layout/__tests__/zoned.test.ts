@@ -60,6 +60,32 @@ b1 --> b2`);
     expect(computeLayout(parse(bigDiagram()).document)).toEqual(layout);
   });
 
+  describe('edge labels', () => {
+    const LONG = 'A label long enough to widen the gap between two columns';
+    const labeled = (label: string) =>
+      parse(`${bigDiagram().replace('z1n0 --> z1n1', `z1n0 --> z1n1 : "${label}"`)}`).document;
+
+    it('leaves everything in place for a label that fits the gap', () => {
+      expect(computeLayout(labeled('short'))).toEqual(layout);
+    });
+
+    it('moves zones aside for a label that widens its zone, without overlapping', () => {
+      const widened = computeLayout(labeled(LONG));
+      expect(widened.groups.z1?.width).toBeGreaterThan(layout.groups.z1?.width as number);
+      const rects = Object.values(widened.groups);
+      rects.forEach((a, i) => {
+        for (const b of rects.slice(i + 1)) expect(overlaps(a, b)).toBe(false);
+      });
+    });
+
+    it('gives the same layout whether the label was typed or was already in the file', () => {
+      computeLayout(document);
+      const typed = computeLayout(labeled(LONG));
+      computeLayout(parse(bigDiagram(7)).document);
+      expect(computeLayout(labeled(LONG))).toEqual(typed);
+    });
+  });
+
   it('keeps nodes apart and inside their own zone', () => {
     const ids = Object.keys(layout.nodes);
     expect(ids).toHaveLength(document.nodes.length);

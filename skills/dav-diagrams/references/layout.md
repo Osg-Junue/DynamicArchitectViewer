@@ -176,7 +176,7 @@ When the column layout leaves a link longer than 700 units (a link used for a ro
 3. Simulated annealing moves zones, swaps them and flips them vertically, scoring link length, crossings, links through other zones, right-to-left links and overall size. A link used for a round trip counts double, since it is traversed twice in its time.
 4. Zone edges are aligned where that costs almost nothing. The best of six seeded runs is kept.
 
-The result is deterministic. Zones no longer share columns, so a column does not line up across the diagram. The search takes up to about a second, so the last result is reused until the nodes, groups, edges or round trips change.
+The result is deterministic. Zones no longer share columns, so a column does not line up across the diagram. The search takes about a second at 300 nodes, so the last result is reused until the nodes, groups, edges or round trips change. Edge labels are left out of the search, so typing one never rearranges the zones. A long label can still widen its zone, and the zones to its right then move aside.
 
 ### Invariants
 

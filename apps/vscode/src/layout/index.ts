@@ -13,7 +13,15 @@ import {
   STATION_CENTER,
   selfLoopRoom,
 } from './metrics';
-import { computeZonedLayout, hasZonesToPlace, longLinkExcess, structureKey } from './zoned';
+import {
+  applyZonePlacement,
+  hasZonesToPlace,
+  longLinkExcess,
+  searchZonePlacement,
+  structureKey,
+  withoutLabels,
+  type ZonePlacement,
+} from './zoned';
 
 export { countCrossings } from './links';
 export { type Layout, NODE_SIZE, type Rect } from './metrics';
@@ -63,25 +71,36 @@ export function defaultNodeSize(_icon: IconName): { width: number; height: numbe
  *   fewer crossings, or as many with shorter rails, so refinement never makes a diagram worse.
  *
  * When that leaves links too long, placing the zones freely is tried as well, and kept only
- * if it shortens them without adding crossings (see `computeZonedLayout`).
+ * if it shortens them without adding crossings (see `searchZonePlacement`).
  */
 export function computeLayout(doc: DavDocument): Layout {
-  // The zoned search takes a noticeable moment; most edits do not change the structure.
-  const key = hasZonesToPlace(doc) ? structureKey(doc) : undefined;
-  if (key !== undefined && zonedMemo?.key === key) return zonedMemo.layout;
+  if (!hasZonesToPlace(doc)) return computeColumnLayout(doc);
+  // The search takes a noticeable moment; most edits do not change the structure.
+  const key = structureKey(doc);
+  if (zonePlan?.key !== key) zonePlan = { key, placement: planZones(withoutLabels(doc)) };
+  const { placement } = zonePlan;
+  return placement
+    ? applyZonePlacement(doc, placement, computeColumnLayout)
+    : computeColumnLayout(doc);
+}
+
+let zonePlan: { key: string; placement: ZonePlacement | undefined } | undefined;
+
+/**
+ * Decides whether and where to move the zones. Given a diagram without labels, so that the
+ * layout stays a function of the file alone while typing a label cannot rearrange anything.
+ */
+function planZones(doc: DavDocument): ZonePlacement | undefined {
   const columns = computeColumnLayout(doc);
   const excess = longLinkExcess(doc, columns);
-  if (excess === 0 || key === undefined) return columns;
-  const zoned = computeZonedLayout(doc, computeColumnLayout);
+  if (excess === 0) return undefined;
+  const placement = searchZonePlacement(doc, computeColumnLayout);
+  const zoned = applyZonePlacement(doc, placement, computeColumnLayout);
   const better =
     longLinkExcess(doc, zoned) < excess &&
     countCrossings(doc, zoned) <= countCrossings(doc, columns);
-  const layout = better ? zoned : columns;
-  zonedMemo = { key, layout };
-  return layout;
+  return better ? placement : undefined;
 }
-
-let zonedMemo: { key: string; layout: Layout } | undefined;
 
 function computeColumnLayout(doc: DavDocument): Layout {
   const sizes = new Map(doc.nodes.map((n) => [n.id, defaultNodeSize(n.icon)] as const));

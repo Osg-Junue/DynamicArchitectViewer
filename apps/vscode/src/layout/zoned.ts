@@ -52,14 +52,22 @@ export function longLinkExcess(doc: DavDocument, layout: Layout): number {
   return excess;
 }
 
-/** Everything the layout depends on, so unrelated edits can reuse the last result. */
+/** Everything the placement of the zones depends on, so other edits can reuse the last one. */
 export function structureKey(doc: DavDocument): string {
   return JSON.stringify([
     doc.nodes.map((n) => [n.id, n.parentId ?? '']),
     doc.groups.map((g) => [g.id, g.parentId ?? '']),
-    doc.edges.map((e) => [e.from, e.to, e.label ?? '']),
+    doc.edges.map((e) => [e.from, e.to]),
     [...roundTrips(doc)].sort(),
   ]);
+}
+
+/** The same diagram without what a person is most likely typing at the moment. */
+export function withoutLabels(doc: DavDocument): DavDocument {
+  return {
+    ...doc,
+    edges: doc.edges.map(({ label: _label, ...edge }) => edge),
+  };
 }
 
 type ColumnLayout = (doc: DavDocument) => Layout;
@@ -286,34 +294,86 @@ function runsThrough(link: BlockLink, p: Placed): boolean {
   return false;
 }
 
-/** Evaluated for every candidate move, so it avoids allocating and rejects by bounding box. */
-function linkCost(links: readonly BlockLink[], placed: readonly Placed[]): number {
+function updateSegment(l: BlockLink): void {
+  l.ax = l.source.x + l.sourceX;
+  l.ay = l.source.y + l.sourceY[l.source.flip];
+  l.bx = l.target.x + l.targetX;
+  l.by = l.target.y + l.targetY[l.target.flip];
+  l.minX = Math.min(l.ax, l.bx);
+  l.maxX = Math.max(l.ax, l.bx);
+  l.minY = Math.min(l.ay, l.by);
+  l.maxY = Math.max(l.ay, l.by);
+}
+
+function shapeCost(l: BlockLink): number {
+  const dx = l.bx - l.ax;
+  const length = Math.hypot(dx, l.by - l.ay);
+  return (
+    length * 0.06 + Math.max(0, length * l.weight - LONG_LINK) + (dx < -60 ? 260 - dx * 0.3 : 0)
+  );
+}
+
+function crossingCost(s: BlockLink, t: BlockLink): number {
+  if (s.maxX < t.minX || t.maxX < s.minX || s.maxY < t.minY || t.maxY < s.minY) return 0;
+  return !shareStation(s, t) && properlyCross(s, t) ? 250 : 0;
+}
+
+function throughCost(l: BlockLink, placed: readonly Placed[]): number {
   let total = 0;
-  for (const l of links) {
-    l.ax = l.source.x + l.sourceX;
-    l.ay = l.source.y + l.sourceY[l.source.flip];
-    l.bx = l.target.x + l.targetX;
-    l.by = l.target.y + l.targetY[l.target.flip];
-    l.minX = Math.min(l.ax, l.bx);
-    l.maxX = Math.max(l.ax, l.bx);
-    l.minY = Math.min(l.ay, l.by);
-    l.maxY = Math.max(l.ay, l.by);
-    const dx = l.bx - l.ax;
-    const length = Math.hypot(dx, l.by - l.ay);
-    total += length * 0.06 + Math.max(0, length * l.weight - LONG_LINK);
-    if (dx < -60) total += 260 - dx * 0.3;
-    for (const p of placed) {
-      if (p !== l.source && p !== l.target && runsThrough(l, p)) total += 130;
+  for (const p of placed) {
+    if (p !== l.source && p !== l.target && runsThrough(l, p)) total += 130;
+  }
+  return total;
+}
+
+/** The cost of the whole arrangement. */
+function linkCost(links: readonly BlockLink[], placed: readonly Placed[]): number {
+  let total = spreadCost(placed);
+  for (let i = 0; i < links.length; i++) {
+    const s = links[i] as BlockLink;
+    updateSegment(s);
+    total += shapeCost(s) + throughCost(s, placed);
+    for (let j = 0; j < i; j++) total += crossingCost(s, links[j] as BlockLink);
+  }
+  return total;
+}
+
+const touches = (l: BlockLink, a: Placed, b: Placed | undefined) =>
+  l.source === a || l.target === a || l.source === b || l.target === b;
+
+/**
+ * The part of the cost that moving `a` (and `b`) can change. The search compares this before
+ * and after a move, which costs far less than evaluating the whole arrangement for every move.
+ */
+function movedCost(
+  links: readonly BlockLink[],
+  placed: readonly Placed[],
+  a: Placed,
+  b: Placed | undefined,
+): number {
+  let total = spreadCost(placed);
+  for (let i = 0; i < links.length; i++) {
+    const s = links[i] as BlockLink;
+    if (!touches(s, a, b)) {
+      if (runsThrough(s, a)) total += 130;
+      if (b && runsThrough(s, b)) total += 130;
+      continue;
     }
+    updateSegment(s);
   }
   for (let i = 0; i < links.length; i++) {
     const s = links[i] as BlockLink;
-    for (let j = i + 1; j < links.length; j++) {
+    if (!touches(s, a, b)) continue;
+    total += shapeCost(s) + throughCost(s, placed);
+    for (let j = 0; j < links.length; j++) {
       const t = links[j] as BlockLink;
-      if (s.maxX < t.minX || t.maxX < s.minX || s.maxY < t.minY || t.maxY < s.minY) continue;
-      if (!shareStation(s, t) && properlyCross(s, t)) total += 250;
+      if (j !== i && (j > i || !touches(t, a, b))) total += crossingCost(s, t);
     }
   }
+  return total;
+}
+
+function spreadCost(placed: readonly Placed[]): number {
   let left = Number.POSITIVE_INFINITY;
   let right = Number.NEGATIVE_INFINITY;
   let top = Number.POSITIVE_INFINITY;
@@ -324,7 +384,7 @@ function linkCost(links: readonly BlockLink[], placed: readonly Placed[]): numbe
     top = Math.min(top, p.y);
     bottom = Math.max(bottom, p.y + p.block.height);
   }
-  return total + (right - left + (bottom - top) * 1.4) * 0.6;
+  return (right - left + (bottom - top) * 1.4) * 0.6;
 }
 
 function isClear(a: Placed, placed: readonly Placed[]): boolean {
@@ -372,28 +432,33 @@ function anneal(links: readonly BlockLink[], placed: Placed[], random: () => num
       a.x += (random() - 0.5) * 2 * span;
       a.y += (random() - 0.5) * 2 * span;
     }
-    const restore = () => {
-      a.x = ox;
-      a.y = oy;
-      a.flip = oflip;
+    const { x: nx, y: ny, flip: nflip } = a;
+    const setMoved = (moved: boolean) => {
+      a.x = moved ? nx : ox;
+      a.y = moved ? ny : oy;
+      a.flip = moved ? nflip : oflip;
       if (other) {
-        other.x = otherX;
-        other.y = otherY;
+        other.x = moved ? ox : otherX;
+        other.y = moved ? oy : otherY;
       }
     };
     if (!isClear(a, placed) || (other && !isClear(other, placed))) {
-      restore();
+      setMoved(false);
       continue;
     }
-    const next = linkCost(links, placed);
-    if (next <= current || random() < Math.exp((current - next) / temperature)) {
-      current = next;
-      if (next < best) {
-        best = next;
+    setMoved(false);
+    const before = movedCost(links, placed, a, other);
+    setMoved(true);
+    const change = movedCost(links, placed, a, other) - before;
+    if (change <= 0 || random() < Math.exp(-change / temperature)) {
+      current += change;
+      if (current < best) {
+        best = current;
         bestState = placed.map((p) => ({ x: p.x, y: p.y, flip: p.flip }));
       }
     } else {
-      restore();
+      setMoved(false);
+      for (const l of links) if (touches(l, a, other)) updateSegment(l);
     }
   }
   placed.forEach((p, i) => {
@@ -415,6 +480,7 @@ function tryAlign(
   a: Placed,
   to: { x: number; y: number },
   base: number,
+  current: { value: number },
   links: readonly BlockLink[],
   placed: readonly Placed[],
 ): number {
@@ -423,24 +489,71 @@ function tryAlign(
   if (!moved || Math.abs(to.x - ox) > ALIGN_REACH || Math.abs(to.y - oy) > ALIGN_REACH) return base;
   a.x = to.x;
   a.y = to.y;
-  const cost = isClear(a, placed) ? linkCost(links, placed) : Number.POSITIVE_INFINITY;
-  if (cost <= base + ALIGN_TOLERANCE) return Math.min(base, cost);
+  if (isClear(a, placed)) {
+    a.x = ox;
+    a.y = oy;
+    const before = movedCost(links, placed, a, undefined);
+    a.x = to.x;
+    a.y = to.y;
+    const cost = current.value - before + movedCost(links, placed, a, undefined);
+    if (cost <= base + ALIGN_TOLERANCE) {
+      current.value = cost;
+      return Math.min(base, cost);
+    }
+  }
   a.x = ox;
   a.y = oy;
+  for (const l of links) if (touches(l, a, undefined)) updateSegment(l);
   return base;
 }
 
 /** Lines up zone edges where that barely costs anything, so that the result reads as tidy. */
 function alignEdges(links: readonly BlockLink[], placed: readonly Placed[]): void {
-  let base = linkCost(links, placed);
+  const current = { value: linkCost(links, placed) };
+  let base = current.value;
   for (let round = 0; round < 3; round++) {
     for (const a of placed) {
       for (const b of placed) {
         if (a === b) continue;
-        for (const to of alignmentCandidates(a, b)) base = tryAlign(a, to, base, links, placed);
+        for (const to of alignmentCandidates(a, b)) {
+          base = tryAlign(a, to, base, current, links, placed);
+        }
       }
     }
   }
+}
+
+/** Where the search put each zone. It holds no sizes, so it can be applied to resized zones. */
+export type ZonePlacement = ReadonlyMap<string, { x: number; y: number; flip: 0 | 1 }>;
+
+function snapshot(placed: readonly Placed[]): ZonePlacement {
+  return new Map(placed.map((p) => [p.block.id, { x: p.x, y: p.y, flip: p.flip }]));
+}
+
+/** Zones can come out wider than they were searched at; those to the right step aside. */
+function keepClear(placed: readonly Placed[]): void {
+  const byX = [...placed].sort((a, b) => a.x - b.x);
+  byX.forEach((p, i) => {
+    for (const q of byX.slice(0, i)) {
+      const near =
+        p.y < q.y + q.block.height + VERTICAL_CLEARANCE &&
+        q.y < p.y + p.block.height + VERTICAL_CLEARANCE;
+      if (near) p.x = Math.max(p.x, q.x + q.block.width + HORIZONTAL_CLEARANCE);
+    }
+  });
+}
+
+/** Builds the layout of a diagram from a placement found for its structure. */
+export function applyZonePlacement(
+  doc: DavDocument,
+  placement: ZonePlacement,
+  columnLayout: ColumnLayout,
+): Layout {
+  const placed = buildBlocks(doc, columnLayout).blocks.map(
+    (block): Placed => ({ block, ...(placement.get(block.id) ?? { x: 0, y: 0, flip: 0 }) }),
+  );
+  keepClear(placed);
+  return toLayout(placed);
 }
 
 function toLayout(placed: readonly Placed[]): Layout {
@@ -463,11 +576,11 @@ function toLayout(placed: readonly Placed[]): Layout {
 }
 
 /**
- * Lays out a diagram zone by zone: each zone is arranged on its own, then the zones are
- * placed freely by simulated annealing. Shared columns are given up for shorter links between
- * zones. Seeded, so the same diagram always gets the same layout.
+ * Finds where to put each zone, which has been arranged on its own, by simulated annealing.
+ * Shared columns are given up for shorter links between zones. Seeded, so the same diagram
+ * always gets the same placement.
  */
-export function computeZonedLayout(doc: DavDocument, columnLayout: ColumnLayout): Layout {
+export function searchZonePlacement(doc: DavDocument, columnLayout: ColumnLayout): ZonePlacement {
   const { blocks, owners } = buildBlocks(doc, columnLayout);
   const start = initialPositions(doc, blocks, owners, columnLayout);
   const trips = roundTrips(doc);
@@ -510,7 +623,7 @@ export function computeZonedLayout(doc: DavDocument, columnLayout: ColumnLayout)
     });
 
   let bestScore = Number.POSITIVE_INFINITY;
-  let bestLayout: Layout = { nodes: {}, groups: {} };
+  let bestPlacement: ZonePlacement = new Map();
   for (const seed of SEEDS) {
     for (const p of placed) {
       const at = start.get(p.block.id) ?? { x: 0, y: 0 };
@@ -520,12 +633,11 @@ export function computeZonedLayout(doc: DavDocument, columnLayout: ColumnLayout)
     }
     anneal(links, placed, seededRandom(seed * 104729));
     alignEdges(links, placed);
-    const layout = toLayout(placed);
-    const score = linkCost(links, placed) + countCrossings(doc, layout) * 150;
+    const score = linkCost(links, placed) + countCrossings(doc, toLayout(placed)) * 150;
     if (score < bestScore) {
       bestScore = score;
-      bestLayout = layout;
+      bestPlacement = snapshot(placed);
     }
   }
-  return bestLayout;
+  return bestPlacement;
 }
