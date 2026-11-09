@@ -1,5 +1,5 @@
 // Lezer grammar for DynamicArchitectViewer DSL v1.
-// Spec: docs/03-specification/dsl-v1.md
+// Spec: docs/specification.md
 
 @top Document { Header? statement* }
 

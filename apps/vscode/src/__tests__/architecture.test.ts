@@ -3,7 +3,7 @@ import { join, relative, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 /**
- * Enforces the dependency direction from docs/05-roadmap/productization-strategy.md:
+ * Enforces the dependency direction from docs/architecture.md:
  *   model -> (nothing); dsl, layout -> model; scene -> layout, model;
  *   runtime -> scene, layout, model; exporter -> dsl, layout, model, runtime.
  * No layer may depend on React.

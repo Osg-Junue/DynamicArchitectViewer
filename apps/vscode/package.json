@@ -1,7 +1,7 @@
 {
   "name": "dynamic-architect-viewer",
   "displayName": "DynamicArchitectViewer",
-  "description": "Lightweight time-stepped architecture & screen-transition diagram DSL (.dav) with 100% auto-layout, live preview, and zero-dependency single-file HTML export.",
+  "description": "Write architecture and screen-flow diagrams as text, play them step by step, and export them as a standalone HTML file.",
   "version": "0.1.0",
   "publisher": "osg-junue",
   "preview": true,
