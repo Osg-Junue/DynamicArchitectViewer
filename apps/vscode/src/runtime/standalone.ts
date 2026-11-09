@@ -1,5 +1,6 @@
 import { EXPORT_DATA_ELEMENT_ID } from './constants';
 import { Player, type PlayerData } from './player';
+import './styles.css';
 
 /**
  * Entry point of the runtime bundle inlined into exported HTML files.

@@ -1,7 +1,9 @@
 import { gzipSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
+import { parse } from '../../dsl';
 import runtimeScript from '../../runtime/generated/player.js?raw';
 import { SAMPLE_TEMPLATES } from '../../samples';
+import { ICON_SHAPES } from '../../scene/icons';
 import { EXPORT_DATA_ELEMENT_ID, escapeJsonForHtml, exportHtml, importContent } from '../index';
 
 const SAMPLE = SAMPLE_TEMPLATES[0]?.dsl ?? '';
@@ -67,6 +69,50 @@ describe('exportHtml', () => {
     expect(Object.keys(json.layout.nodes)).toHaveLength(json.document.nodes.length);
     expect(html).toContain('<html lang="en">');
   });
+});
+
+describe('embedded icons', () => {
+  const payloadOf = (html: string) =>
+    JSON.parse(extract(html, new RegExp(`id="${EXPORT_DATA_ELEMENT_ID}">([\\s\\S]*?)</script>`)));
+
+  it('keeps icon artwork out of the runtime bundle', () => {
+    for (const shapes of [ICON_SHAPES.container, ICON_SHAPES.runtime]) {
+      const d = shapes.find(([tag]) => tag === 'path')?.[1].d;
+      expect(d).toBeTypeOf('string');
+      expect(runtimeScript).not.toContain(d);
+    }
+  });
+
+  it('embeds exactly the node and packet icons a document uses', async () => {
+    const dsl = [
+      'dav 1',
+      'node a [icon: browser]',
+      'node b [icon: database]',
+      'a --> b',
+      'step "s" {',
+      '  animate a --> b [icon: key]',
+      '}',
+    ].join('\n');
+    const { document } = parse(dsl);
+    expect(document.steps[0]?.animations[0]?.icon).toBe('key');
+    const { icons } = payloadOf(await exportHtml(dsl));
+    expect(Object.keys(icons).sort()).toEqual(['browser', 'database', 'key']);
+    expect(icons.key).toEqual(ICON_SHAPES.key);
+  });
+
+  it.each(SAMPLE_TEMPLATES.map((s) => [s.id, s.dsl] as const))(
+    '%s: embeds every icon its document references',
+    async (_, dsl) => {
+      const { document, icons } = payloadOf(await exportHtml(dsl));
+      const referenced = [
+        ...document.nodes.map((n: { icon: string }) => n.icon),
+        ...document.steps.flatMap((s: { animations: { icon?: string }[] }) =>
+          s.animations.flatMap((a) => a.icon ?? []),
+        ),
+      ];
+      expect(new Set(Object.keys(icons))).toEqual(new Set(referenced));
+    },
+  );
 });
 
 describe('importContent', () => {

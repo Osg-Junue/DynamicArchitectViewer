@@ -9,7 +9,7 @@ import {
   type PacketCalloutBox,
 } from './callout';
 import { type Bezier, curveLength, type Point, pointAt, svgPath } from './geometry';
-import { ICON_SHAPES } from './icons';
+import type { IconShapes } from './icons';
 import type { Packet, ResolvedEdge, ResolvedGroup, ResolvedNode, ResolvedView } from './resolve';
 import { estimateTextWidth, fitText } from './text';
 import { h, type VElement } from './vnode';
@@ -42,7 +42,7 @@ export const SCENE_PADDING = 48;
 /** Extra room above a framed diagram for speech bubbles. */
 const BUBBLE_HEADROOM = 76;
 
-export function buildScene(view: ResolvedView): VElement {
+export function buildScene(view: ResolvedView, icons: IconShapes): VElement {
   return h(
     'g',
     { class: 'dav-scene' },
@@ -60,7 +60,7 @@ export function buildScene(view: ResolvedView): VElement {
       ...view.edges.map(edgeLabelElement),
     ),
     h('g', { class: 'dav-layer-stops' }, ...stopElements(view)),
-    h('g', { class: 'dav-layer-nodes' }, ...view.nodes.map(nodeElement)),
+    h('g', { class: 'dav-layer-nodes' }, ...view.nodes.map((n) => nodeElement(n, icons))),
   );
 }
 
@@ -269,6 +269,7 @@ const NODE_LABEL_OFFSET = 94;
 
 /** A built-in icon, drawn from its 24×24 artwork and centered on a point. */
 function iconGlyph(
+  icons: IconShapes,
   icon: IconName,
   center: Point,
   size: number,
@@ -283,11 +284,11 @@ function iconGlyph(
       'stroke-linejoin': 'round',
       ...attrs,
     },
-    ...ICON_SHAPES[icon].map(([tag, shape]) => h(tag, { ...shape })),
+    ...(icons[icon] ?? []).map(([tag, shape]) => h(tag, { ...shape })),
   );
 }
 
-function nodeElement(n: ResolvedNode): VElement {
+function nodeElement(n: ResolvedNode, icons: IconShapes): VElement {
   const { x, y, width } = n.rect;
   const station = stationRect(n.rect, n.icon);
   const isWindow = n.icon === 'screen' || n.icon === 'modal';
@@ -322,7 +323,7 @@ function nodeElement(n: ResolvedNode): VElement {
         })
       : h('circle', { cx, cy, r: station.width / 2, ...shape }),
     isWindow ? windowBar(station, shape.stroke) : null,
-    iconGlyph(n.icon, { x: cx, y: iconCy }, iconSize, {
+    iconGlyph(icons, n.icon, { x: cx, y: iconCy }, iconSize, {
       stroke: accent ?? COLOR.fg,
       'stroke-width': 2,
     }),
@@ -430,7 +431,7 @@ export function packetBubblePath(box: PacketCalloutBox, dot: Point): string {
 }
 
 /** A packet (stationary callout + a marker riding the rail). */
-export function buildPacket(packet: Packet, t = 0): VElement {
+export function buildPacket(packet: Packet, icons: IconShapes, t = 0): VElement {
   const dot = packetPosition(packet, t);
   const box = computePacketCalloutBox(packet);
   let callout: VElement | null = null;
@@ -489,7 +490,7 @@ export function buildPacket(packet: Packet, t = 0): VElement {
         class: 'dav-packet-dot',
         transform: `translate(${dot.x.toFixed(1)} ${dot.y.toFixed(1)})`,
       },
-      ...packetMarker(packet),
+      ...packetMarker(packet, icons),
     ),
   );
 }
@@ -500,14 +501,14 @@ const PACKET_ICON_SIZE = 20;
 const PACKET_MARKER_FILL = '#ffffff';
 const PACKET_ICON_COLOR = '#20282f';
 
-function packetMarker(packet: Packet): VElement[] {
+function packetMarker(packet: Packet, icons: IconShapes): VElement[] {
   const stroke = paint(packet.color);
   if (!packet.icon) {
     return [h('circle', { r: 8, fill: PACKET_MARKER_FILL, stroke, 'stroke-width': 4 })];
   }
   return [
     h('circle', { r: PACKET_CHIP_RADIUS, fill: PACKET_MARKER_FILL, stroke, 'stroke-width': 3 }),
-    iconGlyph(packet.icon, { x: 0, y: 0 }, PACKET_ICON_SIZE, {
+    iconGlyph(icons, packet.icon, { x: 0, y: 0 }, PACKET_ICON_SIZE, {
       stroke: PACKET_ICON_COLOR,
       'stroke-width': 2.2,
       class: 'dav-packet-icon',

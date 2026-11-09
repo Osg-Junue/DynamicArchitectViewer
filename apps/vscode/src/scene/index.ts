@@ -12,6 +12,7 @@ export {
 } from './build';
 export { calloutRect, computePacketCalloutBox, type PacketCalloutBox } from './callout';
 export { type Bezier, connect, type Point, pointAt, reverse, svgPath } from './geometry';
+export type { IconShapes } from './icons';
 export {
   DEFAULT_FLOW_COLOR,
   flowColors,

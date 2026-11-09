@@ -8,18 +8,22 @@ import { type Bezier, pointAt } from '../geometry';
 import { ICON_SHAPES } from '../icons';
 import {
   activeLabelFill,
-  buildPacket,
-  buildScene,
+  buildPacket as buildPacketWith,
+  buildScene as buildSceneWith,
   computePacketCalloutBox,
   DEFAULT_FLOW_COLOR,
   flowColors,
   type Packet,
   packetPosition,
+  type ResolvedView,
   resolveView,
   type VElement,
   type VNode,
 } from '../index';
 import { wrapText } from '../text';
+
+const buildScene = (view: ResolvedView) => buildSceneWith(view, ICON_SHAPES);
+const buildPacket = (packet: Packet, t?: number) => buildPacketWith(packet, ICON_SHAPES, t);
 
 const DSL = `dav 1
 title "T"

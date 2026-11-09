@@ -5,6 +5,7 @@ import { isHostToWebviewMessage, type WebviewToHostMessage } from '../protocol/m
 import { clear, html, svg } from '../runtime/dom';
 import { detectLocale } from '../runtime/i18n';
 import { Player } from '../runtime/player';
+import { ICON_SHAPES } from '../scene/icons';
 import { HelpModal } from './HelpModal';
 
 interface VsCodeApi {
@@ -123,7 +124,7 @@ export function mountApp(container: HTMLElement): void {
   function createPlayer(): Player {
     const created = new Player(
       playerHost,
-      { document: lastValid.document, layout: lastValid.layout },
+      { document: lastValid.document, layout: lastValid.layout, icons: ICON_SHAPES },
       {
         locale,
         initialStep: lastValid.document.steps.length > 0 ? 0 : null,
@@ -155,7 +156,7 @@ export function mountApp(container: HTMLElement): void {
       };
     }
     if (player) {
-      player.update({ document: lastValid.document, layout: lastValid.layout });
+      player.update({ document: lastValid.document, layout: lastValid.layout, icons: ICON_SHAPES });
     } else {
       player = createPlayer();
     }
