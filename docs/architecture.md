@@ -129,7 +129,7 @@ findAtOffset(sourceMap, offset): { elementId: string | null; stepIndex: number |
 
 ## The extension host
 
-`extension/extension.ts` provides diagnostics, Quick Fixes, completions, formatting, the outline and these commands:
+`extension/languageFeatures.ts` provides diagnostics, Quick Fixes, completions, formatting and the outline. `extension/extension.ts` registers these commands:
 
 | Command | Action |
 | :--- | :--- |
