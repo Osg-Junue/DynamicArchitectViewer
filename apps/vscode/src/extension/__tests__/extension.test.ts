@@ -180,6 +180,16 @@ describe('extension commands', () => {
     expect(host.written).toEqual([]);
   });
 
+  it('does not open a preview for a non-dav editor', async () => {
+    host.activeTextEditor = { document: fakeDocument('plain', 'notes.txt', 'plaintext') };
+    await run('dav.openPreview');
+    host.activeTextEditor = undefined;
+
+    await run('dav.exportHtml');
+
+    expect(host.written).toEqual([]);
+  });
+
   it('leaves a closed preview document out of the AI prompt', async () => {
     host.activeTextEditor = { document: docA };
     await run('dav.openPreview');

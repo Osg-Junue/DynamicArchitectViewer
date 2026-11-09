@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
-import { computeLayout } from '../../layout';
+import { computeLayout, type Rect, stationRect } from '../../layout';
+import { ICON_NAMES } from '../../model/types';
 import { SAMPLE_TEMPLATES } from '../../samples';
-import { pointAt } from '../geometry';
+import { type Bezier, pointAt } from '../geometry';
 import {
   buildPacket,
   buildScene,
@@ -110,8 +111,13 @@ describe('resolveView', () => {
   });
 
   it('is deterministic regardless of navigation order', () => {
-    expect(view(2)).toEqual(view(2));
-    expect(JSON.stringify(view(1))).toBe(JSON.stringify(resolveView(document, layout, 1)));
+    const source = JSON.stringify(document);
+    const direct = JSON.stringify(view(1));
+    view(2);
+    view(0);
+    view(null);
+    expect(JSON.stringify(view(1))).toBe(direct);
+    expect(JSON.stringify(document)).toBe(source);
   });
 });
 
@@ -381,4 +387,191 @@ describe('buildScene', () => {
       }
     },
   );
+
+  it('renders all 35 built-in icons', () => {
+    const dsl = ['dav 1', ...ICON_NAMES.map((icon, i) => `node n${i} [icon: ${icon}]`)].join('\n');
+    const { document, diagnostics } = parse(dsl);
+    expect(diagnostics).toEqual([]);
+    const scene = buildScene(resolveView(document, computeLayout(document), null));
+    const stations = findAll(scene, (e) => e.attrs.class === 'dav-station');
+    expect(stations).toHaveLength(35);
+  });
+});
+
+describe('self-loops', () => {
+  const sourced = (dsl: string) => {
+    const { document } = parse(dsl);
+    return { document, layout: computeLayout(document) };
+  };
+
+  it('draws a loop above and to the right of the station, without shifting tracks', () => {
+    const { document, layout } = sourced('dav 1\nnode a\nnode b\na --> a\na --> b');
+    const view = resolveView(document, layout, null);
+    const rect = layout.nodes.a as Rect;
+    const station = stationRect(rect, 'server');
+    const path = view.edges[0]?.path as Bezier;
+    const { p0, p1, p2, p3 } = path;
+    const cx = station.x + station.width / 2;
+    const cy = station.y + station.height / 2;
+    expect(p0.x).toBeGreaterThan(cx);
+    expect(p3.x).toBeGreaterThan(cx);
+    expect(p0.y).toBeLessThan(cy);
+    expect(p3.y).toBeLessThan(cy);
+    expect(p1.y).toBeLessThan(p0.y);
+    expect(p2.x).toBeGreaterThan(p3.x);
+    expect(Math.hypot(p0.x - cx, p0.y - cy)).toBeCloseTo(station.width / 2);
+  });
+
+  it('runs a packet around the loop and nests later loops outside', () => {
+    const { document, layout } = sourced(
+      'dav 1\nnode a\na --> a\na ..> a [id: e2]\nstep "s" { animate a --> a : "tick" }',
+    );
+    const view = resolveView(document, layout, 0);
+    const [first, second] = view.edges;
+    expect(view.phases[0]?.[0]?.path).toEqual(first?.path);
+    expect(second?.path.p1.y).toBeLessThan(first?.path.p1.y as number);
+  });
+
+  it('reserves room above the node, and keeps rows level and groups around the loop', () => {
+    const plain = sourced('dav 1\nnode a\nnode b\na --> b').layout;
+    const looped = sourced('dav 1\nnode a\nnode b\na --> a\na --> b').layout;
+    expect((looped.nodes.a as Rect).y).toBeGreaterThan((plain.nodes.a as Rect).y);
+    expect((looped.nodes.a as Rect).y).toBe((looped.nodes.b as Rect).y);
+
+    const grouped = sourced('dav 1\ngroup g { node a }\na --> a').layout;
+    expect((grouped.groups.g as Rect).y).toBeLessThanOrEqual((grouped.nodes.a as Rect).y - 30 - 34);
+  });
+});
+
+describe('numbered stops on a shared rail', () => {
+  const stopCenters = (dsl: string) => {
+    const { document } = parse(dsl);
+    const view = resolveView(document, computeLayout(document), 0);
+    return findAll(buildScene(view), (e) => e.attrs.class === 'dav-stop').map((stop) => {
+      const circle = findAll(stop, (e) => e.tag === 'circle')[0] as VElement;
+      return { x: Number(circle.attrs.cx), y: Number(circle.attrs.cy) };
+    });
+  };
+  const closestPair = (points: ReadonlyArray<{ x: number; y: number }>) =>
+    Math.min(
+      ...points.flatMap((a, i) => points.slice(i + 1).map((b) => Math.hypot(a.x - b.x, a.y - b.y))),
+    );
+
+  it.each([
+    ['one direction', 'a --> b', 'animate a --> b\n  animate a --> b\n  animate a --> b'],
+    ['both directions of a shared rail', 'a <-> b', 'animate a --> b\n  animate b --> a'],
+    ['a self-loop', 'a --> a', 'animate a --> a\n  animate a --> a\n  animate a --> a'],
+  ])('keeps the numbers apart on %s', (_name, edge, animations) => {
+    const stops = stopCenters(`dav 1\nnode a\nnode b\n${edge}\nstep "S" {\n  ${animations}\n}\n`);
+    expect(stops.length).toBeGreaterThanOrEqual(2);
+    expect(closestPair(stops)).toBeGreaterThanOrEqual(22);
+  });
+
+  it('keeps a lone number at the middle of its rail', () => {
+    const { document } = parse(
+      'dav 1\nnode a\nnode b\nnode c\na --> b\nb --> c\nstep "S" {\n  animate a --> b\n  animate b --> c\n}\n',
+    );
+    const view = resolveView(document, computeLayout(document), 0);
+    const circle = findAll(buildScene(view), (e) => e.attrs.class === 'dav-stop')[0]?.children[0];
+    const mid = pointAt(view.phases[0]?.[0]?.path as Bezier, 0.5);
+    expect((circle as VElement).attrs.cx).toBe(mid.x);
+    expect((circle as VElement).attrs.cy).toBe(mid.y);
+  });
+});
+
+describe('edges between the same stations', () => {
+  const build = (dsl: string, step: number | null = null) => {
+    const { document } = parse(dsl);
+    return resolveView(document, computeLayout(document), step);
+  };
+
+  it('prefers the edge on screen when a step hides the first one', () => {
+    const view = build(
+      'dav 1\nnode a\nnode b\na --> b [id: primary]\na ..> b [id: failover, visible: false]\nstep "S" {\n  state primary [visible: false]\n  state failover [visible: true]\n  animate a --> b\n}\n',
+      0,
+    );
+    expect(view.edges.map((e) => [e.id, e.active])).toEqual([['failover', true]]);
+  });
+
+  it.each([
+    ['same direction', 'a --> b [id: x]\na ..> b [id: y]'],
+    ['a bidirectional edge first', 'a <-> b\nb --> a [id: y]'],
+    ['a bidirectional edge last', 'b --> a [id: x]\na <-> b'],
+  ])('keeps them apart with %s', (_name, edges) => {
+    const [first, second] = build(`dav 1\nnode a\nnode b\n${edges}\n`).edges;
+    const a = pointAt(first?.path as Bezier, 0.5);
+    const b = pointAt(second?.path as Bezier, 0.5);
+    expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeGreaterThan(20);
+  });
+
+  it('runs a packet along the edge it belongs to', () => {
+    const view = build(
+      'dav 1\nnode a\nnode b\na --> b [id: x, visible: false]\na ..> b [id: y]\nstep "S" {\n  animate a --> b\n}\n',
+      0,
+    );
+    expect(view.phases[0]?.[0]?.path).toEqual(view.edges.find((e) => e.id === 'y')?.path);
+  });
+
+  it('starts a steep rail at the side of its station on a fan-out', () => {
+    const { document } = parse(
+      'dav 1\nnode a\nnode x\nnode y\nnode z\na --> x\na --> y\na --> z\n',
+    );
+    const layout = computeLayout(document);
+    const view = resolveView(document, layout, null);
+    const station = stationRect(layout.nodes.a as Rect, 'server');
+    const rail = view.edges.find((e) => e.to === 'z')?.path as Bezier;
+    const cx = station.x + station.width / 2;
+    const cy = station.y + station.height / 2;
+    const fromCenter = Math.hypot(rail.p0.x - cx, rail.p0.y - cy);
+    expect(rail.p0.x === cx || Math.abs(fromCenter - station.width / 2) < 0.01).toBe(true);
+  });
+});
+
+describe('focus from state', () => {
+  const stepView = (dsl: string) => {
+    const { document } = parse(dsl);
+    return resolveView(document, computeLayout(document), 0);
+  };
+
+  it('does not dim the diagram for a step that only hides something', () => {
+    const view = stepView(
+      'dav 1\nnode a\nnode b\nnode c\na --> b\nstep "S" {\n  state c [visible: false]\n}\n',
+    );
+    expect(view.nodes.map((n) => [n.id, n.dimmed])).toEqual([
+      ['a', false],
+      ['b', false],
+    ]);
+  });
+
+  it('lights both nodes of a state on an edge', () => {
+    const view = stepView(
+      'dav 1\nnode a\nnode b\nnode c\na --> b [id: e]\nstep "S" {\n  state e [color: red]\n}\n',
+    );
+    expect(view.nodes.map((n) => [n.id, n.dimmed])).toEqual([
+      ['a', false],
+      ['b', false],
+      ['c', true],
+    ]);
+    expect(view.edges[0]?.dimmed).toBe(false);
+  });
+
+  it('still focuses an ordinary state target', () => {
+    const view = stepView('dav 1\nnode a\nnode b\nstep "S" {\n  state a [badge: "x"]\n}\n');
+    expect(view.nodes.map((n) => [n.id, n.focused, n.dimmed])).toEqual([
+      ['a', true, false],
+      ['b', false, true],
+    ]);
+  });
+});
+
+describe('self-loop room', () => {
+  it('is kept for a node placed under a child group', () => {
+    const { document } = parse(
+      'dav 1\ngroup o {\n  group i {\n    node b\n    node d\n  }\n  node c\n}\nb --> d\nb --> c\nc --> c\n',
+    );
+    const layout = computeLayout(document);
+    const inner = layout.groups.i as Rect;
+    const node = layout.nodes.c as Rect;
+    expect(node.y - (inner.y + inner.height)).toBeGreaterThanOrEqual(58);
+  });
 });

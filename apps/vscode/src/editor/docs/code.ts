@@ -1,9 +1,9 @@
 import { KEYWORDS, parse, parseTree } from '../../dsl';
-import { COLOR_NAMES } from '../../model/types';
+import { COLOR_NAMES, ICON_NAMES } from '../../model/types';
 import { html } from '../../runtime/dom';
 import { paint } from '../../scene';
 
-type TokenKind = 'keyword' | 'string' | 'comment' | 'arrow' | 'attr' | 'color';
+type TokenKind = 'keyword' | 'string' | 'comment' | 'arrow' | 'attr' | 'color' | 'icon';
 
 interface Token {
   from: number;
@@ -33,13 +33,17 @@ function tokenize(dsl: string): Token[] {
       const kind = SIMPLE_TOKENS[name];
       if (kind) {
         tokens.push({ from, to, kind });
-      } else if (name === 'Identifier') {
+      } else if (name === 'Identifier' && node.node.parent?.name === 'Attribute') {
         const previous = tokens[tokens.length - 1];
-        const isColorValue =
-          previous?.kind === 'attr' &&
-          dsl.slice(previous.from, previous.to) === 'color' &&
-          (COLOR_NAMES as readonly string[]).includes(dsl.slice(from, to).toLowerCase());
-        if (isColorValue) tokens.push({ from, to, kind: 'color' });
+        if (previous?.kind === 'attr') {
+          const attrName = dsl.slice(previous.from, previous.to);
+          const value = dsl.slice(from, to).toLowerCase();
+          if (attrName === 'color' && (COLOR_NAMES as readonly string[]).includes(value)) {
+            tokens.push({ from, to, kind: 'color' });
+          } else if (attrName === 'icon' && (ICON_NAMES as readonly string[]).includes(value)) {
+            tokens.push({ from, to, kind: 'icon' });
+          }
+        }
       }
       return undefined;
     },

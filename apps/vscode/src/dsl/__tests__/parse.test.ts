@@ -161,6 +161,14 @@ describe('parse: diagnostics', () => {
     ['undefined edge endpoint', 'dav 1\nnode a\na --> b', ['undefined-reference']],
     ['edge to group', 'dav 1\nnode a\ngroup g {}\na --> g', ['reference-kind-mismatch']],
     ['undefined focus', 'dav 1\nstep "s" { focus x }', ['undefined-reference']],
+    ['self-loop', 'dav 1\nnode a\na --> a\na ..> a [id: e2]', []],
+    ['bidirectional self-loop', 'dav 1\nnode a\na <-> a', ['invalid-self-arrow']],
+    ['dashed bidirectional self-loop', 'dav 1\nnode a\na <.> a', ['invalid-self-arrow']],
+    [
+      'round trip on a self-loop',
+      'dav 1\nnode a\nstep "s" { animate a <-> a }',
+      ['invalid-self-arrow'],
+    ],
     [
       'focus on an edge',
       'dav 1\nnode a\nnode b\na --> b [id: e]\nstep "s" { focus e }',

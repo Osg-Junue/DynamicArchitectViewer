@@ -76,6 +76,8 @@ export class Player {
   private phase = 0;
   /** The reader turned animation off. */
   private motionOff = false;
+  /** Playback is frozen in place and resumes from the same position. */
+  private paused = false;
   /** While stopped: `phase` was picked by clicking a node and shows its packets. */
   private pinned = false;
   private elapsed = 0;
@@ -225,7 +227,7 @@ export class Player {
       {
         class: 'dav-playback-bar',
         role: 'toolbar',
-        'aria-label': s.speed,
+        'aria-label': 'Playback',
         'data-testid': 'playback-toolbar',
       },
       this.stepSelect,
@@ -411,7 +413,18 @@ export class Player {
   }
 
   isPlaying(): boolean {
-    return this.playMode !== 'node';
+    return this.isAllRunning() || this.isStepRunning();
+  }
+
+  private isAllRunning(): boolean {
+    return this.playMode === 'all' && !this.paused;
+  }
+
+  /** "Play step" only runs while the current view has something to play. */
+  private isStepRunning(): boolean {
+    return (
+      this.playMode === 'step' && !this.paused && !this.isStopped() && this.view.phases.length > 0
+    );
   }
 
   getSpeed(): number {
@@ -442,6 +455,7 @@ export class Player {
   /** Turns animation off (a still view of the step) or back on. */
   toggleMotion(): void {
     this.setMotionOff(!this.motionOff);
+    this.paused = false;
     this.playMode = 'node';
     this.phase = 0;
     this.elapsed = 0;
@@ -470,27 +484,25 @@ export class Player {
   }
 
   togglePlay(): void {
-    if (this.data.document.steps.length === 0) return;
-    this.setMotionOff(false);
-    this.playMode = this.playMode === 'step' ? 'node' : 'step';
-    if (this.playMode === 'step') {
-      if (this.stepIndex === null) {
-        this.showStep(0);
-      } else {
-        this.phase = 0;
-        this.elapsed = 0;
-        this.renderPackets();
-      }
-    }
-    this.updatePlayButton();
-    this.ensureLoop();
+    this.togglePlayback('step');
   }
 
   togglePlayAll(): void {
+    this.togglePlayback('all');
+  }
+
+  /** Starts a playback mode, freezes it in place if it is running, or resumes it if frozen. */
+  private togglePlayback(mode: 'step' | 'all'): void {
     if (this.data.document.steps.length === 0) return;
     this.setMotionOff(false);
-    this.playMode = this.playMode === 'all' ? 'node' : 'all';
-    if (this.playMode === 'all') {
+    const running = mode === 'step' ? this.isStepRunning() : this.isAllRunning();
+    if (running) {
+      this.paused = true;
+    } else if (this.paused) {
+      this.paused = false;
+      this.playMode = mode;
+    } else {
+      this.playMode = mode;
       if (this.stepIndex === null) {
         this.showStep(0);
       } else {
@@ -520,9 +532,13 @@ export class Player {
     if (this.isStopped()) {
       // Each click shows the node's next phase; past the last one the still view returns.
       const picked = this.pinned && currentPos >= 0 ? matching[currentPos + 1] : matching[0];
-      this.pinned = picked !== undefined;
-      this.phase = picked ?? 0;
-      this.renderPackets();
+      if (picked !== undefined) {
+        this.selectPhase(picked);
+      } else {
+        this.pinned = false;
+        this.phase = 0;
+        this.renderPackets();
+      }
       return;
     }
     const nextPhase =
@@ -530,8 +546,20 @@ export class Player {
         ? (matching[(currentPos + 1) % matching.length] ?? matching[0] ?? 0)
         : (matching[0] ?? 0);
 
+    this.selectPhase(nextPhase);
+  }
+
+  /** Shows one phase: repeating it, or parked on its rail while animation is stopped. */
+  selectPhase(index: number): void {
+    if (!this.view.phases[index]) return;
+    this.phase = index;
+    this.paused = false;
+    if (this.isStopped()) {
+      this.pinned = true;
+      this.renderPackets();
+      return;
+    }
     this.playMode = 'node';
-    this.phase = nextPhase;
     this.elapsed = 0;
     this.renderPackets();
     this.updatePlayButton();
@@ -556,7 +584,7 @@ export class Player {
   private renderChrome(): void {
     const { document: doc } = this.data;
     this.titleEl.textContent = doc.title;
-    this.svgEl.setAttribute('aria-label', doc.title);
+    this.svgEl.setAttribute('aria-label', doc.title || 'Diagram');
     const noSteps = doc.steps.length === 0;
     this.playBtn.disabled = noSteps;
     this.playAllBtn.disabled = noSteps;
@@ -618,7 +646,8 @@ export class Player {
     }
 
     if (!stopped) {
-      for (const packet of phases[this.phase] ?? []) this.addPacket(packet, 0);
+      const t = Math.min(1, this.elapsed / PHASE_MS);
+      for (const packet of phases[this.phase] ?? []) this.addPacket(packet, t);
     } else if (this.pinned) {
       // A picked phase is parked at the middle of its path.
       for (const packet of phases[this.phase] ?? []) {
@@ -734,7 +763,7 @@ export class Player {
   }
 
   private updatePlayButton(): void {
-    const stepPlaying = this.playMode === 'step';
+    const stepPlaying = this.isStepRunning();
     const stepAction = stepPlaying ? this.strings.pause : this.strings.play;
     clear(this.playBtn);
     if (stepPlaying) {
@@ -771,7 +800,7 @@ export class Player {
     this.playBtn.setAttribute('aria-label', stepAction);
     this.playBtn.setAttribute('aria-pressed', String(stepPlaying));
 
-    const allPlaying = this.playMode === 'all';
+    const allPlaying = this.isAllRunning();
     const allAction = allPlaying ? this.strings.pause : this.strings.playAll;
     clear(this.playAllBtn);
     if (allPlaying) {
@@ -816,8 +845,9 @@ export class Player {
 
   private ensureLoop(): void {
     const animating =
-      this.cameraTarget !== null || (!this.isStopped() && this.view.phases.length > 0);
-    if (!animating && this.playMode === 'node') return;
+      this.cameraTarget !== null ||
+      (!this.paused && !this.isStopped() && this.view.phases.length > 0);
+    if (!animating && (this.playMode === 'node' || this.paused)) return;
     if (this.frame) return;
     this.lastFrame = performance.now();
     this.frame = requestAnimationFrame((t) => this.tick(t));
@@ -828,7 +858,7 @@ export class Player {
     const rawDt = Math.min(100, now - this.lastFrame);
     const dt = rawDt * this.speed;
     this.lastFrame = now;
-    this.elapsed += dt;
+    if (!this.paused) this.elapsed += dt;
 
     if (this.cameraTarget) {
       const alpha = 1 - Math.exp(-rawDt / 160);
@@ -846,6 +876,11 @@ export class Player {
         this.cameraTarget = null;
       }
       this.applyTransform();
+    }
+
+    if (this.paused) {
+      if (this.cameraTarget !== null) this.frame = requestAnimationFrame((t) => this.tick(t));
+      return;
     }
 
     const phases = this.isStopped() ? [] : this.view.phases;
@@ -882,7 +917,11 @@ export class Player {
     this.updateStepProgress();
 
     // A step with no phases has nothing to time unless the player must move on from it.
-    if (this.playMode === 'all' || phases.length > 0 || this.cameraTarget !== null) {
+    // Rendering a phase may already have scheduled the next frame through the camera.
+    if (
+      !this.frame &&
+      (this.playMode === 'all' || phases.length > 0 || this.cameraTarget !== null)
+    ) {
       this.frame = requestAnimationFrame((t) => this.tick(t));
     }
   }

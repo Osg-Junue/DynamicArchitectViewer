@@ -14,6 +14,7 @@ import { HOLD_MS, PHASE_MS, SPEEDS } from '../../runtime/player';
 import { colorLab, colorPalette, iconCatalog } from './catalog';
 import { codeBlock } from './code';
 import {
+  copyFailedLabel,
   copyWithFeedback,
   type LiveFigureOptions,
   liveFigure,
@@ -37,6 +38,7 @@ import {
   OVERVIEW_DSL,
   PARALLEL_DSL,
   ROUND_TRIP_DSL,
+  SELF_LOOP_DSL,
   SEQUENTIAL_DSL,
   STATE_DSL,
   STEPS_DSL,
@@ -51,7 +53,6 @@ export interface DocContext {
   go(pageId: string): void;
   /** Registers a teardown that runs when the page is left. */
   track(cleanup: () => void): void;
-  rerender(): void;
 }
 
 export type DocGroupId = 'start' | 'catalog' | 'language' | 'reference' | 'tools';
@@ -266,16 +267,17 @@ function attributeMatrix(ctx: DocContext): HTMLElement {
 
 function renderPrompt(ctx: DocContext): Node[] {
   const { t, locale } = ctx;
-  const promptText = buildAiPrompt({
-    locale,
-    currentDsl: ctx.currentDsl,
-    includeCurrentDsl: ctx.prompt.includeCurrent,
-  });
+  const promptText = () =>
+    buildAiPrompt({
+      locale,
+      currentDsl: ctx.currentDsl,
+      includeCurrentDsl: ctx.prompt.includeCurrent,
+    });
   const checkbox = html('input', { type: 'checkbox', 'data-testid': 'chk-include-current-dsl' });
   checkbox.checked = ctx.prompt.includeCurrent;
   checkbox.addEventListener('change', () => {
     ctx.prompt.includeCurrent = checkbox.checked;
-    ctx.rerender();
+    textarea.value = promptText();
   });
   const label = t('プロンプトをコピー', 'Copy prompt');
   const copy = html(
@@ -284,14 +286,21 @@ function renderPrompt(ctx: DocContext): Node[] {
     label,
   );
   copy.addEventListener('click', () => {
-    void copyWithFeedback(promptText, copy, label, t('コピーしました', 'Copied'));
+    void copyWithFeedback(
+      promptText(),
+      copy,
+      label,
+      t('コピーしました', 'Copied'),
+      copyFailedLabel(t),
+    );
   });
   const textarea = html('textarea', {
     class: 'doc-prompt-text',
+    'aria-label': t('AI生成プロンプト', 'AI prompt'),
     readonly: true,
     'data-testid': 'ai-prompt-textarea',
   });
-  textarea.value = promptText;
+  textarea.value = promptText();
   return [
     html(
       'div',
@@ -667,11 +676,7 @@ export const DOC_PAGES: readonly DocPage[] = [
         syntax('<from> <arrow> <to> (: "label")? [attributes]?'),
         gallery(EDGE_PRELUDE, EDGE_GALLERY),
         attrTable(t, [
-          [
-            '`id`',
-            'ID',
-            t('`focus` / `state` から参照するための名前', 'Name used by `focus` and `state`'),
-          ],
+          ['`id`', 'ID', t('`state` から参照するための名前', 'Name used by `state`')],
           ['`color`', attrValues(t).color, t('線の色', 'Rail color')],
           [
             '`visible`',
@@ -701,6 +706,24 @@ export const DOC_PAGES: readonly DocPage[] = [
           ),
         ),
         live(ctx, EDGE_STEPS_DSL, { matrix: true }),
+        h2(t('自己ループ', 'Self-loops')),
+        p(
+          t(
+            '`a --> a` や `a ..> a` は、駅の右上にループを描きます。`animate a --> a` のパケットはループを1周します。リトライや定期処理の表現に使えます。',
+            '`a --> a` and `a ..> a` draw a loop at the upper right of the station. A packet from `animate a --> a` goes once around it. Use them for retries or scheduled work.',
+          ),
+        ),
+        live(ctx, SELF_LOOP_DSL, { phases: true }),
+        list([
+          t(
+            '双方向の矢印 `<->` と `<.>` は自己ループには使えません（`invalid-self-arrow`）。',
+            'The bidirectional arrows `<->` and `<.>` cannot form a self-loop (`invalid-self-arrow`).',
+          ),
+          t(
+            '同じノードに2本目の自己ループを引くには `id` が必要で、外側に描かれます。',
+            'A second self-loop on the same node needs an `id` and is drawn outside the first.',
+          ),
+        ]),
       ];
     },
   },
@@ -758,8 +781,8 @@ export const DOC_PAGES: readonly DocPage[] = [
             'The Overview shows the declared state, with no `state` applied.',
           ),
           t(
-            '`animate` のないステップは、保持時間だけ表示して次へ進みます。',
-            'A step with no `animate` holds for the hold time, then advances.',
+            '`animate` のないステップは動きません。全再生では保持時間だけ表示して次へ進みます。',
+            'A step with no `animate` has no motion. Under Play all, it holds for the hold time, then advances.',
           ),
         ]),
       ];
@@ -789,6 +812,10 @@ export const DOC_PAGES: readonly DocPage[] = [
           t(
             '`state` の対象と `animate` の両端は、書かなくても自動で対象になります。',
             '`state` targets and `animate` endpoints are focused automatically.',
+          ),
+          t(
+            'ただし `visible: false` にする `state` は対象に数えません。エッジを指定した `state` は両端のノードも対象にします。',
+            'A `state` with `visible: false` does not count. A `state` on an edge also focuses both of its nodes.',
           ),
           t(
             '両端のノードが対象のエッジも減光されません。',
@@ -858,8 +885,8 @@ export const DOC_PAGES: readonly DocPage[] = [
             'An empty `state a []` warns (`empty-state`).',
           ),
           t(
-            '`state` の対象は、そのステップで自動的に `focus` されます。',
-            'A `state` target is automatically focused for that step.',
+            '`state` の対象は、そのステップで自動的に `focus` されます（`visible: false` にする場合を除く）。',
+            'A `state` target is automatically focused for that step, unless it sets `visible: false`.',
           ),
         ]),
       ];
@@ -980,6 +1007,13 @@ export const DOC_PAGES: readonly DocPage[] = [
               ),
             ],
             [
+              t('一時停止', 'Pause'),
+              t(
+                '再生中に同じボタンを押すと、その位置で止まります。もう一度押すと続きから再生します。',
+                'Pressing the running button freezes playback in place. Pressing it again continues from there.',
+              ),
+            ],
+            [
               t('アニメーションのオン / オフ', 'Animation on / off'),
               t(
                 'オフにすると動きを止め、そのステップの状態と使う線をまとめて表示します。ステップを移動してもオフのままで、再生すると自動でオンに戻ります。オフの間にノードをクリックすると、そのフェーズのパケットと吹き出しを線の途中に止めて表示します。',
@@ -993,8 +1027,8 @@ export const DOC_PAGES: readonly DocPage[] = [
             [
               t('ノードをクリック', 'Click a node'),
               t(
-                'そのノードが関わるフェーズを繰り返します。再度クリックで次のフェーズへ。',
-                'Repeats a phase involving that node. Click again for the next one.',
+                'そのノードが送信元のフェーズ（なければ送信先のフェーズ）を繰り返します。再度クリックで次のフェーズへ。',
+                'Repeats a phase the node sends from (or receives in, if it sends none). Click again for the next one.',
               ),
             ],
             [
@@ -1086,7 +1120,10 @@ export const DOC_PAGES: readonly DocPage[] = [
     id: 'grammar',
     group: 'reference',
     title: ['文法 (EBNF)', 'Grammar (EBNF)'],
-    lead: ['`dav 1` の完全な文法です。', 'The complete grammar of `dav 1`.'],
+    lead: [
+      '`dav 1` の構文です。バージョン番号と属性の値は、構文解析の後に診断で検証します。',
+      'The syntax of `dav 1`. The version number and attribute values are checked after parsing, by diagnostics.',
+    ],
     render: () => [html('pre', { class: 'doc-pre' }, GRAMMAR_EBNF)],
   },
   {

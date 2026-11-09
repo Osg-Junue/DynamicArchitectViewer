@@ -29,7 +29,7 @@ DynamicArchitectViewer の唯一の真実のソース（Single Source of Truth�
 
 ```ebnf
 Document      ::= Header Statement*
-Header        ::= "dav" "1"
+Header        ::= "dav" Number
 
 Statement     ::= TitleStmt | GroupDecl | NodeDecl | EdgeDecl | StepDecl
 TitleStmt     ::= "title" String
@@ -52,7 +52,7 @@ StateStmt     ::= "state" Identifier AttrBlock
 AnimateStmt   ::= "animate" Identifier AnimateArrow Identifier (":" String)? AttrBlock? ("{" DescStmt* "}")?
 
 AttrBlock     ::= "[" (Attr ("," Attr)* ","?)? "]"
-Attr          ::= (Identifier | "desc") ":" (String | Identifier | Color | Boolean)
+Attr          ::= (Identifier | "desc") ":" (String | Number | Color | Identifier | Boolean)
 ```
 
 ---
@@ -87,9 +87,9 @@ node db_pri "Primary DB" [icon: database, sub: "Aurora Writer", badge: "WRITER",
 ```
 
 - **属性**:
-  - `icon`: 下記 18 種の組み込みアイコン名（省略時: `server`）
-    - インフラ系 (13種): `server`, `container`, `function`, `database`, `cache`, `queue`, `storage`, `lb`, `firewall`, `cdn`, `cloud`, `router`, `external`
-    - 画面・アクター系 (5種): `screen`, `modal`, `browser`, `mobile`, `user`
+  - `icon`: 下記 35 種の組み込みアイコン名（省略時: `server`、大文字小文字は区別しない）
+    - インフラ・ロジック系 (23種): `server`, `container`, `function`, `database`, `cache`, `queue`, `storage`, `lb`, `firewall`, `cdn`, `cloud`, `router`, `external`, `auth`, `ai`, `mail`, `monitor`, `schedule`, `search`, `logic`, `webhook`, `payment`, `key`
+    - 画面・アクター・ドキュメント系 (12種): `screen`, `modal`, `browser`, `mobile`, `terminal`, `device`, `chat`, `sheet`, `file`, `user`, `users`, `bot`
   - `sub`: `<string>`（ノード下部の補足ラベル）
   - `badge`: `<string>`（駅の上に表示されるバッジ）
   - `visible`: `<bool>`（初期表示状態。省略時: `true`）
@@ -109,6 +109,7 @@ api ..> db_sby : "Failover Route" [id: e_failover, visible: false, color: yellow
   - `..>` : 破線・単方向
   - `<->` : 実線・双方向
   - `<.>` : 破線・双方向
+- **自己ループ**: `a --> a` のように同じノードを両端に指定すると、駅の右上にループを描く。`<->` と `<.>` は使用不可（`invalid-self-arrow`）。`animate a --> a` のパケットはループを1周する。
 - **属性**:
   - `id`: `<id>`（`step` 内の `state` からエッジを参照するために必須の明示的 ID。省略時の暗黙 ID `<from>-><to>` は内部の識別用で、識別子の字句規則に合わないため DSL からは参照できない）
   - `color`: `<color>`（線の色）
@@ -129,6 +130,7 @@ step "Primary DB障害発生と自動フェイルオーバー" {
 
 - **評価モデル（累積状態 + ステップ局所演出）**:
   - `state <id> [...]` による状態変更（`badge`, `visible`, `color`）は **Step 1 から Step $k$ まで順に累積適用** される（ノードは `badge`/`visible`/`color`、グループは `color`、エッジは `visible`/`color` を変更可能）。
+  - `state` の対象と `animate` の両端は、`focus` に書かなくてもそのステップの強調対象になる。ただし `visible: false` にする `state` は対象に数えず、エッジを指定した `state` は両端のノードも対象にする。
   - `state` の `color` には `none` も指定でき、それまでのステップで付けた色を解除して宣言時の色に戻す（`node` / `group` / エッジの宣言では使用不可）。
   - `focus`（ハイライト対象）および `animate`（パケットアニメーション）は **そのステップのみ有効**。`focus` の対象はノードとグループのみで、エッジは指定できない。
   - `animate` には `desc: "..."` 属性（または `{ desc "..." }` ブロック）で各アニメーション動作の解説を記述でき、再生中のフェーズに合わせてパケットの吹き出しに表示される。
@@ -153,9 +155,10 @@ step "Primary DB障害発生と自動フェイルオーバー" {
 | `invalid-attribute-value` | Error | 属性値の型または列挙値が不正 |
 | `attribute-not-applicable` | Warning | `state` の対象種別に適用できない属性を指定した |
 | `empty-state` | Warning | `state` の属性ブロックが空 `[]` |
-| `unknown-icon` | Error | 18種以外のアイコン名を指定した（最近傍候補をサジェスト） |
+| `unknown-icon` | Error | 35種以外のアイコン名を指定した（最近傍候補をサジェスト） |
 | `invalid-color` | Error | 定義済みの色名以外の色指定（16 進カラーコードを含む。色名のタイプミスには最も近い色名をサジェスト） |
 | `invalid-animate-arrow` | Error | `animate` に点線の矢印を指定した |
+| `invalid-self-arrow` | Error | 自己ループに双方向の矢印を指定した |
 | `invalid-escape` | Error | 文字列内の未定義エスケープシーケンス |
-| `unexpected-eof` | Error | ブロック `{ ... }` または文字列が閉じられていない |
-| `syntax-error` | Error | その他の構文エラー |
+| `unexpected-eof` | Error | ブロック `{ ... }` が閉じられていない |
+| `syntax-error` | Error | その他の構文エラー（閉じられていない文字列を含む） |

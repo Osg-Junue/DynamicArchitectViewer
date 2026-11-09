@@ -91,7 +91,7 @@ group frontend "フロントエンド画面遷移 (SPA)" {
 }
 
 group backend "バックエンド & 外部連携" {
-  node auth_api "Auth Service" [icon: firewall, sub: "JWT発行 / OAuth"]
+  node auth_api "Auth Service" [icon: auth, sub: "JWT発行 / OAuth"]
   node shop_api "Checkout API" [icon: server, sub: "在庫引当・注文管理"]
   node stripe "Stripe決済GW" [icon: external, sub: "External Payment API"]
 }
@@ -208,12 +208,12 @@ group client_edge "Client & Global Edge" [color: teal] {
 
 group zero_trust "Zero-Trust Ingress & Identity" [color: purple] {
   node apigw "API Gateway" [icon: router, sub: "mTLS / Token Guard"]
-  node idp "Auth0 / OIDC IdP" [icon: user, sub: "FIDO2 / JWT Verify"]
+  node idp "Auth0 / OIDC IdP" [icon: auth, sub: "FIDO2 / JWT Verify"]
 }
 
 group app_mesh "Core Microservices Mesh (EKS)" [color: blue] {
   node bff "Checkout BFF" [icon: container, sub: "GraphQL Orchestrator"]
-  node fraud_ai "Fraud AI Engine" [icon: function, sub: "ML Risk Scoring (gRPC)"]
+  node fraud_ai "Fraud AI Engine" [icon: ai, sub: "ML Risk Scoring (gRPC)"]
   node order_svc "Order Service" [icon: server, sub: "Saga Coordinator"]
   node pay_svc "Payment Service" [icon: container, sub: "PCI-DSS Isolated Pod"]
 }
@@ -276,6 +276,125 @@ step "不正検知ブロックと補償トランザクション (異常系シナ
   animate order_svc --> aurora : "3. UPDATE REJECTED" [color: red, desc: "Aurora内の注文ステータスをREJECTEDへ更新し、仮引当在庫を即時解放"]
   animate order_svc --> kafka : "4. FraudAlertEvent" [color: red, desc: "セキュリティ監視トピックへ不正試行アラートイベントを非同期配信"]
   animate kafka --> s3_audit : "5. Write Forensics" [color: red, desc: "改ざん防止(WORM)設定のAudit S3 Vaultへフォレンジック証跡ログを永続化"]
+}
+`,
+  },
+  {
+    id: 'sequence-payment-retry',
+    name: 'シーケンス図：決済リトライと非同期配送',
+    category: 'infra',
+    description:
+      '流量制御・状態遷移・決済のバックオフ再試行を自己ループで表現した注文処理シーケンス',
+    dsl: `dav 1
+title "注文決済シーケンス：流量制御・決済リトライ・非同期配送"
+
+node client "Web Client" [icon: browser, sub: "購入者"]
+
+group edge_layer "Edge" [color: teal] {
+  node gw "API Gateway" [icon: router, sub: "認証・流量制御"]
+}
+
+group core "注文・決済ドメイン" [color: blue] {
+  node order "Order Service" [icon: container, sub: "Saga Orchestrator"]
+  node payment "Payment Service" [icon: function, sub: "決済実行"]
+  node stock "Inventory" [icon: database, sub: "在庫引当"]
+  node psp "決済代行" [icon: external, sub: "PSP API"]
+}
+
+group async "非同期処理" [color: purple] {
+  node queue "Event Queue" [icon: queue, sub: "OrderEvents"]
+  node worker "Fulfillment Worker" [icon: server, sub: "出荷処理"]
+  node dlq "Dead Letter Queue" [icon: storage, sub: "要調査", visible: false]
+}
+
+client --> gw : "POST /orders"
+gw --> client : "応答"
+gw --> gw : "レート判定"
+gw --> order : "CreateOrder"
+order --> gw : "結果"
+order --> order : "状態遷移"
+order --> stock : "Reserve"
+stock --> order : "Reserved"
+order --> payment : "Charge"
+payment --> order : "Charged"
+payment --> payment : "バックオフ"
+payment --> psp : "Authorize"
+psp --> payment : "結果"
+order ..> queue : "OrderConfirmed"
+queue --> worker : "Deliver"
+worker --> worker : "再試行"
+worker ..> dlq : "隔離" [id: e_dlq, visible: false, color: red]
+
+step "注文の受付と流量制御" {
+  desc "Gatewayは自身のレート制限カウンタを確認してから、注文をOrder Serviceへ転送します。"
+  state gw [badge: "98 req/s"]
+  animate client --> gw : "POST /orders" [desc: "購入者が注文を送信"]
+  animate gw --> gw : "Rate Check" [color: teal, desc: "トークンバケットの残量を確認し、許可を判定"]
+  animate gw --> order : "CreateOrder" [desc: "認証済みの注文要求を転送"]
+}
+
+step "注文の作成と在庫引当" {
+  desc "Order Serviceは注文をPENDINGへ遷移させ、在庫を仮引当します。"
+  state gw [badge: ""]
+  state order [badge: "PENDING", color: yellow]
+  animate order --> order : "→ PENDING" [color: yellow, desc: "Sagaを開始し、注文の状態をPENDINGへ遷移"]
+  animate order --> stock : "Reserve" [desc: "商品ごとの在庫を仮引当"]
+  animate stock --> order : "Reserved" [color: green, desc: "全商品の仮引当が成功"]
+}
+
+step "決済の一時障害" {
+  desc "決済代行が503を返しました。Payment Serviceは失敗を確定せず、再試行に切り替えます。"
+  state stock [badge: "HOLD", color: green]
+  state psp [badge: "503", color: red]
+  animate order --> payment : "Charge" [desc: "仮引当の完了後に決済を依頼"]
+  animate payment --> psp : "Authorize" [desc: "決済代行へオーソリを要求"]
+  animate psp --> payment : "503" [color: red, desc: "一時的なサービス障害を応答"]
+}
+
+step "バックオフ再試行：1回目" {
+  desc "1秒待ってから、同じ冪等キーで再送します。障害はまだ続いています。"
+  state payment [badge: "RETRY 1", color: orange]
+  animate payment --> payment : "Wait 1s" [color: orange, desc: "1回目の再試行まで待機"]
+  animate payment --> psp : "Retry #1" [desc: "同じ冪等キーで再送"]
+  animate psp --> payment : "503" [color: red, desc: "障害が継続"]
+}
+
+step "バックオフ再試行：2回目" {
+  desc "待機時間を2秒に倍増して再送し、決済が成功します。"
+  state payment [badge: "RETRY 2"]
+  state psp [badge: "200", color: green]
+  animate payment --> payment : "Wait 2s" [color: orange, desc: "待機時間を倍にして再試行を準備"]
+  animate payment --> psp : "Retry #2" [desc: "同じ冪等キーで再送"]
+  animate psp --> payment : "200 OK" [color: green, desc: "オーソリが成功"]
+}
+
+step "注文の確定と応答" {
+  desc "決済結果を受けて注文を確定します。購入者への応答とイベント発行は同時に行います。"
+  state psp [badge: "", color: none]
+  state payment [badge: "PAID", color: green]
+  state order [badge: "CONFIRMED", color: green]
+  animate payment --> order : "Charged" [color: green, desc: "決済完了を通知"]
+  animate order --> order : "→ CONFIRMED" [color: green, desc: "注文の状態をCONFIRMEDへ遷移"]
+  animate order --> gw : "201 Created" [desc: "作成済みの注文を返却"]
+  animate order --> queue : "OrderConfirmed" [parallel: true, color: purple, desc: "出荷処理用のイベントを発行"]
+  animate gw --> client : "201 Created" [desc: "購入者へ注文完了を応答"]
+}
+
+step "非同期の出荷処理" {
+  desc "Workerはキューからイベントを受け取り、倉庫APIの失敗に備えて自身で再試行します。"
+  state queue [badge: "1 msg"]
+  state worker [badge: "RUNNING", color: orange]
+  animate queue --> worker : "Deliver" [color: purple, desc: "イベントをWorkerへ配信"]
+  animate worker --> worker : "Attempt 1..3" [color: orange, desc: "倉庫APIの呼び出しを最大3回試行"]
+}
+
+step "再試行の上限と隔離" {
+  desc "3回とも失敗したイベントはDead Letter Queueへ隔離し、キューの滞留を防ぎます。"
+  state queue [badge: ""]
+  state worker [badge: "FAILED", color: red]
+  state dlq [visible: true, badge: "1 msg", color: red]
+  state e_dlq [visible: true]
+  animate worker --> dlq : "Quarantine" [color: red, desc: "失敗したイベントを隔離して調査待ちにする"]
 }
 `,
   },

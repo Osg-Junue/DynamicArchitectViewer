@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parse } from '../../dsl';
+import { KEYWORDS, parse } from '../../dsl';
 import { ICON_NAMES } from '../../model/types';
 import { buildAiPrompt, PROMPT_EXAMPLE_DSL } from '../index';
 
@@ -15,10 +15,14 @@ describe('AI prompt template (M4)', () => {
     const ja = buildAiPrompt({ locale: 'ja' });
     const en = buildAiPrompt({ locale: 'en' });
 
-    for (const icon of ICON_NAMES) {
-      expect(ja).toContain(icon);
-      expect(en).toContain(icon);
-    }
+    const list = ICON_NAMES.join(', ');
+    expect(ja).toContain(list);
+    expect(en).toContain(list);
+  });
+
+  it.each(['ja', 'en'] as const)('names every reserved word in the %s prompt', (locale) => {
+    const prompt = buildAiPrompt({ locale });
+    for (const word of KEYWORDS) expect(prompt).toContain(`\`${word}\``);
   });
 
   it('includes current DSL only when requested', () => {

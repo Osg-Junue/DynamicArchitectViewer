@@ -6,6 +6,9 @@ export interface AiPromptOptions {
   includeCurrentDsl?: boolean;
 }
 
+const RESERVED_WORDS =
+  '`dav`, `title`, `group`, `node`, `step`, `desc`, `focus`, `state`, `animate`, `true`, `false`';
+
 export const PROMPT_EXAMPLE_DSL = `dav 1
 title "Order Processing Architecture"
 
@@ -62,6 +65,7 @@ export function buildAiPrompt(options: AiPromptOptions = {}): string {
       '- The first non-comment statement MUST be `dav 1`.',
       '- Diagram title: `title "Diagram Title"` (at most once).',
       '- Identifiers (`<id>`): `[A-Za-z_][A-Za-z0-9_]*`. Every group, node, and named edge ID must be unique.',
+      `- Reserved words cannot be IDs: ${RESERVED_WORDS}.`,
       '- Strings: always double-quoted `"..."` (escapes: `\\"`, `\\\\`, `\\n`, `\\t`).',
       '- Comments: `// single-line comment` anywhere.',
       '- Layout is 100% automatic from graph topology and group hierarchy (no manual coordinates).',
@@ -77,12 +81,15 @@ export function buildAiPrompt(options: AiPromptOptions = {}): string {
       '  `<from_id> <arrow> <to_id> : "Edge Label" [id: <edge_id>, color: gray, visible: true]`',
       '  - Allowed `<arrow>` tokens: `-->` (solid), `..>` (dashed), `<->` (solid bidirectional), `<.>` (dashed bidirectional).',
       '  - Note: a colon `:` is required before the edge label string (`a --> b : "Label"`).',
+      '  - A node can connect to itself with `-->` or `..>` (`a --> a`); `<->` and `<.>` cannot form a self-loop.',
+      '  - A second edge with the same direction and endpoints needs `[id: ...]`. `state` can target an edge only through its `id`.',
       '',
       '## 3. Time-Stepped Scenarios (`step`)',
       '- `step "Step Title" { ... }` (ordered sequentially). Inside `{ ... }`:',
       '  - `desc "Explanation shown in the player dock"`',
       '  - `focus <id1>, <id2>, ...` (highlights listed nodes/groups; focusing a group automatically focuses its descendants; non-focused elements are dimmed during this step).',
       '  - `state <target_id> [badge: "...", color: <color>, visible: true|false]`',
+      '    - A `state` target counts as focused for that step, unless it sets `visible: false`. A `state` on an edge also focuses both of its nodes.',
       '    - **Cumulative semantics**: `state` overrides accumulate across steps `1..k`. To clear a badge in a later step, set `badge: ""`. To return to the declared color, set `color: none`.',
       '  - `animate <from_id> <arrow> <to_id> : "Packet Label" [color: blue, desc: "Action description", parallel: true]`',
       "    - Plays in declaration order and displays `desc` in the packet's speech bubble during that animation phase. Add `parallel: true` to run simultaneously with the immediately preceding `animate` statement. Only `-->` (one way) and `<->` (there and back) are allowed in `animate`.",
@@ -115,6 +122,7 @@ export function buildAiPrompt(options: AiPromptOptions = {}): string {
     '- 先頭の文は必ず `dav 1` と記述する。',
     '- 図タイトルは `title "図タイトル"`（最大1回）。',
     '- 識別子（`<id>`）は `[A-Za-z_][A-Za-z0-9_]*`。グループ・ノード・明示エッジIDは図全体で一意にする。',
+    `- 次の予約語はIDに使用不可: ${RESERVED_WORDS}。`,
     '- 文字列はすべてダブルクォート `"..."` で囲む（エスケープ: `\\"`, `\\\\`, `\\n`, `\\t`）。',
     '- コメントは `// 行コメント`。',
     '- 配置はトポロジとグループ階層から100%自動レイアウトされる（座標指定は不要）。',
@@ -130,12 +138,15 @@ export function buildAiPrompt(options: AiPromptOptions = {}): string {
     '  `<from_id> <arrow> <to_id> : "ラベル" [id: <edge_id>, color: gray, visible: true]`',
     '  - 使用可能な `<arrow>`: `-->`（実線）, `..>`（破線）, `<->`（双方向実線）, `<.>`（双方向破線）',
     '  - ※エッジのラベル文字列の前にはコロン `:` が必須（例: `a --> b : "HTTPS"`）。',
+    '  - ノードから自身へのエッジは `-->` または `..>` で書ける（`a --> a`）。`<->` と `<.>` は自己ループに使用不可。',
+    '  - 同じ向き・同じ両端の2本目のエッジには `[id: ...]` が必須。`state` でエッジを指定するには `id` が必要。',
     '',
     '## 3. 時系列ステップ (`step`)',
     '- `step "ステップ名" { ... }` の中に以下を記述する:',
     '  - `desc "プレイヤー上部に表示するステップ説明文"`',
     '  - `focus <id1>, <id2>, ...`（注目するノード/グループID。グループを指定すると配下要素も自動フォーカスされ、それ以外は減光される）',
     '  - `state <target_id> [badge: "...", color: <color>, visible: true|false]`',
+    '    - `state` の対象は、そのステップでフォーカスされる（`visible: false` にする場合を除く）。エッジを指定した `state` は両端のノードもフォーカスされる。',
     '    - **累積適用ルール**: `state` の変更はステップ `1..k` で累積される。後のステップでバッジを消す場合は `badge: ""`、宣言時の色に戻す場合は `color: none` を明示する。',
     '  - `animate <from_id> <arrow> <to_id> : "パケット名" [color: blue, desc: "アニメーション動作の説明", parallel: true]`',
     '    - 記述順に直列再生され、各アニメーション実行中に `desc` の説明がパケットの吹き出しに表示される。直前の `animate` と同時再生したい場合は `[parallel: true]` を付与する。`animate` で使える矢印は `-->`（片道）と `<->`（往復）のみ。',

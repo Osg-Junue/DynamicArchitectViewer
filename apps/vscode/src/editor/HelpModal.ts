@@ -29,7 +29,7 @@ export class HelpModal {
   constructor() {
     this.titleEl = html('span', { class: 'doc-title' });
     this.navEl = html('nav', { class: 'doc-nav' });
-    this.contentEl = html('main', { class: 'doc-content' });
+    this.contentEl = html('div', { class: 'doc-content' });
     this.closeBtn = html('button', {
       type: 'button',
       class: 'btn',
@@ -68,8 +68,13 @@ export class HelpModal {
       html('div', { class: 'doc-layout' }, this.navEl, this.contentEl),
     );
 
+    // A drag that starts on the page and ends outside it also clicks the dialog.
+    let pressedBackdrop = false;
+    this.element.addEventListener('pointerdown', (e) => {
+      pressedBackdrop = e.target === this.element;
+    });
     this.element.addEventListener('click', (e) => {
-      if (e.target === this.element) this.close();
+      if (e.target === this.element && pressedBackdrop) this.close();
     });
     this.element.addEventListener('close', () => this.disposePage());
   }
@@ -102,12 +107,16 @@ export class HelpModal {
     this.pageId = pageId;
     this.render();
     this.contentEl.scrollTop = 0;
+    // Rendering replaced the nav buttons, including the one that held the focus.
+    this.navEl.querySelector<HTMLElement>('[aria-current="page"]')?.focus();
   }
 
   private render(): void {
     const { t } = this;
     this.disposePage();
     this.titleEl.textContent = t('ドキュメント', 'Documentation');
+    this.element.setAttribute('aria-label', this.titleEl.textContent);
+    this.element.lang = this.locale;
     this.closeBtn.textContent = t('閉じる', 'Close');
     for (const [locale, button] of this.localeButtons) {
       button.classList.toggle('active', locale === this.locale);
@@ -125,7 +134,6 @@ export class HelpModal {
       prompt: this.promptState,
       go: (id) => this.go(id),
       track: (cleanup) => this.cleanups.push(cleanup),
-      rerender: () => this.render(),
     };
     this.contentEl.append(
       html(

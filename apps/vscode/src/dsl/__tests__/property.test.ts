@@ -1,20 +1,15 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
+import { ICON_NAMES } from '../../model/types';
 import { format, parse } from '../index';
+import { quoteString } from '../syntax';
 
-const ICONS = ['server', 'database', 'cache', 'screen', 'user'] as const;
+const ICONS = ICON_NAMES;
 const ARROWS = ['-->', '..>', '<->', '<.>'] as const;
 
-const labelArb = fc.string({ maxLength: 12 });
-
-function escapeDslString(s: string): string {
-  return `"${s
-    .replace(/\\/g, '\\\\')
-    .replace(/"/g, '\\"')
-    .replace(/\n/g, '\\n')
-    .replace(/\r/g, '\\r')
-    .replace(/\t/g, '\\t')}"`;
-}
+// Weighted toward the characters that need escaping, which plain strings almost never contain.
+const labelUnit = fc.constantFrom('a', 'Z', ' ', '"', '\\', '\n', '\t', 'あ', '#', '/');
+const labelArb = fc.string({ unit: labelUnit, maxLength: 12 });
 
 interface GenGroup {
   name: string;
@@ -84,19 +79,19 @@ const specArb: fc.Arbitrary<GenSpec> = fc.record({
 });
 
 function buildDsl(spec: GenSpec): string {
-  const lines: string[] = ['// generated', 'dav 1', `title ${escapeDslString(spec.title)}`, ''];
+  const lines: string[] = ['// generated', 'dav 1', `title ${quoteString(spec.title)}`, ''];
   const nodeIds: string[] = [];
   let nCounter = 0;
 
   spec.groups.forEach((g, gi) => {
     const gid = `g${gi}`;
-    lines.push(`group ${gid} ${escapeDslString(g.name)} {`);
+    lines.push(`group ${gid} ${quoteString(g.name)} {`);
     for (const n of g.nodes) {
       const nid = `n${nCounter++}`;
       nodeIds.push(nid);
       const attrs = [`icon: ${n.icon}`];
-      if (n.sub !== undefined) attrs.push(`sub: ${escapeDslString(n.sub)}`);
-      lines.push(`  node ${nid} ${escapeDslString(n.name)} [${attrs.join(', ')}]`);
+      if (n.sub !== undefined) attrs.push(`sub: ${quoteString(n.sub)}`);
+      lines.push(`  node ${nid} ${quoteString(n.name)} [${attrs.join(', ')}]`);
     }
     lines.push('}');
   });
@@ -105,8 +100,8 @@ function buildDsl(spec: GenSpec): string {
     const nid = `n${nCounter++}`;
     nodeIds.push(nid);
     const attrs = [`icon: ${n.icon}`];
-    if (n.sub !== undefined) attrs.push(`sub: ${escapeDslString(n.sub)}`);
-    lines.push(`node ${nid} ${escapeDslString(n.name)} [${attrs.join(', ')}]`);
+    if (n.sub !== undefined) attrs.push(`sub: ${quoteString(n.sub)}`);
+    lines.push(`node ${nid} ${quoteString(n.name)} [${attrs.join(', ')}]`);
   }
 
   if (nodeIds.length > 0) {
@@ -117,15 +112,17 @@ function buildDsl(spec: GenSpec): string {
       const pairKey = `${from}->${to}`;
       const explicit = seenPairs.has(pairKey) ? ` [id: e${ei}]` : '';
       seenPairs.add(pairKey);
-      const lbl = e.label !== undefined ? ` : ${escapeDslString(e.label)}` : '';
-      lines.push(`${from} ${e.arrow} ${to}${lbl}${explicit}`);
+      const lbl = e.label !== undefined ? ` : ${quoteString(e.label)}` : '';
+      // A self-loop cannot be bidirectional.
+      const oneWay = e.arrow === '<->' ? '-->' : e.arrow === '<.>' ? '..>' : e.arrow;
+      lines.push(`${from} ${from === to ? oneWay : e.arrow} ${to}${lbl}${explicit}`);
     });
 
     for (const s of spec.steps) {
       const focusTarget = nodeIds[s.focusIdx % nodeIds.length] ?? 'n0';
       const stateTarget = nodeIds[s.stateIdx % nodeIds.length] ?? 'n0';
-      lines.push(`step ${escapeDslString(s.title)} {`);
-      if (s.desc !== undefined) lines.push(`  desc ${escapeDslString(s.desc)}`);
+      lines.push(`step ${quoteString(s.title)} {`);
+      if (s.desc !== undefined) lines.push(`  desc ${quoteString(s.desc)}`);
       lines.push(`  focus ${focusTarget}`);
       lines.push(`  state ${stateTarget} [color: blue]`);
       lines.push('}');
@@ -152,8 +149,8 @@ describe('property: DSL parse & format', () => {
 
   it('labels round-trip through escaping', () => {
     fc.assert(
-      fc.property(fc.string(), (label) => {
-        const text = `dav 1\nnode a ${escapeDslString(label)}\n`;
+      fc.property(fc.string({ unit: labelUnit }), (label) => {
+        const text = `dav 1\nnode a ${quoteString(label)}\n`;
         const { document, diagnostics } = parse(text);
         expect(diagnostics).toEqual([]);
         expect(document.nodes[0]?.label).toBe(label);

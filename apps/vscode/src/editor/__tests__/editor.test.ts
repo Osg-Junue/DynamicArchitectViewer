@@ -62,9 +62,26 @@ describe('computeCompletions', () => {
     );
   });
 
-  it('completes defined node and group IDs after arrow or focus', () => {
-    const text = `${dsl}api --> `;
-    const res = computeCompletions(text, text.length, true);
-    expect(res?.items.map((i) => i.label)).toEqual(expect.arrayContaining(['api', 'db', 'vpc']));
+  const labelsAt = (text: string) =>
+    computeCompletions(text, text.length, true)?.items.map((i) => i.label);
+  const withEdge = `${dsl}api --> db [id: e1]\n`;
+
+  it('offers only the elements each statement accepts', () => {
+    expect(labelsAt(`${withEdge}api --> `)).toEqual(['api', 'db']);
+    expect(labelsAt(`${withEdge}step "s" {\n  animate `)).toEqual(['api', 'db']);
+    expect(labelsAt(`${withEdge}step "s" {\n  focus `)).toEqual(['api', 'db', 'vpc']);
+    expect(labelsAt(`${withEdge}step "s" {\n  state `)).toEqual(['api', 'db', 'vpc', 'e1']);
+  });
+
+  it('offers nothing where a string or an arrow is expected', () => {
+    expect(labelsAt(`${withEdge}step "s" {\n  animate api --> db : `)).toBeUndefined();
+    expect(labelsAt(`${withEdge}step "s" {\n  animate api `)).toBeUndefined();
+    expect(labelsAt(`${withEdge}node a "focus on" `)).toBeUndefined();
+  });
+
+  it('completes inside attribute blocks that span lines', () => {
+    expect(labelsAt(`${dsl}node x [\n  `)).toContain('icon');
+    expect(labelsAt(`${dsl}node x [\n  `)).not.toContain('node');
+    expect(labelsAt(`${dsl}step "s" {\n  state db [\n    color: `)).toContain('none');
   });
 });

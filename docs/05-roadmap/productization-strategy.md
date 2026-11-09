@@ -1,10 +1,13 @@
 # DynamicArchitectViewer 製品化方針 v2
 
+> [!NOTE]
+> 現在の提供形態は **VS Code 拡張機能**（`apps/vscode`）です。Cloud Run、`apps/web`、IndexedDB 保存、M0 の手順など Web アプリを前提とする記述は、当初計画の記録として残しています。
+
 ## 前提（確定）
 
 | 項目       | 決定                       | 方針への影響                                                                                     |
 | :--------- | :------------------------- | :----------------------------------------------------------------------------------------------- |
-| 提供形態   | Webアプリ（**Cloud Run**） | SPAをコンテナ化して配信。当面はサーバー側ロジック・DB・アカウントなし（将来のAPI追加余地は確保） |
+| 提供形態   | **VS Code 拡張機能**（当初計画: Webアプリ / Cloud Run） | Webview でプレビューし、`.vsix` として配布。サーバー側ロジック・DB・アカウントなし |
 | 位置づけ   | 個人アプリ                 | 収益化・課金・チーム機能は対象外。運用コストゼロを維持                                           |
 | 利用者     | 誰でも                     | UIは日英対応、オンボーディング（サンプル・ヘルプ）が必須                                         |
 | DSL互換    | 破壊的変更OK               | DSL v1をゼロベースで設計。プロトタイプ互換コードは書かない                                       |
@@ -142,12 +145,11 @@ flowchart LR
 
 - VS Code 拡張機能化（`apps/vscode`）：`.dav` TextMate 文法、リアルタイム診断（`DiagnosticCollection`）、Quick Fix（`CodeActionProvider`）、ID/属性/アイコン補完（`CompletionItemProvider`）、フォーマッタ（`DocumentFormattingEditProvider`）、アウトライン（`DocumentSymbolProvider`）
 - Webview 双方向同期（`WorkspaceEdit` による VS Code 本体 Undo/Redo 統合、カーソル追従、ダブルクリックによる該当行ジャンプ）
-- インタラクティブキャンバス（`CanvasPane` / `CanvasOverlay` / `snap`）とインスペクタ（`ElementInspector` / `StepInspector`）
 - 完了条件: 主要操作および VS Code Webview プロトコルの E2E テストが通る
 
 ### M4: 公開・AI連携・パッケージング整備（完了）
 
-- 日英 UI（`JA` / `EN`）切替、出力 HTML の `lang` 連動
+- ドキュメント画面の日英切替（ビュアー本体の UI と出力 HTML は英語）
 - DSL v1 リファレンス & 内蔵アイコン一覧モーダル（`HelpModal`）
 - AI エージェントに渡すための DSL v1 仕様プロンプトテンプレート生成・ワンクリックコピー（コマンドパレット `dav.copyAiPrompt` および Webview モーダル）
 - `@vscode/vsce` による `.vsix` パッケージビルド（`npm run package`）と GitHub Actions アーティファクト出力
@@ -166,7 +168,7 @@ flowchart LR
 ## 5. やらないこと
 
 - アカウント、クラウド保存、共同編集、課金（データ保持・認証の運用負荷が1人に見合わない）
-- VS Code拡張・CLI・デスクトップアプリ（需要が出てから。`dsl/` と `scene/` がDOM非依存なら後から切り出せる）
+- CLI・デスクトップアプリ（需要が出てから。`dsl/` と `scene/` がDOM非依存なら後から切り出せる）
 - プロトタイプDSLとの互換レイヤー
 - 細かいパッケージ分割、Conventional Commits等の厳格な運用ルール
 

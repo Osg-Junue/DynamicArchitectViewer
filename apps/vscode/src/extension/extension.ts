@@ -187,12 +187,12 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('dav.openPreview', () => {
-      const editor = vscode.window.activeTextEditor;
-      if (!editor) {
+      const doc = vscode.window.activeTextEditor?.document;
+      if (!doc || (doc.languageId !== LANGUAGE_ID && !doc.uri.fsPath.endsWith('.dav'))) {
         void vscode.window.showInformationMessage('Open a .dav file first.');
         return;
       }
-      panelManager.open(editor.document);
+      panelManager.open(doc);
     }),
     vscode.commands.registerCommand('dav.exportHtml', async () => {
       const doc = commandTargetDocument();
@@ -261,6 +261,7 @@ class CanvasPanelManager {
     this.activeDocument = document;
 
     if (this.panel) {
+      this.panel.title = `Preview: ${fileBasename(document.uri.fsPath)}`;
       this.panel.reveal(vscode.ViewColumn.Beside);
       this.postToWebview({
         type: 'docChanged',

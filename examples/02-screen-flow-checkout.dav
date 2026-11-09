@@ -9,7 +9,7 @@ group frontend "フロントエンド画面遷移 (SPA)" {
 }
 
 group backend "バックエンド & 外部連携" {
-  node auth_api "Auth Service" [icon: firewall, sub: "JWT発行 / OAuth"]
+  node auth_api "Auth Service" [icon: auth, sub: "JWT発行 / OAuth"]
   node shop_api "Checkout API" [icon: server, sub: "在庫引当・注文管理"]
   node stripe "Stripe決済GW" [icon: external, sub: "External Payment API"]
 }

@@ -1,5 +1,6 @@
-import { writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { gzipSync } from 'node:zlib';
 import { expect, type Page, test } from '@playwright/test';
 import { createServer } from 'vite';
 import { DEFAULT_SAMPLE } from '../src/samples';
@@ -252,6 +253,18 @@ test.describe('webview preview', () => {
 
   test('opens the documentation and wraps cleanly on narrow viewports', async ({ page }) => {
     const errors = watchErrors(page);
+    // The same restrictions the extension host puts on the webview.
+    await page.route(/\/$/, async (route) => {
+      const response = await route.fetch();
+      await route.fulfill({
+        response,
+        headers: {
+          ...response.headers(),
+          'content-security-policy':
+            "default-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'",
+        },
+      });
+    });
     await openWebview(page);
     await expect(page.locator('.dav-node')).not.toHaveCount(0);
 
@@ -290,7 +303,7 @@ test.describe('webview preview', () => {
     // All icons render, and the filter narrows them.
     await page.getByTestId('doc-nav-icons').click();
     const icons = page.getByTestId('doc-icon-catalog').locator('.doc-icon-card');
-    await expect(icons).toHaveCount(18);
+    await expect(icons).toHaveCount(35);
     await expect(icons.first().locator('.dav-station')).toHaveCount(1);
     await page.getByTestId('doc-icon-search').fill('database');
     await expect(icons).toHaveCount(1);
@@ -303,10 +316,12 @@ test.describe('webview preview', () => {
 
     // State shows accumulated values, including the reset in the last step.
     await page.getByTestId('doc-nav-state').click();
-    await expect(page.getByTestId('doc-state-matrix').locator('tbody tr')).not.toHaveCount(0);
+    const badgeRow = page.getByTestId('doc-state-matrix').locator('tbody tr').first();
+    await expect(badgeRow.locator('th')).toHaveText('db.badge');
+    await expect(badgeRow.locator('td').last()).toHaveText('—');
 
     await page.getByTestId('doc-nav-diagnostics').click();
-    await expect(page.getByTestId('doc-diagnostics').locator('tbody tr')).toHaveCount(18);
+    await expect(page.getByTestId('doc-diagnostics').locator('tbody tr')).toHaveCount(19);
 
     await page.getByTestId('doc-locale-ja').click();
     await expect(page.getByTestId('doc-nav-diagnostics')).toHaveText('診断メッセージ');
@@ -316,6 +331,16 @@ test.describe('webview preview', () => {
     await expect(page.getByTestId('ai-prompt-textarea')).toHaveValue(/dav 1/);
     await page.getByTestId('chk-include-current-dsl').check();
     await expect(page.getByTestId('ai-prompt-textarea')).toHaveValue(/AWS/);
+
+    // In a narrow split pane, pages reflow instead of scrolling sideways.
+    await page.setViewportSize({ width: 600, height: 800 });
+    for (const pageId of ['overview', 'animate', 'diagnostics']) {
+      await page.getByTestId(`doc-nav-${pageId}`).click();
+      const overflow = await dialog
+        .locator('.doc-content')
+        .evaluate((el) => el.scrollWidth - el.clientWidth);
+      expect(overflow).toBeLessThanOrEqual(0);
+    }
 
     await page.getByTestId('help-close-btn').click();
     await expect(dialog.locator('.dav-node')).toHaveCount(0);
@@ -332,6 +357,132 @@ test.describe('webview preview', () => {
 
     expect(errors).toEqual([]);
   });
+});
+
+test('follow mode keeps a single animation loop', async ({ page }) => {
+  await page.addInitScript(() => {
+    const original = window.requestAnimationFrame.bind(window);
+    const counter = { callbacks: 0, uncounted: original };
+    (window as unknown as { __raf: typeof counter }).__raf = counter;
+    window.requestAnimationFrame = (callback) =>
+      original((time) => {
+        counter.callbacks++;
+        callback(time);
+      });
+  });
+  await openWebview(page);
+  await expect(page.locator('.dav-node')).not.toHaveCount(0);
+  await page.getByTestId('btn-follow-anim').click();
+  await page.getByTestId('select-speed').selectOption('2');
+  await page.locator('header.toolbar').getByTestId('btn-play').click();
+  await page.waitForTimeout(4500);
+
+  const perFrame = await page.evaluate(async () => {
+    const counter = (
+      window as unknown as {
+        __raf: { callbacks: number; uncounted: typeof requestAnimationFrame };
+      }
+    ).__raf;
+    const before = counter.callbacks;
+    let frames = 0;
+    await new Promise<void>((done) => {
+      const step = () => {
+        if (++frames === 30) done();
+        else counter.uncounted(step);
+      };
+      counter.uncounted(step);
+    });
+    return (counter.callbacks - before) / frames;
+  });
+  expect(perFrame).toBeLessThan(1.5);
+});
+
+test('pause freezes the packet and play continues from the same place', async ({ page }) => {
+  await openWebview(page);
+  const play = page.locator('header.toolbar').getByTestId('btn-play');
+  await expect(page.locator('.dav-packet')).not.toHaveCount(0);
+  await play.click();
+  await page.waitForTimeout(500);
+
+  await play.click();
+  await expect(play).toHaveAttribute('aria-label', 'Play step');
+  const dot = page.locator('.dav-packet-dot').first();
+  const label = await page.locator('.dav-packet-label').first().textContent();
+  const frozen = await dot.getAttribute('transform');
+  await page.waitForTimeout(500);
+  expect(await dot.getAttribute('transform')).toBe(frozen);
+
+  await play.click();
+  await expect(play).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(() => dot.getAttribute('transform')).not.toBe(frozen);
+  expect(await page.locator('.dav-packet-label').first().textContent()).toBe(label);
+});
+
+test('Play step only reads as playing while there is something to play', async ({ page }) => {
+  await openWebview(page);
+  await expect(page.locator('.dav-node')).not.toHaveCount(0);
+  const play = page.locator('header.toolbar').getByTestId('btn-play');
+  await play.click();
+  await expect(play).toHaveAttribute('aria-pressed', 'true');
+  await page.getByTestId('select-step').selectOption('overview');
+  await expect(play).toHaveAttribute('aria-pressed', 'false');
+  await page.getByTestId('select-step').selectOption('1');
+  await expect(play).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('switching documents discards the previous one', async ({ page }) => {
+  await openWebview(
+    page,
+    'dav 1\ntitle "A"\nnode a\nnode b\na --> b\nstep "1" {\n focus a\n}\nstep "2" {\n focus b\n}\n',
+  );
+  await expect(page.locator('.dav-title')).toHaveText('A');
+  await page.evaluate(() => {
+    window.postMessage(
+      { type: 'docChanged', dsl: 'dav 1\ntitle "A"\nnode a', uri: 'file:///a.dav' },
+      '*',
+    );
+  });
+  await expect(page.locator('.dav-node')).toHaveCount(1);
+  await page.getByTestId('btn-export-html').waitFor();
+
+  await page.evaluate(() => {
+    window.postMessage({ type: 'docChanged', dsl: '', uri: 'file:///b.dav' }, '*');
+  });
+  await expect(page.locator('.dav-node')).toHaveCount(0);
+  await expect(page.locator('.dav-title')).toHaveText('');
+});
+
+test('documentation stays open, keeps focus, and reports clipboard failures', async ({ page }) => {
+  await openWebview(page);
+  await expect(page.locator('.dav-node')).not.toHaveCount(0);
+  await page.getByTestId('btn-open-help').click();
+  const dialog = page.getByTestId('help-dialog');
+
+  const nav = page.getByTestId('doc-nav-nodes');
+  await nav.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('doc-nav-nodes')).toBeFocused();
+
+  // A drag from the page that ends on the backdrop is not a click on the backdrop.
+  const heading = await dialog.locator('h1').boundingBox();
+  await page.mouse.move((heading?.x ?? 0) + 2, (heading?.y ?? 0) + 2);
+  await page.mouse.down();
+  await page.mouse.move(2, 2);
+  await page.mouse.up();
+  await expect(dialog).toBeVisible();
+
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: () => Promise.reject(new Error('denied')) },
+    });
+  });
+  await page.getByTestId('doc-nav-overview').click();
+  const copy = dialog.locator('.doc-copy').first();
+  await copy.click();
+  await expect(copy).toHaveText('Copy failed');
+
+  await page.mouse.click(2, 2);
+  await expect(dialog).toBeHidden();
 });
 
 test('animation can be stopped for a still view of each step', async ({ page }) => {
@@ -431,6 +582,17 @@ test.describe('exported HTML', () => {
     );
 
     expect(errors).toEqual([]);
+  });
+
+  test('keeps its inline stylesheet minified and within budget', async ({ page: _ }, info) => {
+    const file = info.outputPath('style.html');
+    await writeExport(file);
+    const style = /<style>([\s\S]*?)<\/style>/.exec(await readFile(file, 'utf8'))?.[1] ?? '';
+    expect(style).toContain('.dav-app');
+    expect(style).not.toContain('/*');
+    expect(style).not.toContain('\n');
+    expect(Buffer.byteLength(style, 'utf8')).toBeLessThan(10 * 1024);
+    expect(gzipSync(style).length).toBeLessThan(3.5 * 1024);
   });
 
   test('honors prefers-reduced-motion', async ({ browser }, info) => {

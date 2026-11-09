@@ -1,4 +1,4 @@
-/** Attribute schema shared by the analyzer (validation) and the edit API (value formatting). */
+/** Attribute schema: which attributes each statement accepts, and their value types. */
 
 export type AttrType = 'string' | 'bool' | 'color' | 'stateColor' | 'icon' | 'ident';
 export type AttrOwner = 'node' | 'group' | 'edge' | 'state' | 'animate';

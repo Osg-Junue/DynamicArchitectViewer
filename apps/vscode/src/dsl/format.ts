@@ -17,7 +17,7 @@ const STATEMENTS = new Set([
 ]);
 
 /**
- * Formats DSL text into canonical layout (see spec §7).
+ * Formats DSL text into canonical layout.
  * Comments and single blank lines are preserved. Text with syntax errors is returned unchanged.
  */
 export function format(text: string): string {

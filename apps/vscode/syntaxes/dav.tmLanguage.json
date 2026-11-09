@@ -8,7 +8,6 @@
     { "include": "#keywords" },
     { "include": "#booleans" },
     { "include": "#arrows" },
-    { "include": "#colors" },
     { "include": "#numbers" },
     { "include": "#strings" },
     { "include": "#identifiers" }
@@ -46,14 +45,6 @@
         }
       ]
     },
-    "colors": {
-      "patterns": [
-        {
-          "name": "constant.other.color.rgb-value.dav",
-          "match": "#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?\\b"
-        }
-      ]
-    },
     "numbers": {
       "patterns": [
         {
@@ -65,7 +56,7 @@
     "strings": {
       "name": "string.quoted.double.dav",
       "begin": "\"",
-      "end": "\"",
+      "end": "\"|$",
       "patterns": [
         {
           "name": "constant.character.escape.dav",
@@ -81,6 +72,14 @@
             "1": { "name": "variable.other.property.dav" },
             "2": { "name": "punctuation.separator.key-value.dav" },
             "3": { "name": "constant.other.color.dav" }
+          }
+        },
+        {
+          "match": "\\b(icon)\\s*(:)\\s*((?i:server|container|function|database|cache|queue|storage|lb|firewall|cdn|cloud|router|external|auth|ai|mail|monitor|schedule|search|logic|webhook|payment|key|screen|modal|browser|mobile|terminal|device|chat|sheet|file|user|users|bot))\\b",
+          "captures": {
+            "1": { "name": "variable.other.property.dav" },
+            "2": { "name": "punctuation.separator.key-value.dav" },
+            "3": { "name": "support.constant.icon.dav" }
           }
         },
         {
