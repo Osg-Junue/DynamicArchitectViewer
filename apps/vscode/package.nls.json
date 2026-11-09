@@ -1,0 +1,7 @@
+{
+  "command.openPreview.title": "Open Canvas Preview to the Side",
+  "command.exportHtml.title": "Export Standalone HTML",
+  "command.importHtml.title": "Extract DSL from Standalone HTML...",
+  "command.newFromTemplate.title": "New Diagram from Sample Template...",
+  "command.copyAiPrompt.title": "Copy AI Prompt Template (DSL v1 Spec)"
+}

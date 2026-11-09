@@ -10,10 +10,13 @@ DynamicArchitectViewer（動的インフラ構成図・画面遷移図フレー�
 | :--- | :--- | :--- |
 | **01. コンセプト** | [01-concept/vision-and-goals.md](./01-concept/vision-and-goals.md) | 解決する課題、コアバリュー、コード記述×100%自動レイアウトの思想 |
 | **02. アーキテクチャ** | [02-architecture/dsl-core.md](./02-architecture/dsl-core.md) | DSL コア（パーサー・検証・補完・フォーマッタ）の設計 |
+| **02. アーキテクチャ** | [02-architecture/auto-layout.md](./02-architecture/auto-layout.md) | 自動レイアウトのルール（列・行の決め方、交差の削減、変更時に守る条件） |
 | **02. アーキテクチャ** | [02-architecture/single-file-html.md](./02-architecture/single-file-html.md) | 統一レンダリング・単一HTMLバンドル構造・ラウンドトリップ再編集の設計 |
 | **02. アーキテクチャ** | [02-architecture/vscode-extension.md](./02-architecture/vscode-extension.md) | VS Code 拡張機能（LSP相当機能・Webview連携・Vanilla TS UI）の設計 |
 | **03. 仕様** | [03-specification/dsl-v1.md](./03-specification/dsl-v1.md) | DSL v1 言語仕様（文法 EBNF・意味規則・属性・アイコン） |
 | **05. ロードマップ** | [05-roadmap/productization-strategy.md](./05-roadmap/productization-strategy.md) | 製品化方針、製品原則、マイルストーン |
+| **05. ロードマップ** | [05-roadmap/publishing.md](./05-roadmap/publishing.md) | Marketplace の公開手順とバージョン方針 |
+| **05. ロードマップ** | [05-roadmap/expressiveness-decisions.md](./05-roadmap/expressiveness-decisions.md) | 分岐シナリオとシーケンス図の採否、分岐の構文案 |
 | **参考: プロトタイプ** | [prototype/](./prototype/) | 凍結済みプロトタイプのシステム構成と旧 DSL 仕様（製品版とは互換性なし） |
 
 ---

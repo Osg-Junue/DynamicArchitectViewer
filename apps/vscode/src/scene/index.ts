@@ -1,4 +1,5 @@
 export {
+  activeLabelFill,
   boundsOf,
   buildDefs,
   buildPacket,
@@ -14,6 +15,7 @@ export {
 export { type Bezier, connect, type Point, pointAt, reverse, svgPath } from './geometry';
 export {
   DEFAULT_FLOW_COLOR,
+  flowColors,
   type Packet,
   type ResolvedEdge,
   type ResolvedGroup,

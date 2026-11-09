@@ -5,14 +5,18 @@ import { ICON_NAMES } from '../../model/types';
 import { SAMPLE_TEMPLATES } from '../../samples';
 import { type Bezier, pointAt } from '../geometry';
 import {
+  activeLabelFill,
   buildPacket,
   buildScene,
   computePacketCalloutBox,
+  DEFAULT_FLOW_COLOR,
+  flowColors,
   packetPosition,
   resolveView,
   type VElement,
   type VNode,
 } from '../index';
+import { wrapText } from '../text';
 
 const DSL = `dav 1
 title "T"
@@ -322,9 +326,51 @@ describe('buildScene', () => {
     const [on, off] = findAll(scene, (e) => String(e.attrs.class).startsWith('dav-edge-label')).map(
       (g) => findAll(g, (e) => e.tag === 'text')[0]?.attrs,
     );
-    expect(on?.['data-active-fill']).toBe('var(--dav-accent-text)');
     expect(on?.['data-edge']).toBe('a->b');
-    expect(off?.['data-active-fill']).toBeUndefined();
+    expect(off?.['data-edge']).toBeUndefined();
+  });
+
+  it('gives an edge animated twice the color of each phase', () => {
+    const doc = parse(
+      'dav 1\nnode a\nnode b\na --> b\nstep "S" {\n  animate a --> b [color: red]\n  animate a --> b [color: blue]\n}\n',
+    ).document;
+    const { phases } = resolveView(doc, computeLayout(doc), 0);
+    expect(phases.map((packets) => [...flowColors(packets)])).toEqual([
+      [['a->b', 'red']],
+      [['a->b', 'blue']],
+    ]);
+    expect(activeLabelFill('blue')).toBe('var(--dav-c-blue)');
+    expect(activeLabelFill(DEFAULT_FLOW_COLOR)).toBe('var(--dav-accent-text)');
+  });
+
+  it('keeps the line breaks of a callout description', () => {
+    const doc = parse(
+      'dav 1\nnode a\nnode b\na --> b\nstep "S" {\n  animate a --> b [desc: "first\\n\\n  second\\nthird"]\n}\n',
+    ).document;
+    const packet = resolveView(doc, computeLayout(doc), 0).phases[0]?.[0];
+    expect(packet && computePacketCalloutBox(packet)?.descLines).toEqual([
+      'first',
+      'second',
+      'third',
+    ]);
+  });
+
+  it('merges description lines beyond the limit into the last one', () => {
+    expect(wrapText('1\n2\n3\n4', 13, 360, 3)).toEqual(['1', '2', '3 4']);
+    const long = 'x'.repeat(200);
+    const [, last] = wrapText(`a\nb\n${long}`, 13, 360, 2);
+    expect(last).toMatch(/^b x+…$/);
+  });
+
+  it('keeps the child groups of a focused group undimmed', () => {
+    const doc = parse(
+      'dav 1\ngroup parent {\n  group child {}\n}\ngroup other {}\nnode a\nstep "S" {\n  focus parent\n}\n',
+    ).document;
+    const dimmed = (id: string) =>
+      resolveView(doc, computeLayout(doc), 0).groups.find((g) => g.id === id)?.dimmed;
+    expect(dimmed('parent')).toBe(false);
+    expect(dimmed('child')).toBe(false);
+    expect(dimmed('other')).toBe(true);
   });
 
   it('colors a running stop like its flow', () => {
@@ -567,7 +613,7 @@ describe('focus from state', () => {
 describe('self-loop room', () => {
   it('is kept for a node placed under a child group', () => {
     const { document } = parse(
-      'dav 1\ngroup o {\n  group i {\n    node b\n    node d\n  }\n  node c\n}\nb --> d\nb --> c\nc --> c\n',
+      'dav 1\ngroup o {\n  group i {\n    node b\n    node x\n    node y\n    node d\n  }\n  node c\n}\nb --> d\nx --> c\ny --> c\nc --> c\n',
     );
     const layout = computeLayout(document);
     const inner = layout.groups.i as Rect;

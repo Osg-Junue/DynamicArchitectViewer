@@ -194,10 +194,11 @@ class Analyzer {
   private readHeader(header: SyntaxNode): void {
     const num = header.getChild('Number');
     if (!num) return;
-    const version = Number(sliceOf(this.text, num));
-    this.doc.version = version;
-    if (version !== CURRENT_DSL_VERSION) {
-      this.report('unsupported-version', 'error', num, { version: String(version) });
+    const written = sliceOf(this.text, num);
+    this.doc.version = Number(written);
+    // Compared as text: `dav 1.0` equals 1 numerically, but only whole versions exist.
+    if (written !== String(CURRENT_DSL_VERSION)) {
+      this.report('unsupported-version', 'error', num, { version: written });
     }
   }
 

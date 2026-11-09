@@ -1,11 +1,7 @@
 import { clear, html } from '../runtime/dom';
-import type { ViewerLocale } from '../runtime/i18n';
+import { detectLocale, type ViewerLocale } from '../runtime/i18n';
 import type { Translate } from './docs/figures';
 import { DOC_GROUPS, DOC_PAGES, type DocContext, rich } from './docs/pages';
-
-function initialLocale(): ViewerLocale {
-  return navigator.language.toLowerCase().startsWith('ja') ? 'ja' : 'en';
-}
 
 const LOCALE_LABELS: ReadonlyArray<readonly [ViewerLocale, string]> = [
   ['ja', '日本語'],
@@ -15,7 +11,7 @@ const LOCALE_LABELS: ReadonlyArray<readonly [ViewerLocale, string]> = [
 /** The viewer's documentation: a page per topic, with live examples on the active page only. */
 export class HelpModal {
   readonly element: HTMLDialogElement;
-  private locale: ViewerLocale = initialLocale();
+  private locale: ViewerLocale = detectLocale();
   private currentDsl = '';
   private pageId: string = DOC_PAGES[0]?.id ?? '';
   private readonly promptState = { includeCurrent: false };

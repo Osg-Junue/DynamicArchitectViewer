@@ -182,9 +182,9 @@ function flowElement(e: ResolvedEdge): VElement | null {
   });
 }
 
-function activeLabelFill(e: ResolvedEdge): string {
-  const custom = e.flowColor && e.flowColor !== COLOR.accent;
-  return custom ? paint(e.flowColor as string) : 'var(--dav-accent-text)';
+/** The emphasized color of a label on a rail whose flow has the given color. */
+export function activeLabelFill(flowColor: string): string {
+  return flowColor === COLOR.accent ? 'var(--dav-accent-text)' : paint(flowColor);
 }
 
 function edgeLabelElement(e: ResolvedEdge): VElement | null {
@@ -203,7 +203,6 @@ function edgeLabelElement(e: ResolvedEdge): VElement | null {
         fill: COLOR.fg,
         // Read by Player.syncPhaseHighlights to emphasize the running phase's label.
         'data-edge': e.active ? e.id : undefined,
-        'data-active-fill': e.active ? activeLabelFill(e) : undefined,
       },
       fitText(e.label, EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH),
     ),

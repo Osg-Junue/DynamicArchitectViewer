@@ -48,6 +48,8 @@ apps/vscode/
    - `dav.importHtml`: 出力済み `.html` ファイルから埋め込み `.dav` DSL を抽出して新規エディタで開く。
    - `dav.newFromTemplate`: 内蔵サンプルテンプレートから新規 `.dav` 図を作成。
    - `dav.copyAiPrompt`: AI エージェント用 DSL v1 仕様プロンプトをクリップボードにコピー。
+7. **表示言語**:
+   - `vscode.env.language` が日本語なら日本語、それ以外は英語で表示します。診断、Quick Fix、補完の説明、通知、AI プロンプトが対象で、コマンド名は `package.nls*.json` で切り替えます。Webview には `<html lang>` で伝えます。
 
 ---
 

@@ -18,7 +18,8 @@ const STATEMENTS = new Set([
 
 /**
  * Formats DSL text into canonical layout.
- * Comments and single blank lines are preserved. Text with syntax errors is returned unchanged.
+ * Comments, single blank lines and CRLF line endings are preserved.
+ * Text with syntax errors is returned unchanged.
  */
 export function format(text: string): string {
   const tree = parseTree(text);
@@ -33,7 +34,9 @@ export function format(text: string): string {
 
   const lines: string[] = [];
   new Printer(text, lines).block(tree.topNode, 0);
-  return lines.length > 0 ? `${lines.join('\n')}\n` : '';
+  // Keeps the file's line endings, so that formatted CRLF text compares equal to itself.
+  const eol = text.includes('\r\n') ? '\r\n' : '\n';
+  return lines.length > 0 ? `${lines.join(eol)}${eol}` : '';
 }
 
 class Printer {

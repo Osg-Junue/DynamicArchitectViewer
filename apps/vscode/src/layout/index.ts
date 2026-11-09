@@ -35,6 +35,12 @@ const EMPTY_GROUP_CONTENT = { width: 160, height: 40 };
 /** Space above a node for its self-loop and that loop's label; further loops nest outside. */
 const SELF_LOOP_ROOM = 30;
 const SELF_LOOP_EXTRA_ROOM = 18;
+/** Refinement passes over the vertical order; each one places the whole diagram again. */
+const MAX_SWEEPS = 16;
+/** Refinement gives up after this many passes in a row without an improvement. */
+const SWEEP_PATIENCE = 4;
+/** Layout runs on every edit, and counting crossings is quadratic in the edges. */
+const MAX_REFINED_EDGES = 500;
 
 /** The station symbol within a node's rectangle. */
 export function stationRect(node: Rect, icon: IconName): Rect {
@@ -61,23 +67,152 @@ export function defaultNodeSize(_icon: IconName): { width: number; height: numbe
  * - Sibling groups and ungrouped columns whose rank spans do not overlap are placed
  *   side-by-side horizontally; overlapping spans stack into vertical bands.
  * - Every group wraps its descendants (plus header and padding).
+ * - The vertical order is then refined by barycenter sweeps. A result is kept only if it has
+ *   fewer crossings, or as many with shorter rails, so refinement never makes a diagram worse.
  */
 export function computeLayout(doc: DavDocument): Layout {
   const sizes = new Map(doc.nodes.map((n) => [n.id, defaultNodeSize(n.icon)] as const));
-  const nodes = rectRecord();
   const emptyGroups = findEmptyGroups(doc);
-  const placeholders = rectRecord();
   const loopRoom = selfLoopRoom(doc);
+  const ranks = computeRanks(
+    doc.nodes.map((n) => n.id),
+    doc.edges.map((e) => [e.from, e.to] as const),
+  );
 
-  if (doc.nodes.length > 0 || emptyGroups.size > 0) {
-    const ranks = computeRanks(
-      doc.nodes.map((n) => n.id),
-      doc.edges.map((e) => [e.from, e.to] as const),
-    );
-    placeAuto(doc, emptyGroups, ranks, sizes, nodes, placeholders, loopRoom);
+  const place = (guide?: SweepGuide): Layout => {
+    const nodes = rectRecord();
+    const placeholders = rectRecord();
+    if (doc.nodes.length > 0 || emptyGroups.size > 0) {
+      placeAuto(doc, emptyGroups, ranks, sizes, nodes, placeholders, loopRoom, guide);
+    }
+    return { nodes, groups: computeGroupRects(doc, nodes, placeholders, loopRoom) };
+  };
+
+  return refineOrder(doc, ranks.rank, place);
+}
+
+/** Directs a placement by the positions of the previous one. */
+interface SweepGuide {
+  previous: Layout;
+  /** Nodes a node's position within its column follows in this pass. */
+  columnNeighbors: ReadonlyMap<string, readonly string[]>;
+  /** All nodes linked to a node, which decide where its group goes. */
+  linked: ReadonlyMap<string, readonly string[]>;
+}
+
+type Link = readonly [from: string, to: string];
+
+/** Pairs of connected nodes; a self-loop has no extent, so it cannot cross anything. */
+function linksOf(doc: DavDocument): Link[] {
+  const known = new Set(doc.nodes.map((n) => n.id));
+  return doc.edges
+    .filter((e) => e.from !== e.to && known.has(e.from) && known.has(e.to))
+    .map((e) => [e.from, e.to]);
+}
+
+function refineOrder(
+  doc: DavDocument,
+  rank: ReadonlyMap<string, number>,
+  place: (guide?: SweepGuide) => Layout,
+): Layout {
+  const links = linksOf(doc);
+  let current = place();
+  if (links.length === 0 || links.length > MAX_REFINED_EDGES) return current;
+
+  const neighbors = (keep: (self: number, other: number) => boolean) => {
+    const out = new Map<string, string[]>();
+    const add = (a: string, b: string) => {
+      if (keep(rank.get(a) ?? 0, rank.get(b) ?? 0)) out.set(a, [...(out.get(a) ?? []), b]);
+    };
+    for (const [from, to] of links) {
+      add(from, to);
+      add(to, from);
+    }
+    return out;
+  };
+  const left = neighbors((self, other) => other < self);
+  const right = neighbors((self, other) => other > self);
+  const linked = neighbors(() => true);
+
+  let best = current;
+  let bestScore = scoreOf(links, best);
+  let stale = 0;
+  for (let sweep = 0; sweep < MAX_SWEEPS && stale < SWEEP_PATIENCE; sweep++) {
+    current = place({ previous: current, columnNeighbors: sweep % 2 === 0 ? left : right, linked });
+    const score = scoreOf(links, current);
+    const better =
+      score.crossings < bestScore.crossings ||
+      (score.crossings === bestScore.crossings && score.length < bestScore.length);
+    if (better) {
+      best = current;
+      bestScore = score;
+      stale = 0;
+    } else {
+      stale++;
+    }
   }
+  return best;
+}
 
-  return { nodes, groups: computeGroupRects(doc, nodes, placeholders, loopRoom) };
+interface Segment {
+  from: string;
+  to: string;
+  ax: number;
+  ay: number;
+  bx: number;
+  by: number;
+}
+
+function segmentsOf(links: readonly Link[], layout: Layout): Segment[] {
+  return links.flatMap(([from, to]) => {
+    const a = layout.nodes[from];
+    const b = layout.nodes[to];
+    if (!a || !b) return [];
+    return [
+      {
+        from,
+        to,
+        ax: a.x + a.width / 2,
+        ay: a.y + STATION_CENTER,
+        bx: b.x + b.width / 2,
+        by: b.y + STATION_CENTER,
+      },
+    ];
+  });
+}
+
+function properlyCross(s: Segment, t: Segment): boolean {
+  const side = (x0: number, y0: number, x1: number, y1: number, x: number, y: number) =>
+    Math.sign((x1 - x0) * (y - y0) - (y1 - y0) * (x - x0));
+  return (
+    side(s.ax, s.ay, s.bx, s.by, t.ax, t.ay) * side(s.ax, s.ay, s.bx, s.by, t.bx, t.by) < 0 &&
+    side(t.ax, t.ay, t.bx, t.by, s.ax, s.ay) * side(t.ax, t.ay, t.bx, t.by, s.bx, s.by) < 0
+  );
+}
+
+function crossingsOf(segments: readonly Segment[]): number {
+  let crossings = 0;
+  segments.forEach((s, i) => {
+    for (let j = i + 1; j < segments.length; j++) {
+      const t = segments[j] as Segment;
+      const shareStation = s.from === t.from || s.from === t.to || s.to === t.from || s.to === t.to;
+      if (!shareStation && properlyCross(s, t)) crossings++;
+    }
+  });
+  return crossings;
+}
+
+function scoreOf(links: readonly Link[], layout: Layout) {
+  const segments = segmentsOf(links, layout);
+  return {
+    crossings: crossingsOf(segments),
+    length: segments.reduce((sum, s) => sum + Math.abs(s.ay - s.by), 0),
+  };
+}
+
+/** How many pairs of edges cross, drawn as straight lines between their stations. */
+export function countCrossings(doc: DavDocument, layout: Layout): number {
+  return crossingsOf(segmentsOf(linksOf(doc), layout));
 }
 
 /** Vertical space each node with self-loops needs above its rectangle. */
@@ -178,6 +313,7 @@ function placeAuto(
   out: Record<string, Rect>,
   placeholders: Record<string, Rect>,
   loopRoom: ReadonlyMap<string, number>,
+  guide?: SweepGuide,
 ): void {
   const needsLayout = (cluster: Cluster): boolean =>
     cluster.nodes.length > 0 ||
@@ -239,6 +375,33 @@ function placeAuto(
     return cols;
   };
 
+  const clusterNodes = (cluster: Cluster): string[] => [
+    ...cluster.nodes,
+    ...cluster.children.flatMap(clusterNodes),
+  ];
+
+  const previousY = (id: string) => guide?.previous.nodes[id]?.y ?? 0;
+  const meanY = (ids: readonly string[]) =>
+    ids.length > 0 ? ids.reduce((sum, id) => sum + previousY(id), 0) / ids.length : undefined;
+
+  /** Where a block belongs next to the others in its cluster: near what it is linked to. */
+  const blockKey = (members: readonly string[]): number => {
+    const inside = new Set(members);
+    const outside = members.flatMap((id) =>
+      (guide?.linked.get(id) ?? []).filter((other) => !inside.has(other)),
+    );
+    return meanY(outside) ?? meanY(members) ?? Number.POSITIVE_INFINITY;
+  };
+
+  /** Position within a column: the first pass follows predecessors placed so far. */
+  const columnKey = (id: string): number => {
+    if (guide) return meanY(guide.columnNeighbors.get(id) ?? []) ?? previousY(id);
+    const preds = (ranks.predecessors.get(id) ?? []).filter((p) => out[p]);
+    return preds.length > 0
+      ? preds.reduce((s, p) => s + (out[p]?.y ?? 0), 0) / preds.length
+      : Number.POSITIVE_INFINITY;
+  };
+
   const colSpan = (cluster: Cluster): readonly [number, number] => {
     const cols = collectColumns(cluster);
     if (cols.length === 0) return [0, 0];
@@ -275,20 +438,23 @@ function placeAuto(
       const [minCol, maxCol] = colSpan(child);
       items.push({ kind: 'group', child, minCol, maxCol, order: order++ });
     }
-    items.sort((a, b) => a.minCol - b.minCol || a.order - b.order);
+    if (guide) {
+      const keys = new Map(
+        items.map((item) => [
+          item,
+          blockKey(item.kind === 'col' ? item.ids : clusterNodes(item.child)),
+        ]),
+      );
+      items.sort((a, b) => (keys.get(a) ?? 0) - (keys.get(b) ?? 0) || a.order - b.order);
+    } else {
+      items.sort((a, b) => a.minCol - b.minCol || a.order - b.order);
+    }
 
     for (const item of items) {
       if (item.kind === 'col') {
         const { rank, ids } = item;
-        const keyed = ids.map((id, i) => {
-          const preds = (ranks.predecessors.get(id) ?? []).filter((p) => out[p]);
-          const bary =
-            preds.length > 0
-              ? preds.reduce((s, p) => s + (out[p]?.y ?? 0), 0) / preds.length
-              : Number.POSITIVE_INFINITY;
-          return { id, bary, i };
-        });
-        keyed.sort((a, b) => a.bary - b.bary || a.i - b.i);
+        const keyed = ids.map((id, i) => ({ id, key: columnKey(id), i }));
+        keyed.sort((a, b) => a.key - b.key || previousY(a.id) - previousY(b.id) || a.i - b.i);
         let colY = colBottom[rank] ?? startY;
         for (const { id } of keyed) {
           const size = sizes.get(id) ?? NODE_SIZE;

@@ -65,6 +65,8 @@ export interface ResolvedEdge {
 export interface Packet {
   from: string;
   to: string;
+  /** The edge this packet rides, when the diagram has one between its endpoints. */
+  edgeId?: string;
   fromLabel: string;
   toLabel: string;
   label?: string;
@@ -139,6 +141,15 @@ function stationConnect(from: ResolvedNode, to: ResolvedNode): Bezier {
   return a.y < b.y
     ? connectVertical(withLabels(a, from), b)
     : connectVertical(a, withLabels(b, to));
+}
+
+/** The flow color of each edge the packets ride; the first packet on an edge decides. */
+export function flowColors(packets: readonly Packet[]): Map<string, string> {
+  const colors = new Map<string, string>();
+  for (const { edgeId, color } of packets) {
+    if (edgeId !== undefined && !colors.has(edgeId)) colors.set(edgeId, color);
+  }
+  return colors;
 }
 
 /**
@@ -252,7 +263,7 @@ export function resolveView(
       label: g.label,
       rect,
       depth: ancestorsOf(g.parentId).length,
-      dimmed: filtering && !focusedGroups.has(g.id),
+      dimmed: filtering && !focusedGroups.has(g.id) && !inFocusedGroup(g.parentId),
     };
     const color = ov.color ?? g.color;
     if (color) group.color = color;
@@ -334,6 +345,7 @@ export function resolveView(
       clearTop: Math.min(fromNode.rect.y, toNode.rect.y),
       labelAreas,
     };
+    if (edge) packet.edgeId = edge.id;
     if (a.label !== undefined) packet.label = a.label;
     if (a.description !== undefined) packet.description = a.description;
     const current = phases[phases.length - 1];

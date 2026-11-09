@@ -12,6 +12,7 @@ const host = vi.hoisted(() => ({
   activeTextEditor: undefined as undefined | { document: unknown },
   written: [] as string[],
   clipboard: [] as string[],
+  language: 'en',
 }));
 
 vi.mock('vscode', () => {
@@ -79,6 +80,9 @@ vi.mock('vscode', () => {
       },
     },
     env: {
+      get language() {
+        return host.language;
+      },
       clipboard: {
         writeText: async (text: string) => {
           host.clipboard.push(text);
@@ -144,6 +148,7 @@ describe('extension commands', () => {
     host.written.length = 0;
     host.clipboard.length = 0;
     host.activeTextEditor = undefined;
+    host.language = 'en';
     activate({ subscriptions: [], extensionUri: { fsPath: '/ext' } } as never);
   });
 
@@ -199,6 +204,21 @@ describe('extension commands', () => {
     await run('dav.copyAiPrompt');
 
     expect(host.clipboard[0]).not.toContain('Doc A');
+  });
+
+  it.each([
+    ['ja', 'ja', '仕様プロンプト'],
+    ['zh-cn', 'en', 'Specification'],
+  ])('follows the VS Code language %s when exporting', async (language, lang, promptText) => {
+    host.language = language;
+    host.activeTextEditor = { document: docA };
+
+    await run('dav.exportHtml');
+    await run('dav.copyAiPrompt');
+
+    expect(host.written[0]).toContain(`<html lang="${lang}">`);
+    expect(host.written[0]).toContain(`"locale":"${lang}"`);
+    expect(host.clipboard[0]).toContain(promptText);
   });
 
   it('offers a Quick Fix for a misspelled icon', async () => {

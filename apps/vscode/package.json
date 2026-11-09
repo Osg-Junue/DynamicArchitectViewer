@@ -3,7 +3,9 @@
   "displayName": "DynamicArchitectViewer",
   "description": "Lightweight time-stepped architecture & screen-transition diagram DSL (.dav) with 100% auto-layout, live preview, and zero-dependency single-file HTML export.",
   "version": "0.1.0",
-  "publisher": "dynamic-architect-viewer",
+  "publisher": "osg-junue",
+  "preview": true,
+  "icon": "media/icon.png",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -11,8 +13,7 @@
   },
   "type": "module",
   "engines": {
-    "vscode": "^1.96.0",
-    "node": ">=26.0.0"
+    "vscode": "^1.96.0"
   },
   "categories": [
     "Visualization",
@@ -52,29 +53,29 @@
     "commands": [
       {
         "command": "dav.openPreview",
-        "title": "Open Canvas Preview to the Side",
+        "title": "%command.openPreview.title%",
         "category": "DynamicArchitectViewer",
         "icon": "$(open-preview)"
       },
       {
         "command": "dav.exportHtml",
-        "title": "Export Standalone HTML",
+        "title": "%command.exportHtml.title%",
         "category": "DynamicArchitectViewer",
         "icon": "$(export)"
       },
       {
         "command": "dav.importHtml",
-        "title": "Extract DSL from Standalone HTML...",
+        "title": "%command.importHtml.title%",
         "category": "DynamicArchitectViewer"
       },
       {
         "command": "dav.newFromTemplate",
-        "title": "New Diagram from Sample Template...",
+        "title": "%command.newFromTemplate.title%",
         "category": "DynamicArchitectViewer"
       },
       {
         "command": "dav.copyAiPrompt",
-        "title": "Copy AI Prompt Template (DSL v1 Spec)",
+        "title": "%command.copyAiPrompt.title%",
         "category": "DynamicArchitectViewer",
         "icon": "$(sparkle)"
       }
@@ -108,7 +109,7 @@
     "build:extension": "vite build --config vite.extension.config.ts --logLevel warn",
     "dev": "npm run build:runtime && vite",
     "build": "npm run build:runtime && npm run build:webview && npm run build:extension",
-    "package": "npm run build && vsce package --no-dependencies -o dist/dynamic-architect-viewer.vsix",
+    "package": "npm run build && vsce package --no-dependencies --baseContentUrl https://github.com/Osg-Junue/DynamicArchitectViewer/blob/HEAD/apps/vscode --baseImagesUrl https://github.com/Osg-Junue/DynamicArchitectViewer/raw/HEAD/apps/vscode -o dist/dynamic-architect-viewer.vsix",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "npm run build:runtime && vitest run --passWithNoTests"

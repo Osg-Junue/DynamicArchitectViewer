@@ -9,5 +9,6 @@ vite.runtime.config.ts
 vite.extension.config.ts
 playwright.config.ts
 index.html
+media/screenshot.png
 **/*.map
 **/*.vsix

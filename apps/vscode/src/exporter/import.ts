@@ -9,9 +9,8 @@ export type ImportResult =
  * Only our own export format is recognized; the embedded JSON is never executed.
  */
 export function importContent(content: string): ImportResult {
-  const trimmed = content.trimStart();
-  const looksLikeHtml = /^(<!doctype html|<html)/i.test(trimmed);
-  if (!looksLikeHtml) return { ok: true, dsl: content, source: 'dsl' };
+  // No DSL statement starts with `<`, so anything that does is markup.
+  if (!content.trimStart().startsWith('<')) return { ok: true, dsl: content, source: 'dsl' };
 
   const match = new RegExp(
     `<script type="application/json" id="${EXPORT_DATA_ELEMENT_ID}">([\\s\\S]*?)</script>`,
