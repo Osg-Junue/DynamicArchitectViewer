@@ -40,7 +40,11 @@
         "extensions": [
           ".dav"
         ],
-        "configuration": "./language-configuration.json"
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./media/file-icon-light.svg",
+          "dark": "./media/file-icon-dark.svg"
+        }
       }
     ],
     "grammars": [
