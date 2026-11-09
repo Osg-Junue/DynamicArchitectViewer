@@ -153,6 +153,8 @@ describe('parse: diagnostics', () => {
   const cases: Array<[string, string, DiagnosticCode[]]> = [
     ['missing header', 'node a', ['missing-header']],
     ['unsupported version', 'dav 2', ['unsupported-version']],
+    ['fractional version equal to 1', 'dav 1.0', ['unsupported-version']],
+    ['zero-padded version', 'dav 01', ['unsupported-version']],
     ['duplicate title', 'dav 1\ntitle "a"\ntitle "b"', ['duplicate-title']],
     ['duplicate node id', 'dav 1\nnode a\nnode a', ['duplicate-id']],
     ['id shared across kinds', 'dav 1\nnode a\ngroup a {}', ['duplicate-id']],
