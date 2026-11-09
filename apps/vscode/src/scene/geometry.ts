@@ -1,9 +1,7 @@
 import type { Rect } from '../layout';
+import type { Point } from '../model/types';
 
-export interface Point {
-  x: number;
-  y: number;
-}
+export type { Point };
 
 export interface Bezier {
   p0: Point;

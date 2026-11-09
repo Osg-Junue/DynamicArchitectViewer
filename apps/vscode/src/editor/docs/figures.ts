@@ -3,10 +3,11 @@ import { computeLayout, type Layout, type Rect, stationRect } from '../../layout
 import type { DavDocument, IconName } from '../../model/types';
 import { clear, html, renderSvg, svg } from '../../runtime/dom';
 import type { ViewerLocale } from '../../runtime/i18n';
-import { PHASE_MS, Player, type PlayerData } from '../../runtime/player';
+import { Player, type PlayerData } from '../../runtime/player';
 import {
   buildDefs,
   buildScene,
+  PHASE_MS,
   paint,
   type ResolvedView,
   resolveView,
@@ -140,7 +141,11 @@ function phaseStrip(t: Translate, onSelect: (phase: number) => void) {
             'span',
             { class: 'doc-phase-head' },
             html('span', {}, `${t('フェーズ', 'Phase')} ${index + 1}`),
-            html('span', { class: 'doc-phase-time' }, `${PHASE_MS / 1000}s`),
+            html(
+              'span',
+              { class: 'doc-phase-time' },
+              `${((view.phaseDurations[index] ?? PHASE_MS) / 1000).toFixed(1)}s`,
+            ),
           ),
           ...packets.map((packet) =>
             html(

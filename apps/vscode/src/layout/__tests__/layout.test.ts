@@ -4,7 +4,7 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
 import { SAMPLE_TEMPLATES } from '../../samples';
-import { computeLayout, countCrossings, NODE_SIZE, type Rect, SCREEN_NODE_SIZE } from '../index';
+import { computeLayout, countCrossings, NODE_SIZE, type Rect } from '../index';
 
 describe('edge label spacing', () => {
   const gapFor = (label: string) => {
@@ -18,6 +18,37 @@ describe('edge label spacing', () => {
 
   it('keeps the base gap for short labels', () => {
     expect(gapFor('x')).toBe(gapFor('y'));
+  });
+});
+
+describe('column gaps around nested groups', () => {
+  const nested = (depth: number) => {
+    const open = Array.from({ length: depth }, (_, i) => `group g${i} {`).join('\n');
+    const close = '}\n'.repeat(depth);
+    return computeLayout(
+      parse(`dav 1\nnode a\nnode b\nnode c\n${open}\nnode d\n${close}a --> b\nb --> c\nc --> d`)
+        .document,
+    );
+  };
+  const gap = (depth: number, from: string, to: string) => {
+    const { nodes } = nested(depth);
+    return (nodes[to]?.x ?? 0) - (nodes[from]?.x ?? 0);
+  };
+
+  it('adds nothing between columns that no frame edge separates', () => {
+    expect(gap(3, 'a', 'b')).toBe(NODE_SIZE.width + 36);
+  });
+
+  it('makes room for a frame edge, however deep the nesting', () => {
+    expect(gap(1, 'c', 'd')).toBe(NODE_SIZE.width + 36 + 16);
+    expect(gap(5, 'c', 'd')).toBe(gap(1, 'c', 'd'));
+  });
+
+  it('shares the padding between frames nested along one edge', () => {
+    const { nodes, groups } = nested(4);
+    const left = (nodes.d?.x ?? 0) - (groups.g0?.x ?? 0);
+    expect(left).toBeCloseTo(16);
+    expect((groups.g3?.x ?? 0) - (groups.g0?.x ?? 0)).toBeCloseTo(12);
   });
 });
 
@@ -101,10 +132,10 @@ bottom --> r1`);
 });
 
 describe('layout', () => {
-  it('uses default node sizes and larger default size for screens', () => {
+  it('gives every node the same size, whatever its icon', () => {
     const { layout } = layoutOf('dav 1\nnode a\nnode s [icon: modal]');
     expect(layout.nodes.a).toMatchObject(NODE_SIZE);
-    expect(layout.nodes.s).toMatchObject(SCREEN_NODE_SIZE);
+    expect(layout.nodes.s).toMatchObject(NODE_SIZE);
   });
 
   it('ranks nodes left to right along edges', () => {

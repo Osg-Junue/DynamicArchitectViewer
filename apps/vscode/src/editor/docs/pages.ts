@@ -10,7 +10,8 @@ import { COLOR_NAMES, COLOR_RESET, ICON_NAMES } from '../../model/types';
 import { buildAiPrompt } from '../../prompt';
 import { html } from '../../runtime/dom';
 import type { ViewerLocale } from '../../runtime/i18n';
-import { HOLD_MS, PHASE_MS, SPEEDS } from '../../runtime/player';
+import { HOLD_MS, SPEEDS } from '../../runtime/player';
+import { MIN_PACKET_MS, PHASE_MS } from '../../scene';
 import { colorLab, colorPalette, iconCatalog } from './catalog';
 import { codeBlock } from './code';
 import {
@@ -190,20 +191,16 @@ function scopeChip(t: Translate, kind: 'carry' | 'local'): HTMLElement {
 const key = (text: string) => html('kbd', {}, text);
 
 function timingBar(t: Translate): HTMLElement {
-  const segment = (label: string, ms: number, cls: string) => {
-    const el = html(
-      'div',
-      { class: `doc-timing-seg ${cls}` },
-      html('span', {}, label),
-      `${ms / 1000}s`,
-    );
+  const segment = (label: string, ms: number, cls: string, time = `${ms / 1000}s`) => {
+    const el = html('div', { class: `doc-timing-seg ${cls}` }, html('span', {}, label), time);
     el.style.flexGrow = String(ms);
     return el;
   };
+  const phaseTime = `${MIN_PACKET_MS / 1000}s+`;
   return html(
     'div',
     { class: 'doc-timing', role: 'img', 'aria-label': t('1倍速の時間配分', 'Timing at 1x') },
-    ...[1, 2, 3].map((n) => segment(`${t('フェーズ', 'Phase')} ${n}`, PHASE_MS, '')),
+    ...[1, 2, 3].map((n) => segment(`${t('フェーズ', 'Phase')} ${n}`, PHASE_MS, '', phaseTime)),
     segment(t('保持', 'Hold'), HOLD_MS, 'is-hold'),
   );
 }
@@ -1084,8 +1081,8 @@ export const DOC_PAGES: readonly DocPage[] = [
         timingBar(t),
         p(
           t(
-            `1フェーズは ${PHASE_MS / 1000} 秒、最後のフェーズの後に ${HOLD_MS / 1000} 秒保持します。速度は ${SPEEDS[0]}x〜${SPEEDS[SPEEDS.length - 1]}x に変更できます。`,
-            `Each phase takes ${PHASE_MS / 1000}s, followed by a ${HOLD_MS / 1000}s hold after the last one. Speed ranges from ${SPEEDS[0]}x to ${SPEEDS[SPEEDS.length - 1]}x.`,
+            `1フェーズの長さはパケットの移動距離で決まり(最短 ${MIN_PACKET_MS / 1000} 秒)、最後のフェーズの後に ${HOLD_MS / 1000} 秒保持します。速度は ${SPEEDS[0]}x〜${SPEEDS[SPEEDS.length - 1]}x に変更できます。`,
+            `A phase lasts at least ${MIN_PACKET_MS / 1000}s, and longer the further its packets travel, followed by a ${HOLD_MS / 1000}s hold after the last one. Speed ranges from ${SPEEDS[0]}x to ${SPEEDS[SPEEDS.length - 1]}x.`,
           ),
         ),
         h2(t('操作', 'Controls')),

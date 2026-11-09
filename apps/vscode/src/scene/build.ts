@@ -1,6 +1,6 @@
 import { type Rect, stationRect } from '../layout';
 import { EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH } from '../model/text';
-import { COLOR_NAMES, type IconName } from '../model/types';
+import type { IconName } from '../model/types';
 import {
   CALLOUT_DESC_SIZE,
   CALLOUT_LABEL_SIZE,
@@ -10,9 +10,12 @@ import {
 } from './callout';
 import { type Bezier, curveLength, type Point, pointAt, svgPath } from './geometry';
 import type { IconShapes } from './icons';
+import { paint } from './paint';
 import type { Packet, ResolvedEdge, ResolvedGroup, ResolvedNode, ResolvedView } from './resolve';
 import { estimateTextWidth, fitText } from './text';
+import { travelProgress } from './timing';
 import { h, type VElement } from './vnode';
+import { ZONE_LABEL, zoneLabelRoom } from './zones';
 
 /**
  * Builds the SVG scene as a route map: nodes are stations, edges are rails, groups are zones.
@@ -32,11 +35,6 @@ const COLOR = {
   nodeBg: 'var(--dav-node-bg)',
   zone: 'var(--dav-zone)',
 } as const;
-
-/** Color names resolve to a per-theme token; default colors are tokens already. */
-export function paint(color: string): string {
-  return (COLOR_NAMES as readonly string[]).includes(color) ? `var(--dav-c-${color})` : color;
-}
 
 export const SCENE_PADDING = 48;
 /** Extra room above a framed diagram for speech bubbles. */
@@ -142,8 +140,14 @@ function groupLabelElement(g: ResolvedGroup): VElement {
     { class: dimClass('dav-group', g.dimmed), 'data-id': g.id },
     h(
       'text',
-      { x: x + 14, y: y + 19, class: 'dav-group-label', 'font-size': 12, fill: COLOR.fg },
-      fitText(g.label, 12, Math.max(40, width - 28)),
+      {
+        x: x + ZONE_LABEL.inset,
+        y: y + ZONE_LABEL.baseline,
+        class: 'dav-group-label',
+        'font-size': ZONE_LABEL.size,
+        fill: COLOR.fg,
+      },
+      fitText(g.label, ZONE_LABEL.size, zoneLabelRoom(width)),
     ),
   );
 }
@@ -517,11 +521,5 @@ function packetMarker(packet: Packet, icons: IconShapes): VElement[] {
 }
 
 export function packetPosition(packet: Packet, t: number): Point {
-  // A round trip covers the path twice in the time of a one-way trip.
-  const progress = packet.roundTrip ? 1 - Math.abs(2 * t - 1) : t;
-  return pointAt(packet.path, easeInOut(progress));
-}
-
-function easeInOut(t: number): number {
-  return t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
+  return pointAt(packet.path, travelProgress(t, packet.roundTrip, packet.durationMs));
 }

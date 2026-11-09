@@ -13,12 +13,14 @@ export interface ViewerStrings {
   zoomOut: string;
   fit: string;
   followAnim: string;
+  minimap: string;
   steps: string;
   step: string;
   selectStep: string;
   playback: string;
   zoomControls: string;
   diagram: string;
+  zoneInside: string;
   stepLabel: (n: number, total: number) => string;
 }
 
@@ -36,12 +38,14 @@ export const VIEWER_STRINGS: Record<ViewerLocale, ViewerStrings> = {
     zoomOut: '縮小',
     fit: '全体を表示',
     followAnim: 'アニメーションに追従',
+    minimap: 'ミニマップ',
     steps: 'ステップ一覧',
     step: 'ステップ',
     selectStep: 'ステップを選択',
     playback: '再生',
     zoomControls: 'ズーム操作',
     diagram: '図',
+    zoneInside: '内',
     stepLabel: (n, total) => `ステップ ${n} / ${total}`,
   },
   en: {
@@ -57,12 +61,14 @@ export const VIEWER_STRINGS: Record<ViewerLocale, ViewerStrings> = {
     zoomOut: 'Zoom out',
     fit: 'Fit',
     followAnim: 'Focus on active animation',
+    minimap: 'Minimap',
     steps: 'Steps',
     step: 'Step',
     selectStep: 'Select step',
     playback: 'Playback',
     zoomControls: 'Zoom controls',
     diagram: 'Diagram',
+    zoneInside: 'inside',
     stepLabel: (n, total) => `Step ${n} / ${total}`,
   },
 };

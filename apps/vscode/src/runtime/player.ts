@@ -2,6 +2,7 @@ import type { Layout, Rect } from '../layout';
 import type { DavDocument } from '../model/types';
 import {
   activeLabelFill,
+  type Bezier,
   boundsOf,
   buildDefs,
   buildPacket,
@@ -12,14 +13,26 @@ import {
   type IconShapes,
   type Packet,
   type PacketCalloutBox,
+  PHASE_MS,
   packetBubblePath,
   packetPosition,
   paint,
   type ResolvedView,
   resolveView,
+  type ZoneMove,
+  zoneColor,
+  zoneMoves,
 } from '../scene';
+import { Camera } from './camera';
+import { CONTROL_ICONS } from './controlIcons';
+import { type Controls, createControls, SPEEDS, showPlayState } from './controls';
 import { clear, html, renderSvg, svg } from './dom';
 import { VIEWER_STRINGS, type ViewerLocale, type ViewerStrings } from './i18n';
+import { Minimap } from './minimap';
+import { renderZoneHud } from './zoneHud';
+import { ZoneLabels } from './zoneLabels';
+
+export { SPEEDS };
 
 export interface PlayerData {
   document: DavDocument;
@@ -49,20 +62,35 @@ export interface PlayerOptions {
   fixedFrame?: boolean;
 }
 
-/** Duration of one animation phase at 1x. */
-export const PHASE_MS = 2000;
 /** Pause after a step's last phase at 1x. */
 export const HOLD_MS = 1800;
-export const SPEEDS = [0.5, 1, 1.5, 2] as const;
-const MIN_ZOOM = 0.15;
-const MAX_ZOOM = 4;
 const MAX_FIT_ZOOM = 1.4;
+/** Room kept around what the camera shows while it follows packets from zone to zone. */
+const CALM_FRAME_PAD = 120;
+/** Below this zoom, text stops being comfortable to read. */
+const MIN_ZONE_FRAME_ZOOM = 0.6;
+const MAX_CALM_ZOOM = 1.25;
+/** How close to the screen's edge a moving packet may get before the camera follows. */
+const CALM_EDGE_MARGIN = 40;
+/** Room kept around what the camera shows while it follows every phase. */
+const FOLLOW_PAD = 56;
+const FOLLOW_MIN_SIZE = { width: 200, height: 160 };
+const MAX_FOLLOW_ZOOM = 1.65;
 
 interface PacketEntry {
   packet: Packet;
   box: PacketCalloutBox | null;
   dotEl: SVGGElement | null;
   bubbleEl: SVGPathElement | null;
+}
+
+/** The box around a curve's control points. */
+function controlBox({ p0, p1, p2, p3 }: Bezier): Rect {
+  const xs = [p0.x, p1.x, p2.x, p3.x];
+  const ys = [p0.y, p1.y, p2.y, p3.y];
+  const x = Math.min(...xs);
+  const y = Math.min(...ys);
+  return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
 }
 
 /**
@@ -91,15 +119,17 @@ export class Player {
   #frame = 0;
   #packetEls: PacketEntry[] = [];
 
-  #zoom = 1;
-  #panX = 0;
-  #panY = 0;
+  readonly #camera: Camera;
   #userMoved = false;
   #followAnim = false;
-  #cameraTarget: { zoom: number; panX: number; panY: number } | null = null;
+  /** The reader asked for the whole diagram; the camera stays until the next step. */
+  #holdFrame = false;
 
   readonly #root: HTMLElement;
-  readonly #playbackBar: HTMLElement;
+  readonly #zoneHud: HTMLElement;
+  readonly #minimap: Minimap;
+  readonly #zoneLabels = new ZoneLabels();
+  readonly #controls: Controls;
   readonly #svgEl: SVGSVGElement;
   readonly #world: SVGGElement;
   readonly #sceneLayer: SVGGElement;
@@ -109,13 +139,6 @@ export class Player {
   readonly #stepDescEl: HTMLElement;
   readonly #timelineEl: HTMLElement;
   #tickFills: HTMLElement[] = [];
-  readonly #stepSelect: HTMLSelectElement;
-  readonly #playBtn: HTMLButtonElement;
-  readonly #playAllBtn: HTMLButtonElement;
-  readonly #motionBtn: HTMLButtonElement;
-  readonly #speedSelect: HTMLSelectElement;
-  readonly #zoomLabel: HTMLElement;
-  readonly #followBtn: HTMLButtonElement;
   readonly #onPhaseChange: ((view: ResolvedView, phase: number) => void) | undefined;
   readonly #fixedFrame: boolean;
   readonly #cleanups: Array<() => void> = [];
@@ -152,10 +175,16 @@ export class Player {
     this.#sceneLayer = svg('g');
     this.#packetLayer = svg('g', { class: 'dav-layer-packets' });
     this.#svgEl.append(renderSvg(buildDefs()), this.#world);
-    this.#world.append(this.#sceneLayer, this.#packetLayer);
+    this.#world.append(this.#sceneLayer, this.#zoneLabels.layer, this.#packetLayer);
+    this.#camera = new Camera(
+      this.#svgEl,
+      this.#world,
+      this.#reducedMotion,
+      () => this.#onCameraMove(),
+      () => this.#ensureLoop(),
+    );
 
     this.#titleEl = html('h1', { class: 'dav-title' });
-    this.#zoomLabel = html('span', { class: 'dav-zoom-label', 'aria-live': 'polite' });
     this.#stepTitleEl = html('div', { class: 'dav-step-title' });
     this.#stepDescEl = html('div', { class: 'dav-step-desc' });
     this.#timelineEl = html('div', {
@@ -164,183 +193,41 @@ export class Player {
       'aria-label': s.steps,
       'data-testid': 'step-timeline',
     });
-
-    this.#stepSelect = html('select', {
-      class: 'dav-btn dav-step-select',
-      'aria-label': s.step,
-      title: s.selectStep,
-      'data-testid': 'select-step',
-    });
-    this.#stepSelect.addEventListener('change', () => {
-      const val = this.#stepSelect.value;
-      this.#showStep(val === 'overview' ? null : Number(val));
-    });
-
-    this.#playBtn = this.#button(
-      s.play,
-      s.play,
-      () => this.togglePlay(),
-      'dav-btn dav-btn-primary dav-btn-play',
-    );
-    this.#playBtn.dataset.testid = 'btn-play';
-
-    this.#playAllBtn = this.#button(
-      s.playAll,
-      s.playAll,
-      () => this.togglePlayAll(),
-      'dav-btn dav-btn-primary dav-btn-play dav-btn-play-all',
-    );
-    this.#playAllBtn.dataset.testid = 'btn-play-all';
-
-    this.#motionBtn = html(
-      'button',
-      { class: 'dav-btn dav-btn-icon', type: 'button', 'data-testid': 'btn-motion' },
-      svg(
-        'svg',
-        {
-          width: 15,
-          height: 15,
-          viewBox: '0 0 24 24',
-          fill: 'none',
-          stroke: 'currentColor',
-          'stroke-width': 1.75,
-          'stroke-linecap': 'round',
-          'aria-hidden': 'true',
-        },
-        svg('path', { d: 'M2 12h20' }),
-        svg('circle', { cx: 12, cy: 12, r: 4, fill: 'currentColor' }),
-      ),
-    );
-    this.#motionBtn.addEventListener('click', () => this.toggleMotion());
-
-    this.#speedSelect = html('select', {
-      class: 'dav-btn dav-speed-select',
-      'aria-label': s.speed,
-      title: s.speed,
-      'data-testid': 'select-speed',
-    });
-    for (const v of SPEEDS) {
-      this.#speedSelect.append(
-        html('option', { value: String(v), selected: v === this.#speed }, `${v}x`),
-      );
-    }
-    this.#speedSelect.addEventListener('change', () => {
-      this.#speed = Number(this.#speedSelect.value) || 1;
-    });
-
-    this.#playbackBar = html(
-      'div',
-      {
-        class: 'dav-playback-bar',
-        role: 'toolbar',
-        'aria-label': s.playback,
-        'data-testid': 'playback-toolbar',
+    this.#controls = createControls(s, this.#speed, {
+      selectStep: (index) => this.#showStep(index),
+      togglePlay: () => this.togglePlay(),
+      togglePlayAll: () => this.togglePlayAll(),
+      toggleMotion: () => this.toggleMotion(),
+      setSpeed: (speed) => {
+        this.#speed = speed;
       },
-      this.#stepSelect,
-      html('span', { class: 'dav-toolbar-sep', 'aria-hidden': 'true' }),
-      this.#playBtn,
-      this.#playAllBtn,
-      this.#motionBtn,
-      html('span', { class: 'dav-toolbar-sep', 'aria-hidden': 'true' }),
-      this.#speedSelect,
-    );
+      zoomBy: (factor) => this.#zoomBy(factor),
+      fit: () => this.#showWholeDiagram(),
+      toggleFollow: () => this.toggleFollowAnim(),
+      toggleMinimap: () => this.toggleMinimap(),
+    });
+    const { playbackBar, zoomGroup } = this.#controls;
 
     if (options.playbackSlot) {
       clear(options.playbackSlot);
-      options.playbackSlot.append(this.#playbackBar);
+      options.playbackSlot.append(playbackBar);
     }
 
-    const fitBtn = html(
-      'button',
-      {
-        class: 'dav-btn dav-btn-icon',
-        type: 'button',
-        title: s.fit,
-        'aria-label': s.fit,
-        'data-testid': 'btn-zoom-fit',
-      },
-      svg(
-        'svg',
-        {
-          width: 15,
-          height: 15,
-          viewBox: '0 0 24 24',
-          fill: 'none',
-          stroke: 'currentColor',
-          'stroke-width': 1.75,
-          'stroke-linecap': 'round',
-          'stroke-linejoin': 'round',
-          'aria-hidden': 'true',
-        },
-        svg('path', { d: 'M8 3H5a2 2 0 0 0-2 2v3' }),
-        svg('path', { d: 'M21 8V5a2 2 0 0 0-2-2h-3' }),
-        svg('path', { d: 'M3 16v3a2 2 0 0 0 2 2h3' }),
-        svg('path', { d: 'M16 21h3a2 2 0 0 0 2-2v-3' }),
-      ),
-    );
-    fitBtn.addEventListener('click', () => {
-      if (this.#followAnim) {
-        this.#followAnim = false;
-        this.#followBtn.setAttribute('aria-pressed', 'false');
-      }
-      this.#fit();
+    this.#zoneHud = html('div', {
+      class: 'dav-zone-hud',
+      'aria-hidden': 'true',
+      'data-testid': 'zone-hud',
     });
-
-    this.#followBtn = html(
-      'button',
-      {
-        class: 'dav-btn dav-btn-icon dav-btn-follow',
-        type: 'button',
-        title: s.followAnim,
-        'aria-label': s.followAnim,
-        'aria-pressed': 'false',
-        'data-testid': 'btn-follow-anim',
-      },
-      svg(
-        'svg',
-        {
-          width: 15,
-          height: 15,
-          viewBox: '0 0 24 24',
-          fill: 'none',
-          stroke: 'currentColor',
-          'stroke-width': 1.75,
-          'stroke-linecap': 'round',
-          'stroke-linejoin': 'round',
-          'aria-hidden': 'true',
-        },
-        svg('circle', { cx: 12, cy: 12, r: 7 }),
-        svg('circle', { cx: 12, cy: 12, r: 2 }),
-        svg('path', { d: 'M12 2v3' }),
-        svg('path', { d: 'M12 19v3' }),
-        svg('path', { d: 'M2 12h3' }),
-        svg('path', { d: 'M19 12h3' }),
-      ),
-    );
-    this.#followBtn.addEventListener('click', () => this.toggleFollowAnim());
-
-    const zoomOverlay = html(
-      'div',
-      {
-        class: 'dav-zoom-group',
-        role: 'group',
-        'aria-label': s.zoomControls,
-        'data-testid': 'canvas-zoom-controls',
-      },
-      this.#button('−', s.zoomOut, () => this.#zoomBy(1 / 1.2)),
-      this.#zoomLabel,
-      this.#button('+', s.zoomIn, () => this.#zoomBy(1.2)),
-      html('span', { class: 'dav-toolbar-sep', 'aria-hidden': 'true' }),
-      fitBtn,
-      this.#followBtn,
-    );
+    this.#zoneHud.hidden = true;
+    this.#minimap = new Minimap((x, y) => this.#panTo(x, y));
 
     const viewport = html(
       'main',
       { class: 'dav-viewport' },
       this.#svgEl,
       this.#titleEl,
-      zoomOverlay,
+      this.#minimap.element,
+      zoomGroup,
     );
     this.#root = html(
       'div',
@@ -348,7 +235,7 @@ export class Player {
       html(
         'header',
         { class: 'dav-topbar' },
-        !options.playbackSlot && html('div', { class: 'dav-topbar-main' }, this.#playbackBar),
+        !options.playbackSlot && html('div', { class: 'dav-topbar-main' }, playbackBar),
         html(
           'div',
           { class: 'dav-dock', 'data-testid': 'top-step-dock' },
@@ -361,6 +248,7 @@ export class Player {
           this.#timelineEl,
         ),
       ),
+      this.#zoneHud,
       viewport,
     );
     container.append(this.#root);
@@ -369,6 +257,7 @@ export class Player {
     this.#bindKeyboard(options.globalKeyboard ? window : this.#root);
     if (typeof ResizeObserver !== 'undefined') {
       const ro = new ResizeObserver(() => {
+        this.#camera.invalidateSize();
         if (this.#followAnim) this.#focusCurrentPhase(false);
         else if (!this.#userMoved) this.#frameStep(false);
       });
@@ -376,6 +265,7 @@ export class Player {
       this.#cleanups.push(() => ro.disconnect());
     }
 
+    this.#syncZones();
     this.#renderChrome();
     this.#updateMotionButton();
     this.#showStep(this.#stepIndex);
@@ -391,6 +281,7 @@ export class Player {
     }
     const index =
       this.#stepIndex === null ? null : count === 0 ? null : Math.min(this.#stepIndex, count - 1);
+    this.#syncZones();
     this.#renderChrome();
     this.#showStep(index, { keepPhase: true });
     if (this.#followAnim) this.#focusCurrentPhase(false);
@@ -400,7 +291,7 @@ export class Player {
   destroy(): void {
     cancelAnimationFrame(this.#frame);
     for (const c of this.#cleanups) c();
-    this.#playbackBar.remove();
+    this.#controls.playbackBar.remove();
     this.#root.remove();
   }
 
@@ -447,11 +338,7 @@ export class Player {
   }
 
   clientToWorld(clientX: number, clientY: number): { x: number; y: number } {
-    const box = this.#svgEl.getBoundingClientRect();
-    return {
-      x: (clientX - box.left - this.#panX) / this.#zoom,
-      y: (clientY - box.top - this.#panY) / this.#zoom,
-    };
+    return this.#camera.clientToWorld(clientX, clientY);
   }
 
   next(): void {
@@ -489,9 +376,9 @@ export class Player {
   #updateMotionButton(): void {
     const off = this.#isStopped();
     const action = off ? this.#strings.startMotion : this.#strings.stopMotion;
-    this.#motionBtn.title = action;
-    this.#motionBtn.setAttribute('aria-label', action);
-    this.#motionBtn.setAttribute('aria-pressed', String(off));
+    this.#controls.motionBtn.title = action;
+    this.#controls.motionBtn.setAttribute('aria-label', action);
+    this.#controls.motionBtn.setAttribute('aria-pressed', String(off));
   }
 
   #isStopped(): boolean {
@@ -581,9 +468,14 @@ export class Player {
     this.#ensureLoop();
   }
 
+  toggleMinimap(): void {
+    this.#controls.minimapBtn.setAttribute('aria-pressed', String(this.#minimap.toggle()));
+    this.#updateCameraOverlays();
+  }
+
   toggleFollowAnim(): void {
     this.#followAnim = !this.#followAnim;
-    this.#followBtn.setAttribute('aria-pressed', String(this.#followAnim));
+    this.#controls.followBtn.setAttribute('aria-pressed', String(this.#followAnim));
     if (this.#followAnim) {
       this.#userMoved = false;
       this.#focusCurrentPhase(false);
@@ -601,14 +493,16 @@ export class Player {
     this.#titleEl.textContent = doc.title;
     this.#svgEl.setAttribute('aria-label', doc.title || this.#strings.diagram);
     const noSteps = doc.steps.length === 0;
-    this.#playBtn.disabled = noSteps;
-    this.#playAllBtn.disabled = noSteps;
-    this.#motionBtn.disabled = noSteps || this.#reducedMotion;
-    this.#speedSelect.disabled = noSteps;
-    clear(this.#stepSelect);
-    this.#stepSelect.append(html('option', { value: 'overview' }, this.#strings.overview));
+    this.#controls.playBtn.disabled = noSteps;
+    this.#controls.playAllBtn.disabled = noSteps;
+    this.#controls.motionBtn.disabled = noSteps || this.#reducedMotion;
+    this.#controls.speedSelect.disabled = noSteps;
+    clear(this.#controls.stepSelect);
+    this.#controls.stepSelect.append(html('option', { value: 'overview' }, this.#strings.overview));
     doc.steps.forEach((step, i) => {
-      this.#stepSelect.append(html('option', { value: String(i) }, `${i + 1}. ${step.title}`));
+      this.#controls.stepSelect.append(
+        html('option', { value: String(i) }, `${i + 1}. ${step.title}`),
+      );
     });
 
     clear(this.#timelineEl);
@@ -633,11 +527,30 @@ export class Player {
     });
   }
 
+  /** Recomputes what depends on the diagram's zones, after a new document arrived. */
+  #syncZones(): void {
+    const { document: doc, layout } = this.#data;
+    const hasZones = doc.groups.length > 0;
+    this.#controls.minimapBtn.hidden = !hasZones;
+    // The strip stays while the zones change, so that the canvas never resizes during playback.
+    this.#zoneHud.hidden = !hasZones;
+    this.#minimap.setDiagram(doc, layout);
+  }
+
+  #panTo(x: number, y: number): void {
+    this.#userMoved = true;
+    this.#camera.centerOn(x, y);
+  }
+
   #showStep(index: number | null, opts: { keepPhase?: boolean } = {}): void {
     this.#view = resolveView(this.#data.document, this.#data.layout, index);
     this.#stepIndex = this.#view.stepIndex;
     clear(this.#sceneLayer);
     this.#sceneLayer.append(renderSvg(buildScene(this.#view, this.#data.icons)));
+    this.#zoneLabels.collect(this.#sceneLayer, this.#view, this.#data.document.groups);
+    this.#updateCameraOverlays();
+    this.#minimap.showStep(this.#view);
+    if (!opts.keepPhase) this.#holdFrame = false;
     if (!opts.keepPhase || this.#phase >= this.#view.phases.length) {
       this.#phase = 0;
       this.#elapsed = 0;
@@ -657,12 +570,14 @@ export class Player {
     const phases = this.#view.phases;
     if (phases.length === 0) {
       if (this.#followAnim) this.#focusCurrentPhase(true);
+      this.#updateZoneHud();
       return;
     }
 
     if (!stopped) {
-      const t = Math.min(1, this.#elapsed / PHASE_MS);
-      for (const packet of phases[this.#phase] ?? []) this.#addPacket(packet, t);
+      for (const packet of phases[this.#phase] ?? []) {
+        this.#addPacket(packet, this.#packetProgress(packet));
+      }
     } else if (this.#pinned) {
       // A picked phase is parked at the middle of its path.
       for (const packet of phases[this.#phase] ?? []) {
@@ -671,6 +586,107 @@ export class Player {
     }
     this.#syncPhaseHighlights();
     if (this.#followAnim) this.#focusCurrentPhase(!stopped);
+    else if (
+      !stopped &&
+      !this.#userMoved &&
+      !this.#holdFrame &&
+      !this.#fixedFrame &&
+      !this.#packetsOnScreen()
+    ) {
+      this.#calmFocus(true);
+    }
+    this.#updateZoneHud();
+  }
+
+  #currentPackets(): Packet[] {
+    const phases = this.#view.phases;
+    return phases[Math.min(this.#phase, phases.length - 1)] ?? [];
+  }
+
+  #phaseMs(index: number): number {
+    return this.#view.phaseDurations[index] ?? PHASE_MS;
+  }
+
+  #packetProgress(packet: Packet): number {
+    return Math.min(1, this.#elapsed / packet.durationMs);
+  }
+
+  #placePackets(): void {
+    for (const entry of this.#packetEls) {
+      this.#placePacket(entry, this.#packetProgress(entry.packet));
+    }
+  }
+
+  /** Says which zones the current phase moves between, and outlines them. */
+  #updateZoneHud(): void {
+    for (const el of Array.from(this.#sceneLayer.querySelectorAll('.dav-group.is-zone-active'))) {
+      el.classList.remove('is-zone-active');
+      el.querySelector<SVGRectElement>('rect')?.style.removeProperty('stroke');
+    }
+    clear(this.#zoneHud);
+    const packets = this.#currentPackets();
+    if (packets.length === 0 || (this.#isStopped() && !this.#pinned)) return;
+    const moves = zoneMoves(this.#view, packets);
+    const ms = this.#phaseMs(this.#phase) / this.#speed;
+    renderZoneHud(this.#zoneHud, moves, ms, this.#strings.zoneInside);
+    this.#outlineZones(moves);
+  }
+
+  #outlineZones(moves: readonly ZoneMove[]): void {
+    const active = new Map(moves.flat().map((place) => [place.id, place]));
+    for (const el of Array.from(this.#sceneLayer.querySelectorAll('.dav-group'))) {
+      const zone = active.get(el.getAttribute('data-id') ?? '');
+      const rect = el.querySelector<SVGRectElement>('rect');
+      if (!zone || !rect) continue;
+      el.classList.add('is-zone-active');
+      rect.style.setProperty('stroke', zoneColor(zone.color));
+    }
+  }
+
+  /** Keeps zone names and the minimap on the camera. */
+  #updateCameraOverlays(): void {
+    const world = this.#camera.visibleWorld();
+    if (!world) return;
+    this.#zoneLabels.follow(world);
+    this.#minimap.setCamera(world);
+  }
+
+  /** The rectangles of the nodes the current phase moves between. */
+  #phaseSpots(): Rect[] {
+    const { nodes } = this.#data.layout;
+    return this.#currentPackets()
+      .flatMap((p) => [nodes[p.from], nodes[p.to]])
+      .filter((r) => r !== undefined);
+  }
+
+  /** Whether the camera, where it is heading, already shows the current phase. */
+  #packetsOnScreen(): boolean {
+    const spots = this.#phaseSpots();
+    const world = this.#camera.destinationWorld();
+    if (spots.length === 0 || !world) return true;
+    const need = boundsOf(spots, CALM_EDGE_MARGIN, 0);
+    return (
+      need.x >= world.x &&
+      need.y >= world.y &&
+      need.x + need.width <= world.x + world.width &&
+      need.y + need.height <= world.y + world.height
+    );
+  }
+
+  /** Frames the whole zones of the current phase, so that the reader keeps their bearings. */
+  #calmFocus(smooth: boolean): void {
+    const spots = this.#phaseSpots();
+    if (spots.length === 0) return;
+    const { groups } = this.#data.layout;
+    const zoneRects = this.#currentPackets()
+      .flatMap((p) => [p.fromZone, p.toZone])
+      .flatMap((id) => (id !== undefined && groups[id] ? [groups[id]] : []));
+    const zones = boundsOf(zoneRects.length > 0 ? zoneRects : spots, CALM_FRAME_PAD, 0);
+    const target =
+      this.#camera.fitZoom(zones) >= MIN_ZONE_FRAME_ZOOM
+        ? zones
+        : boundsOf(spots, CALM_FRAME_PAD, 0);
+    this.#camera.frame(target, MAX_CALM_ZOOM, smooth);
   }
 
   /**
@@ -681,7 +697,7 @@ export class Player {
     const phases = this.#view.phases;
     if (phases.length === 0) return;
     const stopped = this.#isStopped();
-    const running = phases[Math.min(this.#phase, phases.length - 1)] ?? [];
+    const running = this.#currentPackets();
     // A phase picked while stopped goes first, so that its colors win on shared edges.
     const activeEdges = flowColors(
       stopped ? [...(this.#pinned ? running : []), ...phases.flat()] : running,
@@ -736,7 +752,7 @@ export class Player {
     if (this.#view.stepIndex === null) {
       this.#stepTitleEl.textContent = s.overview;
       this.#stepDescEl.textContent = s.overviewHint;
-      this.#stepSelect.value = 'overview';
+      this.#controls.stepSelect.value = 'overview';
     } else {
       clear(this.#stepTitleEl);
       this.#stepTitleEl.append(
@@ -744,7 +760,7 @@ export class Player {
         this.#view.stepTitle ?? '',
       );
       this.#stepDescEl.textContent = this.#view.description ?? '';
-      this.#stepSelect.value = String(this.#view.stepIndex);
+      this.#controls.stepSelect.value = String(this.#view.stepIndex);
     }
 
     const current = this.#view.stepIndex;
@@ -766,87 +782,21 @@ export class Player {
   #updateStepProgress(): void {
     const fill = this.#stepIndex === null ? undefined : this.#tickFills[this.#stepIndex];
     if (!fill) return;
-    const total = this.#view.phases.length;
-    const done = this.#phase + (this.#phase < total ? Math.min(1, this.#elapsed / PHASE_MS) : 0);
+    const durations = this.#view.phaseDurations;
+    const total = durations.reduce((sum, ms) => sum + ms, 0);
+    const done =
+      durations.slice(0, this.#phase).reduce((sum, ms) => sum + ms, 0) +
+      Math.min(this.#elapsed, durations[this.#phase] ?? 0);
     const progress = total === 0 || this.#isStopped() ? 1 : Math.min(1, done / total);
     fill.style.transform = `scaleX(${progress.toFixed(3)})`;
   }
 
   #updatePlayButton(): void {
-    const stepPlaying = this.#isStepRunning();
-    const stepAction = stepPlaying ? this.#strings.pause : this.#strings.play;
-    clear(this.#playBtn);
-    if (stepPlaying) {
-      this.#playBtn.append(
-        svg(
-          'svg',
-          {
-            width: 15,
-            height: 15,
-            viewBox: '0 0 24 24',
-            fill: 'currentColor',
-            'aria-hidden': 'true',
-          },
-          svg('rect', { x: 6, y: 5, width: 4, height: 14, rx: 1 }),
-          svg('rect', { x: 14, y: 5, width: 4, height: 14, rx: 1 }),
-        ),
-      );
-    } else {
-      this.#playBtn.append(
-        svg(
-          'svg',
-          {
-            width: 15,
-            height: 15,
-            viewBox: '0 0 24 24',
-            fill: 'currentColor',
-            'aria-hidden': 'true',
-          },
-          svg('polygon', { points: '6 4 20 12 6 20 6 4' }),
-        ),
-      );
-    }
-    this.#playBtn.title = stepAction;
-    this.#playBtn.setAttribute('aria-label', stepAction);
-    this.#playBtn.setAttribute('aria-pressed', String(stepPlaying));
-
-    const allPlaying = this.#isAllRunning();
-    const allAction = allPlaying ? this.#strings.pause : this.#strings.playAll;
-    clear(this.#playAllBtn);
-    if (allPlaying) {
-      this.#playAllBtn.append(
-        svg(
-          'svg',
-          {
-            width: 15,
-            height: 15,
-            viewBox: '0 0 24 24',
-            fill: 'currentColor',
-            'aria-hidden': 'true',
-          },
-          svg('rect', { x: 6, y: 5, width: 4, height: 14, rx: 1 }),
-          svg('rect', { x: 14, y: 5, width: 4, height: 14, rx: 1 }),
-        ),
-      );
-    } else {
-      this.#playAllBtn.append(
-        svg(
-          'svg',
-          {
-            width: 16,
-            height: 16,
-            viewBox: '0 0 24 24',
-            fill: 'currentColor',
-            'aria-hidden': 'true',
-          },
-          svg('polygon', { points: '2 5 12 12 2 19 2 5' }),
-          svg('polygon', { points: '12 5 22 12 12 19 12 5' }),
-        ),
-      );
-    }
-    this.#playAllBtn.title = allAction;
-    this.#playAllBtn.setAttribute('aria-label', allAction);
-    this.#playAllBtn.setAttribute('aria-pressed', String(allPlaying));
+    this.#zoneHud.classList.toggle('is-paused', this.#paused);
+    const { playBtn, playAllBtn } = this.#controls;
+    const s = this.#strings;
+    showPlayState(playBtn, this.#isStepRunning(), CONTROL_ICONS.play, s.play, s.pause);
+    showPlayState(playAllBtn, this.#isAllRunning(), CONTROL_ICONS.playAll, s.playAll, s.pause);
   }
 
   // ---------------------------------------------------------------------------
@@ -855,7 +805,7 @@ export class Player {
 
   #ensureLoop(): void {
     const animating =
-      this.#cameraTarget !== null ||
+      this.#camera.isEasing ||
       (!this.#paused && !this.#isStopped() && this.#view.phases.length > 0);
     if (!animating && (this.#playMode === 'node' || this.#paused)) return;
     if (this.#frame) return;
@@ -870,43 +820,25 @@ export class Player {
     this.#lastFrame = now;
     if (!this.#paused) this.#elapsed += dt;
 
-    if (this.#cameraTarget) {
-      const alpha = 1 - Math.exp(-rawDt / 160);
-      this.#zoom += (this.#cameraTarget.zoom - this.#zoom) * alpha;
-      this.#panX += (this.#cameraTarget.panX - this.#panX) * alpha;
-      this.#panY += (this.#cameraTarget.panY - this.#panY) * alpha;
-      if (
-        Math.abs(this.#cameraTarget.zoom - this.#zoom) < 0.002 &&
-        Math.abs(this.#cameraTarget.panX - this.#panX) < 0.5 &&
-        Math.abs(this.#cameraTarget.panY - this.#panY) < 0.5
-      ) {
-        this.#zoom = this.#cameraTarget.zoom;
-        this.#panX = this.#cameraTarget.panX;
-        this.#panY = this.#cameraTarget.panY;
-        this.#cameraTarget = null;
-      }
-      this.#applyTransform();
-    }
+    this.#camera.advance(rawDt);
 
     if (this.#paused) {
-      if (this.#cameraTarget !== null) this.#frame = requestAnimationFrame((t) => this.#tick(t));
+      if (this.#camera.isEasing) this.#frame = requestAnimationFrame((t) => this.#tick(t));
       return;
     }
 
     const phases = this.#isStopped() ? [] : this.#view.phases;
     if (this.#playMode === 'node') {
       if (phases.length > 0) {
-        const t = Math.min(1, this.#elapsed / PHASE_MS);
-        for (const entry of this.#packetEls) this.#placePacket(entry, t);
-        if (this.#elapsed >= PHASE_MS + 400) {
+        this.#placePackets();
+        if (this.#elapsed >= this.#phaseMs(this.#phase) + 400) {
           this.#elapsed = 0;
           for (const entry of this.#packetEls) this.#placePacket(entry, 0);
         }
       }
     } else if (this.#phase < phases.length) {
-      const t = Math.min(1, this.#elapsed / PHASE_MS);
-      for (const entry of this.#packetEls) this.#placePacket(entry, t);
-      if (this.#elapsed >= PHASE_MS) {
+      this.#placePackets();
+      if (this.#elapsed >= this.#phaseMs(this.#phase)) {
         this.#phase++;
         this.#elapsed = 0;
         if (this.#phase < phases.length) {
@@ -928,10 +860,7 @@ export class Player {
 
     // A step with no phases has nothing to time unless the player must move on from it.
     // Rendering a phase may already have scheduled the next frame through the camera.
-    if (
-      !this.#frame &&
-      (this.#playMode === 'all' || phases.length > 0 || this.#cameraTarget !== null)
-    ) {
+    if (!this.#frame && (this.#playMode === 'all' || phases.length > 0 || this.#camera.isEasing)) {
       this.#frame = requestAnimationFrame((t) => this.#tick(t));
     }
   }
@@ -941,85 +870,57 @@ export class Player {
   // ---------------------------------------------------------------------------
 
   #focusCurrentPhase(smooth: boolean): void {
-    const box = this.#svgEl.getBoundingClientRect();
-    if (box.width === 0 || box.height === 0) return;
-
     const phases = this.#view.phases;
     const packets =
       phases.length === 0
         ? []
         : this.#isStopped() && !this.#pinned
           ? phases.flat()
-          : (phases[Math.min(this.#phase, phases.length - 1)] ?? []);
+          : this.#currentPackets();
 
+    const { nodes, groups } = this.#data.layout;
     if (packets.length === 0) {
-      const { nodes, groups } = this.#data.layout;
-      const b = boundsOf([...Object.values(nodes), ...Object.values(groups)]);
-      this.#setCameraTarget(b, 1.25, smooth);
+      const whole = boundsOf([...Object.values(nodes), ...Object.values(groups)]);
+      this.#camera.frame(whole, MAX_CALM_ZOOM, smooth);
       return;
     }
 
-    const rects: Rect[] = [];
-    const { nodes } = this.#data.layout;
-    for (const pkt of packets) {
-      const fromRect = nodes[pkt.from];
-      const toRect = nodes[pkt.to];
-      if (fromRect) rects.push(fromRect);
-      if (toRect) rects.push(toRect);
-      const callout = computePacketCalloutBox(pkt);
-      if (callout) rects.push(calloutRect(callout));
-      const xs = [pkt.path.p0.x, pkt.path.p1.x, pkt.path.p2.x, pkt.path.p3.x];
-      const ys = [pkt.path.p0.y, pkt.path.p1.y, pkt.path.p2.y, pkt.path.p3.y];
-      const minX = Math.min(...xs);
-      const minY = Math.min(...ys);
-      rects.push({
-        x: minX,
-        y: minY,
-        width: Math.max(...xs) - minX,
-        height: Math.max(...ys) - minY,
-      });
-    }
-
-    const pad = 56;
-    const minX = Math.min(...rects.map((r) => r.x)) - pad;
-    const minY = Math.min(...rects.map((r) => r.y)) - pad;
-    const maxX = Math.max(...rects.map((r) => r.x + r.width)) + pad;
-    const maxY = Math.max(...rects.map((r) => r.y + r.height)) + pad;
-    const targetBounds: Rect = {
-      x: minX,
-      y: minY,
-      width: Math.max(200, maxX - minX),
-      height: Math.max(160, maxY - minY),
-    };
-    this.#setCameraTarget(targetBounds, 1.65, smooth);
-  }
-
-  #setCameraTarget(b: Rect, maxAutoZoom: number, smooth: boolean): void {
-    const box = this.#svgEl.getBoundingClientRect();
-    if (box.width === 0 || box.height === 0) return;
-    const zoom = Math.min(
-      MAX_ZOOM,
-      Math.max(MIN_ZOOM, Math.min(box.width / b.width, box.height / b.height, maxAutoZoom)),
+    const rects = packets.flatMap((packet) => [
+      ...[nodes[packet.from], nodes[packet.to]].filter((r) => r !== undefined),
+      ...[computePacketCalloutBox(packet)].flatMap((box) => (box ? [calloutRect(box)] : [])),
+      controlBox(packet.path),
+    ]);
+    const b = boundsOf(rects, FOLLOW_PAD, 0);
+    this.#camera.frame(
+      {
+        ...b,
+        width: Math.max(FOLLOW_MIN_SIZE.width, b.width),
+        height: Math.max(FOLLOW_MIN_SIZE.height, b.height),
+      },
+      MAX_FOLLOW_ZOOM,
+      smooth,
     );
-    const panX = (box.width - b.width * zoom) / 2 - b.x * zoom;
-    const panY = (box.height - b.height * zoom) / 2 - b.y * zoom;
-
-    if (!smooth || this.#reducedMotion) {
-      this.#cameraTarget = null;
-      this.#zoom = zoom;
-      this.#panX = panX;
-      this.#panY = panY;
-      this.#applyTransform();
-      return;
-    }
-    this.#cameraTarget = { zoom, panX, panY };
-    this.#ensureLoop();
   }
 
   /** Shows the whole diagram and hands the camera back to automatic framing. */
   #fit(): void {
     this.#userMoved = false;
-    this.#setCameraTarget(this.#wholeDiagramBounds(), MAX_FIT_ZOOM, false);
+    this.#camera.frame(this.#wholeDiagramBounds(), MAX_FIT_ZOOM, false);
+  }
+
+  /** The fit button: stops following, and keeps the whole diagram until the next step. */
+  #showWholeDiagram(): void {
+    if (this.#followAnim) {
+      this.#followAnim = false;
+      this.#controls.followBtn.setAttribute('aria-pressed', 'false');
+    }
+    this.#holdFrame = true;
+    this.#fit();
+  }
+
+  #onCameraMove(): void {
+    this.#controls.zoomLabel.textContent = `${Math.round(this.#camera.zoom * 100)}%`;
+    this.#updateCameraOverlays();
   }
 
   #wholeDiagramBounds(): Rect {
@@ -1040,43 +941,33 @@ export class Player {
   #frameStep(smooth: boolean): void {
     const rects = this.#view.nodes.filter((n) => n.focused).map((n) => n.rect);
     if (rects.length === 0 || this.#fixedFrame) {
-      this.#setCameraTarget(this.#wholeDiagramBounds(), MAX_FIT_ZOOM, smooth);
+      this.#camera.frame(this.#wholeDiagramBounds(), MAX_FIT_ZOOM, smooth);
       return;
     }
     for (const packet of this.#view.phases.flat()) {
       const callout = computePacketCalloutBox(packet);
       if (callout) rects.push(calloutRect(callout));
     }
-    this.#setCameraTarget(boundsOf(rects), MAX_FIT_ZOOM, smooth);
+    const bounds = boundsOf(rects);
+    const legible = this.#camera.fitZoom(bounds) >= MIN_ZONE_FRAME_ZOOM;
+    // A step too spread out to read at once is followed instead, zone by zone.
+    if (!legible && !this.#holdFrame && !this.#isStopped() && this.#view.phases.length > 0) {
+      this.#calmFocus(smooth);
+      return;
+    }
+    this.#camera.frame(bounds, MAX_FIT_ZOOM, smooth);
   }
 
   #zoomBy(factor: number, cx?: number, cy?: number): void {
-    this.#cameraTarget = null;
-    const box = this.#svgEl.getBoundingClientRect();
-    const x = cx ?? box.width / 2;
-    const y = cy ?? box.height / 2;
-    const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, this.#zoom * factor));
-    const k = next / this.#zoom;
-    this.#panX = x - (x - this.#panX) * k;
-    this.#panY = y - (y - this.#panY) * k;
-    this.#zoom = next;
+    this.#camera.zoomBy(factor, cx, cy);
     this.#userMoved = true;
-    this.#applyTransform();
-  }
-
-  #applyTransform(): void {
-    this.#world.setAttribute(
-      'transform',
-      `translate(${this.#panX.toFixed(1)} ${this.#panY.toFixed(1)}) scale(${this.#zoom.toFixed(4)})`,
-    );
-    this.#zoomLabel.textContent = `${Math.round(this.#zoom * 100)}%`;
   }
 
   #bindPointer(viewport: HTMLElement): void {
     let drag: { id: number; x: number; y: number; captured: boolean } | null = null;
     const down = (e: PointerEvent) => {
       if (e.button !== 0 || e.defaultPrevented) return;
-      if ((e.target as Element | null)?.closest('.dav-zoom-group')) return;
+      if ((e.target as Element | null)?.closest('.dav-zoom-group, .dav-minimap')) return;
       drag = { id: e.pointerId, x: e.clientX, y: e.clientY, captured: false };
     };
     const move = (e: PointerEvent) => {
@@ -1089,13 +980,10 @@ export class Player {
         viewport.setPointerCapture(e.pointerId);
         viewport.classList.add('dav-dragging');
       }
-      this.#cameraTarget = null;
-      this.#panX += dx;
-      this.#panY += dy;
+      this.#camera.panBy(dx, dy);
       drag.x = e.clientX;
       drag.y = e.clientY;
       this.#userMoved = true;
-      this.#applyTransform();
     };
     const up = (e: PointerEvent) => {
       if (!drag || drag.id !== e.pointerId) return;
@@ -1151,24 +1039,9 @@ export class Player {
     };
     target.addEventListener('keydown', onKey);
     this.#cleanups.push(() => target.removeEventListener('keydown', onKey));
-    if (target !== window && !this.#root.contains(this.#playbackBar)) {
-      this.#playbackBar.addEventListener('keydown', onKey);
-      this.#cleanups.push(() => this.#playbackBar.removeEventListener('keydown', onKey));
+    if (target !== window && !this.#root.contains(this.#controls.playbackBar)) {
+      this.#controls.playbackBar.addEventListener('keydown', onKey);
+      this.#cleanups.push(() => this.#controls.playbackBar.removeEventListener('keydown', onKey));
     }
-  }
-
-  #button(
-    label: string,
-    title: string,
-    onClick: () => void,
-    className = 'dav-btn',
-  ): HTMLButtonElement {
-    const btn = html(
-      'button',
-      { class: className, type: 'button', title, 'aria-label': title },
-      label,
-    );
-    btn.addEventListener('click', onClick);
-    return btn;
   }
 }

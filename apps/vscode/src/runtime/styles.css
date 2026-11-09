@@ -306,6 +306,104 @@
   color: var(--dav-muted);
 }
 
+/* A strip of its own above the canvas: nothing in the diagram can run under it. */
+.dav-zone-hud {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: safe center;
+  gap: 18px;
+  height: 36px;
+  padding: 0 12px;
+  overflow: hidden;
+  background: var(--dav-bg);
+  color: var(--dav-fg);
+  font-size: 14px;
+  font-weight: 600;
+}
+.dav-zone-hud[hidden] {
+  display: none;
+}
+.dav-zone-pair,
+.dav-zone-name {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+.dav-zone-pair {
+  gap: 9px;
+}
+.dav-zone-name {
+  gap: 6px;
+}
+.dav-zone-name.is-from {
+  color: var(--dav-muted);
+}
+.dav-zone-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+.dav-zone-inside {
+  color: var(--dav-muted);
+  font-weight: 400;
+}
+.dav-zone-line {
+  position: relative;
+  display: block;
+  width: 72px;
+  height: 2px;
+  background: var(--dav-border-strong);
+}
+.dav-zone-line i {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  transform: scaleX(0);
+  transform-origin: left;
+  animation: dav-zone-progress 2s ease-in-out forwards;
+}
+.dav-zone-hud.is-paused .dav-zone-line i {
+  animation-play-state: paused;
+}
+@keyframes dav-zone-progress {
+  to {
+    transform: scaleX(1);
+  }
+}
+.dav-group.is-zone-active rect {
+  stroke-width: 1.75px;
+  vector-effect: non-scaling-stroke;
+}
+.dav-minimap {
+  position: absolute;
+  left: 12px;
+  bottom: 44px;
+  z-index: 5;
+  width: 230px;
+  height: 140px;
+  background: var(--dav-panel);
+  border: 1px solid var(--dav-border);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.dav-minimap[hidden] {
+  display: none;
+}
+.dav-minimap-view {
+  fill: color-mix(in srgb, var(--dav-fg) 12%, transparent);
+  stroke: var(--dav-fg);
+  stroke-width: 1.5px;
+  vector-effect: non-scaling-stroke;
+}
+@media (max-width: 560px), (max-height: 420px) {
+  .dav-minimap {
+    display: none;
+  }
+}
+
 /* Step ruler: one numbered graduation per step, like the sheet index of a drawing set. */
 .dav-timeline {
   display: flex;
@@ -384,6 +482,9 @@
   stroke: var(--dav-bg);
   stroke-width: 1.5px;
   stroke-linejoin: round;
+}
+.dav-group-label {
+  font-weight: 500;
 }
 .dav-node-label,
 .dav-packet-label {

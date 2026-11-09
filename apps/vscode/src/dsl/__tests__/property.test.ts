@@ -2,7 +2,16 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { ICON_NAMES } from '../../model/types';
 import { format, parse } from '../index';
-import { quoteString } from '../syntax';
+
+/** Encodes a value as a DSL string literal. */
+function quoteString(value: string): string {
+  const escaped = value
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n')
+    .replace(/\t/g, '\\t');
+  return `"${escaped}"`;
+}
 
 const ICONS = ICON_NAMES;
 const ARROWS = ['-->', '..>', '<->', '<.>'] as const;

@@ -1,209 +1,19 @@
-import { homedir } from 'node:os';
 import * as vscode from 'vscode';
-import {
-  computeCompletions,
-  type CompletionItemKind as DavCompletionKind,
-  type Diagnostic as DavDiagnostic,
-  format,
-  formatDiagnostic,
-  parse,
-} from '../dsl';
-import { exportHtml, importContent } from '../exporter';
+import { importContent } from '../exporter';
 import { buildAiPrompt } from '../prompt';
-import type { HostToWebviewMessage, WebviewToHostMessage } from '../protocol/messages';
 import { SAMPLES } from '../samples';
+import { exportDocumentToHtml, LANGUAGE_ID } from './documents';
+import { registerLanguageFeatures } from './languageFeatures';
+import { t, uiLocale } from './locale';
+import { CanvasPanelManager } from './previewPanel';
+import { installAgentSkill } from './skillInstall';
 
-const LANGUAGE_ID = 'dav';
-const SKILL_NAME = 'dav-diagrams';
-
-/** Where each agent looks for skills, relative to the workspace and to the home directory. */
-const SKILL_TARGETS: ReadonlyArray<{
-  agent: string;
-  workspace: readonly string[];
-  personal: readonly string[];
-}> = [
-  { agent: 'Claude Code', workspace: ['.claude', 'skills'], personal: ['.claude', 'skills'] },
-  { agent: 'GitHub Copilot', workspace: ['.github', 'skills'], personal: ['.copilot', 'skills'] },
-  { agent: 'Codex', workspace: ['.agents', 'skills'], personal: ['.agents', 'skills'] },
-];
-
-/** VS Code's display language, narrowed to the languages this extension is written in. */
-function uiLocale(): 'ja' | 'en' {
-  return vscode.env.language.toLowerCase().startsWith('ja') ? 'ja' : 'en';
-}
-
-const t = (ja: string, en: string): string => (uiLocale() === 'ja' ? ja : en);
-const previewTitle = (doc: vscode.TextDocument): string =>
-  `${t('プレビュー', 'Preview')}: ${fileBasename(doc.uri.fsPath)}`;
 const openDavFirst = (): string =>
   t('先に .dav ファイルを開いてください。', 'Open a .dav file first.');
 
 export function activate(context: vscode.ExtensionContext): void {
-  const diagnostics = vscode.languages.createDiagnosticCollection(LANGUAGE_ID);
-  const latestDiagnostics = new Map<string, DavDiagnostic[]>();
+  registerLanguageFeatures(context);
 
-  const refreshDiagnostics = (doc: vscode.TextDocument) => {
-    if (doc.languageId !== LANGUAGE_ID) return;
-    const text = doc.getText();
-    const { diagnostics: parsed } = parse(text);
-    latestDiagnostics.set(doc.uri.toString(), parsed);
-
-    const items = parsed.map((d) => {
-      const range = new vscode.Range(
-        doc.positionAt(Math.min(d.from, text.length)),
-        doc.positionAt(Math.min(Math.max(d.to, d.from), text.length)),
-      );
-      const severity =
-        d.severity === 'error'
-          ? vscode.DiagnosticSeverity.Error
-          : vscode.DiagnosticSeverity.Warning;
-      const diag = new vscode.Diagnostic(range, formatDiagnostic(d, uiLocale()), severity);
-      diag.code = d.code;
-      diag.source = 'dav';
-      return diag;
-    });
-    diagnostics.set(doc.uri, items);
-  };
-
-  for (const doc of vscode.workspace.textDocuments) {
-    refreshDiagnostics(doc);
-  }
-
-  context.subscriptions.push(
-    diagnostics,
-    vscode.workspace.onDidOpenTextDocument(refreshDiagnostics),
-    vscode.workspace.onDidChangeTextDocument((e) => refreshDiagnostics(e.document)),
-    vscode.workspace.onDidCloseTextDocument((doc) => {
-      diagnostics.delete(doc.uri);
-      latestDiagnostics.delete(doc.uri.toString());
-    }),
-  );
-
-  // Quick Fix CodeActionProvider for diagnostics with suggestions
-  context.subscriptions.push(
-    vscode.languages.registerCodeActionsProvider(
-      LANGUAGE_ID,
-      {
-        provideCodeActions(doc, range) {
-          const list = latestDiagnostics.get(doc.uri.toString()) ?? [];
-          const startOffset = doc.offsetAt(range.start);
-          const endOffset = doc.offsetAt(range.end);
-          const actions: vscode.CodeAction[] = [];
-
-          for (const d of list) {
-            const suggestion = d.args.suggestion;
-            if (!suggestion) continue;
-            if (d.to < startOffset || d.from > endOffset) continue;
-            const title = t(`'${suggestion}' に変更`, `Change to '${suggestion}'`);
-            const action = new vscode.CodeAction(title, vscode.CodeActionKind.QuickFix);
-            const edit = new vscode.WorkspaceEdit();
-            edit.replace(
-              doc.uri,
-              new vscode.Range(doc.positionAt(d.from), doc.positionAt(d.to)),
-              suggestion,
-            );
-            action.edit = edit;
-            action.isPreferred = true;
-            actions.push(action);
-          }
-          return actions;
-        },
-      },
-      { providedCodeActionKinds: [vscode.CodeActionKind.QuickFix] },
-    ),
-  );
-
-  // Autocomplete CompletionItemProvider
-  context.subscriptions.push(
-    vscode.languages.registerCompletionItemProvider(
-      LANGUAGE_ID,
-      {
-        provideCompletionItems(doc, position) {
-          const result = computeCompletions(
-            doc.getText(),
-            doc.offsetAt(position),
-            true,
-            uiLocale(),
-          );
-          if (!result) return undefined;
-          const replaceRange = new vscode.Range(
-            doc.positionAt(result.from),
-            doc.positionAt(result.to),
-          );
-          return result.items.map((item) => {
-            const ci = new vscode.CompletionItem(item.label, mapCompletionKind(item.kind));
-            if (item.detail) ci.detail = item.detail;
-            if (item.insertText) ci.insertText = item.insertText;
-            ci.range = replaceRange;
-            return ci;
-          });
-        },
-      },
-      ':',
-      '[',
-      ' ',
-    ),
-  );
-
-  // Formatter DocumentFormattingEditProvider
-  context.subscriptions.push(
-    vscode.languages.registerDocumentFormattingEditProvider(LANGUAGE_ID, {
-      provideDocumentFormattingEdits(doc) {
-        const text = doc.getText();
-        const formatted = format(text);
-        if (formatted === text) return [];
-        const fullRange = new vscode.Range(doc.positionAt(0), doc.positionAt(text.length));
-        return [vscode.TextEdit.replace(fullRange, formatted)];
-      },
-    }),
-  );
-
-  // Outline / Breadcrumbs DocumentSymbolProvider
-  context.subscriptions.push(
-    vscode.languages.registerDocumentSymbolProvider(LANGUAGE_ID, {
-      provideDocumentSymbols(doc) {
-        const text = doc.getText();
-        const { document: model, sourceMap } = parse(text);
-        const symbols: vscode.DocumentSymbol[] = [];
-
-        for (const g of model.groups) {
-          const src = sourceMap.elements.get(g.id);
-          if (!src) continue;
-          const range = toRange(doc, src.from, src.to);
-          const selRange = src.idRange ? toRange(doc, src.idRange.from, src.idRange.to) : range;
-          symbols.push(
-            new vscode.DocumentSymbol(g.id, g.label, vscode.SymbolKind.Namespace, range, selRange),
-          );
-        }
-        for (const n of model.nodes) {
-          const src = sourceMap.elements.get(n.id);
-          if (!src) continue;
-          const range = toRange(doc, src.from, src.to);
-          const selRange = src.idRange ? toRange(doc, src.idRange.from, src.idRange.to) : range;
-          symbols.push(
-            new vscode.DocumentSymbol(n.id, n.label, vscode.SymbolKind.Object, range, selRange),
-          );
-        }
-        model.steps.forEach((s, idx) => {
-          const src = sourceMap.steps[idx];
-          if (!src) return;
-          const range = toRange(doc, src.from, src.to);
-          symbols.push(
-            new vscode.DocumentSymbol(
-              `${t('ステップ', 'Step')} ${idx + 1}: ${s.title}`,
-              s.description ?? '',
-              vscode.SymbolKind.Event,
-              range,
-              range,
-            ),
-          );
-        });
-        return symbols;
-      },
-    }),
-  );
-
-  // Canvas Preview Panel Manager
   const panelManager = new CanvasPanelManager(context.extensionUri);
 
   /** The `.dav` document a command applies to: the focused editor, else the previewed one. */
@@ -212,6 +22,13 @@ export function activate(context: vscode.ExtensionContext): void {
     if (active?.languageId === LANGUAGE_ID) return active;
     const previewed = panelManager.activeDocument;
     return previewed && !previewed.isClosed ? previewed : undefined;
+  };
+
+  /** Opens text as a new, unsaved diagram, next to its preview. */
+  const openNewDocument = async (content: string): Promise<void> => {
+    const doc = await vscode.workspace.openTextDocument({ language: LANGUAGE_ID, content });
+    await vscode.window.showTextDocument(doc, vscode.ViewColumn.One);
+    panelManager.open(doc);
   };
 
   context.subscriptions.push(
@@ -250,12 +67,7 @@ export function activate(context: vscode.ExtensionContext): void {
         );
         return;
       }
-      const doc = await vscode.workspace.openTextDocument({
-        language: LANGUAGE_ID,
-        content: res.dsl,
-      });
-      await vscode.window.showTextDocument(doc, vscode.ViewColumn.One);
-      panelManager.open(doc);
+      await openNewDocument(res.dsl);
     }),
     vscode.commands.registerCommand('dav.newFromTemplate', async () => {
       const picked = await vscode.window.showQuickPick(
@@ -263,12 +75,7 @@ export function activate(context: vscode.ExtensionContext): void {
         { placeHolder: t('サンプルのテンプレートを選択', 'Select a sample diagram template') },
       );
       if (!picked) return;
-      const doc = await vscode.workspace.openTextDocument({
-        language: LANGUAGE_ID,
-        content: picked.dsl,
-      });
-      await vscode.window.showTextDocument(doc, vscode.ViewColumn.One);
-      panelManager.open(doc);
+      await openNewDocument(picked.dsl);
     }),
     vscode.commands.registerCommand('dav.copyAiPrompt', async () => {
       const currentDsl = commandTargetDocument()?.getText();
@@ -290,287 +97,4 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 }
 
-async function installAgentSkill(extensionUri: vscode.Uri): Promise<void> {
-  const home = vscode.Uri.file(homedir());
-  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
-  const items = SKILL_TARGETS.flatMap(({ agent, workspace, personal }) => [
-    ...(workspaceRoot
-      ? [
-          {
-            label: agent,
-            description: t('このワークスペース', 'This workspace'),
-            detail: workspace.join('/'),
-            root: workspaceRoot,
-            segments: workspace,
-          },
-        ]
-      : []),
-    {
-      label: agent,
-      description: t('すべてのプロジェクト', 'All projects'),
-      detail: `~/${personal.join('/')}`,
-      root: home,
-      segments: personal,
-    },
-  ]);
-  const picked = await vscode.window.showQuickPick(items, {
-    placeHolder: t('スキルをインストールする場所を選択', 'Choose where to install the skill'),
-  });
-  if (!picked) return;
-
-  const parent = vscode.Uri.joinPath(picked.root, ...picked.segments);
-  const target = vscode.Uri.joinPath(parent, SKILL_NAME);
-  if (await uriExists(target)) {
-    const replace = t('置き換える', 'Replace');
-    const answer = await vscode.window.showWarningMessage(
-      t(
-        `${picked.detail}/${SKILL_NAME} は既に存在します。置き換えますか？`,
-        `${picked.detail}/${SKILL_NAME} already exists. Replace it?`,
-      ),
-      { modal: true },
-      replace,
-    );
-    if (answer !== replace) return;
-  }
-
-  await vscode.workspace.fs.createDirectory(parent);
-  await vscode.workspace.fs.copy(
-    vscode.Uri.joinPath(extensionUri, 'dist', 'skill', SKILL_NAME),
-    target,
-    { overwrite: true },
-  );
-  void vscode.window.showInformationMessage(
-    t(
-      `スキルをインストールしました: ${picked.detail}/${SKILL_NAME}。エージェントの新しいセッションで使えます。`,
-      `Installed the skill to ${picked.detail}/${SKILL_NAME}. It is available in new agent sessions.`,
-    ),
-  );
-}
-
-async function uriExists(uri: vscode.Uri): Promise<boolean> {
-  try {
-    await vscode.workspace.fs.stat(uri);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export function deactivate(): void {}
-
-class CanvasPanelManager {
-  private panel: vscode.WebviewPanel | null = null;
-  activeDocument: vscode.TextDocument | null = null;
-  private disposables: vscode.Disposable[] = [];
-
-  constructor(private readonly extensionUri: vscode.Uri) {}
-
-  open(document: vscode.TextDocument): void {
-    this.activeDocument = document;
-
-    if (this.panel) {
-      this.panel.title = previewTitle(document);
-      this.panel.reveal(vscode.ViewColumn.Beside);
-      this.postToWebview({
-        type: 'docChanged',
-        dsl: document.getText(),
-        uri: document.uri.toString(),
-      });
-      return;
-    }
-
-    const webviewRoot = vscode.Uri.joinPath(this.extensionUri, 'dist', 'webview');
-    const panel = vscode.window.createWebviewPanel(
-      'dav.canvasPreview',
-      previewTitle(document),
-      vscode.ViewColumn.Beside,
-      {
-        enableScripts: true,
-        retainContextWhenHidden: true,
-        localResourceRoots: [webviewRoot],
-      },
-    );
-    this.panel = panel;
-    panel.webview.html = this.buildWebviewHtml(panel.webview, webviewRoot);
-
-    this.disposables.push(
-      panel.onDidDispose(() => {
-        this.panel = null;
-        this.activeDocument = null;
-        for (const d of this.disposables) d.dispose();
-        this.disposables = [];
-      }),
-      panel.webview.onDidReceiveMessage((msg: WebviewToHostMessage) => {
-        this.onWebviewMessage(msg).catch((err: unknown) => {
-          const detail = err instanceof Error ? err.message : String(err);
-          void vscode.window.showErrorMessage(`DynamicArchitectViewer: ${detail}`);
-        });
-      }),
-      vscode.workspace.onDidChangeTextDocument((e) => {
-        if (
-          this.activeDocument &&
-          e.document.uri.toString() === this.activeDocument.uri.toString()
-        ) {
-          this.postToWebview({
-            type: 'docChanged',
-            dsl: e.document.getText(),
-            uri: e.document.uri.toString(),
-          });
-        }
-      }),
-      vscode.window.onDidChangeTextEditorSelection((e) => {
-        if (
-          this.activeDocument &&
-          e.textEditor.document.uri.toString() === this.activeDocument.uri.toString()
-        ) {
-          const offset = e.textEditor.document.offsetAt(
-            e.selections[0]?.active ?? new vscode.Position(0, 0),
-          );
-          this.postToWebview({ type: 'cursorMoved', offset });
-        }
-      }),
-      vscode.window.onDidChangeActiveTextEditor((editor) => {
-        if (editor && editor.document.languageId === LANGUAGE_ID) {
-          this.activeDocument = editor.document;
-          panel.title = previewTitle(editor.document);
-          this.postToWebview({
-            type: 'docChanged',
-            dsl: editor.document.getText(),
-            uri: editor.document.uri.toString(),
-          });
-        }
-      }),
-    );
-  }
-
-  private postToWebview(msg: HostToWebviewMessage): void {
-    void this.panel?.webview.postMessage(msg);
-  }
-
-  private async onWebviewMessage(msg: WebviewToHostMessage): Promise<void> {
-    const doc = this.activeDocument;
-    if (!doc) return;
-
-    switch (msg.type) {
-      case 'ready':
-        this.postToWebview({
-          type: 'docChanged',
-          dsl: doc.getText(),
-          uri: doc.uri.toString(),
-        });
-        break;
-
-      case 'revealRange': {
-        const editor = await vscode.window.showTextDocument(doc, vscode.ViewColumn.One, false);
-        const range = toRange(doc, msg.from, msg.to);
-        editor.selection = new vscode.Selection(range.start, range.end);
-        editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
-        break;
-      }
-
-      case 'exportHtml':
-        await exportDocumentToHtml(doc, msg.dsl);
-        break;
-
-      case 'formatDocument': {
-        const text = doc.getText();
-        const formatted = format(text);
-        if (formatted !== text) {
-          const edit = new vscode.WorkspaceEdit();
-          edit.replace(
-            doc.uri,
-            new vscode.Range(doc.positionAt(0), doc.positionAt(text.length)),
-            formatted,
-          );
-          await vscode.workspace.applyEdit(edit);
-        }
-        break;
-      }
-    }
-  }
-
-  private buildWebviewHtml(webview: vscode.Webview, webviewRoot: vscode.Uri): string {
-    const scriptUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(webviewRoot, 'assets', 'webview.js'),
-    );
-    const styleUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(webviewRoot, 'assets', 'webview.css'),
-    );
-    const nonce = randomNonce();
-    const csp = [
-      "default-src 'none'",
-      `img-src ${webview.cspSource} data:`,
-      `style-src ${webview.cspSource}`,
-      `script-src 'nonce-${nonce}'`,
-    ].join('; ');
-
-    return [
-      '<!DOCTYPE html>',
-      `<html lang="${uiLocale()}">`,
-      '<head>',
-      '<meta charset="UTF-8">',
-      `<meta http-equiv="Content-Security-Policy" content="${csp}">`,
-      '<meta name="viewport" content="width=device-width, initial-scale=1.0">',
-      `<link rel="stylesheet" href="${styleUri.toString()}">`,
-      '<title>DynamicArchitectViewer</title>',
-      '</head>',
-      '<body>',
-      '<div id="root"></div>',
-      `<script nonce="${nonce}" type="module" src="${scriptUri.toString()}"></script>`,
-      '</body>',
-      '</html>',
-    ].join('\n');
-  }
-}
-
-async function exportDocumentToHtml(doc: vscode.TextDocument, overrideDsl?: string): Promise<void> {
-  const dsl = overrideDsl ?? doc.getText();
-  const html = await exportHtml(dsl, { locale: uiLocale() });
-  const defaultPath = `${doc.uri.fsPath.replace(/\.dav$/i, '')}.html`;
-  const targetUri = await vscode.window.showSaveDialog({
-    defaultUri: doc.isUntitled ? vscode.Uri.file('diagram.html') : vscode.Uri.file(defaultPath),
-    filters: { [t('スタンドアロン HTML', 'Standalone HTML')]: ['html'] },
-  });
-  if (!targetUri) return;
-  await vscode.workspace.fs.writeFile(targetUri, new TextEncoder().encode(html));
-  void vscode.window.showInformationMessage(
-    `${t('HTML を書き出しました', 'Exported standalone HTML')}: ${targetUri.fsPath}`,
-  );
-}
-
-function toRange(doc: vscode.TextDocument, from: number, to: number): vscode.Range {
-  const len = doc.getText().length;
-  const safeFrom = Math.max(0, Math.min(from, len));
-  const safeTo = Math.max(safeFrom, Math.min(to, len));
-  return new vscode.Range(doc.positionAt(safeFrom), doc.positionAt(safeTo));
-}
-
-function mapCompletionKind(kind: DavCompletionKind): vscode.CompletionItemKind {
-  switch (kind) {
-    case 'keyword':
-      return vscode.CompletionItemKind.Keyword;
-    case 'property':
-      return vscode.CompletionItemKind.Property;
-    case 'constant':
-      return vscode.CompletionItemKind.Constant;
-    case 'enum':
-      return vscode.CompletionItemKind.EnumMember;
-    case 'variable':
-      return vscode.CompletionItemKind.Variable;
-    case 'class':
-      return vscode.CompletionItemKind.Class;
-  }
-}
-
-function fileBasename(fsPath: string): string {
-  return fsPath.split(/[\\/]/).pop() || 'Untitled.dav';
-}
-
-function randomNonce(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let out = '';
-  for (let i = 0; i < 32; i++) {
-    out += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return out;
-}

@@ -87,7 +87,7 @@ findAtOffset(sourceMap, offset): { elementId: string | null; stepIndex: number |
 
 ## The player
 
-`runtime/player.ts` draws the scene, plays each step's phases and handles zoom and pan.
+`runtime/player.ts` draws the scene and plays each step's phases. `runtime/camera.ts` handles zoom and pan.
 
 - `animate` statements play in order, and `parallel: true` joins the preceding phase.
 - Callouts stay still while their pointer follows the packet. Callouts of one phase that would overlap are moved sideways by the smallest distance that clears them (`scene/callout.ts`).
@@ -129,7 +129,7 @@ findAtOffset(sourceMap, offset): { elementId: string | null; stepIndex: number |
 
 ## The extension host
 
-`extension/extension.ts` provides diagnostics, Quick Fixes, completions, formatting, the outline and these commands:
+`extension/languageFeatures.ts` provides diagnostics, Quick Fixes, completions, formatting and the outline. `extension/extension.ts` registers these commands:
 
 | Command | Action |
 | :--- | :--- |

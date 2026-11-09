@@ -120,7 +120,7 @@ lb --> db
 
 ## Exact rules
 
-This section is for changing the layout code in [`layout/index.ts`](https://github.com/Osg-Junue/DynamicArchitectViewer/blob/HEAD/apps/vscode/src/layout/index.ts). Rail routing, such as curving around nodes and separating parallel lines, is not part of this stage. It lives in `scene/resolve.ts` and `scene/geometry.ts`.
+This section is for changing the layout code in [`layout/index.ts`](https://github.com/Osg-Junue/DynamicArchitectViewer/blob/HEAD/apps/vscode/src/layout/index.ts). Rail routing, such as curving around nodes and separating parallel lines, is not part of this stage. It lives in `scene/rails.ts` and `scene/geometry.ts`.
 
 ### Inputs and outputs
 
@@ -141,7 +141,7 @@ This section is for changing the layout code in [`layout/index.ts`](https://gith
 ### Columns
 
 - Rank is the longest path. Cycles are broken by ignoring back edges of a depth-first search in declaration order. Self-loops are ignored.
-- The gap between columns is `max(36, needed - 132) + depth * 32`, where `depth` is the deepest group nesting. `needed` is `min(180, label width) + 32` for the widest label between those columns. The 132 is the node width (176) minus the station width (44), since a label can use the space beside the stations.
+- The gap between columns is `max(36, needed - 132) + 16 * edges`, where `edges` is 1 if some group frame ends at the left column, plus 1 if some frame starts at the right one. Frames nested along one edge share its 16 of padding, so the gap does not depend on the nesting. `needed` is `min(180, label width) + 32` for the widest label between those columns. The 132 is the node width (176) minus the station width (44), since a label can use the space beside the stations.
 - The left and top margins are `40 + depth * 16`.
 
 ### Rows
@@ -166,6 +166,17 @@ Each group, and the top level, places two kinds of block: the nodes directly in 
 | Skipped when | There are no edges other than self-loops, or more than 500, since it runs on every edit and crossing counts are quadratic in edges |
 
 Crossings are counted on straight lines between station centers (`countCrossings`), and edges sharing a station do not count. Drawn rails curve around nodes, so the drawn count can differ.
+
+### Placing zones freely
+
+When the column layout leaves a link longer than 700 units (a link used for a round trip counts double) and there are at least two top-level zones, `layout/zoned.ts` tries another arrangement. It is kept only if it shortens the long links without adding crossings:
+
+1. Each top-level zone is laid out on its own, with the rules above.
+2. The zones start in the columns of a graph that has one node per zone.
+3. Simulated annealing moves zones, swaps them and flips them vertically, scoring link length, crossings, links through other zones, right-to-left links and overall size. A link used for a round trip counts double, since it is traversed twice in its time.
+4. Zone edges are aligned where that costs almost nothing. The best of six seeded runs is kept.
+
+The result is deterministic. Zones no longer share columns, so a column does not line up across the diagram. The search takes about a second at 300 nodes, so the last result is reused until the nodes, groups, edges or round trips change. Edge labels are left out of the search, so typing one never rearranges the zones. A long label can still widen its zone, and the zones to its right then move aside.
 
 ### Invariants
 

@@ -3,6 +3,15 @@
 This project follows [Semantic Versioning](https://semver.org/). The `0.x` series is a preview.
 The `dav` language version is separate from the extension version.
 
+## 0.3.0 (2026-11-10)
+
+- Zones are placed freely when that shortens links that would otherwise be too long
+- Column gaps no longer grow with group nesting, so diagrams with groups are narrower
+- Packets are timed by the distance they travel and stay under a readable speed, so a long rail takes longer instead of going faster
+- The player shows which zones a phase moves between, keeps zone names on screen, and moves the camera less
+- A minimap you can turn on next to the zoom controls
+- Playback speeds of 0.75x and 1.25x
+
 ## 0.2.0 (2026-11-09)
 
 - AI agent skill for writing and validating `.dav` files, with a command to install it for Claude Code, GitHub Copilot and Codex
