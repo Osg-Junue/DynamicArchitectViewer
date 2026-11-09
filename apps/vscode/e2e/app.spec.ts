@@ -353,9 +353,12 @@ test.describe('webview preview', () => {
     await page.getByTestId('chk-include-current-dsl').check();
     await expect(page.getByTestId('ai-prompt-textarea')).toHaveValue(/AWS/);
 
+    await page.getByTestId('doc-nav-skill').click();
+    await expect(page.getByTestId('doc-skill-commands').locator('.doc-command')).toHaveCount(2);
+
     // In a narrow split pane, pages reflow instead of scrolling sideways.
     await page.setViewportSize({ width: 600, height: 800 });
-    for (const pageId of ['overview', 'animate', 'diagnostics']) {
+    for (const pageId of ['overview', 'animate', 'diagnostics', 'skill']) {
       await page.getByTestId(`doc-nav-${pageId}`).click();
       const overflow = await dialog
         .locator('.doc-content')

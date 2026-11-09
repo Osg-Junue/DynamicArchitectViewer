@@ -2,3 +2,6 @@
 *.png binary
 *.jpg binary
 *.ico binary
+skills/dav-diagrams/scripts/** linguist-generated
+skills/dav-diagrams/references/** linguist-generated
+skills/dav-diagrams/assets/** linguist-generated

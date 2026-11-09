@@ -42,6 +42,7 @@ This creates `apps/vscode/dist/dynamic-architect-viewer.vsix`, which is a ZIP fi
 | :--- | :--- |
 | `dist/extension.cjs` | The extension host, with its dependencies bundled |
 | `dist/webview/` | The preview webview |
+| `dist/skill/` | The agent skill for the install command |
 | `media/icon.png`, `media/file-icon-*.svg` | The extension icon and `.dav` file icons |
 | `syntaxes/`, `language-configuration.json` | Language definition |
 | `package.json`, `package.nls*.json` | Manifest and translations |

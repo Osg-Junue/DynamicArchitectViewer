@@ -13,6 +13,12 @@ const host = vi.hoisted(() => ({
   written: [] as string[],
   clipboard: [] as string[],
   language: 'en',
+  workspaceFolders: undefined as undefined | Array<{ uri: { fsPath: string } }>,
+  quickPick: [] as Array<{ label: string; description: string; detail: string }>,
+  pickIndex: 0 as number | null,
+  existing: new Set<string>(),
+  copied: [] as Array<{ from: string; to: string }>,
+  warningAnswer: undefined as string | undefined,
 }));
 
 vi.mock('vscode', () => {
@@ -56,7 +62,9 @@ vi.mock('vscode', () => {
     ViewColumn: { One: 1, Beside: -2 },
     Uri: {
       file: (fsPath: string) => ({ fsPath }),
-      joinPath: (_base: unknown, ...parts: string[]) => ({ fsPath: parts.join('/') }),
+      joinPath: (base: { fsPath: string }, ...parts: string[]) => ({
+        fsPath: [base.fsPath, ...parts].join('/'),
+      }),
     },
     languages: {
       createDiagnosticCollection: () => ({ ...noop, set() {}, delete() {} }),
@@ -70,12 +78,23 @@ vi.mock('vscode', () => {
     },
     workspace: {
       textDocuments: [],
+      get workspaceFolders() {
+        return host.workspaceFolders;
+      },
       onDidOpenTextDocument: event,
       onDidChangeTextDocument: event,
       onDidCloseTextDocument: event,
       fs: {
         writeFile: async (_uri: unknown, bytes: Uint8Array) => {
           host.written.push(new TextDecoder().decode(bytes));
+        },
+        stat: async (uri: { fsPath: string }) => {
+          if (!host.existing.has(uri.fsPath)) throw new Error('not found');
+          return {};
+        },
+        createDirectory: async () => {},
+        copy: async (from: { fsPath: string }, to: { fsPath: string }) => {
+          host.copied.push({ from: from.fsPath, to: to.fsPath });
         },
       },
     },
@@ -103,6 +122,11 @@ vi.mock('vscode', () => {
       onDidChangeActiveTextEditor: event,
       showInformationMessage: async () => undefined,
       showErrorMessage: async () => undefined,
+      showWarningMessage: async () => host.warningAnswer,
+      showQuickPick: async (items: typeof host.quickPick) => {
+        host.quickPick = items;
+        return host.pickIndex === null ? undefined : items[host.pickIndex];
+      },
       showSaveDialog: async () => ({ fsPath: 'out.html' }),
       createWebviewPanel: () => ({
         title: '',
@@ -149,7 +173,66 @@ describe('extension commands', () => {
     host.clipboard.length = 0;
     host.activeTextEditor = undefined;
     host.language = 'en';
+    host.workspaceFolders = undefined;
+    host.quickPick = [];
+    host.pickIndex = 0;
+    host.existing.clear();
+    host.copied.length = 0;
+    host.warningAnswer = undefined;
     activate({ subscriptions: [], extensionUri: { fsPath: '/ext' } } as never);
+  });
+
+  describe('dav.installAgentSkill', () => {
+    const packaged = '/ext/dist/skill/dav-diagrams';
+    const workspaceTarget = '/repo/.claude/skills/dav-diagrams';
+
+    it('copies the packaged skill into the workspace of the chosen agent', async () => {
+      host.workspaceFolders = [{ uri: { fsPath: '/repo' } }];
+
+      await run('dav.installAgentSkill');
+
+      expect(host.quickPick.map((item) => item.detail)).toEqual([
+        '.claude/skills',
+        '~/.claude/skills',
+        '.github/skills',
+        '~/.copilot/skills',
+        '.agents/skills',
+        '~/.agents/skills',
+      ]);
+      expect(host.copied).toEqual([{ from: packaged, to: workspaceTarget }]);
+    });
+
+    it('offers only personal locations without a workspace', async () => {
+      await run('dav.installAgentSkill');
+
+      expect(host.quickPick.map((item) => item.detail)).toEqual([
+        '~/.claude/skills',
+        '~/.copilot/skills',
+        '~/.agents/skills',
+      ]);
+      expect(host.copied[0]?.to.replaceAll('\\', '/')).toMatch(/\/\.claude\/skills\/dav-diagrams$/);
+    });
+
+    it('does nothing when the picker is dismissed', async () => {
+      host.pickIndex = null;
+
+      await run('dav.installAgentSkill');
+
+      expect(host.copied).toEqual([]);
+    });
+
+    it.each([
+      [undefined, 0],
+      ['Replace', 1],
+    ])('replaces an existing skill only after confirmation (%s)', async (answer, copies) => {
+      host.workspaceFolders = [{ uri: { fsPath: '/repo' } }];
+      host.existing.add(workspaceTarget);
+      host.warningAnswer = answer;
+
+      await run('dav.installAgentSkill');
+
+      expect(host.copied).toHaveLength(copies);
+    });
   });
 
   it('exports the focused document after the preview of another one was closed', async () => {

@@ -38,6 +38,8 @@ flowchart LR
 │   ├── e2e/                 Playwright tests
 │   ├── syntaxes/            TextMate grammar
 │   └── media/               Icons and screenshot
+├── skills/dav-diagrams/     Agent skill. See "The agent skill" below
+├── .claude-plugin/          Claude Code marketplace that lists the skill
 ├── examples/                Sample .dav files
 └── docs/                    This documentation
 ```
@@ -55,6 +57,7 @@ All paths are under `apps/vscode/src`.
 | `runtime/` | `Player`, shared by the preview and exported HTML | `scene`, `layout`, `model` |
 | `exporter/` | Standalone HTML export and import | `dsl`, `layout`, `model`, `scene`, `runtime` |
 | `prompt/` | Prompt template that teaches the language to AI agents | `model` |
+| `skill/` | The `dav-check` command bundled with the agent skill | `dsl`, `model` |
 | `protocol/` | Types of the messages between extension and webview | Nothing |
 | `samples/` | Sample diagrams for the New Diagram command | Nothing |
 | `editor/` | The preview webview UI and its documentation | Most of the above |
@@ -135,6 +138,7 @@ findAtOffset(sourceMap, offset): { elementId: string | null; stepIndex: number |
 | `dav.importHtml` | Open the `.dav` text embedded in an exported file |
 | `dav.newFromTemplate` | Create a diagram from a sample |
 | `dav.copyAiPrompt` | Copy a prompt that teaches the language to an AI agent |
+| `dav.installAgentSkill` | Copy the agent skill into a skills directory of Claude Code, Copilot or Codex |
 
 The extension and webview talk through typed messages in `protocol/messages.ts`:
 
@@ -147,11 +151,24 @@ The extension and webview talk through typed messages in `protocol/messages.ts`:
 
 **Language.** The UI is Japanese when `vscode.env.language` is Japanese, and English otherwise. The extension writes this into `<html lang>` for the webview, and command titles come from `package.nls*.json`.
 
+## The agent skill
+
+`skills/dav-diagrams/` follows the [Agent Skills](https://agentskills.io/specification) format. Only `SKILL.md` is written by hand. `npm run build:skill` generates the rest:
+
+| Path | Source |
+| :--- | :--- |
+| `scripts/dav-check.mjs` | `src/skill/check.ts`, bundled with the parser so that it needs no install |
+| `references/` | `docs/specification.md` and `docs/layout.md` |
+| `assets/examples/` | `examples/` |
+
+The generated files are committed, because the marketplace and the `skills` CLI install directly from the repository. CI fails if they are out of date. The build also copies the skill to `dist/skill/`, because the VSIX contains only `apps/vscode`.
+
 ## Tests
 
 | Location | Covers |
 | :--- | :--- |
 | `src/__tests__/architecture.test.ts` | Dependency direction between modules |
+| `src/skill/__tests__/` | `SKILL.md` matches the language, and the behavior of the checker |
 | `src/dsl/__tests__/` | Parsing, every diagnostic, the formatter, and property tests with fast-check |
 | `src/layout/__tests__/` | Layout invariants and a crossing budget for each sample |
 | `src/scene/__tests__/` | Step state, rails, callouts and rendering |

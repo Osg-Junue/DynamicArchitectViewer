@@ -687,6 +687,30 @@
 }
 
 /* AI prompt */
+.doc-commands {
+  display: grid;
+  gap: 6px;
+}
+.doc-command {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 8px 6px 12px;
+  border: 1px solid var(--dav-border);
+  border-radius: 4px;
+  background: var(--dav-panel);
+  font-family: var(--dav-mono);
+  font-size: 12px;
+}
+.doc-command > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.doc-command > .doc-copy {
+  flex: none;
+}
+
 .doc-prompt-tools {
   display: flex;
   align-items: center;

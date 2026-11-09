@@ -1,0 +1,56 @@
+dav 1
+title "Online store: screen flow and backend calls"
+
+group frontend "Screens (SPA)" {
+  node scr_login "Sign-in" [icon: screen, sub: "/login | Credentials form"]
+  node scr_catalog "Catalog and cart" [icon: screen, sub: "/catalog | Stock and cart"]
+  node mod_pay "Payment dialog" [icon: modal, sub: "Modal | Confirm card", visible: false]
+  node scr_done "Order complete" [icon: screen, sub: "/complete | Order number"]
+}
+
+group backend "Backend and external services" {
+  node auth_api "Auth Service" [icon: auth, sub: "JWT / OAuth"]
+  node shop_api "Checkout API" [icon: server, sub: "Stock and orders"]
+  node stripe "Stripe" [icon: external, sub: "External Payment API"]
+}
+
+scr_login --> scr_catalog : "After sign-in"
+scr_catalog --> mod_pay : "Click Checkout"
+mod_pay --> scr_done : "Paid"
+scr_login --> auth_api : "POST /auth/login"
+scr_catalog --> shop_api : "GET /items"
+mod_pay --> shop_api : "POST /checkout"
+shop_api --> stripe : "Charge API"
+
+step "Signing in and getting a token" {
+  desc "The user submits credentials. The Auth Service verifies them and issues a JWT, then the app opens the catalog."
+  focus scr_login, auth_api, scr_catalog
+  state scr_login [badge: "INPUT"]
+  animate scr_login --> auth_api : "POST /auth/login" [desc: "The credentials are sent to the Auth Service in exchange for a JWT"]
+  animate scr_login --> scr_catalog : "Redirect /catalog" [desc: "After sign-in, the SPA router opens the catalog"]
+}
+
+step "Loading products and opening the payment dialog" {
+  desc "The catalog loads current stock from the API. Clicking Checkout opens the payment dialog."
+  focus scr_catalog, shop_api, mod_pay
+  state scr_login [badge: ""]
+  state mod_pay [visible: true, badge: "OPEN"]
+  animate scr_catalog --> shop_api : "GET /items (200 OK)" [desc: "The Checkout API returns the catalog and stock status"]
+  animate scr_catalog --> mod_pay : "Open Modal" [desc: "The payment dialog opens over the catalog, without a page change"]
+}
+
+step "Charging the card" {
+  desc "The user confirms the order. The Checkout API calls Stripe to authorize the payment."
+  focus mod_pay, shop_api, stripe
+  state mod_pay [badge: "PROCESSING"]
+  animate mod_pay --> shop_api : "POST /checkout" [desc: "The payment token and order are sent, and a lock prevents double submission"]
+  animate shop_api --> stripe : "POST /v1/charges" [desc: "The backend calls Stripe to charge the card"]
+}
+
+step "Showing the confirmation" {
+  desc "The payment is approved, so the dialog closes and the confirmation page opens."
+  focus mod_pay, scr_done
+  state mod_pay [badge: ""]
+  state scr_done [badge: "COMPLETED"]
+  animate mod_pay --> scr_done : "Navigate /complete" [desc: "On success, the dialog closes and the confirmation page opens"]
+}

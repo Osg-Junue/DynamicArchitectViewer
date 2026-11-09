@@ -38,7 +38,7 @@ step "The payment provider fails" {
 - **Live preview** that follows the editor, with playback, step-by-step navigation and speed control.
 - **Language support:** highlighting, diagnostics with Quick Fixes, completions, a formatter that keeps comments, and an outline.
 - **Standalone HTML export.** One file that works offline, with no external requests. The source can be extracted from it again.
-- **AI-friendly.** A command copies a prompt that teaches the language to Claude Code, Copilot, ChatGPT and others.
+- **AI-friendly.** An [agent skill](#ai-agent-skill) lets coding agents write and validate `.dav` files, and a command copies a prompt for chat assistants.
 - **Japanese and English UI**, following the VS Code display language.
 
 ## Install
@@ -54,6 +54,27 @@ code --install-extension apps/vscode/dist/dynamic-architect-viewer.vsix
 ```
 
 Then open a `.dav` file, or run **DynamicArchitectViewer: New Diagram from Sample Template...** from the Command Palette, and press `Ctrl+Shift+V` (`⌘⇧V` on macOS) for the preview. More examples are in [`examples/`](examples/).
+
+## AI agent skill
+
+The [`dav-diagrams`](skills/dav-diagrams/SKILL.md) skill teaches coding agents the language, how layout works and how to structure steps. Its bundled checker runs the same parser and formatter as the editor, so an agent can fix its own mistakes. The checker needs Node.js 18 or later.
+
+**From VS Code:** run **DynamicArchitectViewer: Install AI Agent Skill...** from the Command Palette, then choose Claude Code, GitHub Copilot or Codex, and either the workspace or all projects.
+
+**As a Claude Code plugin:**
+
+```bash
+claude plugin marketplace add Osg-Junue/DynamicArchitectViewer
+claude plugin install dynamic-architect-viewer@osg-junue
+```
+
+**For other agents** that support [Agent Skills](https://agentskills.io/), with the third-party [`skills`](https://github.com/vercel-labs/skills) CLI:
+
+```bash
+npx skills add Osg-Junue/DynamicArchitectViewer --skill dav-diagrams
+```
+
+Then ask your agent for a diagram as usual, such as "Diagram this repository's login flow in `auth.dav`".
 
 ## Documentation
 

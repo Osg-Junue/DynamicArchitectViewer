@@ -1,0 +1,80 @@
+dav 1
+title "Global commerce: zero-trust payments and real-time fraud detection"
+
+group client_edge "Client & Global Edge" [color: teal] {
+  node mobile "Mobile App" [icon: mobile, sub: "iOS / Android (Passkey)"]
+  node cdn "CloudFront CDN" [icon: cdn, sub: "Global Edge PoP"]
+  node waf "AWS WAF & Shield" [icon: firewall, sub: "Bot Control / Rate ACL"]
+}
+
+group zero_trust "Zero-Trust Ingress & Identity" [color: purple] {
+  node apigw "API Gateway" [icon: router, sub: "mTLS / Token Guard"]
+  node idp "Auth0 / OIDC IdP" [icon: auth, sub: "FIDO2 / JWT Verify"]
+}
+
+group app_mesh "Core Microservices Mesh (EKS)" [color: blue] {
+  node bff "Checkout BFF" [icon: container, sub: "GraphQL Orchestrator"]
+  node fraud_ai "Fraud AI Engine" [icon: ai, sub: "ML Risk Scoring (gRPC)"]
+  node order_svc "Order Service" [icon: server, sub: "Saga Coordinator"]
+  node pay_svc "Payment Service" [icon: container, sub: "PCI-DSS Isolated Pod"]
+}
+
+group data_platform "Stateful Data & Event Streaming" [color: green] {
+  node redis "ElastiCache Redis" [icon: cache, sub: "Idempotency & Cart Lock"]
+  node aurora "Aurora PostgreSQL" [icon: database, sub: "Orders Ledger (Multi-AZ)"]
+  node kafka "Amazon MSK (Kafka)" [icon: queue, sub: "Order & Audit Event Bus"]
+  node s3_audit "Audit S3 Vault" [icon: storage, sub: "WORM Compliance Archive"]
+}
+
+group external_net "External Financial Network" [color: yellow] {
+  node stripe "Stripe / Card Net" [icon: external, sub: "3DS 2.0 / Acquirer GW"]
+}
+
+mobile --> cdn : "HTTPS (TLS 1.3)"
+cdn --> waf : "Edge Inspect"
+waf --> apigw : "Signed Origin"
+apigw <-> idp : "JWKS / OIDC"
+apigw --> bff : "GraphQL"
+bff <-> redis : "Idempotency"
+bff <-> fraud_ai : "Risk Check"
+bff --> order_svc : "Start Saga"
+order_svc --> aurora : "ACID Write"
+order_svc --> pay_svc : "Capture Cmd"
+pay_svc <-> stripe : "ISO8583 / REST"
+pay_svc --> kafka : "PaymentEvent"
+order_svc --> kafka : "OrderEvent"
+kafka ..> s3_audit : "Audit Sink"
+
+step "End-to-end payment in ten animations" {
+  desc "A payment from the mobile app passes through edge protection, zero-trust authentication, AI fraud checks, a distributed saga, and the card network."
+  focus mobile, cdn, waf, apigw, idp, bff, redis, fraud_ai, order_svc, aurora, pay_svc, stripe, kafka, s3_audit
+  state waf [badge: "INSPECT"]
+  state fraud_ai [color: green, badge: "SCORE: 0.02"]
+  state aurora [color: green, badge: "COMMIT"]
+  state pay_svc [color: green, badge: "AUTHORIZED"]
+  state s3_audit [badge: "LOCKED"]
+  animate mobile --> cdn : "1. POST /checkout" [desc: "The app sends the order to the nearest CloudFront edge over TLS 1.3"]
+  animate cdn --> waf : "2. WAF Inspect" [desc: "AWS WAF checks bot signatures, IP reputation and rate limits"]
+  animate waf --> apigw : "3. Origin mTLS" [desc: "Requests that pass get an origin verification header and go to API Gateway"]
+  animate apigw <-> idp : "4. Verify JWT" [desc: "The IdP verifies the expiry, scope and device binding of the passkey-signed JWT"]
+  animate apigw --> bff : "5. Route BFF" [desc: "The authenticated user context is attached and the request reaches the Checkout BFF"]
+  animate bff <-> redis : "6. Lock Idempotency" [desc: "Redis atomically locks the idempotency key, preventing a double charge on retries"]
+  animate bff <-> fraud_ai : "7. AI Risk Check" [desc: "The fraud engine scores device fingerprint and purchase behavior in 12 ms"]
+  animate bff --> order_svc : "8. Start Order Saga" [desc: "With the risk check passed, the Order Service starts the distributed transaction"]
+  animate order_svc --> aurora : "9. INSERT Order" [desc: "The order and its outbox event are saved in a single transaction"]
+  animate order_svc --> pay_svc : "10. Capture & Audit" [desc: "The isolated Payment Service captures the charge and emits the audit event"]
+}
+
+step "Blocking fraud with a compensating transaction" {
+  desc "When a payment is judged high risk, the saga compensates at once: the order is rolled back and the WAF blocklist is updated."
+  focus bff, fraud_ai, order_svc, aurora, kafka, s3_audit, waf
+  state fraud_ai [color: red, badge: "HIGH RISK: 0.96"]
+  state pay_svc [color: gray, badge: "SKIPPED"]
+  state aurora [color: yellow, badge: "ABORTED"]
+  state waf [color: red, badge: "BLOCKLISTED"]
+  animate bff <-> fraud_ai : "1. Score 0.96 ( Fraud )" [color: red, desc: "The engine detects an abnormal card pattern and returns a high risk score"]
+  animate bff --> order_svc : "2. Cancel Saga" [color: red, desc: "The BFF stops the payment and tells the Order Service to compensate"]
+  animate order_svc --> aurora : "3. UPDATE REJECTED" [color: red, desc: "The order is marked REJECTED and reserved stock is released"]
+  animate order_svc --> kafka : "4. FraudAlertEvent" [color: red, desc: "A fraud alert is published to the security monitoring topic"]
+  animate kafka --> s3_audit : "5. Write Forensics" [color: red, desc: "Forensic logs are stored in the write-once audit vault"]
+}

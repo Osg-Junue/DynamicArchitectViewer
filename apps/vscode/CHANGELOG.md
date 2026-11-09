@@ -3,6 +3,10 @@
 This project follows [Semantic Versioning](https://semver.org/). The `0.x` series is a preview.
 The `dav` language version is separate from the extension version.
 
+## Unreleased
+
+- AI agent skill for writing and validating `.dav` files, with a command to install it for Claude Code, GitHub Copilot and Codex
+
 ## 0.1.0 (2026-11-09)
 
 First public preview.

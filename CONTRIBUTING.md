@@ -46,8 +46,9 @@ The [architecture guide](docs/architecture.md) describes each module and the dep
 3. Add its artwork to `ICON_SHAPES` in `src/scene/icons.ts`, on a 24×24 grid.
 4. Add the name to `syntaxes/dav.tmLanguage.json`, in the same position.
 5. Update the list and counts in `docs/specification.md`, and the count in `apps/vscode/README.md` and `CHANGELOG.md`.
+6. Add the name to the list in `skills/dav-diagrams/SKILL.md`.
 
-The type checker catches a missing step 2 or 3, and a test catches step 4. Check that a misspelling of an existing icon still suggests the right name, because ties go to the earlier name in `ICON_NAMES`.
+The type checker catches a missing step 2 or 3, and tests catch steps 4 and 6. Check that a misspelling of an existing icon still suggests the right name, because ties go to the earlier name in `ICON_NAMES`.
 
 **Add a sample**
 
@@ -59,9 +60,13 @@ The type checker catches a missing step 2 or 3, and a test catches step 4. Check
 1. Add it to `ATTRIBUTE_SCHEMA` in `src/dsl/schema.ts`, which drives validation.
 2. For a new attribute name, add it to `ATTRIBUTE_KEYS` in `src/dsl/complete.ts` and to the attribute pattern in `syntaxes/dav.tmLanguage.json`.
 3. Read it in `src/dsl/analyze.ts`, and add it to the model.
-4. Update `docs/specification.md`, the in-app docs in `src/editor/docs/`, and the prompt in `src/prompt/index.ts`.
+4. Update `docs/specification.md`, the in-app docs in `src/editor/docs/`, the prompt in `src/prompt/index.ts`, and `skills/dav-diagrams/SKILL.md`.
 
 Only make [compatible changes](docs/specification.md#compatibility) to `dav 1`.
+
+**Change the language, specification or layout guide**
+
+`npm test` and `npm run build` regenerate the files in `skills/dav-diagrams/` that come from the parser, `docs/` and `examples/`. Commit them with your change, or CI fails.
 
 **Change the layout**
 

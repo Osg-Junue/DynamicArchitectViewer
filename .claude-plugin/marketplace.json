@@ -1,0 +1,17 @@
+{
+  "name": "osg-junue",
+  "description": "Claude Code plugins for DynamicArchitectViewer.",
+  "owner": {
+    "name": "Junue"
+  },
+  "plugins": [
+    {
+      "name": "dynamic-architect-viewer",
+      "source": "./",
+      "description": "Write and validate .dav diagrams that play step by step.",
+      "license": "MIT",
+      "repository": "https://github.com/Osg-Junue/DynamicArchitectViewer",
+      "keywords": ["diagram", "architecture", "dav"]
+    }
+  ]
+}
