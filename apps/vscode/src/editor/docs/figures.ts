@@ -3,10 +3,11 @@ import { computeLayout, type Layout, type Rect, stationRect } from '../../layout
 import type { DavDocument, IconName } from '../../model/types';
 import { clear, html, renderSvg, svg } from '../../runtime/dom';
 import type { ViewerLocale } from '../../runtime/i18n';
-import { PHASE_MS, Player, type PlayerData } from '../../runtime/player';
+import { Player, type PlayerData } from '../../runtime/player';
 import {
   buildDefs,
   buildScene,
+  PHASE_MS,
   paint,
   type ResolvedView,
   resolveView,

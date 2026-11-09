@@ -10,20 +10,22 @@ import {
   computePacketCalloutBox,
   flowColors,
   type IconShapes,
-  MAX_PHASE_MS,
-  MIN_PACKET_MS,
   type Packet,
   type PacketCalloutBox,
   PHASE_MS,
   packetBubblePath,
   packetPosition,
   paint,
-  type ResolvedGroup,
   type ResolvedView,
   resolveView,
+  type ZoneMove,
+  zoneColor,
+  zoneMoves,
 } from '../scene';
 import { clear, html, renderSvg, svg } from './dom';
 import { VIEWER_STRINGS, type ViewerLocale, type ViewerStrings } from './i18n';
+import { Minimap } from './minimap';
+import { renderZoneHud } from './zoneHud';
 
 export interface PlayerData {
   document: DavDocument;
@@ -53,7 +55,6 @@ export interface PlayerOptions {
   fixedFrame?: boolean;
 }
 
-export { MAX_PHASE_MS, MIN_PACKET_MS, PHASE_MS };
 /** Pause after a step's last phase at 1x. */
 export const HOLD_MS = 1800;
 export const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
@@ -68,11 +69,14 @@ const MAX_CALM_ZOOM = 1.25;
 /** How close to the screen's edge a moving packet may get before the camera follows. */
 const CALM_EDGE_MARGIN = 40;
 const ZONE_LABEL_SIZE = 12;
-const MAX_HUD_PAIRS = 3;
-const MINIMAP_PAD = 40;
 
-/** One end of a move named above the canvas: a zone, or a node outside any zone. */
-type HudPlace = Pick<ResolvedGroup, 'id' | 'label' | 'color'>;
+interface ZoneLabel {
+  el: SVGTextElement;
+  rect: Rect;
+  /** What was last written, to skip writes that change nothing on every camera frame. */
+  font: string;
+  hidden: boolean;
+}
 
 interface PacketEntry {
   packet: Packet;
@@ -113,18 +117,15 @@ export class Player {
   #userMoved = false;
   #followAnim = false;
   #cameraTarget: { zoom: number; panX: number; panY: number } | null = null;
-  #hasZones = false;
-  #minimapOn = false;
   /** The reader asked for the whole diagram; the camera stays until the next step. */
   #holdFrame = false;
-  #zoneOfNode = new Map<string, string>();
-  #zoneLabels: Array<{ el: SVGTextElement; rect: Rect }> = [];
-  #miniView: SVGRectElement | null = null;
-  #miniZones = new Map<string, SVGRectElement>();
+  #zoneLabels: ZoneLabel[] = [];
+  /** Kept until the next resize: the size is needed on every camera frame. */
+  #cachedViewSize: { width: number; height: number } | null = null;
 
   readonly #root: HTMLElement;
   readonly #zoneHud: HTMLElement;
-  readonly #minimap: SVGSVGElement;
+  readonly #minimap: Minimap;
   readonly #minimapBtn: HTMLButtonElement;
   readonly #playbackBar: HTMLElement;
   readonly #svgEl: SVGSVGElement;
@@ -179,7 +180,7 @@ export class Player {
     this.#svgEl = svg('svg', { class: 'dav-canvas', role: 'img' });
     this.#world = svg('g', { class: 'dav-world' });
     this.#sceneLayer = svg('g');
-    this.#zoneLabelLayer = svg('g', { class: 'dav-zone-labels' });
+    this.#zoneLabelLayer = svg('g');
     this.#packetLayer = svg('g', { class: 'dav-layer-packets' });
     this.#svgEl.append(renderSvg(buildDefs()), this.#world);
     this.#world.append(this.#sceneLayer, this.#zoneLabelLayer, this.#packetLayer);
@@ -402,20 +403,14 @@ export class Player {
       'data-testid': 'zone-hud',
     });
     this.#zoneHud.hidden = true;
-    this.#minimap = svg('svg', {
-      class: 'dav-minimap',
-      'aria-hidden': 'true',
-      'data-testid': 'minimap',
-    });
-    this.#minimap.setAttribute('hidden', '');
-    this.#minimap.addEventListener('click', (e) => this.#panToMinimapPoint(e));
+    this.#minimap = new Minimap((x, y) => this.#panTo(x, y));
 
     const viewport = html(
       'main',
       { class: 'dav-viewport' },
       this.#svgEl,
       this.#titleEl,
-      this.#minimap,
+      this.#minimap.element,
       zoomOverlay,
     );
     this.#root = html(
@@ -446,6 +441,7 @@ export class Player {
     this.#bindKeyboard(options.globalKeyboard ? window : this.#root);
     if (typeof ResizeObserver !== 'undefined') {
       const ro = new ResizeObserver(() => {
+        this.#cachedViewSize = null;
         if (this.#followAnim) this.#focusCurrentPhase(false);
         else if (!this.#userMoved) this.#frameStep(false);
       });
@@ -661,9 +657,7 @@ export class Player {
   }
 
   toggleMinimap(): void {
-    this.#minimapOn = !this.#minimapOn;
-    this.#minimapBtn.setAttribute('aria-pressed', String(this.#minimapOn));
-    this.#minimap.toggleAttribute('hidden', !this.#minimapOn);
+    this.#minimapBtn.setAttribute('aria-pressed', String(this.#minimap.toggle()));
     this.#updateCameraOverlays();
   }
 
@@ -722,74 +716,20 @@ export class Player {
   /** Recomputes what depends on the diagram's zones, after a new document arrived. */
   #syncZones(): void {
     const { document: doc, layout } = this.#data;
-    this.#hasZones = doc.groups.length > 0;
-    this.#minimapBtn.hidden = !this.#hasZones;
-    this.#zoneOfNode = new Map();
-    clear(this.#minimap);
-    this.#miniView = null;
-    this.#miniZones = new Map();
+    const hasZones = doc.groups.length > 0;
+    this.#minimapBtn.hidden = !hasZones;
     // The strip stays while the zones change, so that the canvas never resizes during playback.
-    this.#zoneHud.hidden = !this.#hasZones;
-    if (!this.#hasZones) {
-      this.#minimap.setAttribute('hidden', '');
-      return;
-    }
-    const zoneOfGroup = new Map<string, string>();
-    for (const g of doc.groups) {
-      zoneOfGroup.set(
-        g.id,
-        g.parentId === undefined ? g.id : (zoneOfGroup.get(g.parentId) ?? g.id),
-      );
-    }
-    for (const n of doc.nodes) {
-      const zone = n.parentId === undefined ? undefined : zoneOfGroup.get(n.parentId);
-      if (zone !== undefined) this.#zoneOfNode.set(n.id, zone);
-    }
-
-    const zones = doc.groups.filter((g) => g.parentId === undefined);
-    const rects = zones.flatMap((g) => layout.groups[g.id] ?? []);
-    const b = boundsOf(rects, MINIMAP_PAD, 0);
-    this.#minimap.toggleAttribute('hidden', !this.#minimapOn);
-    this.#minimap.setAttribute('viewBox', `${b.x} ${b.y} ${b.width} ${b.height}`);
-    for (const zone of zones) {
-      const r = layout.groups[zone.id];
-      if (!r) continue;
-      const color = zone.color ? paint(zone.color) : 'var(--dav-border-strong)';
-      const rect = svg('rect', {
-        x: r.x,
-        y: r.y,
-        width: r.width,
-        height: r.height,
-        rx: 16,
-        fill: `color-mix(in srgb, ${color} 55%, transparent)`,
-      });
-      this.#miniZones.set(zone.id, rect);
-      this.#minimap.append(rect);
-    }
-    this.#miniView = svg('rect', { class: 'dav-minimap-view' });
-    this.#minimap.append(this.#miniView);
+    this.#zoneHud.hidden = !hasZones;
+    this.#minimap.setDiagram(doc, layout);
   }
 
-  /** The minimap shows only the zones the current step is about, at their usual places. */
-  #syncMinimapZones(): void {
-    for (const group of this.#view.groups) {
-      const rect = this.#miniZones.get(group.id);
-      if (!rect) continue;
-      if (group.dimmed) rect.setAttribute('visibility', 'hidden');
-      else rect.removeAttribute('visibility');
-    }
-  }
-
-  #panToMinimapPoint(e: MouseEvent): void {
-    const matrix = this.#minimap.getScreenCTM();
-    if (!matrix) return;
-    const world = new DOMPoint(e.clientX, e.clientY).matrixTransform(matrix.inverse());
-    const box = this.#svgEl.getBoundingClientRect();
+  #panTo(x: number, y: number): void {
+    const { width, height } = this.#viewSize();
     this.#userMoved = true;
     this.#cameraTarget = {
       zoom: this.#zoom,
-      panX: box.width / 2 - world.x * this.#zoom,
-      panY: box.height / 2 - world.y * this.#zoom,
+      panX: width / 2 - x * this.#zoom,
+      panY: height / 2 - y * this.#zoom,
     };
     this.#ensureLoop();
   }
@@ -800,7 +740,7 @@ export class Player {
     clear(this.#sceneLayer);
     this.#sceneLayer.append(renderSvg(buildScene(this.#view, this.#data.icons)));
     this.#collectZoneLabels();
-    this.#syncMinimapZones();
+    this.#minimap.showStep(this.#view);
     if (!opts.keepPhase) this.#holdFrame = false;
     if (!opts.keepPhase || this.#phase >= this.#view.phases.length) {
       this.#phase = 0;
@@ -837,18 +777,29 @@ export class Player {
     }
     this.#syncPhaseHighlights();
     if (this.#followAnim) this.#focusCurrentPhase(!stopped);
-    else if (!stopped && !this.#userMoved && !this.#holdFrame && !this.#fixedFrame) {
-      this.#calmFocus(true, false);
+    else if (
+      !stopped &&
+      !this.#userMoved &&
+      !this.#holdFrame &&
+      !this.#fixedFrame &&
+      !this.#packetsOnScreen()
+    ) {
+      this.#calmFocus(true);
     }
     this.#updateZoneHud();
   }
 
+  #currentPackets(): Packet[] {
+    const phases = this.#view.phases;
+    return phases[Math.min(this.#phase, phases.length - 1)] ?? [];
+  }
+
   #phaseMs(index: number): number {
-    return this.#view.phaseDurations?.[index] ?? PHASE_MS;
+    return this.#view.phaseDurations[index] ?? PHASE_MS;
   }
 
   #packetProgress(packet: Packet): number {
-    return Math.min(1, this.#elapsed / (packet.durationMs ?? PHASE_MS));
+    return Math.min(1, this.#elapsed / packet.durationMs);
   }
 
   #placePackets(): void {
@@ -864,70 +815,22 @@ export class Player {
       el.querySelector<SVGRectElement>('rect')?.style.removeProperty('stroke');
     }
     clear(this.#zoneHud);
-    const phases = this.#view.phases;
-    const packets = phases[Math.min(this.#phase, phases.length - 1)] ?? [];
-    const showing = this.#hasZones && packets.length > 0 && (!this.#isStopped() || this.#pinned);
-    if (!showing) return;
-
-    const groupById = new Map(this.#view.groups.map((g) => [g.id, g]));
-    const zoneOf = (nodeId: string) => {
-      const id = this.#zoneOfNode.get(nodeId);
-      return id === undefined ? undefined : groupById.get(id);
-    };
-    const pairs = new Map<string, readonly [HudPlace, HudPlace]>();
-    for (const p of packets) {
-      const fromZone = zoneOf(p.from);
-      const toZone = zoneOf(p.to);
-      if (!fromZone && !toZone) continue;
-      // A node outside any zone goes by its own name.
-      const from: HudPlace = fromZone ?? { id: p.from, label: p.fromLabel };
-      const to: HudPlace = toZone ?? { id: p.to, label: p.toLabel };
-      pairs.set(`${from.id}\u0000${to.id}`, [from, to]);
-    }
-    const colorOf = (g: HudPlace) => (g.color ? paint(g.color) : 'var(--dav-border-strong)');
-    const name = (g: HudPlace, departing: boolean) => {
-      const dot = html('i', { class: 'dav-zone-dot' });
-      dot.style.setProperty('background', colorOf(g));
-      return html(
-        'span',
-        { class: departing ? 'dav-zone-name is-from' : 'dav-zone-name' },
-        dot,
-        g.label,
-      );
-    };
+    const packets = this.#currentPackets();
+    if (packets.length === 0 || (this.#isStopped() && !this.#pinned)) return;
+    const moves = zoneMoves(this.#view, packets);
     const ms = this.#phaseMs(this.#phase) / this.#speed;
-    for (const [from, to] of Array.from(pairs.values()).slice(0, MAX_HUD_PAIRS)) {
-      const pair = html('span', { class: 'dav-zone-pair' });
-      if (from === to) {
-        pair.append(
-          name(from, false),
-          html('span', { class: 'dav-zone-inside' }, this.#strings.zoneInside),
-        );
-      } else {
-        const progress = html('i');
-        progress.style.setProperty('background', colorOf(to));
-        progress.style.setProperty('animation-duration', `${ms.toFixed(0)}ms`);
-        pair.append(
-          name(from, true),
-          html('span', { class: 'dav-zone-line' }, progress),
-          name(to, false),
-        );
-      }
-      this.#zoneHud.append(pair);
-    }
-    if (pairs.size > MAX_HUD_PAIRS) {
-      this.#zoneHud.append(
-        html('span', { class: 'dav-zone-inside' }, `+${pairs.size - MAX_HUD_PAIRS}`),
-      );
-    }
+    renderZoneHud(this.#zoneHud, moves, ms, this.#strings.zoneInside);
+    this.#outlineZones(moves);
+  }
 
-    const active = new Set<HudPlace>(Array.from(pairs.values()).flat());
+  #outlineZones(moves: readonly ZoneMove[]): void {
+    const active = new Map(moves.flat().map((place) => [place.id, place]));
     for (const el of Array.from(this.#sceneLayer.querySelectorAll('.dav-group'))) {
-      const group = groupById.get(el.getAttribute('data-id') ?? '');
+      const zone = active.get(el.getAttribute('data-id') ?? '');
       const rect = el.querySelector<SVGRectElement>('rect');
-      if (!group || !rect || !active.has(group)) continue;
+      if (!zone || !rect) continue;
       el.classList.add('is-zone-active');
-      rect.style.setProperty('stroke', colorOf(group));
+      rect.style.setProperty('stroke', zoneColor(zone.color));
     }
   }
 
@@ -940,23 +843,39 @@ export class Player {
       const holder = label.closest('[data-id]');
       const rect = rects.get(holder?.getAttribute('data-id') ?? '');
       if (!holder || !rect) return [];
-      const copy = holder.cloneNode(true) as SVGGElement;
-      this.#zoneLabelLayer.append(copy);
-      const el = copy.querySelector<SVGTextElement>('.dav-group-label');
-      return el ? [{ el, rect }] : [];
+      this.#zoneLabelLayer.append(holder);
+      return [{ el: label, rect, font: '', hidden: false }];
     });
     this.#updateCameraOverlays();
   }
 
+  #viewSize(): { width: number; height: number } {
+    if (this.#cachedViewSize) return this.#cachedViewSize;
+    const { width, height } = this.#svgEl.getBoundingClientRect();
+    const size = { width, height };
+    // Without a ResizeObserver, nothing would tell that the cached size went stale.
+    if (width > 0 && height > 0 && typeof ResizeObserver !== 'undefined') {
+      this.#cachedViewSize = size;
+    }
+    return size;
+  }
+
+  /** The zoom at which a rectangle exactly fits the canvas; unbounded while it has no size. */
+  #fitZoom(b: Rect): number {
+    const { width, height } = this.#viewSize();
+    if (width === 0 || height === 0) return Number.POSITIVE_INFINITY;
+    return Math.min(width / b.width, height / b.height);
+  }
+
   /** The part of the diagram the camera shows, in diagram coordinates. */
   #visibleWorld(camera: { zoom: number; panX: number; panY: number }): Rect | null {
-    const box = this.#svgEl.getBoundingClientRect();
-    if (box.width === 0 || box.height === 0) return null;
+    const { width, height } = this.#viewSize();
+    if (width === 0 || height === 0) return null;
     return {
       x: -camera.panX / camera.zoom,
       y: -camera.panY / camera.zoom,
-      width: box.width / camera.zoom,
-      height: box.height / camera.zoom,
+      width: width / camera.zoom,
+      height: height / camera.zoom,
     };
   }
 
@@ -965,66 +884,67 @@ export class Player {
     const world = this.#visibleWorld({ zoom: this.#zoom, panX: this.#panX, panY: this.#panY });
     if (!world) return;
     const unit = 1 / this.#zoom;
-    for (const { el, rect } of this.#zoneLabels) {
+    for (const label of this.#zoneLabels) {
+      const { el, rect } = label;
       const left = Math.max(rect.x, world.x);
       const top = Math.max(rect.y, world.y);
       const right = Math.min(rect.x + rect.width, world.x + world.width);
       const bottom = Math.min(rect.y + rect.height, world.y + world.height);
-      if (right <= left || bottom <= top) {
-        el.setAttribute('visibility', 'hidden');
-        continue;
+      const hidden = right <= left || bottom <= top;
+      if (hidden !== label.hidden) {
+        label.hidden = hidden;
+        if (hidden) el.setAttribute('visibility', 'hidden');
+        else el.removeAttribute('visibility');
       }
+      if (hidden) continue;
       const size = ZONE_LABEL_SIZE * unit;
-      el.removeAttribute('visibility');
-      el.setAttribute('font-size', size.toFixed(2));
+      const font = size.toFixed(2);
+      if (font !== label.font) {
+        label.font = font;
+        el.setAttribute('font-size', font);
+        el.style.setProperty('stroke-width', `${(3 * unit).toFixed(2)}px`);
+      }
       el.setAttribute('x', (left + 14 * unit).toFixed(1));
       el.setAttribute('y', Math.min(top + size * 1.6, rect.y + rect.height - 4 * unit).toFixed(1));
-      el.style.setProperty('stroke-width', `${(3 * unit).toFixed(2)}px`);
     }
-    if (this.#miniView) {
-      this.#miniView.setAttribute('x', world.x.toFixed(1));
-      this.#miniView.setAttribute('y', world.y.toFixed(1));
-      this.#miniView.setAttribute('width', world.width.toFixed(1));
-      this.#miniView.setAttribute('height', world.height.toFixed(1));
-    }
+    this.#minimap.setCamera(world);
   }
 
-  /**
-   * While packets play, the camera moves only when they would leave the screen,
-   * and then frames their whole zones, so that the reader keeps their bearings.
-   */
-  #calmFocus(smooth: boolean, force: boolean): void {
-    const phases = this.#view.phases;
-    const packets = phases[Math.min(this.#phase, phases.length - 1)] ?? [];
-    const { nodes, groups } = this.#data.layout;
-    const spots = packets
+  /** The rectangles of the nodes the current phase moves between. */
+  #phaseSpots(): Rect[] {
+    const { nodes } = this.#data.layout;
+    return this.#currentPackets()
       .flatMap((p) => [nodes[p.from], nodes[p.to]])
       .filter((r) => r !== undefined);
-    if (spots.length === 0) return;
+  }
 
-    const box = this.#svgEl.getBoundingClientRect();
-    if (box.width === 0 || box.height === 0) return;
-    if (!force) {
-      const world = this.#visibleWorld(
-        this.#cameraTarget ?? { zoom: this.#zoom, panX: this.#panX, panY: this.#panY },
-      );
-      const need = boundsOf(spots, CALM_EDGE_MARGIN, 0);
-      if (
-        world &&
-        need.x >= world.x &&
-        need.y >= world.y &&
-        need.x + need.width <= world.x + world.width &&
-        need.y + need.height <= world.y + world.height
-      ) {
-        return;
-      }
-    }
-    const zoneRects = packets
-      .flatMap((p) => [this.#zoneOfNode.get(p.from), this.#zoneOfNode.get(p.to)])
+  /** Whether the camera, where it is heading, already shows the current phase. */
+  #packetsOnScreen(): boolean {
+    const spots = this.#phaseSpots();
+    const world = this.#visibleWorld(
+      this.#cameraTarget ?? { zoom: this.#zoom, panX: this.#panX, panY: this.#panY },
+    );
+    if (spots.length === 0 || !world) return true;
+    const need = boundsOf(spots, CALM_EDGE_MARGIN, 0);
+    return (
+      need.x >= world.x &&
+      need.y >= world.y &&
+      need.x + need.width <= world.x + world.width &&
+      need.y + need.height <= world.y + world.height
+    );
+  }
+
+  /** Frames the whole zones of the current phase, so that the reader keeps their bearings. */
+  #calmFocus(smooth: boolean): void {
+    const spots = this.#phaseSpots();
+    if (spots.length === 0) return;
+    const { groups } = this.#data.layout;
+    const zoneRects = this.#currentPackets()
+      .flatMap((p) => [p.fromZone, p.toZone])
       .flatMap((id) => (id !== undefined && groups[id] ? [groups[id]] : []));
     const zones = boundsOf(zoneRects.length > 0 ? zoneRects : spots, CALM_FRAME_PAD, 0);
-    const zoomed = Math.min(box.width / zones.width, box.height / zones.height);
-    const target = zoomed >= MIN_ZONE_FRAME_ZOOM ? zones : boundsOf(spots, CALM_FRAME_PAD, 0);
+    const target =
+      this.#fitZoom(zones) >= MIN_ZONE_FRAME_ZOOM ? zones : boundsOf(spots, CALM_FRAME_PAD, 0);
     this.#setCameraTarget(target, MAX_CALM_ZOOM, smooth);
   }
 
@@ -1036,7 +956,7 @@ export class Player {
     const phases = this.#view.phases;
     if (phases.length === 0) return;
     const stopped = this.#isStopped();
-    const running = phases[Math.min(this.#phase, phases.length - 1)] ?? [];
+    const running = this.#currentPackets();
     // A phase picked while stopped goes first, so that its colors win on shared edges.
     const activeEdges = flowColors(
       stopped ? [...(this.#pinned ? running : []), ...phases.flat()] : running,
@@ -1121,7 +1041,7 @@ export class Player {
   #updateStepProgress(): void {
     const fill = this.#stepIndex === null ? undefined : this.#tickFills[this.#stepIndex];
     if (!fill) return;
-    const durations = this.#view.phases.map((_, i) => this.#phaseMs(i));
+    const durations = this.#view.phaseDurations;
     const total = durations.reduce((sum, ms) => sum + ms, 0);
     const done =
       durations.slice(0, this.#phase).reduce((sum, ms) => sum + ms, 0) +
@@ -1307,7 +1227,7 @@ export class Player {
         ? []
         : this.#isStopped() && !this.#pinned
           ? phases.flat()
-          : (phases[Math.min(this.#phase, phases.length - 1)] ?? []);
+          : this.#currentPackets();
 
     if (packets.length === 0) {
       const { nodes, groups } = this.#data.layout;
@@ -1352,12 +1272,9 @@ export class Player {
   }
 
   #setCameraTarget(b: Rect, maxAutoZoom: number, smooth: boolean): void {
-    const box = this.#svgEl.getBoundingClientRect();
+    const box = this.#viewSize();
     if (box.width === 0 || box.height === 0) return;
-    const zoom = Math.min(
-      MAX_ZOOM,
-      Math.max(MIN_ZOOM, Math.min(box.width / b.width, box.height / b.height, maxAutoZoom)),
-    );
+    const zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.min(this.#fitZoom(b), maxAutoZoom)));
     const panX = (box.width - b.width * zoom) / 2 - b.x * zoom;
     const panY = (box.height - b.height * zoom) / 2 - b.y * zoom;
 
@@ -1405,13 +1322,10 @@ export class Player {
       if (callout) rects.push(calloutRect(callout));
     }
     const bounds = boundsOf(rects);
-    const box = this.#svgEl.getBoundingClientRect();
-    const legible =
-      box.width === 0 ||
-      Math.min(box.width / bounds.width, box.height / bounds.height) >= MIN_ZONE_FRAME_ZOOM;
+    const legible = this.#fitZoom(bounds) >= MIN_ZONE_FRAME_ZOOM;
     // A step too spread out to read at once is followed instead, zone by zone.
     if (!legible && !this.#holdFrame && !this.#isStopped() && this.#view.phases.length > 0) {
-      this.#calmFocus(smooth, true);
+      this.#calmFocus(smooth);
       return;
     }
     this.#setCameraTarget(bounds, MAX_FIT_ZOOM, smooth);

@@ -1,41 +1,32 @@
 import { EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH, estimateTextWidth } from '../model/text';
 import type { DavDocument, IconName } from '../model/types';
+import { countCrossings, crossingsOf, type Link, linksOf, segmentsOf } from './links';
+import {
+  EMPTY_GROUP_CONTENT,
+  GROUP_HEADER,
+  GROUP_PADDING,
+  type Layout,
+  NODE_SIZE,
+  ORIGIN,
+  type Rect,
+  rectRecord,
+  STATION_CENTER,
+  selfLoopRoom,
+} from './metrics';
 import { computeZonedLayout, hasZonesToPlace, longLinkExcess, structureKey } from './zoned';
 
-export interface Rect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
+export { countCrossings } from './links';
+export { type Layout, NODE_SIZE, type Rect } from './metrics';
 
-/** Resolved geometry for every node and group. Plain objects so it serializes to JSON. */
-export interface Layout {
-  nodes: Record<string, Rect>;
-  groups: Record<string, Rect>;
-}
-
-/** Each node occupies a station with its badge above and its labels below. */
-export const NODE_SIZE = { width: 176, height: 118 } as const;
 export const SCREEN_NODE_SIZE = NODE_SIZE;
 
 const STATION_SIZE = 44;
 const WINDOW_SIZE = { width: 54, height: 44 } as const;
-/** Vertical center of every station, so rails between stations in a row run straight. */
-const STATION_CENTER = 50;
 
 const COLUMN_GAP = 36;
 const EDGE_LABEL_MARGIN = 32;
 const ROW_GAP = 14;
-const GROUP_PADDING = 16;
-/** Room for the zone name above its stations. */
-const GROUP_HEADER = 18;
 const CLUSTER_GAP = 28;
-const ORIGIN = { x: 40, y: 40 };
-const EMPTY_GROUP_CONTENT = { width: 160, height: 40 };
-/** Space above a node for its self-loop and that loop's label; further loops nest outside. */
-const SELF_LOOP_ROOM = 30;
-const SELF_LOOP_EXTRA_ROOM = 18;
 /** Refinement passes over the vertical order; each one places the whole diagram again. */
 const MAX_SWEEPS = 16;
 /** Refinement gives up after this many passes in a row without an improvement. */
@@ -75,29 +66,15 @@ export function defaultNodeSize(_icon: IconName): { width: number; height: numbe
  * if it shortens them without adding crossings (see `computeZonedLayout`).
  */
 export function computeLayout(doc: DavDocument): Layout {
-  const columns = computeColumnLayout(doc);
-  const excess = longLinkExcess(doc, columns, STATION_CENTER);
-  if (excess === 0 || !hasZonesToPlace(doc)) return columns;
   // The zoned search takes a noticeable moment; most edits do not change the structure.
-  const key = structureKey(doc);
-  if (zonedMemo?.key === key) return zonedMemo.layout;
-  const zoned = computeZonedLayout(
-    doc,
-    computeColumnLayout,
-    countCrossings,
-    {
-      node: NODE_SIZE,
-      stationCenter: STATION_CENTER,
-      groupPadding: GROUP_PADDING,
-      groupHeader: GROUP_HEADER,
-      selfLoopRoom: SELF_LOOP_ROOM,
-      selfLoopExtraRoom: SELF_LOOP_EXTRA_ROOM,
-      emptyGroup: EMPTY_GROUP_CONTENT,
-    },
-    ORIGIN.x,
-  );
+  const key = hasZonesToPlace(doc) ? structureKey(doc) : undefined;
+  if (key !== undefined && zonedMemo?.key === key) return zonedMemo.layout;
+  const columns = computeColumnLayout(doc);
+  const excess = longLinkExcess(doc, columns);
+  if (excess === 0 || key === undefined) return columns;
+  const zoned = computeZonedLayout(doc, computeColumnLayout);
   const better =
-    longLinkExcess(doc, zoned, STATION_CENTER) < excess &&
+    longLinkExcess(doc, zoned) < excess &&
     countCrossings(doc, zoned) <= countCrossings(doc, columns);
   const layout = better ? zoned : columns;
   zonedMemo = { key, layout };
@@ -134,16 +111,6 @@ interface SweepGuide {
   columnNeighbors: ReadonlyMap<string, readonly string[]>;
   /** All nodes linked to a node, which decide where its group goes. */
   linked: ReadonlyMap<string, readonly string[]>;
-}
-
-type Link = readonly [from: string, to: string];
-
-/** Pairs of connected nodes; a self-loop has no extent, so it cannot cross anything. */
-function linksOf(doc: DavDocument): Link[] {
-  const known = new Set(doc.nodes.map((n) => n.id));
-  return doc.edges
-    .filter((e) => e.from !== e.to && known.has(e.from) && known.has(e.to))
-    .map((e) => [e.from, e.to]);
 }
 
 function refineOrder(
@@ -190,81 +157,12 @@ function refineOrder(
   return best;
 }
 
-interface Segment {
-  from: string;
-  to: string;
-  ax: number;
-  ay: number;
-  bx: number;
-  by: number;
-}
-
-function segmentsOf(links: readonly Link[], layout: Layout): Segment[] {
-  return links.flatMap(([from, to]) => {
-    const a = layout.nodes[from];
-    const b = layout.nodes[to];
-    if (!a || !b) return [];
-    return [
-      {
-        from,
-        to,
-        ax: a.x + a.width / 2,
-        ay: a.y + STATION_CENTER,
-        bx: b.x + b.width / 2,
-        by: b.y + STATION_CENTER,
-      },
-    ];
-  });
-}
-
-function properlyCross(s: Segment, t: Segment): boolean {
-  const side = (x0: number, y0: number, x1: number, y1: number, x: number, y: number) =>
-    Math.sign((x1 - x0) * (y - y0) - (y1 - y0) * (x - x0));
-  return (
-    side(s.ax, s.ay, s.bx, s.by, t.ax, t.ay) * side(s.ax, s.ay, s.bx, s.by, t.bx, t.by) < 0 &&
-    side(t.ax, t.ay, t.bx, t.by, s.ax, s.ay) * side(t.ax, t.ay, t.bx, t.by, s.bx, s.by) < 0
-  );
-}
-
-function crossingsOf(segments: readonly Segment[]): number {
-  let crossings = 0;
-  segments.forEach((s, i) => {
-    for (let j = i + 1; j < segments.length; j++) {
-      const t = segments[j] as Segment;
-      const shareStation = s.from === t.from || s.from === t.to || s.to === t.from || s.to === t.to;
-      if (!shareStation && properlyCross(s, t)) crossings++;
-    }
-  });
-  return crossings;
-}
-
 function scoreOf(links: readonly Link[], layout: Layout) {
   const segments = segmentsOf(links, layout);
   return {
     crossings: crossingsOf(segments),
     length: segments.reduce((sum, s) => sum + Math.abs(s.ay - s.by), 0),
   };
-}
-
-/** How many pairs of edges cross, drawn as straight lines between their stations. */
-export function countCrossings(doc: DavDocument, layout: Layout): number {
-  return crossingsOf(segmentsOf(linksOf(doc), layout));
-}
-
-/** Vertical space each node with self-loops needs above its rectangle. */
-function selfLoopRoom(doc: DavDocument): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const e of doc.edges) {
-    if (e.from === e.to) counts.set(e.from, (counts.get(e.from) ?? 0) + 1);
-  }
-  return new Map(
-    [...counts].map(([id, n]) => [id, SELF_LOOP_ROOM + (n - 1) * SELF_LOOP_EXTRA_ROOM]),
-  );
-}
-
-/** Prototype-less map: IDs such as `__proto__` or `constructor` must behave as plain keys. */
-function rectRecord(): Record<string, Rect> {
-  return Object.create(null) as Record<string, Rect>;
 }
 
 /** Longest-path ranks; back edges found by DFS are ignored so cycles terminate. */

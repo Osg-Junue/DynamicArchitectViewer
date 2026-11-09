@@ -395,6 +395,7 @@ step "S" {
       roundTrip: false,
       clearTop: 0,
       labelAreas: [],
+      durationMs: 2000,
     };
   };
 

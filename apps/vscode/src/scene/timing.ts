@@ -23,22 +23,20 @@ const MAX_TURN_SHARE = 0.3;
  */
 export function pacePhase(phase: Packet[]): number {
   const speed = MAX_SPEED / (1 + PARALLEL_SLOWDOWN * (phase.length - 1));
-  let longest = MIN_PACKET_MS;
   for (const packet of phase) {
     const length = curveLength(packet.path);
     const ideal = packet.roundTrip
       ? Math.max(MIN_LEG_MS * 2 + TURN_PAUSE_MS, ((length * 2) / (speed * ROUND_TRIP_SPEED)) * 1000)
       : Math.max(MIN_PACKET_MS, (length / speed) * 1000);
     packet.durationMs = Math.round(Math.min(MAX_PHASE_MS, ideal));
-    longest = Math.max(longest, packet.durationMs);
   }
-  return longest;
+  return Math.max(...phase.map((packet) => packet.durationMs));
 }
 
 const easeSine = (u: number) => 0.5 - 0.5 * Math.cos(Math.PI * u);
 
 /** Eased position along a packet's path; a round trip rests briefly at the far end. */
-export function pacedProgress(t: number, roundTrip: boolean, durationMs: number): number {
+export function travelProgress(t: number, roundTrip: boolean, durationMs: number): number {
   if (!roundTrip) return easeSine(t);
   const rest = Math.min(MAX_TURN_SHARE, TURN_PAUSE_MS / durationMs);
   const leg = (1 - rest) / 2;

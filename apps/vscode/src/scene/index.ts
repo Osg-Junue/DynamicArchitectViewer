@@ -26,3 +26,4 @@ export {
 export { estimateTextWidth, fitText } from './text';
 export { MAX_PHASE_MS, MIN_PACKET_MS, PHASE_MS } from './timing';
 export { h, type VElement, type VNode } from './vnode';
+export { type ZoneMove, type ZonePlace, zoneColor, zoneMoves } from './zones';

@@ -12,7 +12,7 @@ import { type Bezier, curveLength, type Point, pointAt, svgPath } from './geomet
 import type { IconShapes } from './icons';
 import type { Packet, ResolvedEdge, ResolvedGroup, ResolvedNode, ResolvedView } from './resolve';
 import { estimateTextWidth, fitText } from './text';
-import { PHASE_MS, pacedProgress } from './timing';
+import { travelProgress } from './timing';
 import { h, type VElement } from './vnode';
 
 /**
@@ -518,6 +518,5 @@ function packetMarker(packet: Packet, icons: IconShapes): VElement[] {
 }
 
 export function packetPosition(packet: Packet, t: number): Point {
-  const ms = packet.durationMs ?? PHASE_MS;
-  return pointAt(packet.path, pacedProgress(t, packet.roundTrip, ms));
+  return pointAt(packet.path, travelProgress(t, packet.roundTrip, packet.durationMs));
 }

@@ -359,8 +359,10 @@
   position: absolute;
   top: 0;
   left: 0;
-  width: 0;
+  width: 100%;
   height: 2px;
+  transform: scaleX(0);
+  transform-origin: left;
   animation: dav-zone-progress 2s ease-in-out forwards;
 }
 .dav-zone-hud.is-paused .dav-zone-line i {
@@ -368,7 +370,7 @@
 }
 @keyframes dav-zone-progress {
   to {
-    width: 100%;
+    transform: scaleX(1);
   }
 }
 .dav-group.is-zone-active rect {
@@ -483,9 +485,6 @@
 }
 .dav-group-label {
   font-weight: 500;
-}
-.dav-world .dav-scene .dav-group-label {
-  visibility: hidden;
 }
 .dav-node-label,
 .dav-packet-label {

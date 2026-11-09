@@ -1,53 +1,35 @@
-import type { DavDocument, DavEdge, DavNode } from '../model/types';
-import type { Layout, Rect } from './index';
+import type { DavDocument, DavEdge } from '../model/types';
+import { zoneOfGroups } from '../model/zones';
+import {
+  countCrossings,
+  linksOf,
+  properlyCross,
+  type Segment,
+  segmentsOf,
+  shareStation,
+} from './links';
+import {
+  EMPTY_GROUP_CONTENT,
+  GROUP_HEADER,
+  GROUP_PADDING,
+  type Layout,
+  NODE_SIZE,
+  ORIGIN,
+  type Rect,
+  rectRecord,
+  STATION_CENTER,
+  selfLoopRoom,
+} from './metrics';
 
 /** With fewer top-level zones than this there is nothing to rearrange. */
 const MIN_ZONES = 2;
+const LONG_LINK = 700;
 
 export function hasZonesToPlace(doc: Pick<DavDocument, 'groups'>): boolean {
   return doc.groups.filter((g) => g.parentId === undefined).length >= MIN_ZONES;
 }
 
-/** How much the links exceed a comfortable length; a round trip's length counts double. */
-export function longLinkExcess(doc: DavDocument, layout: Layout, stationCenter: number): number {
-  const trips = roundTrips(doc);
-  let excess = 0;
-  for (const e of doc.edges) {
-    const a = layout.nodes[e.from];
-    const b = layout.nodes[e.to];
-    if (!a || !b || e.from === e.to) continue;
-    const dx = a.x + a.width / 2 - (b.x + b.width / 2);
-    const dy = a.y + stationCenter - (b.y + stationCenter);
-    const weight = trips.has(pairKey(e.from, e.to)) ? 2 : 1;
-    excess += Math.max(0, Math.hypot(dx, dy) * weight - LONG_LINK);
-  }
-  return excess;
-}
-
-export interface ZonedMetrics {
-  node: { width: number; height: number };
-  stationCenter: number;
-  groupPadding: number;
-  groupHeader: number;
-  selfLoopRoom: number;
-  selfLoopExtraRoom: number;
-  emptyGroup: { width: number; height: number };
-}
-
-type ColumnLayout = (doc: DavDocument) => Layout;
-type CountCrossings = (doc: DavDocument, layout: Layout) => number;
-
 const pairKey = (a: string, b: string) => (a < b ? `${a}\u0000${b}` : `${b}\u0000${a}`);
-
-/** Everything the zoned layout depends on, so unrelated edits can reuse the last result. */
-export function structureKey(doc: DavDocument): string {
-  return JSON.stringify([
-    doc.nodes.map((n) => [n.id, n.parentId ?? '', n.icon]),
-    doc.groups.map((g) => [g.id, g.parentId ?? '']),
-    doc.edges.map((e) => [e.from, e.to, e.label ?? '']),
-    [...roundTrips(doc)].sort(),
-  ]);
-}
 
 function roundTrips(doc: DavDocument): Set<string> {
   const pairs = new Set<string>();
@@ -59,6 +41,29 @@ function roundTrips(doc: DavDocument): Set<string> {
   return pairs;
 }
 
+/** How much the links exceed a comfortable length; a round trip's length counts double. */
+export function longLinkExcess(doc: DavDocument, layout: Layout): number {
+  const trips = roundTrips(doc);
+  let excess = 0;
+  for (const s of segmentsOf(linksOf(doc), layout)) {
+    const weight = trips.has(pairKey(s.from, s.to)) ? 2 : 1;
+    excess += Math.max(0, Math.hypot(s.ax - s.bx, s.ay - s.by) * weight - LONG_LINK);
+  }
+  return excess;
+}
+
+/** Everything the layout depends on, so unrelated edits can reuse the last result. */
+export function structureKey(doc: DavDocument): string {
+  return JSON.stringify([
+    doc.nodes.map((n) => [n.id, n.parentId ?? '']),
+    doc.groups.map((g) => [g.id, g.parentId ?? '']),
+    doc.edges.map((e) => [e.from, e.to, e.label ?? '']),
+    [...roundTrips(doc)].sort(),
+  ]);
+}
+
+type ColumnLayout = (doc: DavDocument) => Layout;
+
 /** A top-level zone, or a node outside any zone, moved as one rigid piece. */
 interface Block {
   id: string;
@@ -68,54 +73,57 @@ interface Block {
   contentHeight: number;
   flippable: boolean;
   nodes: Map<string, Rect>;
+  /** The zone's own frame first, then the groups nested in it. */
   groups: Map<string, Rect>;
 }
 
-function buildBlocks(doc: DavDocument, columnLayout: ColumnLayout, m: ZonedMetrics) {
-  const zoneOf = new Map<string, string>();
-  for (const g of doc.groups) {
-    zoneOf.set(g.id, g.parentId === undefined ? g.id : (zoneOf.get(g.parentId) ?? g.id));
-  }
-  const ownerOf = (n: DavNode) =>
-    n.parentId === undefined ? n.id : (zoneOf.get(n.parentId) ?? n.id);
-  const owners = new Map(doc.nodes.map((n) => [n.id, ownerOf(n)]));
+/** Makes something directly inside a zone top-level, for laying the zone out on its own. */
+function detach<T extends { parentId?: string }>(item: T, zoneId: string): T {
+  if (item.parentId !== zoneId) return item;
+  const { parentId: _parentId, ...rest } = item;
+  return rest as T;
+}
 
+function buildBlocks(doc: DavDocument, columnLayout: ColumnLayout) {
+  const zoneOf = zoneOfGroups(doc.groups);
+  const owners = new Map(
+    doc.nodes.map((n) => [
+      n.id,
+      n.parentId === undefined ? n.id : (zoneOf.get(n.parentId) ?? n.id),
+    ]),
+  );
+
+  const pad = GROUP_PADDING;
   const blocks: Block[] = [];
   for (const zone of doc.groups) {
     if (zone.parentId !== undefined) continue;
-    const pad = m.groupPadding;
     const nodes = doc.nodes
       .filter((n) => owners.get(n.id) === zone.id)
-      .map(({ parentId, ...rest }) =>
-        parentId === zone.id ? rest : { ...rest, ...(parentId ? { parentId } : {}) },
-      );
+      .map((n) => detach(n, zone.id));
     const nested = doc.groups
       .filter((g) => g.id !== zone.id && zoneOf.get(g.id) === zone.id)
-      .map(({ parentId, ...rest }) =>
-        parentId === zone.id ? rest : { ...rest, ...(parentId ? { parentId } : {}) },
-      );
+      .map((g) => detach(g, zone.id));
     const ids = new Set(nodes.map((n) => n.id));
     const edges = doc.edges.filter((e) => ids.has(e.from) && ids.has(e.to));
-    const loops = new Map<string, number>();
-    for (const e of edges) {
-      if (e.from === e.to) loops.set(e.from, (loops.get(e.from) ?? 0) + 1);
-    }
-    const mostLoops = Math.max(0, ...loops.values());
-    const head =
-      m.groupHeader +
-      pad +
-      (mostLoops > 0 ? m.selfLoopRoom + (mostLoops - 1) * m.selfLoopExtraRoom : 0);
+    const loopRoom = Math.max(0, ...selfLoopRoom({ edges }).values());
+    const head = GROUP_HEADER + pad + loopRoom;
+    const frame = (width: number, height: number): [string, Rect] => [
+      zone.id,
+      { x: 0, y: 0, width, height },
+    ];
 
     if (nodes.length === 0) {
+      const width = EMPTY_GROUP_CONTENT.width + pad * 2;
+      const height = head + EMPTY_GROUP_CONTENT.height + pad;
       blocks.push({
         id: zone.id,
-        width: m.emptyGroup.width + pad * 2,
-        height: head + m.emptyGroup.height + pad,
+        width,
+        height,
         head,
-        contentHeight: m.emptyGroup.height,
+        contentHeight: EMPTY_GROUP_CONTENT.height,
         flippable: false,
         nodes: new Map(),
-        groups: new Map(),
+        groups: new Map([frame(width, height)]),
       });
       continue;
     }
@@ -124,23 +132,27 @@ function buildBlocks(doc: DavDocument, columnLayout: ColumnLayout, m: ZonedMetri
     const rects = [...Object.values(local.nodes), ...Object.values(local.groups)];
     const minX = Math.min(...rects.map((r) => r.x));
     const minY = Math.min(...rects.map((r) => r.y));
-    const contentWidth = Math.max(...rects.map((r) => r.x + r.width)) - minX;
+    const width = Math.max(...rects.map((r) => r.x + r.width)) - minX + pad * 2;
     const contentHeight = Math.max(...rects.map((r) => r.y + r.height)) - minY;
+    const height = head + contentHeight + pad;
     const place = (r: Rect): Rect => ({ ...r, x: r.x - minX + pad, y: r.y - minY + head });
     blocks.push({
       id: zone.id,
-      width: contentWidth + pad * 2,
-      height: head + contentHeight + pad,
+      width,
+      height,
       head,
       contentHeight,
-      flippable: mostLoops === 0 && nested.length === 0,
+      flippable: loopRoom === 0 && nested.length === 0,
       nodes: new Map(Object.entries(local.nodes).map(([id, r]) => [id, place(r)])),
-      groups: new Map(Object.entries(local.groups).map(([id, r]) => [id, place(r)])),
+      groups: new Map([
+        frame(width, height),
+        ...Object.entries(local.groups).map(([id, r]): [string, Rect] => [id, place(r)]),
+      ]),
     });
   }
   for (const n of doc.nodes) {
     if (owners.get(n.id) !== n.id) continue;
-    const { width, height } = m.node;
+    const { width, height } = NODE_SIZE;
     blocks.push({
       id: n.id,
       width,
@@ -218,21 +230,20 @@ interface Placed {
   flip: 0 | 1;
 }
 
-interface Link {
-  a: Placed;
-  b: Placed;
-  ax: number;
-  bx: number;
-  ay: readonly [number, number];
-  by: readonly [number, number];
-  from: string;
-  to: string;
+/** A link between two blocks; its `Segment` part is refreshed by every cost evaluation. */
+interface BlockLink extends Segment {
+  source: Placed;
+  target: Placed;
+  sourceX: number;
+  targetX: number;
+  sourceY: readonly [number, number];
+  targetY: readonly [number, number];
   /** A round trip covers the rail twice in its time, so its length counts double. */
   weight: number;
-  x1: number;
-  y1: number;
-  x2: number;
-  y2: number;
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
 }
 
 const ITERATIONS = 16000;
@@ -241,16 +252,11 @@ const START_TEMPERATURE = 500;
 const END_TEMPERATURE = 1.5;
 const HORIZONTAL_CLEARANCE = 60;
 const VERTICAL_CLEARANCE = 34;
-const LONG_LINK = 700;
 const ALIGN_REACH = 140;
 const ALIGN_TOLERANCE = 30;
 
 function flippedY(block: Block, rect: Rect): number {
   return block.head + block.contentHeight - (rect.y - block.head) - rect.height;
-}
-
-function side(ax: number, ay: number, bx: number, by: number, cx: number, cy: number): number {
-  return Math.sign((bx - ax) * (cy - ay) - (by - ay) * (cx - ax));
 }
 
 /** Small seeded generator: the same diagram must always get the same layout. */
@@ -264,47 +270,60 @@ function seededRandom(start: number): () => number {
   };
 }
 
-function linkCost(links: readonly Link[], placed: readonly Placed[]): number {
+function runsThrough(link: BlockLink, p: Placed): boolean {
+  const right = p.x + p.block.width;
+  const bottom = p.y + p.block.height;
+  if (link.maxX <= p.x || link.minX >= right || link.maxY <= p.y || link.minY >= bottom) {
+    return false;
+  }
+  const dx = link.bx - link.ax;
+  const dy = link.by - link.ay;
+  for (let i = 1; i < 7; i++) {
+    const x = link.ax + (dx * i) / 7;
+    const y = link.ay + (dy * i) / 7;
+    if (x > p.x && x < right && y > p.y && y < bottom) return true;
+  }
+  return false;
+}
+
+/** Evaluated for every candidate move, so it avoids allocating and rejects by bounding box. */
+function linkCost(links: readonly BlockLink[], placed: readonly Placed[]): number {
   let total = 0;
   for (const l of links) {
-    l.x1 = l.a.x + l.ax;
-    l.y1 = l.a.y + l.ay[l.a.flip];
-    l.x2 = l.b.x + l.bx;
-    l.y2 = l.b.y + l.by[l.b.flip];
-    const dx = l.x2 - l.x1;
-    const dy = l.y2 - l.y1;
-    const length = Math.hypot(dx, dy);
+    l.ax = l.source.x + l.sourceX;
+    l.ay = l.source.y + l.sourceY[l.source.flip];
+    l.bx = l.target.x + l.targetX;
+    l.by = l.target.y + l.targetY[l.target.flip];
+    l.minX = Math.min(l.ax, l.bx);
+    l.maxX = Math.max(l.ax, l.bx);
+    l.minY = Math.min(l.ay, l.by);
+    l.maxY = Math.max(l.ay, l.by);
+    const dx = l.bx - l.ax;
+    const length = Math.hypot(dx, l.by - l.ay);
     total += length * 0.06 + Math.max(0, length * l.weight - LONG_LINK);
     if (dx < -60) total += 260 - dx * 0.3;
     for (const p of placed) {
-      if (p === l.a || p === l.b) continue;
-      for (let i = 1; i < 7; i++) {
-        const x = l.x1 + (dx * i) / 7;
-        const y = l.y1 + (dy * i) / 7;
-        if (x > p.x && x < p.x + p.block.width && y > p.y && y < p.y + p.block.height) {
-          total += 130;
-          break;
-        }
-      }
+      if (p !== l.source && p !== l.target && runsThrough(l, p)) total += 130;
     }
   }
   for (let i = 0; i < links.length; i++) {
-    const s = links[i] as Link;
+    const s = links[i] as BlockLink;
     for (let j = i + 1; j < links.length; j++) {
-      const t = links[j] as Link;
-      if (s.from === t.from || s.from === t.to || s.to === t.from || s.to === t.to) continue;
-      if (
-        side(s.x1, s.y1, s.x2, s.y2, t.x1, t.y1) * side(s.x1, s.y1, s.x2, s.y2, t.x2, t.y2) < 0 &&
-        side(t.x1, t.y1, t.x2, t.y2, s.x1, s.y1) * side(t.x1, t.y1, t.x2, t.y2, s.x2, s.y2) < 0
-      ) {
-        total += 250;
-      }
+      const t = links[j] as BlockLink;
+      if (s.maxX < t.minX || t.maxX < s.minX || s.maxY < t.minY || t.maxY < s.minY) continue;
+      if (!shareStation(s, t) && properlyCross(s, t)) total += 250;
     }
   }
-  const right = Math.max(...placed.map((p) => p.x + p.block.width));
-  const left = Math.min(...placed.map((p) => p.x));
-  const bottom = Math.max(...placed.map((p) => p.y + p.block.height));
-  const top = Math.min(...placed.map((p) => p.y));
+  let left = Number.POSITIVE_INFINITY;
+  let right = Number.NEGATIVE_INFINITY;
+  let top = Number.POSITIVE_INFINITY;
+  let bottom = Number.NEGATIVE_INFINITY;
+  for (const p of placed) {
+    left = Math.min(left, p.x);
+    right = Math.max(right, p.x + p.block.width);
+    top = Math.min(top, p.y);
+    bottom = Math.max(bottom, p.y + p.block.height);
+  }
   return total + (right - left + (bottom - top) * 1.4) * 0.6;
 }
 
@@ -323,7 +342,7 @@ function isClear(a: Placed, placed: readonly Placed[]): boolean {
   return true;
 }
 
-function anneal(links: readonly Link[], placed: Placed[], random: () => number): void {
+function anneal(links: readonly BlockLink[], placed: Placed[], random: () => number): void {
   let current = linkCost(links, placed);
   let best = current;
   let bestState = placed.map((p) => ({ x: p.x, y: p.y, flip: p.flip }));
@@ -382,55 +401,57 @@ function anneal(links: readonly Link[], placed: Placed[], random: () => number):
   });
 }
 
+function alignmentCandidates(a: Placed, b: Placed): Array<{ x: number; y: number }> {
+  return [
+    { x: a.x, y: b.y },
+    { x: a.x, y: b.y + b.block.height - a.block.height },
+    { x: a.x, y: b.y + (b.block.height - a.block.height) / 2 },
+    { x: b.x, y: a.y },
+  ];
+}
+
+/** Moves `a` to `to` if that costs almost nothing, and returns the cost to compare against. */
+function tryAlign(
+  a: Placed,
+  to: { x: number; y: number },
+  base: number,
+  links: readonly BlockLink[],
+  placed: readonly Placed[],
+): number {
+  const { x: ox, y: oy } = a;
+  const moved = to.x !== ox || to.y !== oy;
+  if (!moved || Math.abs(to.x - ox) > ALIGN_REACH || Math.abs(to.y - oy) > ALIGN_REACH) return base;
+  a.x = to.x;
+  a.y = to.y;
+  const cost = isClear(a, placed) ? linkCost(links, placed) : Number.POSITIVE_INFINITY;
+  if (cost <= base + ALIGN_TOLERANCE) return Math.min(base, cost);
+  a.x = ox;
+  a.y = oy;
+  return base;
+}
+
 /** Lines up zone edges where that barely costs anything, so that the result reads as tidy. */
-function alignEdges(links: readonly Link[], placed: readonly Placed[]): void {
+function alignEdges(links: readonly BlockLink[], placed: readonly Placed[]): void {
   let base = linkCost(links, placed);
   for (let round = 0; round < 3; round++) {
     for (const a of placed) {
       for (const b of placed) {
         if (a === b) continue;
-        const candidates = [
-          { x: a.x, y: b.y },
-          { x: a.x, y: b.y + b.block.height - a.block.height },
-          { x: a.x, y: b.y + (b.block.height - a.block.height) / 2 },
-          { x: b.x, y: a.y },
-        ];
-        for (const c of candidates) {
-          const { x: ox, y: oy } = a;
-          if (
-            (c.x === ox && c.y === oy) ||
-            Math.abs(c.x - ox) > ALIGN_REACH ||
-            Math.abs(c.y - oy) > ALIGN_REACH
-          ) {
-            continue;
-          }
-          a.x = c.x;
-          a.y = c.y;
-          const cost = isClear(a, placed) ? linkCost(links, placed) : Number.POSITIVE_INFINITY;
-          if (cost <= base + ALIGN_TOLERANCE) {
-            base = Math.min(base, cost);
-          } else {
-            a.x = ox;
-            a.y = oy;
-          }
-        }
+        for (const to of alignmentCandidates(a, b)) base = tryAlign(a, to, base, links, placed);
       }
     }
   }
 }
 
-function toLayout(placed: readonly Placed[], origin: number): Layout {
+function toLayout(placed: readonly Placed[]): Layout {
   const minX = Math.min(...placed.map((p) => p.x));
   const minY = Math.min(...placed.map((p) => p.y));
-  const nodes = Object.create(null) as Record<string, Rect>;
-  const groups = Object.create(null) as Record<string, Rect>;
+  const nodes = rectRecord();
+  const groups = rectRecord();
   for (const p of placed) {
-    const left = Math.round(p.x - minX + origin);
-    const top = Math.round(p.y - minY + origin);
+    const left = Math.round(p.x - minX + ORIGIN.x);
+    const top = Math.round(p.y - minY + ORIGIN.x);
     const { block } = p;
-    if (block.nodes.size !== 1 || !block.nodes.has(block.id)) {
-      groups[block.id] = { x: left, y: top, width: block.width, height: block.height };
-    }
     for (const [id, r] of block.nodes) {
       nodes[id] = { ...r, x: left + r.x, y: top + (p.flip ? flippedY(block, r) : r.y) };
     }
@@ -442,65 +463,64 @@ function toLayout(placed: readonly Placed[], origin: number): Layout {
 }
 
 /**
- * Lays out a large diagram zone by zone: each zone is arranged on its own, then the zones are
+ * Lays out a diagram zone by zone: each zone is arranged on its own, then the zones are
  * placed freely by simulated annealing. Shared columns are given up for shorter links between
  * zones. Seeded, so the same diagram always gets the same layout.
  */
-export function computeZonedLayout(
-  doc: DavDocument,
-  columnLayout: ColumnLayout,
-  countCrossings: CountCrossings,
-  metrics: ZonedMetrics,
-  origin: number,
-): Layout {
-  const { blocks, owners } = buildBlocks(doc, columnLayout, metrics);
+export function computeZonedLayout(doc: DavDocument, columnLayout: ColumnLayout): Layout {
+  const { blocks, owners } = buildBlocks(doc, columnLayout);
   const start = initialPositions(doc, blocks, owners, columnLayout);
   const trips = roundTrips(doc);
-  const blockById = new Map(blocks.map((b) => [b.id, b]));
-  const relative = (id: string) => {
-    const owner = owners.get(id) as string;
-    const block = blockById.get(owner) as Block;
-    const r = block.nodes.get(id) as Rect;
+  const placed: Placed[] = blocks.map((block) => ({ block, x: 0, y: 0, flip: 0 }));
+  const placedOf = new Map(placed.map((p) => [p.block.id, p]));
+  const anchor = (id: string) => {
+    const p = placedOf.get(owners.get(id) as string) as Placed;
+    const r = p.block.nodes.get(id) as Rect;
     return {
-      block,
+      p,
       x: r.x + r.width / 2,
-      y: [r.y + metrics.stationCenter, flippedY(block, r) + metrics.stationCenter] as const,
+      y: [r.y + STATION_CENTER, flippedY(p.block, r) + STATION_CENTER] as const,
     };
   };
+  const links: BlockLink[] = doc.edges
+    .filter((e) => owners.get(e.from) !== owners.get(e.to))
+    .filter((e) => owners.has(e.from) && owners.has(e.to))
+    .map((e) => {
+      const a = anchor(e.from);
+      const b = anchor(e.to);
+      return {
+        source: a.p,
+        target: b.p,
+        sourceX: a.x,
+        targetX: b.x,
+        sourceY: a.y,
+        targetY: b.y,
+        from: e.from,
+        to: e.to,
+        weight: trips.has(pairKey(e.from, e.to)) ? 2 : 1,
+        ax: 0,
+        ay: 0,
+        bx: 0,
+        by: 0,
+        minX: 0,
+        maxX: 0,
+        minY: 0,
+        maxY: 0,
+      };
+    });
 
   let bestScore = Number.POSITIVE_INFINITY;
   let bestLayout: Layout = { nodes: {}, groups: {} };
   for (const seed of SEEDS) {
-    const placed: Placed[] = blocks.map((block) => {
-      const at = start.get(block.id) ?? { x: 0, y: 0 };
-      return { block, x: at.x, y: at.y, flip: 0 };
-    });
-    const placedOf = new Map(placed.map((p) => [p.block, p]));
-    const links: Link[] = doc.edges
-      .filter((e) => owners.get(e.from) !== owners.get(e.to))
-      .filter((e) => owners.has(e.from) && owners.has(e.to))
-      .map((e) => {
-        const a = relative(e.from);
-        const b = relative(e.to);
-        return {
-          a: placedOf.get(a.block) as Placed,
-          b: placedOf.get(b.block) as Placed,
-          ax: a.x,
-          bx: b.x,
-          ay: a.y,
-          by: b.y,
-          from: e.from,
-          to: e.to,
-          weight: trips.has(pairKey(e.from, e.to)) ? 2 : 1,
-          x1: 0,
-          y1: 0,
-          x2: 0,
-          y2: 0,
-        };
-      });
+    for (const p of placed) {
+      const at = start.get(p.block.id) ?? { x: 0, y: 0 };
+      p.x = at.x;
+      p.y = at.y;
+      p.flip = 0;
+    }
     anneal(links, placed, seededRandom(seed * 104729));
     alignEdges(links, placed);
-    const layout = toLayout(placed, origin);
+    const layout = toLayout(placed);
     const score = linkCost(links, placed) + countCrossings(doc, layout) * 150;
     if (score < bestScore) {
       bestScore = score;

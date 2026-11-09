@@ -7,6 +7,7 @@ import {
   type IconName,
   type LineStyle,
 } from '../model/types';
+import { zoneOfGroups } from '../model/zones';
 import { separatePhaseCallouts } from './callout';
 import {
   type Bezier,
@@ -18,7 +19,7 @@ import {
   selfLoop,
   shiftLeft,
 } from './geometry';
-import { pacePhase } from './timing';
+import { PHASE_MS, pacePhase } from './timing';
 
 export const DEFAULT_FLOW_COLOR = 'var(--dav-accent)';
 const DEFAULT_EDGE_COLOR = 'var(--dav-edge)';
@@ -85,8 +86,11 @@ export interface Packet {
   clearTop: number;
   /** Zone names on the canvas, which the callout must not cover. */
   labelAreas: readonly Rect[];
-  /** How long this packet travels; set once its phase has been timed. */
-  durationMs?: number;
+  /** How long this packet travels at 1x. */
+  durationMs: number;
+  /** The top-level group each endpoint belongs to, if any. */
+  fromZone?: string;
+  toZone?: string;
 }
 
 export interface ResolvedView {
@@ -326,6 +330,11 @@ export function resolveView(
     );
     return candidates.find(isShown) ?? candidates[0];
   };
+  const zoneOfGroup = zoneOfGroups(doc.groups);
+  const zoneOf = (nodeId: string) => {
+    const parent = nodeParent.get(nodeId);
+    return parent === undefined ? undefined : zoneOfGroup.get(parent);
+  };
   const phases: Packet[][] = [];
   const activeEdges = new Map<string, string>();
   for (const a of step?.animations ?? []) {
@@ -354,7 +363,12 @@ export function resolveView(
       roundTrip: a.direction === 'bidirectional',
       clearTop: Math.min(fromNode.rect.y, toNode.rect.y),
       labelAreas,
+      durationMs: PHASE_MS,
     };
+    const fromZone = zoneOf(a.from);
+    const toZone = zoneOf(a.to);
+    if (fromZone !== undefined) packet.fromZone = fromZone;
+    if (toZone !== undefined) packet.toZone = toZone;
     if (edge) packet.edgeId = edge.id;
     if (a.label !== undefined) packet.label = a.label;
     if (a.description !== undefined) packet.description = a.description;

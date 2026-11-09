@@ -10,7 +10,8 @@ import { COLOR_NAMES, COLOR_RESET, ICON_NAMES } from '../../model/types';
 import { buildAiPrompt } from '../../prompt';
 import { html } from '../../runtime/dom';
 import type { ViewerLocale } from '../../runtime/i18n';
-import { HOLD_MS, MAX_PHASE_MS, MIN_PACKET_MS, PHASE_MS, SPEEDS } from '../../runtime/player';
+import { HOLD_MS, SPEEDS } from '../../runtime/player';
+import { MAX_PHASE_MS, MIN_PACKET_MS, PHASE_MS } from '../../scene';
 import { colorLab, colorPalette, iconCatalog } from './catalog';
 import { codeBlock } from './code';
 import {

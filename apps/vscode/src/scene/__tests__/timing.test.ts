@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
 import { computeLayout } from '../../layout';
-import { packetPosition, resolveView } from '../index';
+import { packetPosition, resolveView, zoneMoves } from '../index';
 
 function diagram(size: number, zones: number): string {
   const lines = ['dav 1'];
@@ -22,13 +22,12 @@ function diagram(size: number, zones: number): string {
 }
 
 describe('packet timing', () => {
-  const large = parse(diagram(6, 8)).document;
-  const view = resolveView(large, computeLayout(large), 0);
+  const { document } = parse(diagram(6, 8));
+  const view = resolveView(document, computeLayout(document), 0);
 
-  it('gives every phase of a large diagram its own duration', () => {
-    const durations = view.phaseDurations as number[];
-    expect(durations).toHaveLength(view.phases.length);
-    for (const ms of durations) {
+  it('gives every phase its own duration', () => {
+    expect(view.phaseDurations).toHaveLength(view.phases.length);
+    for (const ms of view.phaseDurations) {
       expect(ms).toBeGreaterThanOrEqual(1300);
       expect(ms).toBeLessThanOrEqual(5000);
     }
@@ -41,13 +40,13 @@ describe('packet timing', () => {
   it('times a phase by its slowest packet', () => {
     const parallel = view.phases[2] ?? [];
     expect(parallel).toHaveLength(3);
-    expect(view.phaseDurations?.[2]).toBe(Math.max(...parallel.map((p) => p.durationMs as number)));
+    expect(view.phaseDurations[2]).toBe(Math.max(...parallel.map((p) => p.durationMs)));
   });
 
   it('slows packets that move at the same time', () => {
     const lone = view.phases[0]?.[0];
     const crowded = view.phases[2]?.[0];
-    const speed = (p: typeof lone) => (p ? 1 / (p.durationMs as number) : 0);
+    const speed = (p: typeof lone) => (p ? 1 / p.durationMs : 0);
     expect(speed(crowded)).toBeLessThanOrEqual(speed(lone));
   });
 
@@ -59,11 +58,43 @@ describe('packet timing', () => {
     expect(packetPosition(packet, 0.52)).toEqual(packet.path.p3);
     expect(packetPosition(packet, 1)).toEqual(packet.path.p0);
   });
+});
 
-  it('times small diagrams the same way', () => {
-    const small = parse(diagram(2, 4)).document;
-    const smallView = resolveView(small, computeLayout(small), 0);
-    expect(smallView.phaseDurations).toHaveLength(smallView.phases.length);
-    expect(smallView.phases[0]?.[0]?.durationMs).toBeGreaterThanOrEqual(1300);
+describe('zone moves', () => {
+  const moves = (dsl: string) => {
+    const { document } = parse(`dav 1\n${dsl}`);
+    const view = resolveView(document, computeLayout(document), 0);
+    return zoneMoves(view, view.phases.flat()).map(([from, to]) => [from.label, to.label]);
+  };
+
+  it('names the zones a packet moves between, once per pair', () => {
+    expect(
+      moves(`group a "A" { node a1 }
+group b "B" { node b1 }
+step "s" {
+  animate a1 --> b1
+  animate a1 --> b1
+}`),
+    ).toEqual([['A', 'B']]);
+  });
+
+  it('uses the top-level zone of a nested node', () => {
+    expect(
+      moves(`group a "A" { group inner "Inner" { node a1 } }
+group b "B" { node b1 }
+step "s" { animate a1 --> b1 }`),
+    ).toEqual([['A', 'B']]);
+  });
+
+  it('names a node outside any zone', () => {
+    expect(
+      moves(`node loose "Loose"
+group b "B" { node b1 }
+step "s" { animate loose --> b1 }`),
+    ).toEqual([['Loose', 'B']]);
+  });
+
+  it('skips a move with no zone at either end', () => {
+    expect(moves('node x\nnode y\nstep "s" { animate x --> y }')).toEqual([]);
   });
 });
