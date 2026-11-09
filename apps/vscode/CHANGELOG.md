@@ -5,7 +5,10 @@ The `dav` language version is separate from the extension version.
 
 ## Unreleased
 
-- Large diagrams (40 or more nodes in 4 or more zones): zones are placed freely to shorten the links between them, packets are timed by the distance they travel, and the player shows which zones a phase moves between, keeps zone names on screen, moves the camera less and adds a minimap
+- Packets are timed by the distance they travel, so that a long rail no longer means a fast packet
+- The player shows which zones a phase moves between, keeps zone names on screen, moves the camera less, and has a minimap you can turn on next to the zoom controls
+- Zones are placed freely when that shortens links that would otherwise be too long
+- Playback speeds of 0.75x and 1.25x
 
 ## 0.2.0 (2026-11-09)
 

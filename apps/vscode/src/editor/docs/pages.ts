@@ -10,7 +10,7 @@ import { COLOR_NAMES, COLOR_RESET, ICON_NAMES } from '../../model/types';
 import { buildAiPrompt } from '../../prompt';
 import { html } from '../../runtime/dom';
 import type { ViewerLocale } from '../../runtime/i18n';
-import { HOLD_MS, PHASE_MS, SPEEDS } from '../../runtime/player';
+import { HOLD_MS, MAX_PHASE_MS, MIN_PACKET_MS, PHASE_MS, SPEEDS } from '../../runtime/player';
 import { colorLab, colorPalette, iconCatalog } from './catalog';
 import { codeBlock } from './code';
 import {
@@ -190,20 +190,16 @@ function scopeChip(t: Translate, kind: 'carry' | 'local'): HTMLElement {
 const key = (text: string) => html('kbd', {}, text);
 
 function timingBar(t: Translate): HTMLElement {
-  const segment = (label: string, ms: number, cls: string) => {
-    const el = html(
-      'div',
-      { class: `doc-timing-seg ${cls}` },
-      html('span', {}, label),
-      `${ms / 1000}s`,
-    );
+  const segment = (label: string, ms: number, cls: string, time = `${ms / 1000}s`) => {
+    const el = html('div', { class: `doc-timing-seg ${cls}` }, html('span', {}, label), time);
     el.style.flexGrow = String(ms);
     return el;
   };
+  const phaseTime = `${MIN_PACKET_MS / 1000}–${MAX_PHASE_MS / 1000}s`;
   return html(
     'div',
     { class: 'doc-timing', role: 'img', 'aria-label': t('1倍速の時間配分', 'Timing at 1x') },
-    ...[1, 2, 3].map((n) => segment(`${t('フェーズ', 'Phase')} ${n}`, PHASE_MS, '')),
+    ...[1, 2, 3].map((n) => segment(`${t('フェーズ', 'Phase')} ${n}`, PHASE_MS, '', phaseTime)),
     segment(t('保持', 'Hold'), HOLD_MS, 'is-hold'),
   );
 }
@@ -1084,8 +1080,8 @@ export const DOC_PAGES: readonly DocPage[] = [
         timingBar(t),
         p(
           t(
-            `1フェーズは ${PHASE_MS / 1000} 秒、最後のフェーズの後に ${HOLD_MS / 1000} 秒保持します。速度は ${SPEEDS[0]}x〜${SPEEDS[SPEEDS.length - 1]}x に変更できます。40 ノード以上かつゾーンが 4 つ以上の大きな図では、パケットの移動距離に応じて 1 フェーズが 1.3〜5 秒になります。`,
-            `Each phase takes ${PHASE_MS / 1000}s, followed by a ${HOLD_MS / 1000}s hold after the last one. Speed ranges from ${SPEEDS[0]}x to ${SPEEDS[SPEEDS.length - 1]}x. In large diagrams (40 or more nodes in 4 or more zones), a phase lasts 1.3 to 5 seconds, according to how far its packets travel.`,
+            `1フェーズはパケットの移動距離に応じて ${MIN_PACKET_MS / 1000}〜${MAX_PHASE_MS / 1000} 秒で、最後のフェーズの後に ${HOLD_MS / 1000} 秒保持します。速度は ${SPEEDS[0]}x〜${SPEEDS[SPEEDS.length - 1]}x に変更できます。`,
+            `A phase lasts ${MIN_PACKET_MS / 1000} to ${MAX_PHASE_MS / 1000}s, according to how far its packets travel, followed by a ${HOLD_MS / 1000}s hold after the last one. Speed ranges from ${SPEEDS[0]}x to ${SPEEDS[SPEEDS.length - 1]}x.`,
           ),
         ),
         h2(t('操作', 'Controls')),

@@ -60,10 +60,10 @@ describe('packet timing', () => {
     expect(packetPosition(packet, 1)).toEqual(packet.path.p0);
   });
 
-  it('leaves small diagrams on the fixed phase length', () => {
+  it('times small diagrams the same way', () => {
     const small = parse(diagram(2, 4)).document;
     const smallView = resolveView(small, computeLayout(small), 0);
-    expect(smallView.phaseDurations).toBeUndefined();
-    expect(smallView.phases[0]?.[0]?.durationMs).toBeUndefined();
+    expect(smallView.phaseDurations).toHaveLength(smallView.phases.length);
+    expect(smallView.phases[0]?.[0]?.durationMs).toBeGreaterThanOrEqual(1300);
   });
 });

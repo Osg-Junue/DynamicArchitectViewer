@@ -1,16 +1,27 @@
 import type { DavDocument, DavEdge, DavNode } from '../model/types';
 import type { Layout, Rect } from './index';
 
-/** Below this size a diagram keeps the column layout, whose columns line up across zones. */
-export const LARGE_DIAGRAM_NODES = 40;
-const MIN_ZONES = 4;
+/** With fewer top-level zones than this there is nothing to rearrange. */
+const MIN_ZONES = 2;
 
-/** Zones get placed freely only in big diagrams, where shared columns cost too much distance. */
-export function isLargeDiagram(doc: Pick<DavDocument, 'nodes' | 'groups'>): boolean {
-  return (
-    doc.nodes.length >= LARGE_DIAGRAM_NODES &&
-    doc.groups.filter((g) => g.parentId === undefined).length >= MIN_ZONES
-  );
+export function hasZonesToPlace(doc: Pick<DavDocument, 'groups'>): boolean {
+  return doc.groups.filter((g) => g.parentId === undefined).length >= MIN_ZONES;
+}
+
+/** How much the links exceed a comfortable length; a round trip's length counts double. */
+export function longLinkExcess(doc: DavDocument, layout: Layout, stationCenter: number): number {
+  const trips = roundTrips(doc);
+  let excess = 0;
+  for (const e of doc.edges) {
+    const a = layout.nodes[e.from];
+    const b = layout.nodes[e.to];
+    if (!a || !b || e.from === e.to) continue;
+    const dx = a.x + a.width / 2 - (b.x + b.width / 2);
+    const dy = a.y + stationCenter - (b.y + stationCenter);
+    const weight = trips.has(pairKey(e.from, e.to)) ? 2 : 1;
+    excess += Math.max(0, Math.hypot(dx, dy) * weight - LONG_LINK);
+  }
+  return excess;
 }
 
 export interface ZonedMetrics {

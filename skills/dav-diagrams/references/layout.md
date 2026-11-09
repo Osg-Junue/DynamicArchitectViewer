@@ -167,9 +167,9 @@ Each group, and the top level, places two kinds of block: the nodes directly in 
 
 Crossings are counted on straight lines between station centers (`countCrossings`), and edges sharing a station do not count. Drawn rails curve around nodes, so the drawn count can differ.
 
-### Large diagrams
+### Placing zones freely
 
-A diagram with at least 40 nodes and 4 top-level zones is placed by `layout/large.ts` instead:
+When the column layout leaves a link longer than 700 units (a link used for a round trip counts double) and there are at least two top-level zones, `layout/zoned.ts` tries another arrangement. It is kept only if it shortens the long links without adding crossings:
 
 1. Each top-level zone is laid out on its own, with the rules above.
 2. The zones start in the columns of a graph that has one node per zone.
@@ -177,8 +177,6 @@ A diagram with at least 40 nodes and 4 top-level zones is placed by `layout/larg
 4. Zone edges are aligned where that costs almost nothing. The best of six seeded runs is kept.
 
 The result is deterministic. Zones no longer share columns, so a column does not line up across the diagram. The search takes up to about a second, so the last result is reused until the nodes, groups, edges or round trips change.
-
-Such a diagram is also played differently: phases last 1.3 to 5 seconds according to how far their packets travel, and the player names the zones a phase moves between. See `scene/timing.ts`.
 
 ### Invariants
 

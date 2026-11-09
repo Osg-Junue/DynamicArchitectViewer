@@ -140,7 +140,11 @@ function phaseStrip(t: Translate, onSelect: (phase: number) => void) {
             'span',
             { class: 'doc-phase-head' },
             html('span', {}, `${t('フェーズ', 'Phase')} ${index + 1}`),
-            html('span', { class: 'doc-phase-time' }, `${PHASE_MS / 1000}s`),
+            html(
+              'span',
+              { class: 'doc-phase-time' },
+              `${((view.phaseDurations[index] ?? PHASE_MS) / 1000).toFixed(1)}s`,
+            ),
           ),
           ...packets.map((packet) =>
             html(

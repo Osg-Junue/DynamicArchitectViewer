@@ -13,6 +13,7 @@ export interface ViewerStrings {
   zoomOut: string;
   fit: string;
   followAnim: string;
+  minimap: string;
   steps: string;
   step: string;
   selectStep: string;
@@ -37,6 +38,7 @@ export const VIEWER_STRINGS: Record<ViewerLocale, ViewerStrings> = {
     zoomOut: '縮小',
     fit: '全体を表示',
     followAnim: 'アニメーションに追従',
+    minimap: 'ミニマップ',
     steps: 'ステップ一覧',
     step: 'ステップ',
     selectStep: 'ステップを選択',
@@ -59,6 +61,7 @@ export const VIEWER_STRINGS: Record<ViewerLocale, ViewerStrings> = {
     zoomOut: 'Zoom out',
     fit: 'Fit',
     followAnim: 'Focus on active animation',
+    minimap: 'Minimap',
     steps: 'Steps',
     step: 'Step',
     selectStep: 'Select step',

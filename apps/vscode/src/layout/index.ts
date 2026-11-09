@@ -1,8 +1,6 @@
 import { EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH, estimateTextWidth } from '../model/text';
 import type { DavDocument, IconName } from '../model/types';
-import { computeZonedLayout, isLargeDiagram, structureKey } from './large';
-
-export { isLargeDiagram, LARGE_DIAGRAM_NODES } from './large';
+import { computeZonedLayout, hasZonesToPlace, longLinkExcess, structureKey } from './zoned';
 
 export interface Rect {
   x: number;
@@ -73,14 +71,17 @@ export function defaultNodeSize(_icon: IconName): { width: number; height: numbe
  * - The vertical order is then refined by barycenter sweeps. A result is kept only if it has
  *   fewer crossings, or as many with shorter rails, so refinement never makes a diagram worse.
  *
- * Large diagrams are placed zone by zone instead (see `computeZonedLayout`).
+ * When that leaves links too long, placing the zones freely is tried as well, and kept only
+ * if it shortens them without adding crossings (see `computeZonedLayout`).
  */
 export function computeLayout(doc: DavDocument): Layout {
-  if (!isLargeDiagram(doc)) return computeColumnLayout(doc);
+  const columns = computeColumnLayout(doc);
+  const excess = longLinkExcess(doc, columns, STATION_CENTER);
+  if (excess === 0 || !hasZonesToPlace(doc)) return columns;
   // The zoned search takes a noticeable moment; most edits do not change the structure.
   const key = structureKey(doc);
   if (zonedMemo?.key === key) return zonedMemo.layout;
-  const layout = computeZonedLayout(
+  const zoned = computeZonedLayout(
     doc,
     computeColumnLayout,
     countCrossings,
@@ -95,6 +96,10 @@ export function computeLayout(doc: DavDocument): Layout {
     },
     ORIGIN.x,
   );
+  const better =
+    longLinkExcess(doc, zoned, STATION_CENTER) < excess &&
+    countCrossings(doc, zoned) <= countCrossings(doc, columns);
+  const layout = better ? zoned : columns;
   zonedMemo = { key, layout };
   return layout;
 }

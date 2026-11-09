@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
-import { computeLayout, isLargeDiagram, type Rect } from '../index';
+import { computeLayout, type Rect } from '../index';
 
-/** Eight zones of `size` chained nodes, each zone feeding the next from its last node. */
+/** Zones of `size` chained nodes in a row, with links from the first zone to all the others. */
 function bigDiagram(size = 6, zones = 8): string {
   const lines = ['dav 1'];
   for (let z = 0; z < zones; z++) {
@@ -11,6 +11,7 @@ function bigDiagram(size = 6, zones = 8): string {
     lines.push('}');
     for (let n = 1; n < size; n++) lines.push(`z${z}n${n - 1} --> z${z}n${n}`);
     if (z > 0) lines.push(`z${z - 1}n${size - 1} <-> z${z}n0`);
+    if (z > 1) lines.push(`z0n0 --> z${z}n${size - 1}`);
   }
   lines.push('step "Hop" {');
   lines.push('  animate z0n0 --> z0n1 : "short"');
@@ -31,13 +32,26 @@ const contains = (outer: Rect, inner: Rect) =>
   inner.x + inner.width <= outer.x + outer.width &&
   inner.y + inner.height <= outer.y + outer.height;
 
-describe('large diagrams', () => {
+describe('zoned placement', () => {
   const { document } = parse(bigDiagram());
   const layout = computeLayout(document);
 
-  it('only applies from a certain size', () => {
-    expect(isLargeDiagram(document)).toBe(true);
-    expect(isLargeDiagram(parse(bigDiagram(2, 4)).document)).toBe(false);
+  it('moves zones off the shared columns when links are too long', () => {
+    const columns = new Set(Object.values(layout.nodes).map((n) => n.x));
+    expect(columns.size).toBeLessThan(document.nodes.length);
+  });
+
+  it('keeps shared columns when no link is too long', () => {
+    const { document: compact } = parse(`dav 1
+group a { node a1
+node a2 }
+group b { node b1
+node b2 }
+a1 --> a2
+b1 --> b2`);
+    const { nodes } = computeLayout(compact);
+    expect(nodes.a1?.x).toBe(nodes.b1?.x);
+    expect(nodes.a2?.x).toBe(nodes.b2?.x);
   });
 
   it('gives the same layout every time', () => {

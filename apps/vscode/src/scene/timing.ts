@@ -1,7 +1,7 @@
 import { curveLength } from './geometry';
 import type { Packet } from './resolve';
 
-/** Duration of one animation phase at 1x, unless the diagram is paced by distance. */
+/** A typical phase at 1x; the actual length of each one depends on what travels how far. */
 export const PHASE_MS = 2000;
 
 /** Top average speed of a lone packet, in diagram units per second at 1x. */
@@ -10,10 +10,10 @@ const MAX_SPEED = 260;
 const PARALLEL_SLOWDOWN = 0.3;
 /** Coming back on the same rail is harder to follow, so a round trip goes slower. */
 const ROUND_TRIP_SPEED = 0.75;
-const MIN_PACKET_MS = 1300;
+export const MIN_PACKET_MS = 1300;
 const MIN_LEG_MS = 1100;
 const TURN_PAUSE_MS = 180;
-const MAX_PHASE_MS = 5000;
+export const MAX_PHASE_MS = 5000;
 /** The part of a round trip that may go to resting at the far end. */
 const MAX_TURN_SHARE = 0.3;
 
@@ -30,7 +30,6 @@ export function pacePhase(phase: Packet[]): number {
       ? Math.max(MIN_LEG_MS * 2 + TURN_PAUSE_MS, ((length * 2) / (speed * ROUND_TRIP_SPEED)) * 1000)
       : Math.max(MIN_PACKET_MS, (length / speed) * 1000);
     packet.durationMs = Math.round(Math.min(MAX_PHASE_MS, ideal));
-    packet.paced = true;
     longest = Math.max(longest, packet.durationMs);
   }
   return longest;
@@ -38,7 +37,7 @@ export function pacePhase(phase: Packet[]): number {
 
 const easeSine = (u: number) => 0.5 - 0.5 * Math.cos(Math.PI * u);
 
-/** Eased position along a paced packet's path; a round trip rests briefly at the far end. */
+/** Eased position along a packet's path; a round trip rests briefly at the far end. */
 export function pacedProgress(t: number, roundTrip: boolean, durationMs: number): number {
   if (!roundTrip) return easeSine(t);
   const rest = Math.min(MAX_TURN_SHARE, TURN_PAUSE_MS / durationMs);

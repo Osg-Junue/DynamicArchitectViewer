@@ -481,8 +481,11 @@
   stroke-width: 1.5px;
   stroke-linejoin: round;
 }
-.dav-large .dav-group-label {
+.dav-group-label {
   font-weight: 500;
+}
+.dav-world .dav-scene .dav-group-label {
+  visibility: hidden;
 }
 .dav-node-label,
 .dav-packet-label {

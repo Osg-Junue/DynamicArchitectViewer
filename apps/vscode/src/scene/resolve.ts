@@ -1,4 +1,4 @@
-import { isLargeDiagram, type Layout, type Rect, stationRect } from '../layout';
+import { type Layout, type Rect, stationRect } from '../layout';
 import { estimateTextWidth } from '../model/text';
 import {
   COLOR_RESET,
@@ -85,10 +85,8 @@ export interface Packet {
   clearTop: number;
   /** Zone names on the canvas, which the callout must not cover. */
   labelAreas: readonly Rect[];
-  /** How long this packet travels, when the diagram is paced by distance. */
+  /** How long this packet travels; set once its phase has been timed. */
   durationMs?: number;
-  /** Moves with the gentler easing of a paced diagram. */
-  paced?: boolean;
 }
 
 export interface ResolvedView {
@@ -102,8 +100,8 @@ export interface ResolvedView {
   edges: ResolvedEdge[];
   /** Sequential phases; packets within a phase play in parallel. */
   phases: Packet[][];
-  /** Duration of each phase, when the diagram is paced by distance. */
-  phaseDurations?: number[];
+  /** Duration of each phase at 1x. */
+  phaseDurations: number[];
 }
 
 const TRACK_OFFSET = 12;
@@ -366,7 +364,7 @@ export function resolveView(
     else phases.push([packet]);
   }
   for (const phase of phases) separatePhaseCallouts(phase);
-  const phaseDurations = isLargeDiagram(doc) ? phases.map(pacePhase) : undefined;
+  const phaseDurations = phases.map(pacePhase);
 
   // 7. Edges.
   const edges: ResolvedEdge[] = [];
@@ -403,8 +401,8 @@ export function resolveView(
     nodes: nodes.filter((n) => n.visible),
     edges,
     phases,
+    phaseDurations,
   };
-  if (phaseDurations) view.phaseDurations = phaseDurations;
   if (step) {
     view.stepTitle = step.title;
     view.description = step.description;

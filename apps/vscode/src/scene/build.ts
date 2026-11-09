@@ -518,15 +518,6 @@ function packetMarker(packet: Packet, icons: IconShapes): VElement[] {
 }
 
 export function packetPosition(packet: Packet, t: number): Point {
-  if (packet.paced) {
-    const ms = packet.durationMs ?? PHASE_MS;
-    return pointAt(packet.path, pacedProgress(t, packet.roundTrip, ms));
-  }
-  // A round trip covers the path twice in the time of a one-way trip.
-  const progress = packet.roundTrip ? 1 - Math.abs(2 * t - 1) : t;
-  return pointAt(packet.path, easeInOut(progress));
-}
-
-function easeInOut(t: number): number {
-  return t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
+  const ms = packet.durationMs ?? PHASE_MS;
+  return pointAt(packet.path, pacedProgress(t, packet.roundTrip, ms));
 }

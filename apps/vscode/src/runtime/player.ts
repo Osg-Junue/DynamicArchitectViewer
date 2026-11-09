@@ -1,4 +1,4 @@
-import { isLargeDiagram, type Layout, type Rect } from '../layout';
+import type { Layout, Rect } from '../layout';
 import type { DavDocument } from '../model/types';
 import {
   activeLabelFill,
@@ -10,6 +10,8 @@ import {
   computePacketCalloutBox,
   flowColors,
   type IconShapes,
+  MAX_PHASE_MS,
+  MIN_PACKET_MS,
   type Packet,
   type PacketCalloutBox,
   PHASE_MS,
@@ -51,16 +53,16 @@ export interface PlayerOptions {
   fixedFrame?: boolean;
 }
 
-export { PHASE_MS };
+export { MAX_PHASE_MS, MIN_PACKET_MS, PHASE_MS };
 /** Pause after a step's last phase at 1x. */
 export const HOLD_MS = 1800;
 export const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
 const MIN_ZOOM = 0.15;
 const MAX_ZOOM = 4;
 const MAX_FIT_ZOOM = 1.4;
-/** Room kept around what a large diagram's camera shows. */
+/** Room kept around what the camera shows while it follows packets from zone to zone. */
 const CALM_FRAME_PAD = 120;
-/** A large diagram's camera shows whole zones unless that would shrink them below this zoom. */
+/** Below this zoom, text stops being comfortable to read. */
 const MIN_ZONE_FRAME_ZOOM = 0.6;
 const MAX_CALM_ZOOM = 1.25;
 /** How close to the screen's edge a moving packet may get before the camera follows. */
@@ -68,6 +70,9 @@ const CALM_EDGE_MARGIN = 40;
 const ZONE_LABEL_SIZE = 12;
 const MAX_HUD_PAIRS = 3;
 const MINIMAP_PAD = 40;
+
+/** One end of a move named above the canvas: a zone, or a node outside any zone. */
+type HudPlace = Pick<ResolvedGroup, 'id' | 'label' | 'color'>;
 
 interface PacketEntry {
   packet: Packet;
@@ -108,8 +113,8 @@ export class Player {
   #userMoved = false;
   #followAnim = false;
   #cameraTarget: { zoom: number; panX: number; panY: number } | null = null;
-  /** Large diagrams pace packets by distance and guide the reader between zones. */
-  #large = false;
+  #hasZones = false;
+  #minimapOn = false;
   /** The reader asked for the whole diagram; the camera stays until the next step. */
   #holdFrame = false;
   #zoneOfNode = new Map<string, string>();
@@ -118,13 +123,15 @@ export class Player {
   #miniZones = new Map<string, SVGRectElement>();
 
   readonly #root: HTMLElement;
-  readonly #viewportEl: HTMLElement;
   readonly #zoneHud: HTMLElement;
   readonly #minimap: SVGSVGElement;
+  readonly #minimapBtn: HTMLButtonElement;
   readonly #playbackBar: HTMLElement;
   readonly #svgEl: SVGSVGElement;
   readonly #world: SVGGElement;
   readonly #sceneLayer: SVGGElement;
+  /** Zone names follow the camera, so they live outside the scene, which depends only on the step. */
+  readonly #zoneLabelLayer: SVGGElement;
   readonly #packetLayer: SVGGElement;
   readonly #titleEl: HTMLElement;
   readonly #stepTitleEl: HTMLElement;
@@ -172,9 +179,10 @@ export class Player {
     this.#svgEl = svg('svg', { class: 'dav-canvas', role: 'img' });
     this.#world = svg('g', { class: 'dav-world' });
     this.#sceneLayer = svg('g');
+    this.#zoneLabelLayer = svg('g', { class: 'dav-zone-labels' });
     this.#packetLayer = svg('g', { class: 'dav-layer-packets' });
     this.#svgEl.append(renderSvg(buildDefs()), this.#world);
-    this.#world.append(this.#sceneLayer, this.#packetLayer);
+    this.#world.append(this.#sceneLayer, this.#zoneLabelLayer, this.#packetLayer);
 
     this.#titleEl = html('h1', { class: 'dav-title' });
     this.#zoomLabel = html('span', { class: 'dav-zoom-label', 'aria-live': 'polite' });
@@ -342,6 +350,35 @@ export class Player {
     );
     this.#followBtn.addEventListener('click', () => this.toggleFollowAnim());
 
+    this.#minimapBtn = html(
+      'button',
+      {
+        class: 'dav-btn dav-btn-icon',
+        type: 'button',
+        title: s.minimap,
+        'aria-label': s.minimap,
+        'aria-pressed': 'false',
+        'data-testid': 'btn-minimap',
+      },
+      svg(
+        'svg',
+        {
+          width: 15,
+          height: 15,
+          viewBox: '0 0 24 24',
+          fill: 'none',
+          stroke: 'currentColor',
+          'stroke-width': 1.75,
+          'stroke-linecap': 'round',
+          'stroke-linejoin': 'round',
+          'aria-hidden': 'true',
+        },
+        svg('rect', { x: 3, y: 4, width: 18, height: 16, rx: 2 }),
+        svg('rect', { x: 11, y: 11, width: 7, height: 6, rx: 1 }),
+      ),
+    );
+    this.#minimapBtn.addEventListener('click', () => this.toggleMinimap());
+
     const zoomOverlay = html(
       'div',
       {
@@ -356,6 +393,7 @@ export class Player {
       html('span', { class: 'dav-toolbar-sep', 'aria-hidden': 'true' }),
       fitBtn,
       this.#followBtn,
+      this.#minimapBtn,
     );
 
     this.#zoneHud = html('div', {
@@ -380,7 +418,6 @@ export class Player {
       this.#minimap,
       zoomOverlay,
     );
-    this.#viewportEl = viewport;
     this.#root = html(
       'div',
       { class: 'dav-app', tabindex: '0' },
@@ -416,7 +453,7 @@ export class Player {
       this.#cleanups.push(() => ro.disconnect());
     }
 
-    this.#syncScale();
+    this.#syncZones();
     this.#renderChrome();
     this.#updateMotionButton();
     this.#showStep(this.#stepIndex);
@@ -432,7 +469,7 @@ export class Player {
     }
     const index =
       this.#stepIndex === null ? null : count === 0 ? null : Math.min(this.#stepIndex, count - 1);
-    this.#syncScale();
+    this.#syncZones();
     this.#renderChrome();
     this.#showStep(index, { keepPhase: true });
     if (this.#followAnim) this.#focusCurrentPhase(false);
@@ -623,6 +660,13 @@ export class Player {
     this.#ensureLoop();
   }
 
+  toggleMinimap(): void {
+    this.#minimapOn = !this.#minimapOn;
+    this.#minimapBtn.setAttribute('aria-pressed', String(this.#minimapOn));
+    this.#minimap.toggleAttribute('hidden', !this.#minimapOn);
+    this.#updateCameraOverlays();
+  }
+
   toggleFollowAnim(): void {
     this.#followAnim = !this.#followAnim;
     this.#followBtn.setAttribute('aria-pressed', String(this.#followAnim));
@@ -675,18 +719,18 @@ export class Player {
     });
   }
 
-  /** Recomputes what depends on the diagram's size, after a new document arrived. */
-  #syncScale(): void {
+  /** Recomputes what depends on the diagram's zones, after a new document arrived. */
+  #syncZones(): void {
     const { document: doc, layout } = this.#data;
-    this.#large = isLargeDiagram(doc);
-    this.#viewportEl.classList.toggle('dav-large', this.#large);
+    this.#hasZones = doc.groups.length > 0;
+    this.#minimapBtn.hidden = !this.#hasZones;
     this.#zoneOfNode = new Map();
     clear(this.#minimap);
     this.#miniView = null;
     this.#miniZones = new Map();
     // The strip stays while the zones change, so that the canvas never resizes during playback.
-    this.#zoneHud.hidden = !this.#large;
-    if (!this.#large) {
+    this.#zoneHud.hidden = !this.#hasZones;
+    if (!this.#hasZones) {
       this.#minimap.setAttribute('hidden', '');
       return;
     }
@@ -705,7 +749,7 @@ export class Player {
     const zones = doc.groups.filter((g) => g.parentId === undefined);
     const rects = zones.flatMap((g) => layout.groups[g.id] ?? []);
     const b = boundsOf(rects, MINIMAP_PAD, 0);
-    this.#minimap.removeAttribute('hidden');
+    this.#minimap.toggleAttribute('hidden', !this.#minimapOn);
     this.#minimap.setAttribute('viewBox', `${b.x} ${b.y} ${b.width} ${b.height}`);
     for (const zone of zones) {
       const r = layout.groups[zone.id];
@@ -793,7 +837,7 @@ export class Player {
     }
     this.#syncPhaseHighlights();
     if (this.#followAnim) this.#focusCurrentPhase(!stopped);
-    else if (this.#large && !stopped && !this.#userMoved && !this.#holdFrame && !this.#fixedFrame) {
+    else if (!stopped && !this.#userMoved && !this.#holdFrame && !this.#fixedFrame) {
       this.#calmFocus(true, false);
     }
     this.#updateZoneHud();
@@ -822,7 +866,7 @@ export class Player {
     clear(this.#zoneHud);
     const phases = this.#view.phases;
     const packets = phases[Math.min(this.#phase, phases.length - 1)] ?? [];
-    const showing = this.#large && packets.length > 0 && (!this.#isStopped() || this.#pinned);
+    const showing = this.#hasZones && packets.length > 0 && (!this.#isStopped() || this.#pinned);
     if (!showing) return;
 
     const groupById = new Map(this.#view.groups.map((g) => [g.id, g]));
@@ -830,14 +874,18 @@ export class Player {
       const id = this.#zoneOfNode.get(nodeId);
       return id === undefined ? undefined : groupById.get(id);
     };
-    const pairs = new Map<string, readonly [ResolvedGroup, ResolvedGroup]>();
+    const pairs = new Map<string, readonly [HudPlace, HudPlace]>();
     for (const p of packets) {
-      const from = zoneOf(p.from);
-      const to = zoneOf(p.to);
-      if (from && to) pairs.set(`${from.id}\u0000${to.id}`, [from, to]);
+      const fromZone = zoneOf(p.from);
+      const toZone = zoneOf(p.to);
+      if (!fromZone && !toZone) continue;
+      // A node outside any zone goes by its own name.
+      const from: HudPlace = fromZone ?? { id: p.from, label: p.fromLabel };
+      const to: HudPlace = toZone ?? { id: p.to, label: p.toLabel };
+      pairs.set(`${from.id}\u0000${to.id}`, [from, to]);
     }
-    const colorOf = (g: ResolvedGroup) => (g.color ? paint(g.color) : 'var(--dav-border-strong)');
-    const name = (g: ResolvedGroup, departing: boolean) => {
+    const colorOf = (g: HudPlace) => (g.color ? paint(g.color) : 'var(--dav-border-strong)');
+    const name = (g: HudPlace, departing: boolean) => {
       const dot = html('i', { class: 'dav-zone-dot' });
       dot.style.setProperty('background', colorOf(g));
       return html(
@@ -873,7 +921,7 @@ export class Player {
       );
     }
 
-    const active = new Set(Array.from(pairs.values()).flat());
+    const active = new Set<HudPlace>(Array.from(pairs.values()).flat());
     for (const el of Array.from(this.#sceneLayer.querySelectorAll('.dav-group'))) {
       const group = groupById.get(el.getAttribute('data-id') ?? '');
       const rect = el.querySelector<SVGRectElement>('rect');
@@ -885,14 +933,18 @@ export class Player {
 
   #collectZoneLabels(): void {
     const rects = new Map(this.#view.groups.map((g) => [g.id, g.rect]));
-    this.#zoneLabels = !this.#large
-      ? []
-      : Array.from(this.#sceneLayer.querySelectorAll<SVGTextElement>('.dav-group-label')).flatMap(
-          (el) => {
-            const rect = rects.get(el.closest('[data-id]')?.getAttribute('data-id') ?? '');
-            return rect ? [{ el, rect }] : [];
-          },
-        );
+    clear(this.#zoneLabelLayer);
+    this.#zoneLabels = Array.from(
+      this.#sceneLayer.querySelectorAll<SVGTextElement>('.dav-group-label'),
+    ).flatMap((label) => {
+      const holder = label.closest('[data-id]');
+      const rect = rects.get(holder?.getAttribute('data-id') ?? '');
+      if (!holder || !rect) return [];
+      const copy = holder.cloneNode(true) as SVGGElement;
+      this.#zoneLabelLayer.append(copy);
+      const el = copy.querySelector<SVGTextElement>('.dav-group-label');
+      return el ? [{ el, rect }] : [];
+    });
     this.#updateCameraOverlays();
   }
 
@@ -910,7 +962,6 @@ export class Player {
 
   /** Keeps zone names legible and on screen, and the minimap on the camera. */
   #updateCameraOverlays(): void {
-    if (!this.#large) return;
     const world = this.#visibleWorld({ zoom: this.#zoom, panX: this.#panX, panY: this.#panY });
     if (!world) return;
     const unit = 1 / this.#zoom;
@@ -926,7 +977,7 @@ export class Player {
       const size = ZONE_LABEL_SIZE * unit;
       el.removeAttribute('visibility');
       el.setAttribute('font-size', size.toFixed(2));
-      el.setAttribute('x', (left + 8 * unit).toFixed(1));
+      el.setAttribute('x', (left + 14 * unit).toFixed(1));
       el.setAttribute('y', Math.min(top + size * 1.6, rect.y + rect.height - 4 * unit).toFixed(1));
       el.style.setProperty('stroke-width', `${(3 * unit).toFixed(2)}px`);
     }
@@ -939,7 +990,7 @@ export class Player {
   }
 
   /**
-   * A large diagram's camera: it moves only when the next packets would leave the screen,
+   * While packets play, the camera moves only when they would leave the screen,
    * and then frames their whole zones, so that the reader keeps their bearings.
    */
   #calmFocus(smooth: boolean, force: boolean): void {
@@ -1344,16 +1395,6 @@ export class Player {
    * Steps without a focus (and the overview) show the whole diagram.
    */
   #frameStep(smooth: boolean): void {
-    if (
-      this.#large &&
-      !this.#fixedFrame &&
-      !this.#holdFrame &&
-      !this.#isStopped() &&
-      this.#view.phases.length > 0
-    ) {
-      this.#calmFocus(smooth, true);
-      return;
-    }
     const rects = this.#view.nodes.filter((n) => n.focused).map((n) => n.rect);
     if (rects.length === 0 || this.#fixedFrame) {
       this.#setCameraTarget(this.#wholeDiagramBounds(), MAX_FIT_ZOOM, smooth);
@@ -1363,7 +1404,17 @@ export class Player {
       const callout = computePacketCalloutBox(packet);
       if (callout) rects.push(calloutRect(callout));
     }
-    this.#setCameraTarget(boundsOf(rects), MAX_FIT_ZOOM, smooth);
+    const bounds = boundsOf(rects);
+    const box = this.#svgEl.getBoundingClientRect();
+    const legible =
+      box.width === 0 ||
+      Math.min(box.width / bounds.width, box.height / bounds.height) >= MIN_ZONE_FRAME_ZOOM;
+    // A step too spread out to read at once is followed instead, zone by zone.
+    if (!legible && !this.#holdFrame && !this.#isStopped() && this.#view.phases.length > 0) {
+      this.#calmFocus(smooth, true);
+      return;
+    }
+    this.#setCameraTarget(bounds, MAX_FIT_ZOOM, smooth);
   }
 
   #zoomBy(factor: number, cx?: number, cy?: number): void {
