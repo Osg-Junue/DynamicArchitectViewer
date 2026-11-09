@@ -13,15 +13,21 @@ export function fitText(text: string, fontSize: number, maxWidth: number): strin
   return `${out}…`;
 }
 
-/** Wraps text into at most `maxLines` lines that each fit within `maxWidth`. */
+/**
+ * Wraps text into at most `maxLines` lines that each fit within `maxWidth`.
+ * Line breaks in the text are kept; blank lines are dropped to save the limited lines.
+ */
 export function wrapText(text: string, fontSize: number, maxWidth: number, maxLines = 3): string[] {
-  const clean = text.trim().replace(/\s+/g, ' ');
+  const clean = text
+    .trim()
+    .replace(/\s*\n\s*/g, '\n')
+    .replace(/[^\S\n]+/g, ' ');
   if (!clean) return [];
 
   const tokens: string[] = [];
   let word = '';
   for (const ch of clean) {
-    if (ch === ' ' || isWide(ch)) {
+    if (ch === ' ' || ch === '\n' || isWide(ch)) {
       if (word) {
         tokens.push(word);
         word = '';
@@ -39,14 +45,14 @@ export function wrapText(text: string, fontSize: number, maxWidth: number, maxLi
     const tok = tokens[i] ?? '';
     if (!current && tok === ' ') continue;
     const candidate = current + tok;
-    if (current && estimateTextWidth(candidate, fontSize) > maxWidth) {
+    if (tok === '\n' || (current && estimateTextWidth(candidate, fontSize) > maxWidth)) {
       if (lines.length + 1 >= maxLines) {
-        const rest = (current + tokens.slice(i).join('')).trim();
+        const rest = (current + tokens.slice(i).join('')).trim().replace(/\n/g, ' ');
         lines.push(fitText(rest, fontSize, maxWidth));
         return lines;
       }
       lines.push(fitText(current.trimEnd(), fontSize, maxWidth));
-      current = tok === ' ' ? '' : tok;
+      current = tok === ' ' || tok === '\n' ? '' : tok;
     } else {
       current = candidate;
     }

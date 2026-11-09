@@ -1,8 +1,10 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
 import { SAMPLE_TEMPLATES } from '../../samples';
-import { computeLayout, NODE_SIZE, type Rect, SCREEN_NODE_SIZE } from '../index';
+import { computeLayout, countCrossings, NODE_SIZE, type Rect, SCREEN_NODE_SIZE } from '../index';
 
 describe('edge label spacing', () => {
   const gapFor = (label: string) => {
@@ -32,6 +34,67 @@ const contains = (outer: Rect, inner: Rect) =>
   inner.y >= outer.y &&
   inner.x + inner.width <= outer.x + outer.width &&
   inner.y + inner.height <= outer.y + outer.height;
+
+describe('crossing reduction', () => {
+  const EXAMPLES = resolve(__dirname, '../../../../../examples');
+  /** Upper bounds, so that a change to the layout cannot add crossings to a sample unnoticed. */
+  const CROSSING_BUDGET: Record<string, number> = {
+    'infra-ha-failover': 0,
+    'screen-flow-checkout': 0,
+    'event-driven-async': 1,
+    'enterprise-zero-trust-10anim': 0,
+    'sequence-payment-retry': 0,
+    '01-infra-ha-failover.dav': 0,
+    '02-screen-flow-checkout.dav': 0,
+    '03-event-driven-async.dav': 1,
+    '04-enterprise-zero-trust-payment.dav': 0,
+    '05-sequence-payment-retry.dav': 0,
+  };
+  const diagrams = [
+    ...SAMPLE_TEMPLATES.map((s) => [s.id, s.dsl] as const),
+    ...readdirSync(EXAMPLES).map((f) => [f, readFileSync(resolve(EXAMPLES, f), 'utf8')] as const),
+  ];
+
+  it('has a budget for every diagram', () => {
+    expect(diagrams.map(([id]) => id).sort()).toEqual(Object.keys(CROSSING_BUDGET).sort());
+  });
+
+  it.each(diagrams)('%s: stays within its crossing budget', (id, dsl) => {
+    const { document, layout } = layoutOf(dsl);
+    expect(countCrossings(document, layout)).toBeLessThanOrEqual(CROSSING_BUDGET[id] as number);
+  });
+
+  it.each(diagrams)('%s: is deterministic', (_, dsl) => {
+    const { document } = parse(dsl);
+    expect(computeLayout(document)).toEqual(computeLayout(document));
+  });
+
+  it('counts only proper crossings, not rails that share a station', () => {
+    const fan = layoutOf('dav 1\nnode a\nnode b\nnode c\na --> b\na --> c');
+    expect(countCrossings(fan.document, fan.layout)).toBe(0);
+  });
+
+  it('reorders stacked groups to remove a crossing', () => {
+    const { document, layout } = layoutOf(`dav 1
+node top
+node bottom
+group first {
+  node r1
+}
+group second {
+  node r2
+}
+top --> r2
+bottom --> r1`);
+    expect(countCrossings(document, layout)).toBe(0);
+  });
+
+  it('keeps connected rows on one line', () => {
+    const { layout } = layoutOf('dav 1\nnode a\nnode b\nnode c\nnode d\na --> b\nc --> d');
+    expect(layout.nodes.a?.y).toBe(layout.nodes.b?.y);
+    expect(layout.nodes.c?.y).toBe(layout.nodes.d?.y);
+  });
+});
 
 describe('layout', () => {
   it('uses default node sizes and larger default size for screens', () => {

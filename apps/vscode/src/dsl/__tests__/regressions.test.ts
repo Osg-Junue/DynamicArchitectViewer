@@ -123,6 +123,19 @@ describe('icon values', () => {
     expect(res?.items).toHaveLength(35);
   });
 
+  it.each([
+    ['ja', 'ノード定義', 'スプレッドシート'],
+    ['en', 'Node definition', 'Spreadsheet'],
+  ] as const)('writes every completion detail in %s', (locale, keyword, icon) => {
+    const top = computeCompletions('dav 1\n', 6, true, locale);
+    expect(top?.items.find((i) => i.label === 'node')?.detail).toContain(keyword);
+    const icons = computeCompletions('dav 1\nnode a [icon: ', 20, true, locale);
+    expect(icons?.items.find((i) => i.label === 'sheet')?.detail).toContain(icon);
+    const details = [...(top?.items ?? []), ...(icons?.items ?? [])].map((i) => i.detail ?? '');
+    const japanese = /[぀-ヿ一-鿿]/;
+    if (locale === 'en') expect(details.filter((d) => japanese.test(d))).toEqual([]);
+  });
+
   it('does not falsely suggest 2-char icons for unrelated short words', () => {
     const [d1] = parse('dav 1\nnode a [icon: bar]').diagnostics;
     expect(d1?.code).toBe('unknown-icon');

@@ -73,7 +73,7 @@ apps/vscode/src/
 | :--- | :--- | :--- |
 | `format` | `'dynamic-architect-viewer'` | フォーマット識別子（再インポート時の検証用） |
 | `version` | `1` | ペイロードスキーマバージョン |
-| `locale` | `'ja' \| 'en'` | `<html lang>` に使う言語（現在の出力は常に `en`。プレイヤーの UI は英語固定） |
+| `locale` | `'ja' \| 'en'` | `<html lang>` とプレイヤー UI の言語。書き出し時の VS Code の表示言語で決まり（日本語なら `ja`、それ以外は `en`）、閲覧環境では変わらない |
 | `dsl` | `string` | 元のDSL全文（再インポートの唯一の真実のソース） |
 | `document` | `DavDocument` | パース済みASTモデル（単一HTML内でパーサーを同梱せずに即座に再生するため） |
 | `layout` | `Layout` | 計算済みレイアウト座標（単一HTML内でレイアウト計算を再実行せず同一配置を保証するため） |

@@ -14,6 +14,17 @@ import { SAMPLES } from '../samples';
 
 const LANGUAGE_ID = 'dav';
 
+/** VS Code's display language, narrowed to the languages this extension is written in. */
+function uiLocale(): 'ja' | 'en' {
+  return vscode.env.language.toLowerCase().startsWith('ja') ? 'ja' : 'en';
+}
+
+const t = (ja: string, en: string): string => (uiLocale() === 'ja' ? ja : en);
+const previewTitle = (doc: vscode.TextDocument): string =>
+  `${t('プレビュー', 'Preview')}: ${fileBasename(doc.uri.fsPath)}`;
+const openDavFirst = (): string =>
+  t('先に .dav ファイルを開いてください。', 'Open a .dav file first.');
+
 export function activate(context: vscode.ExtensionContext): void {
   const diagnostics = vscode.languages.createDiagnosticCollection(LANGUAGE_ID);
   const latestDiagnostics = new Map<string, DavDiagnostic[]>();
@@ -33,7 +44,7 @@ export function activate(context: vscode.ExtensionContext): void {
         d.severity === 'error'
           ? vscode.DiagnosticSeverity.Error
           : vscode.DiagnosticSeverity.Warning;
-      const diag = new vscode.Diagnostic(range, formatDiagnostic(d, 'en'), severity);
+      const diag = new vscode.Diagnostic(range, formatDiagnostic(d, uiLocale()), severity);
       diag.code = d.code;
       diag.source = 'dav';
       return diag;
@@ -70,7 +81,7 @@ export function activate(context: vscode.ExtensionContext): void {
             const suggestion = d.args.suggestion;
             if (!suggestion) continue;
             if (d.to < startOffset || d.from > endOffset) continue;
-            const title = `Change to '${suggestion}'`;
+            const title = t(`'${suggestion}' に変更`, `Change to '${suggestion}'`);
             const action = new vscode.CodeAction(title, vscode.CodeActionKind.QuickFix);
             const edit = new vscode.WorkspaceEdit();
             edit.replace(
@@ -95,7 +106,12 @@ export function activate(context: vscode.ExtensionContext): void {
       LANGUAGE_ID,
       {
         provideCompletionItems(doc, position) {
-          const result = computeCompletions(doc.getText(), doc.offsetAt(position), true);
+          const result = computeCompletions(
+            doc.getText(),
+            doc.offsetAt(position),
+            true,
+            uiLocale(),
+          );
           if (!result) return undefined;
           const replaceRange = new vscode.Range(
             doc.positionAt(result.from),
@@ -161,7 +177,7 @@ export function activate(context: vscode.ExtensionContext): void {
           const range = toRange(doc, src.from, src.to);
           symbols.push(
             new vscode.DocumentSymbol(
-              `Step ${idx + 1}: ${s.title}`,
+              `${t('ステップ', 'Step')} ${idx + 1}: ${s.title}`,
               s.description ?? '',
               vscode.SymbolKind.Event,
               range,
@@ -189,7 +205,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dav.openPreview', () => {
       const doc = vscode.window.activeTextEditor?.document;
       if (!doc || (doc.languageId !== LANGUAGE_ID && !doc.uri.fsPath.endsWith('.dav'))) {
-        void vscode.window.showInformationMessage('Open a .dav file first.');
+        void vscode.window.showInformationMessage(openDavFirst());
         return;
       }
       panelManager.open(doc);
@@ -197,7 +213,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dav.exportHtml', async () => {
       const doc = commandTargetDocument();
       if (!doc) {
-        void vscode.window.showInformationMessage('Open a .dav file first.');
+        void vscode.window.showInformationMessage(openDavFirst());
         return;
       }
       await exportDocumentToHtml(doc);
@@ -205,7 +221,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dav.importHtml', async () => {
       const uris = await vscode.window.showOpenDialog({
         canSelectMany: false,
-        filters: { 'Standalone HTML / DAV': ['html', 'dav'] },
+        filters: { [t('スタンドアロン HTML / DAV', 'Standalone HTML / DAV')]: ['html', 'dav'] },
       });
       const uri = uris?.[0];
       if (!uri) return;
@@ -213,7 +229,12 @@ export function activate(context: vscode.ExtensionContext): void {
       const content = new TextDecoder('utf-8').decode(bytes);
       const res = importContent(content);
       if (!res.ok) {
-        void vscode.window.showErrorMessage(`Could not import HTML (${res.reason}).`);
+        void vscode.window.showErrorMessage(
+          t(
+            `HTML を読み込めませんでした（${res.reason}）。`,
+            `Could not import HTML (${res.reason}).`,
+          ),
+        );
         return;
       }
       const doc = await vscode.workspace.openTextDocument({
@@ -226,7 +247,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dav.newFromTemplate', async () => {
       const picked = await vscode.window.showQuickPick(
         SAMPLES.map((s) => ({ label: s.name, detail: s.id, dsl: s.dsl })),
-        { placeHolder: 'Select a sample diagram template' },
+        { placeHolder: t('サンプルのテンプレートを選択', 'Select a sample diagram template') },
       );
       if (!picked) return;
       const doc = await vscode.workspace.openTextDocument({
@@ -239,11 +260,16 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dav.copyAiPrompt', async () => {
       const currentDsl = commandTargetDocument()?.getText();
       const prompt = buildAiPrompt({
-        locale: 'en',
+        locale: uiLocale(),
         ...(currentDsl ? { currentDsl, includeCurrentDsl: true } : {}),
       });
       await vscode.env.clipboard.writeText(prompt);
-      void vscode.window.showInformationMessage('Copied DSL v1 AI prompt template to clipboard.');
+      void vscode.window.showInformationMessage(
+        t(
+          'DSL v1 の AI プロンプトをクリップボードにコピーしました。',
+          'Copied DSL v1 AI prompt template to clipboard.',
+        ),
+      );
     }),
   );
 }
@@ -261,7 +287,7 @@ class CanvasPanelManager {
     this.activeDocument = document;
 
     if (this.panel) {
-      this.panel.title = `Preview: ${fileBasename(document.uri.fsPath)}`;
+      this.panel.title = previewTitle(document);
       this.panel.reveal(vscode.ViewColumn.Beside);
       this.postToWebview({
         type: 'docChanged',
@@ -274,7 +300,7 @@ class CanvasPanelManager {
     const webviewRoot = vscode.Uri.joinPath(this.extensionUri, 'dist', 'webview');
     const panel = vscode.window.createWebviewPanel(
       'dav.canvasPreview',
-      `Preview: ${fileBasename(document.uri.fsPath)}`,
+      previewTitle(document),
       vscode.ViewColumn.Beside,
       {
         enableScripts: true,
@@ -324,7 +350,7 @@ class CanvasPanelManager {
       vscode.window.onDidChangeActiveTextEditor((editor) => {
         if (editor && editor.document.languageId === LANGUAGE_ID) {
           this.activeDocument = editor.document;
-          panel.title = `Preview: ${fileBasename(editor.document.uri.fsPath)}`;
+          panel.title = previewTitle(editor.document);
           this.postToWebview({
             type: 'docChanged',
             dsl: editor.document.getText(),
@@ -398,7 +424,7 @@ class CanvasPanelManager {
 
     return [
       '<!DOCTYPE html>',
-      '<html lang="en">',
+      `<html lang="${uiLocale()}">`,
       '<head>',
       '<meta charset="UTF-8">',
       `<meta http-equiv="Content-Security-Policy" content="${csp}">`,
@@ -417,15 +443,17 @@ class CanvasPanelManager {
 
 async function exportDocumentToHtml(doc: vscode.TextDocument, overrideDsl?: string): Promise<void> {
   const dsl = overrideDsl ?? doc.getText();
-  const html = await exportHtml(dsl, { locale: 'en' });
+  const html = await exportHtml(dsl, { locale: uiLocale() });
   const defaultPath = `${doc.uri.fsPath.replace(/\.dav$/i, '')}.html`;
   const targetUri = await vscode.window.showSaveDialog({
     defaultUri: doc.isUntitled ? vscode.Uri.file('diagram.html') : vscode.Uri.file(defaultPath),
-    filters: { 'Standalone HTML': ['html'] },
+    filters: { [t('スタンドアロン HTML', 'Standalone HTML')]: ['html'] },
   });
   if (!targetUri) return;
   await vscode.workspace.fs.writeFile(targetUri, new TextEncoder().encode(html));
-  void vscode.window.showInformationMessage(`Exported standalone HTML: ${targetUri.fsPath}`);
+  void vscode.window.showInformationMessage(
+    `${t('HTML を書き出しました', 'Exported standalone HTML')}: ${targetUri.fsPath}`,
+  );
 }
 
 function toRange(doc: vscode.TextDocument, from: number, to: number): vscode.Range {

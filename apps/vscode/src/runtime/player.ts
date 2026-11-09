@@ -1,15 +1,18 @@
 import type { Layout, Rect } from '../layout';
 import type { DavDocument } from '../model/types';
 import {
+  activeLabelFill,
   boundsOf,
   buildDefs,
   buildPacket,
   buildScene,
   computePacketCalloutBox,
+  flowColors,
   type Packet,
   type PacketCalloutBox,
   packetBubblePath,
   packetPosition,
+  paint,
   type ResolvedView,
   resolveView,
 } from '../scene';
@@ -118,7 +121,7 @@ export class Player {
     this.data = data;
     this.onPhaseChange = options.onPhaseChange;
     this.fixedFrame = options.fixedFrame ?? false;
-    this.strings = VIEWER_STRINGS.en;
+    this.strings = VIEWER_STRINGS[options.locale ?? 'en'];
     this.reducedMotion =
       typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
     const hasSteps = data.document.steps.length > 0;
@@ -155,14 +158,14 @@ export class Player {
     this.timelineEl = html('div', {
       class: 'dav-timeline',
       role: 'group',
-      'aria-label': 'Steps',
+      'aria-label': s.steps,
       'data-testid': 'step-timeline',
     });
 
     this.stepSelect = html('select', {
       class: 'dav-btn dav-step-select',
-      'aria-label': 'Step',
-      title: 'Select step',
+      'aria-label': s.step,
+      title: s.selectStep,
       'data-testid': 'select-step',
     });
     this.stepSelect.addEventListener('change', () => {
@@ -227,7 +230,7 @@ export class Player {
       {
         class: 'dav-playback-bar',
         role: 'toolbar',
-        'aria-label': 'Playback',
+        'aria-label': s.playback,
         'data-testid': 'playback-toolbar',
       },
       this.stepSelect,
@@ -318,7 +321,7 @@ export class Player {
       {
         class: 'dav-zoom-group',
         role: 'group',
-        'aria-label': 'Zoom controls',
+        'aria-label': s.zoomControls,
         'data-testid': 'canvas-zoom-controls',
       },
       this.button('−', s.zoomOut, () => this.zoomBy(1 / 1.2)),
@@ -584,7 +587,7 @@ export class Player {
   private renderChrome(): void {
     const { document: doc } = this.data;
     this.titleEl.textContent = doc.title;
-    this.svgEl.setAttribute('aria-label', doc.title || 'Diagram');
+    this.svgEl.setAttribute('aria-label', doc.title || this.strings.diagram);
     const noSteps = doc.steps.length === 0;
     this.playBtn.disabled = noSteps;
     this.playAllBtn.disabled = noSteps;
@@ -666,29 +669,24 @@ export class Player {
     const phases = this.view.phases;
     if (phases.length === 0) return;
     const stopped = this.isStopped();
-    const currentPackets = stopped
-      ? phases.flat()
-      : (phases[Math.min(this.phase, phases.length - 1)] ?? []);
-    const activeEdges = new Set<string>();
-    for (const pkt of currentPackets) {
-      for (const e of this.view.edges) {
-        if (
-          (e.from === pkt.from && e.to === pkt.to) ||
-          (e.direction === 'bidirectional' && e.from === pkt.to && e.to === pkt.from)
-        ) {
-          activeEdges.add(e.id);
-        }
+    const running = phases[Math.min(this.phase, phases.length - 1)] ?? [];
+    // A phase picked while stopped goes first, so that its colors win on shared edges.
+    const activeEdges = flowColors(
+      stopped ? [...(this.pinned ? running : []), ...phases.flat()] : running,
+    );
+    for (const flow of Array.from(this.sceneLayer.querySelectorAll<SVGElement>('.dav-flow'))) {
+      const color = activeEdges.get(flow.getAttribute('data-edge') ?? '');
+      if (color === undefined) {
+        flow.setAttribute('hidden', '');
+      } else {
+        flow.removeAttribute('hidden');
+        flow.setAttribute('stroke', paint(color));
       }
     }
-    for (const flow of Array.from(this.sceneLayer.querySelectorAll<SVGElement>('.dav-flow'))) {
-      if (activeEdges.has(flow.getAttribute('data-edge') ?? '')) flow.removeAttribute('hidden');
-      else flow.setAttribute('hidden', '');
-    }
     for (const label of Array.from(this.sceneLayer.querySelectorAll('.dav-edge-label text'))) {
-      const active = activeEdges.has(label.getAttribute('data-edge') ?? '');
-      const fill = active ? label.getAttribute('data-active-fill') : null;
-      label.setAttribute('fill', fill ?? 'var(--dav-fg)');
-      label.setAttribute('font-weight', active ? '700' : '400');
+      const color = activeEdges.get(label.getAttribute('data-edge') ?? '');
+      label.setAttribute('fill', color === undefined ? 'var(--dav-fg)' : activeLabelFill(color));
+      label.setAttribute('font-weight', color === undefined ? '400' : '700');
     }
     const currentPhase =
       stopped && !this.pinned ? null : String(Math.min(this.phase, phases.length - 1));

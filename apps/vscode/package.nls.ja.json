@@ -1,0 +1,7 @@
+{
+  "command.openPreview.title": "キャンバスプレビューを横に開く",
+  "command.exportHtml.title": "単一 HTML に書き出す",
+  "command.importHtml.title": "単一 HTML から DSL を取り出す...",
+  "command.newFromTemplate.title": "サンプルから新しい図を作成...",
+  "command.copyAiPrompt.title": "AI プロンプトをコピー (DSL v1 仕様)"
+}

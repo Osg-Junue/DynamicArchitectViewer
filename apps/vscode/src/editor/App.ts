@@ -3,6 +3,7 @@ import { computeLayout, type Layout } from '../layout';
 import type { DavDocument } from '../model/types';
 import { isHostToWebviewMessage, type WebviewToHostMessage } from '../protocol/messages';
 import { clear, html, svg } from '../runtime/dom';
+import { detectLocale } from '../runtime/i18n';
 import { Player } from '../runtime/player';
 import { HelpModal } from './HelpModal';
 
@@ -16,11 +17,11 @@ declare global {
   }
 }
 
-const HELP_TITLE = 'Open documentation';
-
 export function mountApp(container: HTMLElement): void {
   if (!window.acquireVsCodeApi) throw new Error('This page only runs inside a VS Code webview');
   const vscodeApi = window.acquireVsCodeApi();
+  const locale = detectLocale();
+  const helpTitle = locale === 'ja' ? 'ドキュメントを開く' : 'Open documentation';
 
   let dsl = '';
   let documentUri: string | undefined;
@@ -38,8 +39,8 @@ export function mountApp(container: HTMLElement): void {
     {
       type: 'button',
       class: 'btn btn-icon',
-      title: HELP_TITLE,
-      'aria-label': HELP_TITLE,
+      title: helpTitle,
+      'aria-label': helpTitle,
       'data-testid': 'btn-open-help',
     },
     svg(
@@ -69,7 +70,7 @@ export function mountApp(container: HTMLElement): void {
       class: 'btn primary',
       'data-testid': 'btn-export-html',
     },
-    'Export HTML',
+    locale === 'ja' ? 'HTML を書き出す' : 'Export HTML',
   );
   const playbackSlot = html('div', {
     class: 'toolbar-group toolbar-left',
@@ -124,6 +125,7 @@ export function mountApp(container: HTMLElement): void {
       playerHost,
       { document: lastValid.document, layout: lastValid.layout },
       {
+        locale,
         initialStep: lastValid.document.steps.length > 0 ? 0 : null,
         globalKeyboard: true,
         playbackSlot,
@@ -182,7 +184,7 @@ export function mountApp(container: HTMLElement): void {
 
   // The host owns the save dialog and reports the outcome itself.
   exportBtn.addEventListener('click', () => {
-    vscodeApi.postMessage({ type: 'exportHtml', dsl, locale: 'en' });
+    vscodeApi.postMessage({ type: 'exportHtml', dsl });
   });
 
   window.addEventListener('message', (event: MessageEvent<unknown>) => {

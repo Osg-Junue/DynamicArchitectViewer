@@ -52,29 +52,29 @@
     "commands": [
       {
         "command": "dav.openPreview",
-        "title": "Open Canvas Preview to the Side",
+        "title": "%command.openPreview.title%",
         "category": "DynamicArchitectViewer",
         "icon": "$(open-preview)"
       },
       {
         "command": "dav.exportHtml",
-        "title": "Export Standalone HTML",
+        "title": "%command.exportHtml.title%",
         "category": "DynamicArchitectViewer",
         "icon": "$(export)"
       },
       {
         "command": "dav.importHtml",
-        "title": "Extract DSL from Standalone HTML...",
+        "title": "%command.importHtml.title%",
         "category": "DynamicArchitectViewer"
       },
       {
         "command": "dav.newFromTemplate",
-        "title": "New Diagram from Sample Template...",
+        "title": "%command.newFromTemplate.title%",
         "category": "DynamicArchitectViewer"
       },
       {
         "command": "dav.copyAiPrompt",
-        "title": "Copy AI Prompt Template (DSL v1 Spec)",
+        "title": "%command.copyAiPrompt.title%",
         "category": "DynamicArchitectViewer",
         "icon": "$(sparkle)"
       }

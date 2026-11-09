@@ -84,6 +84,12 @@ node a [
     expect(format('dav 1\ngroup g {\n}\nstep "s" {\n}\n')).toBe('dav 1\ngroup g {}\nstep "s" {}\n');
   });
 
+  it('keeps CRLF line endings, leaving canonical text unchanged', () => {
+    const canonical = 'dav 1\r\n\r\n// c\r\nnode a\r\ngroup g {\r\n  node b\r\n}\r\n';
+    expect(format(canonical)).toBe(canonical);
+    expect(format('dav 1\r\nnode   a\r\n')).toBe('dav 1\r\nnode a\r\n');
+  });
+
   it('returns text with syntax errors unchanged', () => {
     const broken = 'dav 1\nnode a ]\n';
     expect(format(broken)).toBe(broken);

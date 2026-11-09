@@ -56,9 +56,13 @@ async function loadExporter(): Promise<ExporterModule> {
   return module;
 }
 
-async function writeExport(file: string, dsl: string = DEFAULT_SAMPLE.dsl): Promise<void> {
+async function writeExport(
+  file: string,
+  dsl: string = DEFAULT_SAMPLE.dsl,
+  locale: 'ja' | 'en' = 'en',
+): Promise<void> {
   exporter ??= loadExporter();
-  await writeFile(file, await (await exporter).exportHtml(dsl, { locale: 'en' }));
+  await writeFile(file, await (await exporter).exportHtml(dsl, { locale }));
 }
 
 /** Collects console errors, page errors and CSP violations. */
@@ -593,6 +597,17 @@ test.describe('exported HTML', () => {
     expect(style).not.toContain('\n');
     expect(Buffer.byteLength(style, 'utf8')).toBeLessThan(10 * 1024);
     expect(gzipSync(style).length).toBeLessThan(3.5 * 1024);
+  });
+
+  test('shows its UI in the language it was exported with', async ({ page }, info) => {
+    const file = info.outputPath('ja.html');
+    await writeExport(file, DEFAULT_SAMPLE.dsl, 'ja');
+    await page.goto(pathToFileURL(file).href);
+    await expect(page.getByTestId('btn-play-all')).toHaveAttribute(
+      'aria-label',
+      'すべてのステップを再生',
+    );
+    await expect(page.locator('html')).toHaveAttribute('lang', 'ja');
   });
 
   test('honors prefers-reduced-motion', async ({ browser }, info) => {

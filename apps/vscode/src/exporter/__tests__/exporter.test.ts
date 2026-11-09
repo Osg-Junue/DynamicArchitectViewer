@@ -88,6 +88,22 @@ describe('importContent', () => {
     });
   });
 
+  it.each(['<!-- saved page --><html></html>', '<head></head>', '﻿  <p>hi</p>'])(
+    'treats markup with another start as HTML: %s',
+    (html) => {
+      expect(importContent(html)).toEqual({ ok: false, reason: 'unrecognized-html' });
+    },
+  );
+
+  it('still finds the DSL when the exported HTML has content before <!DOCTYPE>', async () => {
+    const dsl = 'dav 1\nnode a';
+    expect(importContent(`<!-- saved from url -->\n${await exportHtml(dsl)}`)).toEqual({
+      ok: true,
+      dsl,
+      source: 'html',
+    });
+  });
+
   it('rejects unrelated or corrupt HTML', () => {
     expect(importContent('<!DOCTYPE html><html><body>hi</body></html>')).toEqual({
       ok: false,
