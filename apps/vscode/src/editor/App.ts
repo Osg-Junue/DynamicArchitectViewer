@@ -2,6 +2,7 @@ import { findAtOffset, parse, type SourceMap } from '../dsl';
 import { computeLayout, type Layout } from '../layout';
 import type { DavDocument } from '../model/types';
 import { isHostToWebviewMessage, type WebviewToHostMessage } from '../protocol/messages';
+import { CONTROL_ICONS, controlIcon } from '../runtime/controlIcons';
 import { clear, html, svg } from '../runtime/dom';
 import { detectLocale } from '../runtime/i18n';
 import { Player } from '../runtime/player';
@@ -44,25 +45,7 @@ export function mountApp(container: HTMLElement): void {
       'aria-label': helpTitle,
       'data-testid': 'btn-open-help',
     },
-    svg(
-      'svg',
-      {
-        width: 16,
-        height: 16,
-        viewBox: '0 0 24 24',
-        fill: 'none',
-        stroke: 'currentColor',
-        'stroke-width': 1.75,
-        'stroke-linecap': 'round',
-        'stroke-linejoin': 'round',
-        'aria-hidden': 'true',
-      },
-      svg('path', { d: 'M4 3h11l5 5v13H4z' }),
-      svg('path', { d: 'M14 3v6h6' }),
-      svg('path', { d: 'M8 9h3' }),
-      svg('path', { d: 'M8 13h8' }),
-      svg('path', { d: 'M8 17h8' }),
-    ),
+    controlIcon(CONTROL_ICONS.docs),
   );
   const exportBtn = html(
     'button',
