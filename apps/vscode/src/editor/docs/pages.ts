@@ -285,8 +285,8 @@ function renderSkill(ctx: DocContext): Node[] {
         'The bundled `dav-check` runs the same parser and formatter as the editor, so the agent can fix its own diagnostics until none remain (needs Node.js 18 or later).',
       ),
       t(
-        '仕様書と6つのサンプルを同梱しており、必要なときだけ参照します。',
-        'It includes the specification and six examples, which are read only when needed.',
+        '仕様書と7つのサンプルを同梱しており、必要なときだけ参照します。',
+        'It includes the specification and seven examples, which are read only when needed.',
       ),
     ]),
     h2(t('VS Code からインストール', 'Install from VS Code')),

@@ -178,3 +178,4 @@ Read these only when needed:
   - `04-enterprise-zero-trust-payment.dav`: large architecture with nested groups
   - `05-sequence-payment-retry.dav`: sequence-style flow with retries
   - `06-lan-office-network.dav`: network diagram
+  - `07-dynamic-architect-viewer.dav`: software pipeline with export and import
