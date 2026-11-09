@@ -17,9 +17,7 @@
     "test": "npm --workspace=apps/vscode run test",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
-    "check": "npm run lint && npm run typecheck && npm run test",
-    "prototype:dev": "npm --workspace=apps/prototype run dev",
-    "prototype:test": "npm --workspace=apps/prototype run test"
+    "check": "npm run lint && npm run typecheck && npm run test"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.6"
