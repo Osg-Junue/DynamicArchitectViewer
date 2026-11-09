@@ -21,6 +21,8 @@ npm-debug.log*
 !.env.example
 
 # Editors / OS
+.claude/
+.claude/skills/
 .vs/
 .idea/
 .DS_Store
