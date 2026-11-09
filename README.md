@@ -43,7 +43,9 @@ step "The payment provider fails" {
 
 ## Install
 
-The extension is in preview and not on the Marketplace yet. To build it from source, you need [Node.js](https://nodejs.org/) 26 and VS Code 1.96 or later:
+Install [DynamicArchitectViewer](https://marketplace.visualstudio.com/items?itemName=osg-junue.dynamic-architect-viewer) from the Visual Studio Marketplace. It is in preview and needs VS Code 1.96 or later.
+
+To build it from source, you also need [Node.js](https://nodejs.org/) 26:
 
 ```bash
 npm ci
