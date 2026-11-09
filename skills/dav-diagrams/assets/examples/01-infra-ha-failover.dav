@@ -1,0 +1,60 @@
+dav 1
+title "AWS multi-AZ web architecture & database failover"
+
+group edge_net "Edge & Security" {
+  node cdn "CloudFront CDN" [icon: cdn, sub: "Edge Cache"]
+  node waf "AWS WAF" [icon: firewall, sub: "Rate Limit / ACL"]
+}
+
+group vpc "Production VPC (us-east-1)" {
+  node alb "Application LB" [icon: lb, sub: "Ingress HTTPS"]
+  node api "Order API" [icon: container, sub: "ECS Fargate x4"]
+  node redis "ElastiCache" [icon: cache, sub: "Redis Cluster"]
+  node db_pri "Primary DB" [icon: database, sub: "Aurora Writer (AZ-a)"]
+  node db_sby "Standby DB" [icon: database, sub: "Aurora Reader (AZ-c)", badge: "STANDBY"]
+}
+
+node client "Web Browser" [icon: browser, sub: "End user"]
+
+client --> cdn : "HTTPS"
+cdn --> waf : "Origin Fetch"
+waf --> alb : "Verified"
+alb --> api : "HTTP/2"
+api --> redis : "Cache Lookup"
+api --> db_pri : "Read / Write"
+db_pri ..> db_sby : "Sync Replication"
+api ..> db_sby : "Failover Route" [id: e_failover, visible: false, color: yellow]
+
+step "Edge inspection and routing to the load balancer" {
+  desc "CloudFront receives the request, and WAF inspects it before it is forwarded to the load balancer in the VPC."
+  focus client, cdn, waf, alb
+  animate client --> cdn : "GET /products" [desc: "The browser sends an HTTPS request to a CloudFront edge location"]
+  animate cdn --> waf : "Inspect Request" [desc: "On a cache miss, AWS WAF checks ACL and rate-limit rules"]
+  animate waf --> alb : "Pass ACL" [desc: "Only requests that pass inspection reach the load balancer"]
+}
+
+step "Fast response from the cache" {
+  desc "The Order API checks Redis. On a cache hit, it responds without touching the database."
+  focus alb, api, redis
+  state redis [color: green, badge: "CACHE HIT"]
+  animate alb --> api : "Forward" [desc: "The load balancer picks an ECS Fargate task from the target group"]
+  animate api --> redis : "GET product:101" [desc: "Product data comes from memory in ElastiCache"]
+}
+
+step "Writing the order and replicating it" {
+  desc "The order is written to the primary database and replicated to the standby."
+  focus api, db_pri, db_sby
+  state redis [color: none, badge: ""]
+  state db_pri [color: green, badge: "COMMIT"]
+  animate api --> db_pri : "INSERT INTO orders" [desc: "The order transaction commits on the primary in AZ-a"]
+  animate db_pri --> db_sby : "Replicate WAL" [desc: "The write-ahead log is replicated to the standby in AZ-c"]
+}
+
+step "Primary failure and automatic failover" {
+  desc "The primary database fails its health checks, so the standby is promoted to writer and traffic moves to it."
+  focus api, db_pri, db_sby
+  state db_pri [color: red, badge: "DOWN"]
+  state db_sby [color: green, badge: "PROMOTED"]
+  state e_failover [visible: true]
+  animate api --> db_sby : "Reconnect Writer" [color: yellow, desc: "The cluster endpoint now resolves to the promoted standby"]
+}

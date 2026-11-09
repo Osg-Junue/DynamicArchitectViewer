@@ -25,12 +25,15 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm run package
-      - name: Verify extension, webview, and VSIX package exist
+      - name: Verify extension, webview, skill, and VSIX package exist
         run: |
           test -f apps/vscode/dist/extension.cjs
           test -f apps/vscode/dist/webview/assets/webview.js
           test -f apps/vscode/dist/webview/assets/webview.css
+          test -f apps/vscode/dist/skill/dav-diagrams/SKILL.md
           test -f apps/vscode/dist/dynamic-architect-viewer.vsix
+      - name: Verify the generated skill files are committed
+        run: git diff --exit-code -- skills
       - uses: actions/upload-artifact@v7
         with:
           name: dynamic-architect-viewer-vsix

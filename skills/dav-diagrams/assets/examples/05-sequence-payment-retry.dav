@@ -1,0 +1,111 @@
+dav 1
+title "Order payment sequence: rate limiting, retries and async delivery"
+
+node client "Web Client" [icon: browser, sub: "Customer"]
+
+group edge_layer "Edge" [color: teal] {
+  node gw "API Gateway" [icon: router, sub: "Auth and rate limits"]
+}
+
+group core "Orders and payments" [color: blue] {
+  node order "Order Service" [icon: container, sub: "Saga Orchestrator"]
+  node payment "Payment Service" [icon: function, sub: "Runs payments"]
+  node stock "Inventory" [icon: database, sub: "Stock reservation"]
+  node psp "Payment provider" [icon: external, sub: "PSP API"]
+}
+
+group async "Async processing" [color: purple] {
+  node queue "Event Queue" [icon: queue, sub: "OrderEvents"]
+  node worker "Fulfillment Worker" [icon: server, sub: "Shipping"]
+  node dlq "Dead Letter Queue" [icon: storage, sub: "Needs review", visible: false]
+}
+
+client --> gw : "POST /orders"
+gw --> client : "Response"
+gw --> gw : "Rate check"
+gw --> order : "CreateOrder"
+order --> gw : "Result"
+order --> order : "Transition"
+order --> stock : "Reserve"
+stock --> order : "Reserved"
+order --> payment : "Charge"
+payment --> order : "Charged"
+payment --> payment : "Backoff"
+payment --> psp : "Authorize"
+psp --> payment : "Result"
+order ..> queue : "OrderConfirmed"
+queue --> worker : "Deliver"
+worker --> worker : "Retry"
+worker ..> dlq : "Quarantine" [id: e_dlq, visible: false, color: red]
+
+step "Accepting the order and limiting the rate" {
+  desc "The gateway checks its rate limit counter, then forwards the order to the Order Service."
+  state gw [badge: "98 req/s"]
+  animate client --> gw : "POST /orders" [icon: file, desc: "The customer submits an order"]
+  animate gw --> gw : "Rate Check" [color: teal, desc: "The token bucket decides whether to allow the request"]
+  animate gw --> order : "CreateOrder" [icon: file, desc: "The authenticated order is forwarded"]
+}
+
+step "Creating the order and reserving stock" {
+  desc "The Order Service moves the order to PENDING and reserves stock."
+  state gw [badge: ""]
+  state order [badge: "PENDING", color: yellow]
+  animate order --> order : "→ PENDING" [color: yellow, desc: "The saga starts and the order becomes PENDING"]
+  animate order --> stock : "Reserve" [icon: database, desc: "Stock is reserved for each item"]
+  animate stock --> order : "Reserved" [color: green, desc: "Every item was reserved"]
+}
+
+step "A temporary payment failure" {
+  desc "The payment provider returns 503. The Payment Service does not give up, and switches to retrying."
+  state stock [badge: "HOLD", color: green]
+  state psp [badge: "503", color: red]
+  animate order --> payment : "Charge" [icon: payment, desc: "With stock reserved, payment is requested"]
+  animate payment --> psp : "Authorize" [icon: payment, desc: "The provider is asked to authorize the charge"]
+  animate psp --> payment : "503" [color: red, desc: "The provider is temporarily unavailable"]
+}
+
+step "Backoff and first retry" {
+  desc "After one second, the request is sent again with the same idempotency key. The outage continues."
+  state payment [badge: "RETRY 1", color: orange]
+  animate payment --> payment : "Wait 1s" [color: orange, desc: "Waits before the first retry"]
+  animate payment --> psp : "Retry #1" [icon: payment, desc: "Sent again with the same idempotency key"]
+  animate psp --> payment : "503" [color: red, desc: "The outage continues"]
+}
+
+step "Backoff and second retry" {
+  desc "The wait doubles to two seconds, and this time the payment succeeds."
+  state payment [badge: "RETRY 2"]
+  state psp [badge: "200", color: green]
+  animate payment --> payment : "Wait 2s" [color: orange, desc: "Doubles the wait before retrying"]
+  animate payment --> psp : "Retry #2" [icon: payment, desc: "Sent again with the same idempotency key"]
+  animate psp --> payment : "200 OK" [color: green, desc: "The charge is authorized"]
+}
+
+step "Confirming the order and responding" {
+  desc "The order is confirmed. The customer's response and the event are sent at the same time."
+  state psp [badge: "", color: none]
+  state payment [badge: "PAID", color: green]
+  state order [badge: "CONFIRMED", color: green]
+  animate payment --> order : "Charged" [color: green, desc: "Reports that payment is complete"]
+  animate order --> order : "→ CONFIRMED" [color: green, desc: "The order becomes CONFIRMED"]
+  animate order --> gw : "201 Created" [desc: "Returns the created order"]
+  animate order --> queue : "OrderConfirmed" [icon: mail, parallel: true, color: purple, desc: "Publishes an event for fulfillment"]
+  animate gw --> client : "201 Created" [desc: "Tells the customer the order is complete"]
+}
+
+step "Asynchronous fulfillment" {
+  desc "The worker receives the event from the queue, and retries on its own if the warehouse API fails."
+  state queue [badge: "1 msg"]
+  state worker [badge: "RUNNING", color: orange]
+  animate queue --> worker : "Deliver" [icon: mail, color: purple, desc: "The event is delivered to the worker"]
+  animate worker --> worker : "Attempt 1..3" [color: orange, desc: "Calls the warehouse API up to three times"]
+}
+
+step "Giving up and quarantining" {
+  desc "An event that fails all three attempts goes to the dead letter queue, so it does not block the queue."
+  state queue [badge: ""]
+  state worker [badge: "FAILED", color: red]
+  state dlq [visible: true, badge: "1 msg", color: red]
+  state e_dlq [visible: true]
+  animate worker --> dlq : "Quarantine" [icon: mail, color: red, desc: "The failed event is set aside for review"]
+}

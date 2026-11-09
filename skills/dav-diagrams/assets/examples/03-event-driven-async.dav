@@ -1,0 +1,45 @@
+dav 1
+title "Event-driven report generation"
+
+node user "Client" [icon: screen, sub: "Admin dashboard"]
+node apigw "API Gateway" [icon: router, sub: "REST Endpoint"]
+
+group async_core "Async pipeline" {
+  node queue "SQS Queue" [icon: queue, sub: "ReportJobQueue"]
+  node worker "Lambda Worker" [icon: function, sub: "PDF Generator"]
+  node s3 "S3 Bucket" [icon: storage, sub: "Report Archive"]
+}
+
+user <-> apigw : "HTTPS / Polling"
+apigw --> queue : "Enqueue Job"
+queue --> worker : "Trigger Batch"
+worker --> s3 : "PutObject (PDF)"
+user ..> s3 : "Signed URL DL" [id: e_dl, visible: false, color: green]
+
+step "Accepting the job (202 Accepted)" {
+  desc "PDF generation is too slow to run in the request, so the job goes to SQS and the API returns 202 Accepted."
+  focus user, apigw, queue
+  state queue [badge: "QUEUED: 1"]
+  animate user --> apigw : "POST /reports" [desc: "The dashboard requests a monthly report"]
+  animate apigw --> queue : "SendMessage" [desc: "API Gateway enqueues the job and responds right away"]
+}
+
+step "Generating and storing the PDF" {
+  desc "SQS triggers the Lambda worker, which generates the PDF and stores it in S3."
+  focus queue, worker, s3
+  state queue [badge: ""]
+  state worker [badge: "RUNNING"]
+  state s3 [badge: "SAVED"]
+  animate queue --> worker : "Invoke Worker" [desc: "An SQS event source mapping starts the worker"]
+  animate worker --> s3 : "PutObject report.pdf" [desc: "The finished PDF is uploaded to the archive bucket"]
+}
+
+step "Downloading with a signed URL" {
+  desc "When the report is ready, the client downloads it directly from S3 with a presigned URL."
+  focus user, s3
+  state worker [badge: ""]
+  state s3 [badge: ""]
+  state e_dl [visible: true]
+  state user [badge: "DOWNLOADED"]
+  animate user --> s3 : "GET Presigned URL" [desc: "The browser downloads the PDF from S3 without going through the API"]
+}

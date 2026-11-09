@@ -1,0 +1,115 @@
+dav 1
+title "Office LAN: site-to-site VPN and link failover"
+
+group office "Head office LAN (192.168.10.0/24)" {
+  node pc "Desktop PC" [icon: desktop, sub: "Wired / VLAN 10"]
+  node tablet "Tablet" [icon: mobile, sub: "Office Wi-Fi"]
+  node ap "Access point" [icon: wifi, sub: "SSID: corp-wifi"]
+  node floor "Floor switch" [icon: hub, sub: "PoE 24-port"]
+  node printer "Printer" [icon: printer, sub: "192.168.10.50"]
+  node core "Core switch" [icon: hub, sub: "VLAN 10 / 20"]
+  node nas "File server" [icon: storage, sub: "NAS / RAID 6"]
+  node utm "UTM" [icon: firewall, sub: "192.168.10.1"]
+}
+
+node wan "Internet VPN" [icon: cloud, sub: "IPsec"]
+node lte "LTE router" [icon: router, sub: "Backup link", visible: false]
+node dc "Data center" [icon: building, sub: "Off-site backup"]
+
+group branch "Branch office (192.168.20.0/24)" {
+  node branch_gw "Branch router" [icon: router, sub: "VPN endpoint"]
+  node branch_pc "Branch PC" [icon: desktop, sub: "Wired"]
+}
+
+pc <-> floor : "1GbE"
+tablet <.> ap : "Wi-Fi 6"
+ap <-> floor : "PoE"
+floor <-> printer : "IPP"
+floor <-> core : "Uplink"
+core <-> nas : "10GbE"
+core <-> utm : "Default GW"
+utm <-> wan : "Fiber" [id: e_main]
+utm <.> lte : "Failover" [id: e_lte_up, visible: false, color: yellow]
+lte <.> wan : "Mobile link" [id: e_lte_wan, visible: false, color: yellow]
+wan --> dc : "Backup"
+wan <-> branch_gw : "IPsec"
+branch_gw <-> branch_pc : "LAN"
+
+step "Printing from a wired PC" {
+  desc "Traffic on one floor stays inside the floor switch, and never reaches the core switch or the UTM."
+  focus pc, floor, printer
+  state printer [color: green, badge: "PRINT"]
+  animate pc --> floor : "Print Job" [desc: "The PC sends the print data to the floor switch"]
+  animate floor --> printer : "IPP" [desc: "The switch reads the destination MAC address and forwards to the printer's port only"]
+}
+
+step "Opening the file server over Wi-Fi" {
+  desc "The tablet reaches the file server through the access point, the floor switch and the core switch."
+  focus tablet, ap, floor, core, nas
+  state printer [color: none, badge: ""]
+  state nas [color: green, badge: "SMB"]
+  animate tablet --> ap : "WPA3" [desc: "The tablet joins the office SSID over encrypted Wi-Fi"]
+  animate ap --> floor : "Bridge" [desc: "Wireless frames are bridged to the wired LAN"]
+  animate floor --> core : "VLAN 10" [desc: "Tagged frames are forwarded to the core switch"]
+  animate core <-> nas : "SMB Read" [desc: "The core routes between VLANs and reads from the file server"]
+}
+
+step "Reaching the file server from the branch" {
+  desc "A PC at the branch uses the file server on the head office LAN through the site-to-site VPN."
+  focus branch_pc, branch_gw, wan, utm, core, nas
+  animate branch_pc --> branch_gw : "SMB" [desc: "Traffic for the head office goes to the branch router"]
+  animate branch_gw --> wan : "ESP" [desc: "IPsec encrypts it and sends it over the internet"]
+  animate wan --> utm : "ESP" [desc: "The UTM at the head office ends the tunnel and decrypts"]
+  animate utm --> core : "Inspected" [desc: "Only traffic allowed by policy enters the LAN"]
+  animate core <-> nas : "SMB Read" [desc: "The file server's response returns the same way"]
+}
+
+step "Nightly backup to the data center" {
+  desc "At night, changes on the file server are copied to the data center over the VPN."
+  focus nas, core, utm, wan, dc
+  state nas [color: blue, badge: "BACKUP"]
+  state dc [color: blue, badge: "SYNC"]
+  animate nas --> core : "Snapshot" [desc: "Sends the day's incremental snapshot"]
+  animate core --> utm : "Backup VLAN" [desc: "Forwards to the UTM on the backup VLAN"]
+  animate utm --> wan : "ESP" [desc: "Encrypts and sends toward the data center"]
+  animate wan --> dc : "Replicate" [desc: "Copies to off-site storage"]
+}
+
+step "The fiber link fails and the VPN drops" {
+  desc "The UTM detects the failure. Traffic to the branch and data center stops, while the office LAN keeps working."
+  focus utm, wan, branch_gw, dc
+  state nas [color: none, badge: ""]
+  state dc [color: red, badge: "UNREACHABLE"]
+  state e_main [color: red]
+  state utm [color: red, badge: "WAN DOWN"]
+  state branch_gw [color: red, badge: "VPN DOWN"]
+  animate utm --> wan : "Keepalive" [color: red, desc: "Keepalive replies stop, so the UTM declares the link down"]
+}
+
+step "Automatic failover to LTE" {
+  desc "The UTM routes through the LTE router and rebuilds the VPN. Backups stay paused because the bandwidth is low."
+  focus utm, lte, wan, branch_gw
+  state lte [visible: true, color: yellow, badge: "ACTIVE"]
+  state e_lte_up [visible: true]
+  state e_lte_wan [visible: true]
+  state utm [color: yellow, badge: "FAILOVER"]
+  state branch_gw [color: green, badge: "VPN UP"]
+  animate utm --> lte : "Route Change" [color: yellow, desc: "The default route moves to the LTE router"]
+  animate lte --> wan : "IKE" [color: yellow, desc: "The VPN is negotiated again over the mobile link"]
+  animate wan --> branch_gw : "Tunnel Up" [color: yellow, desc: "The tunnel to the branch router is back"]
+}
+
+step "The fiber link recovers" {
+  desc "With the main link back, the route returns to it and LTE goes back on standby. Paused backups resume."
+  focus utm, wan, branch_gw, dc
+  state lte [visible: false, color: none, badge: ""]
+  state e_lte_up [visible: false]
+  state e_lte_wan [visible: false]
+  state e_main [color: none]
+  state utm [color: green, badge: "NORMAL"]
+  state branch_gw [color: none, badge: ""]
+  state dc [color: none, badge: ""]
+  animate utm --> wan : "Failback" [color: green, desc: "Confirms the main link and moves the route back"]
+  animate wan --> branch_gw : "Tunnel Up" [desc: "The tunnel returns to the fiber link"]
+  animate wan --> dc : "Resume" [desc: "The paused incremental backup resumes", parallel: true]
+}

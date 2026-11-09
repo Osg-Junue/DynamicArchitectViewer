@@ -45,12 +45,14 @@ describe('crossing reduction', () => {
     'enterprise-zero-trust-10anim': 0,
     'sequence-payment-retry': 0,
     'lan-office-network': 0,
+    'dynamic-architect-viewer': 0,
     '01-infra-ha-failover.dav': 0,
     '02-screen-flow-checkout.dav': 0,
     '03-event-driven-async.dav': 1,
     '04-enterprise-zero-trust-payment.dav': 0,
     '05-sequence-payment-retry.dav': 0,
     '06-lan-office-network.dav': 0,
+    '07-dynamic-architect-viewer.dav': 0,
   };
   const diagrams = [
     ...SAMPLE_TEMPLATES.map((s) => [s.id, s.dsl] as const),

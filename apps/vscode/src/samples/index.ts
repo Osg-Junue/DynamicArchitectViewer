@@ -518,6 +518,111 @@ step "The fiber link recovers" {
 }
 `,
   },
+  {
+    id: 'dynamic-architect-viewer',
+    name: 'Software pipeline: DSL parsing, live preview and HTML export',
+    category: 'infra',
+    description:
+      'How this extension turns a .dav file into a live preview and a standalone HTML file',
+    dsl: `dav 1
+title "DynamicArchitectViewer: DSL parsing, auto layout, live preview and HTML export"
+
+group vscode_host "VS Code Extension Host" [color: teal] {
+  node editor ".dav Editor" [icon: file, sub: "TextDocument / Diagnostics"]
+  node ext "Extension Host" [icon: runtime, sub: "extension/extension.ts"]
+}
+
+group core_pipeline "DSL & Layout" [color: blue] {
+  node dsl "DSL Parser" [icon: logic, sub: "dsl/ (Lezer LR / SourceMap)"]
+  node layout "Auto Layout" [icon: sheet, sub: "layout/ (computeLayout)"]
+}
+
+group scene_runtime "Scene & Runtime" [color: purple] {
+  node scene "Scene Builder" [icon: function, sub: "scene/ (resolveView / buildScene)"]
+  node player "SVG Player" [icon: monitor, sub: "runtime/player.ts"]
+}
+
+group outputs "Preview & HTML Output" [color: green] {
+  node webview "Preview Webview" [icon: screen, sub: "editor/App.ts"]
+  node exporter "HTML Exporter" [icon: storage, sub: "exporter/ (SHA-256 CSP)"]
+  node html_out "Standalone HTML" [icon: browser, sub: "#dav-data + player.js", visible: false]
+}
+
+editor <-> ext : "Edit / Diagnostics"
+ext <-> dsl : "parse / format"
+dsl --> dsl : "Lezer LR Parse"
+dsl --> layout : "DavDocument"
+layout --> layout : "Crossing Reduction"
+layout --> scene : "Layout (Rect)"
+scene --> player : "VElement (Virtual SVG)"
+player --> player : "Phase Playback"
+player <-> webview : "Render / Cursor Sync"
+player --> exporter : "player.js / CSS"
+exporter --> html_out : "exportHtml" [id: e_export, visible: false, color: green]
+html_out ..> exporter : "importContent" [id: e_import, visible: false, color: teal]
+
+step "Editing a .dav file and running language diagnostics" {
+  desc "When the .dav file changes in the editor, the extension host parses the syntax tree with Lezer and updates diagnostics, Quick Fixes, completions and outline symbols."
+  state editor [badge: "EDITING", color: teal]
+  state dsl [badge: "PARSE", color: blue]
+  animate editor --> ext : "onDidChangeTextDocument" [icon: file, desc: "The editor notifies the extension host that the document text changed"]
+  animate ext --> dsl : "parse(text)" [icon: file, desc: "The extension host passes the .dav source to the DSL module"]
+  animate dsl --> dsl : "analyze (AST)" [color: blue, desc: "The Lezer grammar builds the syntax tree and produces DavDocument, Diagnostics and SourceMap"]
+  animate dsl --> ext : "Diagnostics / Completions" [color: teal, desc: "Diagnostics, Quick Fix suggestions and completion items are returned"]
+  animate ext --> editor : "set(uri, diagnostics)" [color: teal, desc: "Squiggles, Quick Fixes and document symbols are updated in the editor"]
+}
+
+step "Computing the layout and reducing edge crossings" {
+  desc "computeLayout assigns columns from the longest edge paths, places groups and rows, and runs up to 16 barycenter passes to minimize crossings."
+  state editor [badge: "", color: none]
+  state dsl [badge: "VALID", color: green]
+  state layout [badge: "RANK & ORDER", color: blue]
+  animate dsl --> layout : "DavDocument" [icon: sheet, desc: "The validated nodes, groups and edges are passed to the layout engine"]
+  animate layout --> layout : "Barycenter (up to 16x)" [color: blue, desc: "Columns come from longest paths, then rows are reordered to reduce edge crossings"]
+}
+
+step "Resolving the step scene and rendering the live preview" {
+  desc "resolveView computes cumulative step state, Bezier rails and callout boxes, then buildScene creates the virtual SVG tree that Player mounts in the webview."
+  state dsl [badge: "", color: none]
+  state layout [badge: "", color: none]
+  state scene [badge: "RESOLVED", color: purple]
+  state player [badge: "MOUNTED", color: purple]
+  state webview [badge: "LIVE PREVIEW", color: green]
+  animate layout --> scene : "Layout (Rect)" [icon: sheet, desc: "Deterministic node and group rectangles are passed to the scene module"]
+  animate scene --> player : "resolveView → buildScene" [icon: function, color: purple, desc: "Cumulative state, rail geometry and callouts become a virtual SVG tree (VElement)"]
+  animate player --> webview : "createElementNS (SVG)" [icon: monitor, color: green, desc: "Player renders the SVG into the preview webview via DOM APIs without innerHTML"]
+}
+
+step "Playing step animations and syncing the cursor" {
+  desc "During playback, Player animates packets phase by phase while syncing cursor highlights and double-click jumps with the editor."
+  state scene [badge: "", color: none]
+  state player [badge: "PLAYING", color: green]
+  state webview [badge: "SYNCED", color: teal]
+  animate webview <-> player : "play() / goTo(step)" [color: green, desc: "Moving the editor cursor jumps to the matching step and highlights the active element"]
+  animate player --> player : "Phase / Parallel" [color: purple, desc: "Animations run in phase order, with parallel: true joining the preceding phase"]
+  animate player --> webview : "dblclick [data-id]" [icon: search, color: teal, desc: "Double-clicking a node looks up its SourceMap span and posts revealRange to the editor"]
+}
+
+step "Exporting a standalone HTML file" {
+  desc "exportHtml embeds the parsed document, layout, used icons and runtime player into a single HTML file locked down by a SHA-256 Content Security Policy."
+  state player [badge: "", color: none]
+  state webview [badge: "", color: none]
+  state exporter [badge: "BUNDLE", color: green]
+  state html_out [visible: true, badge: "EXPORTED", color: green]
+  state e_export [visible: true]
+  animate player --> exporter : "player.js / CSS" [icon: file, desc: "The prebuilt player runtime and stylesheet are supplied for inlining"]
+  animate exporter --> html_out : "exportHtml(dsl)" [icon: key, color: green, desc: "Writes a self-contained HTML file with escaped #dav-data JSON and SHA-256 CSP hashes"]
+}
+
+step "Re-importing the .dav source from exported HTML" {
+  desc "importContent reads the #dav-data JSON block without executing the HTML page and restores the original .dav text."
+  state html_out [badge: "READ", color: teal]
+  state exporter [badge: "EXTRACTED", color: teal]
+  state e_import [visible: true]
+  animate html_out --> exporter : "importContent(html)" [icon: file, color: teal, desc: "Extracts payload.dsl from the embedded #dav-data script element without evaluating scripts"]
+}
+`,
+  },
 ];
 
 export const SAMPLES = SAMPLE_TEMPLATES;

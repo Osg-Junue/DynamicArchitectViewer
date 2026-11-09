@@ -47,7 +47,7 @@ The documentation button in the preview toolbar opens a guide to the language, w
 - **Playback** with step selection, play all, adjustable speed, and a still view of each step.
 - **Language support:** highlighting, diagnostics with Quick Fixes, completions for names, attributes and the 42 built-in icons, a formatter that keeps comments, and an outline.
 - **Standalone HTML export.** One file that works offline, with a strict Content Security Policy. The source can be extracted from it again.
-- **AI-friendly.** A command copies a prompt that teaches the language to Claude Code, Copilot, ChatGPT and others.
+- **AI-friendly.** Install an agent skill that lets Claude Code, GitHub Copilot and Codex write and validate `.dav` files, or copy a prompt for chat assistants.
 - **Japanese and English UI**, following the VS Code display language.
 
 ## Commands
@@ -59,9 +59,11 @@ The documentation button in the preview toolbar opens a guide to the language, w
 | Extract DSL from Standalone HTML... | |
 | New Diagram from Sample Template... | |
 | Copy AI Prompt Template (DSL v1 Spec) | |
+| Install AI Agent Skill... | |
 
 ## Learn more
 
+- [AI agent skill](https://github.com/Osg-Junue/DynamicArchitectViewer#ai-agent-skill)
 - [Language specification](https://github.com/Osg-Junue/DynamicArchitectViewer/blob/HEAD/docs/specification.md)
 - [Examples](https://github.com/Osg-Junue/DynamicArchitectViewer/tree/HEAD/examples)
 - [Report an issue](https://github.com/Osg-Junue/DynamicArchitectViewer/issues)

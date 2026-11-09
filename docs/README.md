@@ -5,7 +5,7 @@
 - [Language specification](specification.md): syntax, attributes, icons, diagnostics and compatibility
 - [How diagrams are laid out](layout.md): what to write to get the arrangement you want
 
-The preview also has an interactive guide. Open it with the documentation button in the toolbar.
+The preview also has an interactive guide. Open it with the documentation button in the toolbar. To have a coding agent write `.dav` files, install the [AI agent skill](../README.md#ai-agent-skill).
 
 **Working on the code**
 
