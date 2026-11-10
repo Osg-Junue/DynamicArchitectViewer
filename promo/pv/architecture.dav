@@ -1,0 +1,117 @@
+dav 1
+title "tiny-orders: 注文から決済まで"
+
+node browser "ブラウザ" [icon: browser, sub: "顧客"]
+
+group compose "docker compose" [color: blue] {
+  node web "web" [icon: lb, sub: "nginx :8080"]
+  node api "api" [icon: api, sub: "Node.js :3000"]
+  node worker "worker" [icon: function, sub: "メール送信"]
+  group data "データ / メッセージング" [color: teal] {
+    node postgres "postgres" [icon: database, sub: "orders / products"]
+    node redis "redis" [icon: cache, sub: "商品キャッシュ"]
+    node rabbitmq "rabbitmq" [icon: queue, sub: "exchange: orders"]
+  }
+}
+
+group external "外部サービス" [color: purple] {
+  node psp "決済プロバイダー" [icon: payment, sub: "payments.example.com"]
+  node smtp "SMTP" [icon: mail, sub: "smtp.example.com"]
+}
+
+browser <-> web : "HTTP"
+web <-> api : "/api/ proxy"
+api --> postgres : "SQL"
+api --> redis : "キャッシュ無効化"
+api <-> psp : "POST /charges"
+api --> rabbitmq : "order.confirmed"
+rabbitmq --> worker : "order-emails"
+worker --> smtp : "SMTP"
+api --> api : "リトライ" [id: e_retry, visible: false, color: orange]
+
+// ---- 正常系 ----
+
+step "注文を受け付ける" {
+  desc "【正常系】ブラウザの注文が nginx 経由で API に届く。"
+  animate browser --> web : "POST /api/orders" [icon: file, desc: "email と items を送信"]
+  animate web --> api : "proxy" [icon: file]
+}
+
+step "在庫を確保して pending 注文を作る" {
+  desc "1 つのトランザクションで在庫を減らし、注文を pending で保存する。"
+  state postgres [badge: "pending", color: yellow]
+  animate api --> postgres : "在庫減算 + INSERT" [icon: database]
+  animate api --> redis : "商品キャッシュ削除"
+}
+
+step "決済プロバイダーに課金" {
+  desc "注文 ID を idempotency-key にして POST /charges。1 回目で成功する。"
+  state psp [badge: "200", color: green]
+  animate api --> psp : "charge" [icon: payment, desc: "Idempotency-Key: orderId"]
+  animate psp --> api : "payment id" [color: green]
+}
+
+step "注文を paid にして通知を発行" {
+  desc "注文を paid に更新し、order.confirmed を発行してブローカーの確認を待つ。"
+  state postgres [badge: "paid", color: green]
+  state psp [badge: "", color: none]
+  animate api --> postgres : "status = paid" [icon: database]
+  animate api --> rabbitmq : "order.confirmed" [icon: mail]
+  animate api --> web : "201 Created" [color: green]
+  animate web --> browser : "201 Created" [color: green]
+}
+
+step "確認メールを送る" {
+  desc "worker がキューを消費して確認メールを送信し、ack する。"
+  state postgres [badge: "", color: none]
+  animate rabbitmq --> worker : "order.confirmed" [icon: mail]
+  animate worker --> smtp : "確認メール" [icon: mail]
+}
+
+// ---- 異常系: 決済プロバイダー障害 ----
+
+step "【障害】在庫確保まで同じ" {
+  desc "【異常系】注文 → 在庫確保 → pending 保存までは正常系と同じ。"
+  state postgres [badge: "pending", color: yellow]
+  animate browser --> web : "POST /api/orders" [icon: file]
+  animate web --> api : "proxy" [icon: file]
+  animate api --> postgres : "在庫減算 + INSERT" [icon: database]
+}
+
+step "1 回目: 決済プロバイダーが 5xx" {
+  desc "決済プロバイダーが落ちていて 503 / タイムアウト(3 秒)。失敗は 4xx 以外なのでリトライ対象。"
+  state psp [badge: "503", color: red]
+  animate api --> psp : "charge (試行 1/3)" [icon: payment]
+  animate psp --> api : "503" [color: red]
+}
+
+step "2 回目: 200ms 待ってリトライ" {
+  desc "指数バックオフ(200ms + ジッター)の後、同じ idempotency-key で再送する。"
+  state e_retry [visible: true]
+  animate api --> api : "待機 ~200ms" [color: orange]
+  animate api --> psp : "charge (試行 2/3)" [icon: payment, color: orange]
+  animate psp --> api : "503" [color: red]
+}
+
+step "3 回目: 400ms 待って最後のリトライ" {
+  desc "バックオフを倍にして最後の試行。これも失敗し、試行回数の上限に達する。"
+  animate api --> api : "待機 ~400ms" [color: orange]
+  animate api --> psp : "charge (試行 3/3)" [icon: payment, color: orange]
+  animate psp --> api : "503" [color: red]
+}
+
+step "リトライ上限: 在庫を戻して失敗にする" {
+  desc "PaymentUnavailableError。注文を payment_failed にし、確保した在庫を戻してキャッシュを無効化する。"
+  state e_retry [visible: false]
+  state postgres [badge: "payment_failed", color: red]
+  animate api --> postgres : "status = payment_failed + 在庫を戻す" [icon: database, color: red]
+  animate api --> redis : "商品キャッシュ削除"
+}
+
+step "顧客に 503 を返す" {
+  desc "order.confirmed は発行されず、確認メールも送られない。顧客には 503 が返る。"
+  state postgres [badge: "", color: none]
+  state psp [badge: "", color: none]
+  animate api --> web : "503" [color: red]
+  animate web --> browser : "503 payment provider unavailable" [color: red]
+}

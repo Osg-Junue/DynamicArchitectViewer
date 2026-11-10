@@ -5,3 +5,5 @@
 skills/dav-diagrams/scripts/** linguist-generated
 skills/dav-diagrams/references/** linguist-generated
 skills/dav-diagrams/assets/** linguist-generated
+*.gif binary
+*.mp4 binary

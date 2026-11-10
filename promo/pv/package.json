@@ -1,0 +1,12 @@
+{
+  "name": "dynamic-architect-viewer-pv",
+  "private": true,
+  "description": "Renders the promotional video and the README/docs animations. Playwright comes from the repository root.",
+  "type": "module",
+  "scripts": {
+    "highlight": "node highlight.mjs"
+  },
+  "devDependencies": {
+    "shiki": "1.24.0"
+  }
+}
