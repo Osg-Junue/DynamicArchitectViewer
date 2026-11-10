@@ -11,7 +11,17 @@
       "description": "Write and validate .dav diagrams that play step by step.",
       "license": "MIT",
       "repository": "https://github.com/Osg-Junue/DynamicArchitectViewer",
-      "keywords": ["diagram", "architecture", "dav"]
+      "keywords": [
+        "diagram",
+        "architecture",
+        "dav",
+        "diagram-as-code",
+        "flowchart",
+        "sequence",
+        "screen-flow",
+        "animation",
+        "visualization"
+      ]
     }
   ]
 }
