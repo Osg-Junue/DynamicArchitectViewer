@@ -3,6 +3,10 @@
 This project follows [Semantic Versioning](https://semver.org/). The `0.x` series is a preview.
 The `dav` language version is separate from the extension version.
 
+## 0.3.3 (2026-11-10)
+
+- Fix: a group nested in a top-level group that has no nodes was left out of the layout when zones were placed freely
+
 ## 0.3.2 (2026-11-10)
 
 - Marketplace metadata: spaces in `displayName` (`Dynamic Architect Viewer`), search keywords, and the `Linters` category
