@@ -2,7 +2,7 @@
 
 Write architecture and screen-flow diagrams as text, then play them step by step.
 
-![A diagram in the live preview, with a packet moving along a rail](media/screenshot.png)
+![Clicking into a step in the editor makes the live preview play that step: retries to a payment provider that keeps failing](media/demo.gif)
 
 A static diagram struggles to show what happens over time. Requests, failovers and retries end up as a tangle of numbered arrows, or in a separate sequence diagram. Here, one diagram plays out in steps, while the structure stays in place.
 

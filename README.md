@@ -2,7 +2,7 @@
 
 Write architecture and screen-flow diagrams as text, then play them step by step. A VS Code extension for `.dav` files.
 
-![A diagram in the live preview, with a packet moving along a rail](apps/vscode/media/screenshot.png)
+![Clicking into a step in the editor makes the live preview play that step: retries to a payment provider that keeps failing](apps/vscode/media/demo.gif)
 
 A static diagram struggles to show what happens over time. Requests, failovers and retries end up as a tangle of numbered arrows, or in a separate sequence diagram. Here, one diagram plays out in steps, while the structure stays in place.
 
@@ -41,6 +41,8 @@ step "The payment provider fails" {
 - **AI-friendly.** An [agent skill](#ai-agent-skill) lets coding agents write and validate `.dav` files, and a command copies a prompt for chat assistants.
 - **Japanese and English UI**, following the VS Code display language.
 
+![With "Focus on active animation" off, packets run off the screen; turned on, the camera follows them](docs/media/follow.gif)
+
 ## Install
 
 Install [DynamicArchitectViewer](https://marketplace.visualstudio.com/items?itemName=osg-junue.dynamic-architect-viewer) from the Visual Studio Marketplace. It is in preview and needs VS Code 1.96 or later.
@@ -60,6 +62,8 @@ Then open a `.dav` file, or run **DynamicArchitectViewer: New Diagram from Sampl
 The [`dav-diagrams`](skills/dav-diagrams/SKILL.md) skill teaches coding agents the language, how layout works and how to structure steps. Its bundled checker runs the same parser and formatter as the editor, so an agent can fix its own mistakes. The checker needs Node.js 18 or later.
 
 **From VS Code:** run **DynamicArchitectViewer: Install AI Agent Skill...** from the Command Palette, then choose Claude Code, GitHub Copilot or Codex, and either the workspace or all projects.
+
+![Installing the skill for Claude Code in this workspace from the Command Palette](docs/media/skill-install.gif)
 
 **As a Claude Code plugin:**
 
