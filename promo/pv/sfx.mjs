@@ -1,5 +1,6 @@
-// Synthesizes the PV sound track (no samples, no external audio): node sfx.mjs
-// Writes out/sfx.wav (48 kHz stereo 16-bit), timed to the cut list below.
+// Synthesizes the PV sound track (no samples, no external audio): node sfx.mjs [full|short] [ja|en]
+// Writes out/sfx[-short]-<lang>.wav (48 kHz stereo 16-bit), timed to the cut list below. Only cut 5
+// differs between languages: each is cut from the take recorded in that language (build-rec.mjs).
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -9,12 +10,24 @@ const SR = 48000;
 // Cut lengths in seconds, in edit order (must match out/list-*.txt). `short` is the SNS cut.
 // Events for cuts that are not in the edit fall outside the buffer and are skipped.
 const PROFILE = process.argv[2] === 'short' ? 'short' : 'full';
+const LANG = process.argv[3] === 'en' ? 'en' : 'ja';
+// Cut 5 per language: its length, and when the fast-forward runs and the diagram appears.
+const C05 = {
+  ja: {
+    full: { len: 12.5, ffAt: 5.0, ffLen: 3.5, doneAt: 8.6 },
+    short: { len: 7.6, ffAt: 2.5, ffLen: 2.1, doneAt: 4.7 },
+  },
+  en: {
+    full: { len: 12.2, ffAt: 4.0, ffLen: 3.0, doneAt: 7.1 },
+    short: { len: 8.3, ffAt: 1.5, ffLen: 1.8, doneAt: 3.4 },
+  },
+}[LANG][PROFILE];
 const CUTS =
   PROFILE === 'short'
     ? [
         ['c01_hook', 3],
         ['c02_title', 3],
-        ['c05_short', 7.6],
+        ['c05_short', C05.len],
         ['c07_follow', 7.5],
         ['c10_end', 4.5],
       ]
@@ -23,7 +36,7 @@ const CUTS =
         ['c02_title', 3],
         ['c03_new', 7],
         ['c04_skill', 8],
-        ['c05_rec', 12.5],
+        ['c05_rec', C05.len],
         ['c06_cursor', 11],
         ['c07_follow', 9],
         ['c08_docs', 9],
@@ -177,10 +190,10 @@ for (const name of ['c03_new', 'c05_short', 'c06_cursor', 'c07_follow', 'c08_doc
   whoosh(at(name, -0.25), 0.5, 600, 2400, db(-30));
 
 // Fast-forward while Claude Code works (cut 5, 5.0-8.5 s).
-whir(at('c05_rec', 5.0), 3.5);
-chime(at('c05_rec', 8.6), [659.25, 987.77], 1.4, db(-24));
-whir(at('c05_short', 2.5), 2.1);
-chime(at('c05_short', 4.7), [659.25, 987.77], 1.4, db(-24));
+for (const cut of ['c05_rec', 'c05_short']) {
+  whir(at(cut, C05.ffAt), C05.ffLen);
+  chime(at(cut, C05.doneAt), [659.25, 987.77], 1.4, db(-24));
+}
 
 // Clicks of the drawn pointer (cuts.mjs pointerTrack keyframes with click = true).
 const CLICKS = {
@@ -254,7 +267,7 @@ for (let i = 0; i < N; i++) {
   buf.writeInt16LE(Math.round(Math.max(-1, Math.min(1, L[i] * norm)) * 32767), 44 + i * 4);
   buf.writeInt16LE(Math.round(Math.max(-1, Math.min(1, R[i] * norm)) * 32767), 46 + i * 4);
 }
-const outName = PROFILE === 'short' ? 'sfx-short.wav' : 'sfx.wav';
+const outName = `${PROFILE === 'short' ? 'sfx-short' : 'sfx'}-${LANG}.wav`;
 writeFileSync(resolve(here, 'out', outName), buf);
 console.log(
   `${outName}: ${total.toFixed(1)} s, peak ${(20 * Math.log10(peak)).toFixed(1)} dBFS before normalizing`,

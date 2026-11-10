@@ -104,9 +104,9 @@ const PV = [
 const SHORT = [['c01_hook'], ['c02_title'], ['c05_short'], ['c07_follow', 7.5], ['c10_end', 4.5]];
 
 if (what === 'pv' || what === 'all')
-  for (const lang of ['ja', 'en']) video('pv', PV, lang, 'sfx.wav');
+  for (const lang of ['ja', 'en']) video('pv', PV, lang, `sfx-${lang}.wav`);
 if (what === 'short' || what === 'all')
-  for (const lang of ['ja', 'en']) video('pv-short', SHORT, lang, 'sfx-short.wav');
+  for (const lang of ['ja', 'en']) video('pv-short', SHORT, lang, `sfx-short-${lang}.wav`);
 if (what === 'gifs' || what === 'all') {
   gif('c06_cursor', 'apps/vscode/media/demo.gif');
   gif('c07_follow', 'docs/media/follow.gif');

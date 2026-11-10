@@ -3,7 +3,7 @@
 // timeline of [seconds, async (ctx, t) => …] events from `setup`.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { DAV, HIGHLIGHT, UI } from './variant.mjs';
+import { DAV, HIGHLIGHT, STEPS, UI } from './variant.mjs';
 
 const here = import.meta.dirname;
 const DSL = readFileSync(resolve(here, DAV), 'utf8');
@@ -16,10 +16,10 @@ const offsetOf = (line, col) =>
 /** 1-based line of the n-th (1-based) step. Both diagrams have the same steps in the same order. */
 const stepLine = (n) =>
   LINES.map((l, i) => [l, i + 1]).filter(([l]) => l.startsWith('step "'))[n - 1][1];
-// architecture.dav is what Claude Code generated in the adopted take; architecture-en.dav translates it.
-const STEP1 = stepLine(1); // Accept the order
-const PAID = stepLine(4); // Mark the order paid and publish the event
-const RETRY = stepLine(8); // Attempt 2: wait 200 ms and retry
+// Each diagram is what Claude Code generated in the take of that language (variant.mjs).
+const STEP1 = stepLine(1); // the order is placed
+const PAID = stepLine(STEPS.follow); // packets go far apart
+const RETRY = stepLine(STEPS.retry); // the retries
 
 // Editor geometry in stage.html: rows start at y = 113, 22 px each; text starts at x = 168, ~8.25 px a column.
 const EDITOR_TOP = 113;
