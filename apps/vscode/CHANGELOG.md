@@ -3,6 +3,10 @@
 This project follows [Semantic Versioning](https://semver.org/). The `0.x` series is a preview.
 The `dav` language version is separate from the extension version.
 
+## 0.3.1 (2026-11-10)
+
+- The README shows the preview in motion: clicking into a step in the editor plays it
+
 ## 0.3.0 (2026-11-10)
 
 - Zones are placed freely when that shortens links that would otherwise be too long
