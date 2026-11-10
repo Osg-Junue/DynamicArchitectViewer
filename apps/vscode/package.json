@@ -1,12 +1,34 @@
 {
   "name": "dynamic-architect-viewer",
-  "displayName": "DynamicArchitectViewer",
+  "displayName": "Dynamic Architect Viewer",
   "description": "Write architecture and screen-flow diagrams as text, play them step by step, and export them as a standalone HTML file.",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "publisher": "osg-junue",
   "preview": true,
   "icon": "media/icon.png",
   "license": "MIT",
+  "keywords": [
+    "DynamicArchitectViewer",
+    "dav",
+    "diagram",
+    "architecture",
+    "diagram-as-code",
+    "flowchart",
+    "sequence",
+    "sequence-diagram",
+    "screen-flow",
+    "data-flow",
+    "system-design",
+    "animation",
+    "step-by-step",
+    "visualization",
+    "dsl",
+    "live-preview",
+    "html-export",
+    "dynamic",
+    "architect",
+    "viewer"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/Osg-Junue/DynamicArchitectViewer.git"
@@ -18,7 +40,8 @@
   "categories": [
     "Visualization",
     "Programming Languages",
-    "Formatters"
+    "Formatters",
+    "Linters"
   ],
   "activationEvents": [
     "onLanguage:dav",
