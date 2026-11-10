@@ -1,0 +1,606 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<title>PV stage</title>
+<style>
+  :root {
+    --bg: #121212;
+    --fg: #f2f2f2;
+    --muted: #9a9a9a;
+    --accent: #eb6101;
+    --accent-text: #ff8a4c;
+    --rail: #3a3a3a;
+    --sans: 'Segoe UI Variable Display', 'Segoe UI', 'Yu Gothic UI', sans-serif;
+    --ja: 'Yu Gothic UI', 'Segoe UI', sans-serif;
+    --mono: Consolas, 'BIZ UDGothic', monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1920px; height: 1080px; background: var(--bg); color: var(--fg); overflow: hidden; }
+  html[lang="en"] { --ja: 'Segoe UI Variable Display', 'Segoe UI', sans-serif; }
+  .scene { position: absolute; inset: 0; display: none; }
+  body[data-scene="hook"] #hook, body[data-scene="title"] #title, body[data-scene="vscode"] #vscode,
+  body[data-scene="browser"] #browser, body[data-scene="end"] #end, body[data-scene="slate"] #slate, body[data-scene="vscode2"] #vscode2 { display: block; }
+
+  /* Lower-third caption: one line, one message. */
+  .caption {
+    position: absolute; left: 80px; bottom: 56px; z-index: 10;
+    display: flex; align-items: center; gap: 24px;
+    font: 700 46px/1.2 var(--ja); letter-spacing: 0.02em; opacity: 0;
+  }
+  .caption::before { content: ''; width: 8px; height: 56px; background: var(--accent); border-radius: 4px; }
+
+  /* ---------- hook: a static diagram nobody can read in order ---------- */
+  #hook svg { position: absolute; inset: 0; transform-origin: 960px 480px; }
+  #hook .box rect { fill: #1d1f22; stroke: #5b6067; stroke-width: 2; }
+  #hook .box text { fill: #c9cdd2; font: 600 24px var(--sans); text-anchor: middle; dominant-baseline: middle; }
+  #hook .arrow path { fill: none; stroke: #6f757c; stroke-width: 3; marker-end: url(#hookArrow); }
+  #hook .num circle { fill: #2a2d31; stroke: #8a9097; stroke-width: 2; }
+  #hook .num text { fill: #e6e6e6; font: 700 22px var(--sans); text-anchor: middle; dominant-baseline: central; }
+  #hook .num.lit circle { fill: var(--accent); stroke: #ffb27f; }
+
+  /* ---------- title ---------- */
+  #title svg { position: absolute; inset: 0; }
+  #title .copy { position: absolute; left: 0; right: 0; top: 330px; text-align: center; }
+  #title .tagline { font: 700 104px/1.15 var(--ja); letter-spacing: 0.04em; }
+  html[lang="en"] #title .tagline { font-weight: 600; letter-spacing: -0.01em; }
+  #title .brand {
+    margin-top: 40px; display: inline-flex; align-items: center; gap: 20px;
+    font: 600 40px/1 var(--sans); color: #d0d0d0; letter-spacing: 0.01em;
+  }
+  #title .brand img { width: 56px; height: 56px; border-radius: 12px; }
+
+  /* ---------- VS Code window with the real preview ---------- */
+  .window {
+    position: absolute; left: 64px; top: 40px; width: 1792px; height: 890px;
+    background: #1e1e1e; border-radius: 10px; overflow: hidden;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.6), 0 0 0 1px #2b2b2b;
+  }
+  #vscode .window { display: grid; grid-template-rows: 32px 1fr 24px; grid-template-columns: 48px 1fr; }
+  .titlebar { grid-column: 1 / -1; background: #3c3c3c; display: flex; align-items: center; justify-content: center;
+    font: 13px var(--sans); color: #cccccc; position: relative; }
+  .titlebar .dots { position: absolute; left: 14px; display: flex; gap: 8px; }
+  .titlebar .dots i { width: 12px; height: 12px; border-radius: 50%; background: #5a5a5a; display: block; }
+  .activity { background: #333333; display: flex; flex-direction: column; align-items: center; padding-top: 12px; gap: 22px; }
+  .activity i { width: 24px; height: 24px; border: 2px solid #858585; border-radius: 4px; display: block; opacity: 0.8; }
+  .activity i:first-child { border-color: #ffffff; }
+  .panes { display: grid; grid-template-columns: 720px 1fr; min-height: 0; }
+  .pane { display: grid; grid-template-rows: 35px 1fr; min-width: 0; min-height: 0; border-left: 1px solid #444; }
+  .pane:first-child { border-left: 0; }
+  .tabs { background: #252526; display: flex; }
+  .tab { background: #1e1e1e; color: #ffffff; font: 13px var(--sans); padding: 0 18px; display: flex; align-items: center; gap: 8px; }
+  .tab img { width: 16px; height: 16px; }
+  .editor { position: relative; font: 15px/22px var(--mono); padding-top: 6px; overflow: hidden; }
+  .line { display: flex; white-space: pre; height: 22px; }
+  .ln { width: 56px; padding-right: 22px; text-align: right; color: #858585; flex: none; }
+  .line.current { outline: 2px solid #282828; outline-offset: -1px; }
+  .line.current .ln { color: #c6c6c6; }
+  .code { overflow: hidden; }
+  .cursor { display: inline-block; width: 2px; height: 19px; background: #aeafad; vertical-align: -4px; margin-left: -1px; }
+  .preview { position: relative; background: #1e1e1e; }
+  /* The live page (preview or exported HTML) runs in its own tab under the fake clock; each frame
+     its screenshot is shown here. Iframes are not reached by the fake clock. */
+  .preview img, #browser .page img { position: absolute; left: 0; top: 0; display: block; }
+  .status { grid-column: 1 / -1; background: #007acc; color: #fff; font: 12px var(--sans); display: flex; align-items: center; padding: 0 12px; gap: 18px; }
+
+
+  /* ---------- VS Code with the explorer (cuts 3-4, rebuilt from the recordings) ---------- */
+  #vscode2 .window { display: grid; grid-template-rows: 32px 1fr 24px; grid-template-columns: 48px 260px 1fr; }
+  #vscode2 .titlebar { grid-column: 1 / -1; }
+  #vscode2 .status { grid-column: 1 / -1; }
+  .side { background: #252526; color: #cccccc; font: 13px var(--sans); min-height: 0; overflow: hidden; }
+  .side .head { height: 35px; display: flex; align-items: center; padding: 0 20px; font-size: 11px; letter-spacing: 0.04em; }
+  .side .root { height: 22px; display: flex; align-items: center; gap: 6px; padding-left: 8px; font-weight: 700; font-size: 11px; }
+  .tree .row { height: 22px; display: flex; align-items: center; gap: 6px; white-space: nowrap; position: relative; }
+  .tree .row.sel { background: #04395e; outline: 1px solid #007fd4; outline-offset: -1px; }
+  .tree .chev { width: 16px; text-align: center; color: #c5c5c5; font-size: 11px; flex: none; }
+  .tree .ico { width: 16px; height: 16px; flex: none; display: inline-flex; align-items: center; justify-content: center; font: 700 10px var(--sans); border-radius: 2px; }
+  .tree .ico img { width: 16px; height: 16px; }
+  .tree .badge { position: absolute; right: 12px; font-size: 12px; }
+  .tree input { font: 13px var(--sans); color: #ccc; background: #3c3c3c; border: 1px solid #007fd4; height: 20px; width: 200px; padding: 0 4px; outline: none; }
+  .ctx { position: absolute; z-index: 15; width: 440px; background: #252526; border: 1px solid #454545; border-radius: 6px;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.5); padding: 4px 0; font: 13px var(--sans); color: #cccccc; display: none; }
+  .ctx .it { height: 26px; display: flex; align-items: center; padding: 0 26px 0 34px; justify-content: space-between; margin: 0 4px; border-radius: 4px; }
+  .ctx .it.hover { background: #04395e; color: #fff; }
+  .ctx .sep { height: 1px; background: #454545; margin: 4px 0; }
+  .ctx .key { color: #a0a0a0; }
+  .editor2 { position: relative; background: #1e1e1e; display: grid; grid-template-rows: 1fr; min-width: 0; min-height: 0; }
+  .editor2 .empty { display: flex; align-items: center; justify-content: center; height: 100%; color: #2c2c2c; font: 700 160px var(--sans); }
+  .groups { position: relative; min-width: 0; min-height: 0; }
+  .groups > .g1 { position: absolute; top: 0; bottom: 0; left: 0; z-index: 2; width: 100%; background: #1e1e1e; display: grid; grid-template-rows: 35px 1fr; }
+  .groups.split > .g1 { width: 50%; border-right: 1px solid #444; }
+  .groups > .g2 { position: absolute; top: 0; bottom: 0; right: 0; width: 50%; display: grid; grid-template-rows: 35px 1fr; background: #1e1e1e; }
+  .palette { position: absolute; z-index: 16; left: 50%; top: 76px; transform: translateX(-50%); width: 620px; background: #252526;
+    border: 1px solid #454545; border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.55); padding: 6px; font: 13px var(--sans); color: #cccccc; display: none; }
+  .palette .q { height: 28px; border: 1px solid #007fd4; background: #3c3c3c; border-radius: 3px; display: flex; align-items: center; padding: 0 8px; color: #ccc; }
+  .palette .q .ph { color: #8b8b8b; }
+  .palette .q .caret { width: 1px; height: 16px; background: #ccc; margin-left: 1px; }
+  .palette .items { margin-top: 6px; }
+  .palette .item { padding: 4px 10px; border-radius: 4px; display: grid; grid-template-columns: 1fr auto; column-gap: 12px; }
+  .palette .item.active { background: #04395e; color: #fff; }
+  .palette .item .d { color: #a0a0a0; font-size: 12px; }
+  .palette .item.active .d { color: #d0d0d0; }
+  .palette .item .detail { grid-column: 1 / -1; color: #9a9a9a; font-size: 12px; }
+  .palette .item.active .detail { color: #c8c8c8; }
+  .palette .hl { color: #2aaaff; font-weight: 700; }
+  .palette .item.active .hl { color: #6cc4ff; }
+  .toast { position: absolute; z-index: 14; right: 80px; bottom: 180px; width: 600px; background: #252526; border: 1px solid #454545;
+    border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,0.5); padding: 12px 14px; display: none; gap: 10px; font: 13px var(--sans); color: #cccccc; }
+  .toast .i { color: #3794ff; font-weight: 700; }
+  #keys { position: absolute; z-index: 18; left: 50%; top: 470px; transform: translateX(-50%); display: none; gap: 10px; }
+  #keys kbd { font: 700 34px var(--sans); color: #fff; background: rgba(30,30,30,0.92); border: 2px solid #5a5a5a; border-bottom-width: 5px;
+    border-radius: 10px; padding: 10px 20px; }
+
+  /* ---------- a generic browser window showing the exported HTML ---------- */
+  #browser .window { display: grid; grid-template-rows: 44px 1fr; }
+  #browser .chrome { background: #2b2b2b; display: flex; align-items: center; gap: 16px; padding: 0 16px; }
+  #browser .chrome .dots { display: flex; gap: 8px; }
+  #browser .chrome .dots i { width: 12px; height: 12px; border-radius: 50%; background: #5a5a5a; display: block; }
+  #browser .url { flex: 1; height: 28px; border-radius: 14px; background: #1b1b1b; color: #c8c8c8;
+    font: 14px var(--sans); display: flex; align-items: center; padding: 0 16px; gap: 10px; }
+  #browser .url .offline { margin-left: auto; color: #8bd17c; font-size: 13px; }
+  #browser .page { position: relative; }
+
+  /* ---------- end card ---------- */
+  #end .center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  #end img { width: 168px; height: 168px; border-radius: 36px; }
+  #end .name { margin-top: 36px; font: 600 84px/1 var(--sans); letter-spacing: -0.01em; }
+  #end .tag { margin-top: 22px; font: 700 40px/1.2 var(--ja); color: var(--accent-text); letter-spacing: 0.04em; }
+  html[lang="en"] #end .tag { font-weight: 600; letter-spacing: 0; }
+  #end .search {
+    margin-top: 64px; display: flex; align-items: center; gap: 14px;
+    padding: 18px 30px; border: 2px solid #3c3c3c; border-radius: 12px; background: #1b1b1b;
+    font: 32px var(--ja); color: #d8d8d8;
+  }
+  #end .search b { font: 600 32px var(--sans); color: #fff; }
+  #end .meta { margin-top: 30px; font: 24px var(--sans); color: var(--muted); letter-spacing: 0.04em; }
+
+  /* A mouse pointer drawn over the page, for clicks the viewer should see. */
+  #pointer { position: absolute; z-index: 20; width: 28px; height: 28px; pointer-events: none; display: none;
+    filter: drop-shadow(0 2px 3px rgba(0,0,0,0.6)); }
+  #pointer .ring { position: absolute; left: -22px; top: -22px; width: 44px; height: 44px; border-radius: 50%;
+    border: 3px solid var(--accent); opacity: 0; }
+</style>
+</head>
+<body>
+
+<section class="scene" id="hook">
+  <svg width="1920" height="1080" viewBox="0 0 1920 1080" aria-hidden="true">
+    <defs>
+      <marker id="hookArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="12" markerHeight="12" markerUnits="userSpaceOnUse" orient="auto">
+        <path d="M0 0 L10 5 L0 10 z" fill="#6f757c" />
+      </marker>
+    </defs>
+    <g id="hookArrows" class="arrow"></g>
+    <g id="hookBoxes"></g>
+    <g id="hookNums"></g>
+  </svg>
+</section>
+
+<section class="scene" id="title">
+  <svg width="1920" height="1080" viewBox="0 0 1920 1080" aria-hidden="true">
+    <defs>
+      <radialGradient id="glow"><stop offset="0" stop-color="#eb6101" stop-opacity="0.55"/><stop offset="1" stop-color="#eb6101" stop-opacity="0"/></radialGradient>
+    </defs>
+    <path id="rail" d="M -40 860 C 420 860, 620 760, 960 760 S 1500 660, 1960 660" fill="none" stroke="var(--rail)" stroke-width="5" stroke-linecap="round" pathLength="1000"/>
+    <path id="flow" d="M -40 860 C 420 860, 620 760, 960 760 S 1500 660, 1960 660" fill="none" stroke="var(--accent)" stroke-width="5" stroke-linecap="round" pathLength="1000" stroke-dasharray="0 1000"/>
+    <g id="stations" fill="var(--bg)" stroke="#cfcfcf" stroke-width="5"></g>
+    <circle id="packetGlow" r="70" fill="url(#glow)"/>
+    <circle id="packet" r="15" fill="#fff" stroke="var(--accent)" stroke-width="5"/>
+  </svg>
+  <div class="copy">
+    <div class="tagline" id="tagline" data-text="tagline"></div>
+    <div class="brand" id="brand"><img src="../../apps/vscode/media/icon.png" alt="" />DynamicArchitectViewer</div>
+  </div>
+</section>
+
+<section class="scene" id="vscode">
+  <div class="window">
+    <div class="titlebar"><div class="dots"><i></i><i></i><i></i></div>architecture.dav - tiny-orders - Visual Studio Code</div>
+    <div class="activity"><i></i><i></i><i></i><i></i></div>
+    <div class="panes">
+      <div class="pane">
+        <div class="tabs"><div class="tab"><img src="../../apps/vscode/media/file-icon-dark.svg" alt="" />architecture.dav</div></div>
+        <div class="editor" id="editor"></div>
+      </div>
+      <div class="pane">
+        <div class="tabs"><div class="tab" data-text="previewTab"></div></div>
+        <div class="preview" id="previewPane"><img id="preview" alt="" /></div>
+      </div>
+    </div>
+    <div class="status"><span>master</span><span style="margin-left:auto" id="cursorPos"></span><span>UTF-8</span><span>DynamicArchitectViewer DSL</span></div>
+  </div>
+</section>
+
+<section class="scene" id="browser">
+  <div class="window">
+    <div class="chrome"><div class="dots"><i></i><i></i><i></i></div>
+      <div class="url">file:///C:/Users/me/Desktop/architecture.html<span class="offline" data-text="offline"></span></div></div>
+    <div class="page" id="exportedPane"><img id="exported" alt="" /></div>
+  </div>
+</section>
+
+<section class="scene" id="end">
+  <div class="center">
+    <img id="endIcon" src="../../apps/vscode/media/icon.png" alt="" />
+    <div class="name" id="endName">DynamicArchitectViewer</div>
+    <div class="tag" id="endTag" data-text="tagline"></div>
+    <div class="search" id="endSearch"></div>
+    <div class="meta" id="endMeta" data-text="meta"></div>
+  </div>
+</section>
+
+
+<section class="scene" id="vscode2">
+  <div class="window">
+    <div class="titlebar"><div class="dots"><i></i><i></i><i></i></div><span id="v2title">tiny-orders - Visual Studio Code</span></div>
+    <div class="activity"><i></i><i></i><i></i><i></i></div>
+    <div class="side" id="side">
+      <div class="head" data-text="explorer"></div>
+      <div class="root"><span class="chev">⌄</span>TINY-ORDERS</div>
+      <div class="tree" id="tree"></div>
+    </div>
+    <div class="editor2">
+      <div class="groups" id="groups">
+        <div class="g1" id="g1"><div class="tabs" id="v2tabs"></div><div style="position:relative;min-height:0"><div class="empty" id="v2empty">&#x22C8;</div><div class="editor" id="v2editor" style="display:none;height:100%"></div></div></div>
+        <div class="g2"><div class="tabs"><div class="tab" data-text="previewTab"></div></div><div class="preview" id="previewPane2"><img id="preview2" alt="" /></div></div>
+      </div>
+    </div>
+    <div class="status"><span>master</span><span style="margin-left:auto" id="v2pos"></span><span id="v2enc"></span><span id="v2lang"></span></div>
+  </div>
+  <div class="ctx" id="ctx"></div>
+  <div class="palette" id="palette"><div class="q" id="pq"></div><div class="items" id="pitems"></div></div>
+  <div class="toast" id="toast"><span class="i">&#x24D8;</span><span id="toastText"></span></div>
+</section>
+<div id="keys"></div>
+
+<section class="scene" id="slate">
+  <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;background:repeating-linear-gradient(135deg,#161616 0 40px,#1b1b1b 40px 80px)">
+    <div style="font:700 40px var(--sans);color:var(--accent-text);letter-spacing:0.1em" id="slateTag">REC</div>
+    <div style="font:700 64px var(--ja)" id="slateTitle"></div>
+    <div style="font:28px var(--ja);color:var(--muted)" id="slateNote"></div>
+  </div>
+</section>
+
+<div class="caption" id="caption"><span id="captionText"></span></div>
+<div id="badge" style="position:absolute;right:80px;bottom:52px;z-index:12;display:none;align-items:center;gap:10px;padding:10px 22px;border-radius:12px;background:rgba(18,18,18,0.82);border:2px solid var(--accent);font:700 40px var(--sans);color:#fff"></div>
+<svg id="pointer" viewBox="0 0 28 28" aria-hidden="true"><path d="M3 2 L3 22 L8.5 17 L12.5 26 L16 24.5 L12 15.8 L19.5 15.8 Z" fill="#fff" stroke="#111" stroke-width="1.5" stroke-linejoin="round"/></svg>
+<div id="pointerRing" style="position:absolute;z-index:19;width:48px;height:48px;border-radius:50%;border:3px solid var(--accent);opacity:0;pointer-events:none"></div>
+
+<script type="module">
+  const params = new URLSearchParams(location.search);
+  const lang = params.get('lang') === 'en' ? 'en' : 'ja';
+  document.documentElement.lang = lang;
+  document.body.dataset.scene = params.get('scene') ?? 'title';
+
+  const ALL = {
+    ja: {
+      tagline: '設計図を、再生しよう。',
+      previewTab: 'プレビュー: architecture.dav',
+      explorer: 'エクスプローラー',
+      offline: 'オフライン',
+      meta: 'VS Code 1.96+ · Preview · MIT · 日本語 / English',
+      search: 'VS Code Marketplace で <b>DynamicArchitectViewer</b> を検索',
+      cursorPos: (line, col) => `行 ${line}、列 ${col}`,
+      captions: {
+        hook: 'この図、どの順番で読む？',
+        cursor: 'カーソルのあるステップを、その場で再生。',
+        follow: 'パケットをカメラが追いかける。',
+        docs: 'ドキュメントは、プレビューの中に。',
+        export: 'HTML 1ファイルで共有。オフラインでも動く。',
+        rec3: '空の .dav を作って、プレビューを開く。',
+        rec4: 'AI エージェントスキルを、コマンド1つで導入。',
+        rec5: 'Claude Code に頼むだけ。コードを読んで図にする。',
+      },
+    },
+    en: {
+      tagline: 'Play your architecture.',
+      previewTab: 'Preview: architecture.dav',
+      explorer: 'EXPLORER',
+      offline: 'Offline',
+      meta: 'VS Code 1.96+ · Preview · MIT · English / 日本語',
+      search: 'Search <b>DynamicArchitectViewer</b> in the VS Code Marketplace',
+      cursorPos: (line, col) => `Ln ${line}, Col ${col}`,
+      captions: {
+        hook: 'Which arrow happens first?',
+        cursor: 'Put the cursor in a step. It plays right there.',
+        follow: 'The camera follows the packets.',
+        docs: 'The docs live inside the preview.',
+        export: 'Share one HTML file. It works offline.',
+        rec3: 'Create an empty .dav and open the preview.',
+        rec4: 'Install the AI agent skill with one command.',
+        rec5: 'Just ask Claude Code. It reads the code and draws it.',
+      },
+    },
+  };
+  // Captions follow `lang`; the screen (VS Code chrome) follows `ui`, Japanese in both versions.
+  const TEXT = ALL[lang];
+  const UI = ALL[params.get('ui') === 'en' ? 'en' : params.get('ui') === 'ja' ? 'ja' : lang];
+  const UI_KEYS = new Set(['previewTab', 'offline', 'explorer']);
+  for (const el of document.querySelectorAll('[data-text]')) el.textContent = (UI_KEYS.has(el.dataset.text) ? UI : TEXT)[el.dataset.text];
+  document.getElementById('endSearch').innerHTML = TEXT.search;
+
+  const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+  const ease = (x) => { x = clamp(x); return x < 0.5 ? 4 * x * x * x : 1 - (-2 * x + 2) ** 3 / 2; };
+  const easeOut = (x) => 1 - (1 - clamp(x)) ** 3;
+  /** 0 → 1 over [start, start + dur], eased. */
+  const span = (t, start, dur, fn = easeOut) => fn((t - start) / dur);
+  const fadeUp = (el, k, dy = 24) => { el.style.opacity = k; el.style.transform = `translateY(${(1 - k) * dy}px)`; };
+  const svgEl = (tag, attrs) => {
+    const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+    return el;
+  };
+
+  // ---------- hook ----------
+  const BOXES = {
+    browser: [200, 250, 'Browser'], web: [520, 250, 'web'], api: [900, 420, 'api'],
+    db: [1340, 250, 'postgres'], cache: [1340, 600, 'redis'], mq: [900, 760, 'rabbitmq'],
+    worker: [520, 760, 'worker'], psp: [1700, 420, 'Payment'], smtp: [200, 760, 'SMTP'],
+  };
+  // Seven numbered arrows (plus two plain ones) whose numbers say nothing about where to look next.
+  const ARROWS = [
+    ['browser', 'web', 1, 0], ['web', 'api', 2, 60], ['api', 'db', 6, -50], ['api', 'psp', 3, 70],
+    ['psp', 'api', 5, -70], ['api', 'mq', 4, 40], ['mq', 'worker', 7, -40],
+    ['worker', 'smtp', 0, 0], ['api', 'cache', 0, 40],
+  ];
+  const nums = [];
+  if (document.body.dataset.scene === 'hook') {
+    for (const [, [x, y, label]] of Object.entries(BOXES)) {
+      const g = svgEl('g', { class: 'box' });
+      g.append(svgEl('rect', { x: x - 110, y: y - 44, width: 220, height: 88, rx: 8 }));
+      const text = svgEl('text', { x, y });
+      text.textContent = label;
+      g.append(text);
+      document.getElementById('hookBoxes').append(g);
+    }
+    for (const [from, to, n, bend] of ARROWS) {
+      const [x1, y1] = BOXES[from];
+      const [x2, y2] = BOXES[to];
+      const mx = (x1 + x2) / 2 + bend;
+      const my = (y1 + y2) / 2 - bend;
+      // End at the box edge, not its center.
+      const dx = x2 - mx, dy = y2 - my;
+      const k = Math.min(Math.abs(110 / (dx || 1e-6)), Math.abs(44 / (dy || 1e-6)), 1);
+      const ex = x2 - dx * k * 1.04, ey = y2 - dy * k * 1.04;
+      document.getElementById('hookArrows').append(svgEl('path', { d: `M ${x1} ${y1} Q ${mx} ${my} ${ex} ${ey}` }));
+      if (n === 0) continue;
+      const g = svgEl('g', { class: 'num' });
+      const bx = (x1 + 2 * mx + ex) / 4, by = (y1 + 2 * my + ey) / 4;
+      g.append(svgEl('circle', { cx: bx, cy: by, r: 20 }));
+      const text = svgEl('text', { x: bx, y: by });
+      text.textContent = String(n);
+      g.append(text);
+      document.getElementById('hookNums').append(g);
+      nums.push(g);
+    }
+  }
+  const BLINK = [3, 0, 5, 2, 6, 1, 4];
+  function renderHook(t) {
+    const svg = document.querySelector('#hook svg');
+    svg.style.transform = `scale(${1 + 0.07 * ease(t / 3)})`;
+    const active = Math.floor(t / 0.22);
+    nums.forEach((g, i) => {
+      g.classList.toggle('lit', BLINK[active % BLINK.length] === i && t < 2.7);
+    });
+    caption(TEXT.captions.hook, span(t, 0.3, 0.5));
+  }
+
+  // ---------- title ----------
+  const rail = document.getElementById('rail');
+  const at = (f) => rail.getPointAtLength(rail.getTotalLength() * f);
+  const STOPS = [0.18, 0.5, 0.84];
+  const stations = STOPS.map((f) => {
+    const p = at(f);
+    const c = svgEl('circle', { cx: p.x, cy: p.y, r: 26 });
+    document.getElementById('stations').append(c);
+    return c;
+  });
+  function renderTitle(t) {
+    rail.style.opacity = span(t, 0, 0.4);
+    // The packet runs fast, then settles, as if pulling into a station.
+    const progress = 0.72 * span(t, 0.1, 2.2, ease) + 0.02 * clamp((t - 2.3) / 0.7);
+    const head = at(progress);
+    for (const id of ['packet', 'packetGlow']) {
+      const el = document.getElementById(id);
+      el.setAttribute('cx', head.x);
+      el.setAttribute('cy', head.y);
+      el.style.opacity = span(t, 0.1, 0.2);
+    }
+    document.getElementById('flow').setAttribute('stroke-dasharray', `${progress * 1000} 1000`);
+    stations.forEach((c, i) => {
+      const k = clamp((progress - STOPS[i] + 0.03) / 0.03);
+      c.setAttribute('r', 26 * (0.6 + 0.4 * easeOut(k)));
+      c.style.opacity = 0.35 + 0.65 * k;
+      c.setAttribute('stroke', k >= 1 ? '#f2f2f2' : '#cfcfcf');
+    });
+    fadeUp(document.getElementById('tagline'), span(t, 0.5, 0.6), 30);
+    fadeUp(document.getElementById('brand'), span(t, 1.0, 0.5), 16);
+  }
+
+  // ---------- end ----------
+  function renderEnd(t) {
+    const icon = document.getElementById('endIcon');
+    const k = span(t, 0, 0.6);
+    icon.style.opacity = k;
+    icon.style.transform = `scale(${0.85 + 0.15 * k})`;
+    fadeUp(document.getElementById('endName'), span(t, 0.25, 0.5));
+    fadeUp(document.getElementById('endTag'), span(t, 0.5, 0.5));
+    fadeUp(document.getElementById('endSearch'), span(t, 0.9, 0.5));
+    fadeUp(document.getElementById('endMeta'), span(t, 1.2, 0.5));
+  }
+
+  // ---------- shared ----------
+  function caption(text, k) {
+    const el = document.getElementById('caption');
+    document.getElementById('captionText').textContent = text ?? '';
+    fadeUp(el, text ? k : 0, 14);
+  }
+
+  let lines = [];
+  async function loadEditor(url) {
+    lines = await fetch(url).then((r) => r.json());
+  }
+  /** Shows the editor from line `top + 1` (default: `line` sits 10 rows down), cursor at `line`:`col`. */
+  function setEditor(line, col = 5, top = Math.max(0, line - 10)) {
+    const editor = document.getElementById('editor');
+    editor.textContent = '';
+    const first = Math.max(0, Math.round(top));
+    for (let i = first; i < Math.min(lines.length, first + 38); i++) {
+      const row = document.createElement('div');
+      const current = i === line - 1;
+      row.className = current ? 'line current' : 'line';
+      row.innerHTML = `<span class="ln">${i + 1}</span><span class="code">${lines[i]}</span>`;
+      if (current) {
+        // Place the caret after `col - 1` characters of the line.
+        const code = row.querySelector('.code');
+        const walker = document.createTreeWalker(code, NodeFilter.SHOW_TEXT);
+        let left = col - 1;
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          if (left <= node.length) {
+            const caret = document.createElement('span');
+            caret.className = 'cursor';
+            node.parentNode.insertBefore(caret, node.splitText(left));
+            break;
+          }
+          left -= node.length;
+        }
+      }
+      editor.append(row);
+    }
+    document.getElementById('cursorPos').textContent = UI.cursorPos(line, col);
+  }
+  /** Draws the pointer at (x, y); `press` 0..1 shows a click ring. */
+  function pointer(x, y, visible = true, press = 0) {
+    const p = document.getElementById('pointer');
+    p.style.display = visible ? 'block' : 'none';
+    p.style.left = `${x - 3}px`;
+    p.style.top = `${y - 2}px`;
+    const ring = document.getElementById('pointerRing');
+    ring.style.left = `${x - 24}px`;
+    ring.style.top = `${y - 24}px`;
+    ring.style.opacity = visible && press > 0 ? 1 - press : 0;
+    ring.style.transform = `scale(${0.5 + press})`;
+  }
+
+
+  // ---------- VS Code with the explorer (cuts 3-4) ----------
+  const ICON = {
+    folder: '<span class="ico" style="color:#dcb67a">&#x25B0;</span>',
+    gitignore: '<span class="ico" style="color:#e06c4f">&#x25C6;</span>',
+    yml: '<span class="ico" style="color:#3a9bd5">&#x224B;</span>',
+    md: '<span class="ico" style="color:#8a8a8a">M&#x2193;</span>',
+    dav: '<span class="ico"><img src="../../apps/vscode/media/file-icon-dark.svg" alt="" /></span>',
+    file: '<span class="ico" style="color:#c5c5c5">&#x25A2;</span>',
+    skill: '<span class="ico" style="color:#d0d0d0">&#x2B21;</span>',
+  };
+  /** Explorer state: newName = text in the new-file box (null: none); dav = file created; skill = skill installed. */
+  function explorer({ newName = null, dav = false, selected = null, skill = false, hover = null } = {}) {
+    const rows = [];
+    const row = (depth, chev, icon, label, opts = {}) => rows.push(
+      `<div class="row${opts.sel ? ' sel' : ''}" data-row="${opts.id ?? label}" style="padding-left:${8 + depth * 14}px${opts.hover ? ';background:#2a2d2e' : ''}">` +
+      `<span class="chev">${chev}</span>${icon}<span style="color:${opts.color ?? '#cccccc'}">${label}</span>` +
+      (opts.badge ? `<span class="badge" style="color:${opts.badgeColor ?? '#73c991'}">${opts.badge}</span>` : '') + '</div>');
+    if (skill) {
+      row(1, '&#x2304;', ICON.folder, '.claude \\ skills \\ dav-diagrams', { id: 'skill', color: '#73c991', sel: selected === 'skill', badge: '&#x25CF;', hover: hover === 'skill' });
+      for (const f of ['assets', 'references', 'scripts']) row(2, '&#x203A;', ICON.folder, f, { color: '#73c991', badge: '&#x25CF;' });
+      row(2, '', ICON.skill, 'SKILL.md', { color: '#73c991', badge: 'U' });
+    }
+    for (const f of ['api', 'db', 'web', 'worker']) row(1, '&#x203A;', ICON.folder, f);
+    if (newName !== null) rows.push(`<div class="row" data-row="new" style="padding-left:22px"><span class="chev"></span>${ICON.file}<input value="${newName}" /></div>`);
+    row(1, '', ICON.gitignore, '.gitignore');
+    if (dav) row(1, '', ICON.dav, 'architecture.dav', { sel: selected === 'dav', color: '#f48771', badge: '1, U', badgeColor: '#f48771', id: 'dav' });
+    row(1, '', ICON.yml, 'docker-compose.yml');
+    row(1, '', ICON.md, 'README.md');
+    document.getElementById('tree').innerHTML = rows.join('');
+  }
+  /** Editor: closed, or architecture.dav open (empty) with the preview beside it when `preview`. */
+  function editorState({ open = false, preview = false } = {}) {
+    document.getElementById('v2tabs').innerHTML = open
+      ? '<div class="tab"><img src="../../apps/vscode/media/file-icon-dark.svg" alt="" /><span style="color:#f48771">architecture.dav</span><span style="color:#f48771;font-size:11px">1, U</span></div>' : '';
+    document.getElementById('v2empty').style.display = open ? 'none' : 'flex';
+    const ed = document.getElementById('v2editor');
+    ed.style.display = open ? 'block' : 'none';
+    ed.innerHTML = '<div class="line current"><span class="ln">1</span><span class="code"><span class="cursor"></span></span></div>';
+    document.getElementById('groups').classList.toggle('split', preview);
+    document.getElementById('v2title').textContent = open ? 'architecture.dav - tiny-orders - Visual Studio Code' : 'tiny-orders - Visual Studio Code';
+    document.getElementById('v2pos').textContent = open ? UI.cursorPos(1, 1) : '';
+    document.getElementById('v2enc').textContent = open ? 'UTF-8' : '';
+    document.getElementById('v2lang').textContent = open ? 'DynamicArchitectViewer DSL' : '';
+  }
+  // The explorer's context menu: the first items exactly as recorded (VS Code's own; extension items left out).
+  const CTX_ITEMS = UI === ALL.ja
+    ? [['新しいファイル...'], ['新しいフォルダー...'], ['エクスプローラーで表示する', 'Shift+Alt+R'], ['画像のプレビューで開く'], ['統合ターミナルで開く']]
+    : [['New File...'], ['New Folder...'], ['Reveal in File Explorer', 'Shift+Alt+R'], ['Open in Integrated Terminal']];
+  function contextMenu(pos, hover = -1) {
+    const el = document.getElementById('ctx');
+    if (!pos) { el.style.display = 'none'; return; }
+    let i = -1;
+    el.innerHTML = CTX_ITEMS.map((it) => it === null ? '<div class="sep"></div>' :
+      `<div class="it${++i === hover ? ' hover' : ''}" data-ctx="${i}"><span>${it[0]}</span><span class="key">${it[1] ?? ''}</span></div>`).join('');
+    el.style.display = 'block';
+    el.style.left = `${pos[0]}px`;
+    el.style.top = `${pos[1]}px`;
+  }
+  /** Command palette / QuickPick: query text (or placeholder) and items [{label, desc, detail, hl, right}]. */
+  function palette(state) {
+    const el = document.getElementById('palette');
+    if (!state) { el.style.display = 'none'; return; }
+    el.style.display = 'block';
+    document.getElementById('pq').innerHTML = state.query
+      ? `<span>${state.query}</span><span class="caret"></span>` : `<span class="caret"></span><span class="ph">${state.placeholder ?? ''}</span>`;
+    document.getElementById('pitems').innerHTML = (state.items ?? []).map((it, i) => {
+      const label = it.hl ? it.label.replace(it.hl, `<span class="hl">${it.hl}</span>`) : it.label;
+      return `<div class="item${i === (state.active ?? 0) ? ' active' : ''}" data-item="${i}"><span>${label}${it.desc ? ` <span class="d">${it.desc}</span>` : ''}</span>` +
+        `<span class="d">${it.right ?? ''}</span>${it.detail ? `<span class="detail">${it.detail}</span>` : ''}</div>`;
+    }).join('');
+  }
+  function toast(text) {
+    const el = document.getElementById('toast');
+    el.style.display = text ? 'flex' : 'none';
+    document.getElementById('toastText').textContent = text ?? '';
+  }
+  /** Shows pressed keys, e.g. ['Ctrl', 'Shift', 'V']. */
+  function keys(list) {
+    const el = document.getElementById('keys');
+    el.style.display = list ? 'flex' : 'none';
+    el.innerHTML = (list ?? []).map((k) => `<kbd>${k}</kbd>`).join('<span style="font:700 34px var(--sans);color:#aaa;align-self:center">+</span>');
+  }
+  /** Center of an element, in page coordinates. */
+  function where(selector) {
+    const r = document.querySelector(selector)?.getBoundingClientRect();
+    return r ? [r.x + r.width / 2, r.y + r.height / 2] : null;
+  }
+  if (document.body.dataset.scene === 'vscode2') { explorer(); editorState(); }
+
+  // Placeholder for footage recorded in real VS Code (cuts 3-5).
+  document.getElementById('slateTitle').textContent = params.get('title') ?? '';
+  document.getElementById('slateNote').textContent = params.get('note') ?? '';
+  const renderSlate = () => {};
+
+  if (document.body.dataset.scene === 'overlay') {
+    document.documentElement.style.background = 'transparent';
+    document.body.style.background = 'transparent';
+    const cap = params.get('cap');
+    if (cap) caption(TEXT.captions[cap], 1);
+    const badge = params.get('badge');
+    if (badge) {
+      const el = document.getElementById('badge');
+      el.textContent = badge;
+      el.style.display = 'flex';
+    }
+  }
+
+  const render = { hook: renderHook, title: renderTitle, end: renderEnd, slate: renderSlate }[document.body.dataset.scene];
+  /** Shows a PNG (base64) of the live page in the pane. */
+  async function showLive(id, base64) {
+    const img = document.getElementById(id);
+    img.src = `data:image/png;base64,${base64}`;
+    await img.decode();
+  }
+  window.stage = { lang, captions: TEXT.captions, render, caption, loadEditor, setEditor, pointer, showLive,
+    explorer, editorState, contextMenu, palette, toast, keys, where, ready: true };
+  if (render) render(Number(params.get('t') ?? 0));
+</script>
+</body>
+</html>

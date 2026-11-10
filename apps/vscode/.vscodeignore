@@ -11,5 +11,6 @@ vite.skill.config.ts
 playwright.config.ts
 index.html
 media/screenshot.png
+media/demo.gif
 **/*.map
 **/*.vsix

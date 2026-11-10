@@ -7,6 +7,8 @@
 
 The preview also has an interactive guide. Open it with the documentation button in the toolbar. To have a coding agent write `.dav` files, install the [AI agent skill](../README.md#ai-agent-skill).
 
+![The guide inside the preview: steps, icons and the AI agent skill](media/docs-guide.gif)
+
 **Working on the code**
 
 - [Architecture](architecture.md): the pipeline, modules, exported HTML and tests
