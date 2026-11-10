@@ -120,7 +120,9 @@ function buildBlocks(doc: DavDocument, columnLayout: ColumnLayout) {
       { x: 0, y: 0, width, height },
     ];
 
-    if (nodes.length === 0) {
+    // A zone with groups inside is laid out like any other, even without nodes: the column
+    // layout gives empty groups their rectangles.
+    if (nodes.length === 0 && nested.length === 0) {
       const width = EMPTY_GROUP_CONTENT.width + pad * 2;
       const height = head + EMPTY_GROUP_CONTENT.height + pad;
       blocks.push({

@@ -211,6 +211,30 @@ api --> cache`);
     },
   );
 
+  it('places groups nested in a zone that has no nodes', () => {
+    // Found by the property below: the zone search wins here, and the empty zone g2 used to
+    // get only its own frame, leaving g3 without a rectangle.
+    const { document, layout } = layoutOf(`dav 1
+node n0
+node n1
+node n2
+node n3
+node n4
+node n5
+node n7
+group g1 {
+  node n6
+}
+group g2 {
+  group g3 {
+  }
+}
+n6 --> n0
+n1 --> n0`);
+    expect(Object.keys(layout.groups).sort()).toEqual(document.groups.map((g) => g.id).sort());
+    expect(contains(layout.groups.g2 as Rect, layout.groups.g3 as Rect)).toBe(true);
+  });
+
   it('auto layout never overlaps nodes or puts foreign nodes inside groups', () => {
     const graph = fc.record({
       nodes: fc.array(fc.nat(3), { minLength: 1, maxLength: 14 }),
