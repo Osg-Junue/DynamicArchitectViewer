@@ -1,7 +1,7 @@
-// Builds cut 5 from the real VS Code recording: node build-rec.mjs [ja|en|all]
-// Trims and joins segments, speeds up the wait for Claude Code (with a visible "×6" badge), blurs
-// personal details (file paths with the user name, the usage banner), places the window like the
-// other cuts and overlays the caption. Captions and the badge are rendered by stage.html.
+// Builds cut 5 from the real VS Code recordings: node build-rec.mjs [ja|en|all]
+// Trims and joins segments, speeds up the wait for Claude Code (with a visible "×6" badge), frames
+// each segment, places the window like the other cuts and overlays the caption. Captions and the
+// badge are rendered by stage.html. Each language uses the take recorded in that language.
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -17,45 +17,73 @@ const OVER = resolve(here, 'out/overlay');
 mkdirSync(OVER, { recursive: true });
 const langs = (process.argv[2] ?? 'all') === 'all' ? ['ja', 'en'] : [process.argv[2]];
 
-// Source is 2560x1380. Cut 5 is framed closer: a 2138x1062 window (the editor, preview and Claude Code,
-// without the explorer) scaled into the 1792x890 frame the other cuts use. It starts low on the prompt box
-// and pans up to the tool list and the result while the fast-forward begins.
-/** Crop pans from the prompt box (y 318) up to the tool list (y 180) over [t0, t0 + 0.8] of the cut. */
-const fit = (t0) => {
-  const pan = `if(lt(t,${t0}),318,if(gt(t,${t0 + 0.8}),180,318-(t-${t0})/0.8*138))`;
-  return `crop=2138:1062:422:'${pan}',scale=1792:890:flags=lanczos,pad=1920:1080:64:40:color=0x121212`;
+// Source is 2560x1380, scaled into the 1792x890 frame the other cuts use.
+//   'pan'   2138x1062 (editor, preview and Claude Code, without the explorer). It starts low on the
+//           prompt box and pans up to the tool list over [panAt, panAt + 0.8] s of the cut.
+//   'zoom'  1500x745 on the editor and the preview, without Claude Code's panel (unused for now).
+const FRAME = {
+  pan: (t) =>
+    `crop=2138:1062:422:'if(lt(${t},PAN),318,if(gt(${t},PAN+0.8),180,318-(${t}-PAN)/0.8*138))'`,
+  zoom: () => 'crop=1500:745:330:280',
 };
+const SCALE = 'scale=1792:890:flags=lanczos,setsar=1';
+const PLACE = 'pad=1920:1080:64:40:color=0x121212';
 
-// [start, end, speed] in source seconds.
+// Segments are [start, end, speed, frame = 'pan'] in source seconds.
+// No masks: the owner is fine with Claude Code's panel (paths, usage banner) being shown. A take
+// that needs one can list source-time masks as [x, y, w, h, from, to].
+// Cuts 3-4 are rebuilt in stage.html from the takes 3-4 (cuts.mjs c03_new, c04_skill).
 const TAKES = {
-  // Cuts 3-4 are rebuilt in stage.html from jp_take3/jp_take4 (cuts.mjs c03_new, c04_skill).
-  c05_rec: {
-    file: 'jp_take5.mp4',
-    cap: 'rec5',
-    segments: [
-      [1, 6, 1],
-      [6, 27, 6],
-      [27, 31, 1],
-    ],
-    // No masks: the owner is fine with Claude Code's panel (paths, usage banner) being shown.
-    // A take that needs one can list source-time masks here as [x, y, w, h, from, to].
-    masks: [],
-    badge: { text: '×6', segment: 1 },
+  ja: {
+    c05_rec: {
+      file: 'jp_take5.mp4',
+      segments: [
+        [1, 6, 1],
+        [6, 27, 6],
+        [27, 31, 1],
+      ],
+      badge: { text: '×6', segment: 1 },
+      panAt: 4.6,
+    },
+    // The SNS cut: from the prompt being sent, the wait at ×10, then the result.
+    c05_short: {
+      file: 'jp_take5.mp4',
+      segments: [
+        [3.5, 6, 1],
+        [6, 27, 10],
+        [27, 30, 1],
+      ],
+      badge: { text: '×10', segment: 1 },
+      panAt: 2.1,
+    },
   },
-  // The SNS cut: from the prompt being sent, the wait at ×10, then the result.
-  c05_short: {
-    file: 'jp_take5.mp4',
-    cap: 'rec5',
-    segments: [
-      [3.5, 6, 1],
-      [6, 27, 10],
-      [27, 30, 1],
-    ],
-    masks: [],
-    badge: { text: '×10', segment: 1 },
-    panAt: 2.1,
+  // The English take ends on the checker: its first run fails (no Node in Bash), Claude Code runs it
+  // again in PowerShell and it passes (~30 s).
+  en: {
+    c05_rec: {
+      file: 'en_take5.mp4',
+      segments: [
+        [4, 8, 1],
+        [8, 26, 6],
+        [26, 31.2, 1],
+      ],
+      badge: { text: '×6', segment: 1 },
+      panAt: 3.6,
+    },
+    c05_short: {
+      file: 'en_take5.mp4',
+      segments: [
+        [6.5, 8, 1],
+        [8, 26, 10],
+        [26, 31, 1],
+      ],
+      badge: { text: '×10', segment: 1 },
+      panAt: 1.1,
+    },
   },
 };
+const CAP = 'rec5';
+const length = (segments) => segments.reduce((sum, [a, b, s]) => sum + (b - a) / s, 0);
 
 // ---- overlays (transparent PNGs) ----
 const mime = {
@@ -80,11 +108,11 @@ try {
     await page.evaluate(() => document.fonts.ready);
     await page.screenshot({ path: resolve(OVER, file), omitBackground: true });
   };
-  for (const lang of langs)
-    for (const t of Object.values(TAKES))
-      await shot(`lang=${lang}&cap=${t.cap}`, `${t.cap}-${lang}.png`);
+  for (const lang of langs) await shot(`lang=${lang}&cap=${CAP}`, `${CAP}-${lang}.png`);
   for (const text of new Set(
-    Object.values(TAKES).flatMap((t) => (t.badge ? [t.badge.text] : [])),
+    Object.values(TAKES)
+      .flatMap((byName) => Object.values(byName))
+      .flatMap((t) => (t.badge ? [t.badge.text] : [])),
   )) {
     await shot(`lang=ja&badge=${encodeURIComponent(text)}`, `badge-${text.replace('×', 'x')}.png`);
   }
@@ -99,7 +127,7 @@ function run(args) {
   if (r.status !== 0) throw new Error(`ffmpeg failed: ${args.join(' ')}`);
 }
 for (const lang of langs) {
-  for (const [name, take] of Object.entries(TAKES)) {
+  for (const [name, take] of Object.entries(TAKES[lang])) {
     const f = [];
     let src = '[0:v]';
     (take.masks ?? []).forEach(([x, y, w, h, from, to], i) => {
@@ -112,13 +140,16 @@ for (const lang of langs) {
     });
     const n = take.segments.length;
     f.push(`${src}split=${n}${take.segments.map((_, i) => `[s${i}]`).join('')}`);
-    take.segments.forEach(([a, b, speed], i) => {
-      f.push(`[s${i}]trim=${a}:${b},setpts=(PTS-STARTPTS)/${speed}[v${i}]`);
+    take.segments.forEach(([a, b, speed, frame = 'pan'], i) => {
+      // `t` restarts in each segment; the pan is timed on the cut, so add where the segment starts.
+      const at = length(take.segments.slice(0, i)).toFixed(3);
+      const crop = FRAME[frame](`(t+${at})`).replaceAll('PAN', String(take.panAt));
+      f.push(`[s${i}]trim=${a}:${b},setpts=(PTS-STARTPTS)/${speed},fps=60,${crop},${SCALE}[v${i}]`);
     });
     f.push(
-      `${take.segments.map((_, i) => `[v${i}]`).join('')}concat=n=${n}:v=1:a=0,fps=60,${fit(take.panAt ?? 4.6)}[base]`,
+      `${take.segments.map((_, i) => `[v${i}]`).join('')}concat=n=${n}:v=1:a=0,${PLACE}[base]`,
     );
-    const duration = take.segments.reduce((sum, [a, b, s]) => sum + (b - a) / s, 0);
+    const duration = length(take.segments);
     f.push(`[1:v]format=rgba,fade=in:st=0.4:d=0.5:alpha=1[cap]`, `[base][cap]overlay=0:0[withcap]`);
     let last = '[withcap]';
     const inputs = [
@@ -129,12 +160,10 @@ for (const lang of langs) {
       '-t',
       String(duration),
       '-i',
-      resolve(OVER, `${take.cap}-${lang}.png`),
+      resolve(OVER, `${CAP}-${lang}.png`),
     ];
     if (take.badge) {
-      const start = take.segments
-        .slice(0, take.badge.segment)
-        .reduce((s, [a, b, sp]) => s + (b - a) / sp, 0);
+      const start = length(take.segments.slice(0, take.badge.segment));
       const [a, b, sp] = take.segments[take.badge.segment];
       inputs.push(
         '-loop',

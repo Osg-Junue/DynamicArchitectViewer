@@ -1,117 +1,97 @@
 dav 1
-title "tiny-orders: from order to payment"
+title "tiny-orders architecture"
 
 node browser "Browser" [icon: browser, sub: "Customer"]
 
-group compose "docker compose" [color: blue] {
-  node web "web" [icon: lb, sub: "nginx :8080"]
-  node api "api" [icon: api, sub: "Node.js :3000"]
-  node worker "worker" [icon: function, sub: "Sends emails"]
-  group data "Data / messaging" [color: teal] {
-    node postgres "postgres" [icon: database, sub: "orders / products"]
-    node redis "redis" [icon: cache, sub: "Product cache"]
-    node rabbitmq "rabbitmq" [icon: queue, sub: "exchange: orders"]
-  }
+group edge "Web" [color: teal] {
+  node web "nginx" [icon: lb, sub: "Static files, /api proxy"]
+}
+
+group backend "Backend" [color: blue] {
+  node api "Order API" [icon: api, sub: "Node.js :3000"]
+  node worker "Email worker" [icon: function, sub: "Node.js"]
+}
+
+group data "Data and messaging" [color: green] {
+  node postgres "PostgreSQL" [icon: database, sub: "Orders, stock"]
+  node redis "Redis" [icon: cache, sub: "Product cache"]
+  node rabbit "RabbitMQ" [icon: queue, sub: "orders exchange"]
 }
 
 group external "External services" [color: purple] {
   node psp "Payment provider" [icon: payment, sub: "payments.example.com"]
-  node smtp "SMTP" [icon: mail, sub: "smtp.example.com"]
+  node smtp "SMTP server" [icon: mail, sub: "smtp.example.com"]
 }
 
-browser <-> web : "HTTP"
+browser <-> web : "HTTP :8080"
 web <-> api : "/api/ proxy"
-api --> postgres : "SQL"
+api <-> postgres : "SQL"
 api --> redis : "Invalidate cache"
 api <-> psp : "POST /charges"
-api --> rabbitmq : "order.confirmed"
-rabbitmq --> worker : "order-emails"
-worker --> smtp : "SMTP"
-api --> api : "Retry" [id: e_retry, visible: false, color: orange]
+api --> rabbit : "order.confirmed"
+rabbit --> worker : "order-emails queue"
+worker --> smtp : "Send mail"
+api --> api : "Retry with backoff" [id: e_retry]
 
-// ---- Happy path ----
-
-step "Accept the order" {
-  desc "[Happy path] The browser's order reaches the API through nginx."
-  animate browser --> web : "POST /api/orders" [icon: file, desc: "Sends email and items"]
-  animate web --> api : "proxy" [icon: file]
+step "Place an order" {
+  desc "The customer submits an order. The API validates it and passes it on."
+  animate browser --> web : "Checkout" [icon: file]
+  animate web --> api : "POST /api/orders" [icon: file]
 }
 
-step "Reserve stock and create a pending order" {
-  desc "One transaction lowers the stock and saves the order as pending."
+step "Reserve stock" {
+  desc "In one transaction the API decrements stock and records the order as pending."
   state postgres [badge: "pending", color: yellow]
-  animate api --> postgres : "Reserve stock + INSERT" [icon: database]
-  animate api --> redis : "Delete product cache"
+  animate api --> postgres : "Reserve stock, insert order" [desc: "Out-of-stock items return 409"]
+  animate api --> redis : "Invalidate products"
 }
 
-step "Charge the payment provider" {
-  desc "POST /charges with the order ID as the idempotency key. The first attempt succeeds."
-  state psp [badge: "200", color: green]
-  animate api --> psp : "charge" [icon: payment, desc: "Idempotency-Key: orderId"]
-  animate psp --> api : "payment id" [color: green]
+step "Charge the provider" {
+  desc "The API charges the provider with the order id as the idempotency key."
+  state psp [badge: "200 OK", color: green]
+  animate api --> psp : "Charge" [icon: payment]
+  animate psp --> api : "Payment id" [icon: key, color: green]
 }
 
-step "Mark the order paid and publish the event" {
-  desc "Update the order to paid, publish order.confirmed and wait for the broker to confirm it."
+step "Mark paid and publish" {
+  desc "The order is saved as paid and an order.confirmed event is published and confirmed by the broker."
   state postgres [badge: "paid", color: green]
   state psp [badge: "", color: none]
-  animate api --> postgres : "status = paid" [icon: database]
-  animate api --> rabbitmq : "order.confirmed" [icon: mail]
-  animate api --> web : "201 Created" [color: green]
-  animate web --> browser : "201 Created" [color: green]
+  animate api --> postgres : "status = paid"
+  animate api --> rabbit : "order.confirmed" [icon: mail]
 }
 
 step "Send the confirmation email" {
-  desc "The worker consumes the queue, sends the confirmation email and acks."
-  state postgres [badge: "", color: none]
-  animate rabbitmq --> worker : "order.confirmed" [icon: mail]
-  animate worker --> smtp : "Confirmation email" [icon: mail]
+  desc "The worker consumes the event and emails the customer, then returns the response."
+  animate rabbit --> worker : "order.confirmed" [icon: mail]
+  animate worker --> smtp : "Confirmation" [icon: mail]
+  animate api --> web : "201 Created" [color: green]
+  animate web --> browser : "Order confirmed" [color: green]
 }
 
-// ---- Failure: the payment provider is down ----
-
-step "[Failure] Same up to the stock reservation" {
-  desc "[Failure] Order, stock reservation and the pending order are the same as the happy path."
+step "Provider is down" {
+  desc "The order is pending and stock is reserved. The provider times out or returns 5xx."
   state postgres [badge: "pending", color: yellow]
-  animate browser --> web : "POST /api/orders" [icon: file]
-  animate web --> api : "proxy" [icon: file]
-  animate api --> postgres : "Reserve stock + INSERT" [icon: database]
-}
-
-step "Attempt 1: the payment provider returns 5xx" {
-  desc "The payment provider is down: 503 or a timeout (3 s). Anything but a 4xx is retried."
   state psp [badge: "503", color: red]
-  animate api --> psp : "charge (attempt 1/3)" [icon: payment]
-  animate psp --> api : "503" [color: red]
+  animate browser --> web : "Checkout" [icon: file]
+  animate web --> api : "POST /api/orders" [icon: file]
+  animate api --> psp : "Attempt 1" [icon: payment, color: red, desc: "3 s timeout, 5xx, or network error"]
 }
 
-step "Attempt 2: wait 200 ms and retry" {
-  desc "After exponential backoff (200 ms + jitter), resend with the same idempotency key."
-  state e_retry [visible: true]
-  animate api --> api : "wait ~200 ms" [color: orange]
-  animate api --> psp : "charge (attempt 2/3)" [icon: payment, color: orange]
-  animate psp --> api : "503" [color: red]
+step "Retries fail" {
+  desc "The API makes three attempts in total, waiting about 200 ms and then 400 ms plus jitter. The same idempotency key is used, so nothing is charged twice."
+  state psp [badge: "503", color: red]
+  animate api --> api : "Wait, then attempt 2" [color: orange]
+  animate api --> psp : "Attempt 2" [icon: payment, color: red]
+  animate api --> api : "Wait, then attempt 3" [color: orange]
+  animate api --> psp : "Attempt 3" [icon: payment, color: red]
 }
 
-step "Attempt 3: wait 400 ms for the last retry" {
-  desc "The backoff doubles for the last attempt. It fails too, and the attempt limit is reached."
-  animate api --> api : "wait ~400 ms" [color: orange]
-  animate api --> psp : "charge (attempt 3/3)" [icon: payment, color: orange]
-  animate psp --> api : "503" [color: red]
-}
-
-step "Retry limit: return the stock and fail the order" {
-  desc "PaymentUnavailableError. Mark the order payment_failed, return the reserved stock and invalidate the cache."
-  state e_retry [visible: false]
+step "Order fails" {
+  desc "Retries are exhausted. The order is marked payment_failed, the stock goes back, and the customer gets a 503. No event is published, so no email is sent."
   state postgres [badge: "payment_failed", color: red]
-  animate api --> postgres : "status = payment_failed + return stock" [icon: database, color: red]
-  animate api --> redis : "Delete product cache"
-}
-
-step "Return 503 to the customer" {
-  desc "order.confirmed is not published and no email is sent. The customer gets a 503."
-  state postgres [badge: "", color: none]
-  state psp [badge: "", color: none]
-  animate api --> web : "503" [color: red]
-  animate web --> browser : "503 payment provider unavailable" [color: red]
+  animate api --> postgres : "Mark failed, restore stock" [color: red]
+  animate api --> redis : "Invalidate products"
+  animate api --> web : "503 Unavailable" [color: red]
+  animate web --> browser : "Payment failed" [color: red]
 }

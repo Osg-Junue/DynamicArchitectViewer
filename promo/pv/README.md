@@ -4,7 +4,7 @@ This folder renders the DynamicArchitectViewer promotional video and the animati
 
 | Output | Where |
 | --- | --- |
-| Main video, 77.5 s, Japanese and English captions | `out/pv-ja.mp4`, `out/pv-en.mp4` |
+| Main video: Japanese (77.5 s) and English (77.2 s) | `out/pv-ja.mp4`, `out/pv-en.mp4` |
 | Short video for social media, about 26 s | `out/pv-short-ja.mp4`, `out/pv-short-en.mp4` |
 | README animation | `apps/vscode/media/demo.gif` |
 | Docs animations | `docs/media/follow.gif`, `docs/media/skill-install.gif`, `docs/media/docs-guide.gif` |
@@ -13,12 +13,12 @@ This folder renders the DynamicArchitectViewer promotional video and the animati
 
 ## What is real and what is rebuilt
 
-The video shows nothing the extension does not do.
+The video shows nothing the extension does not do. Each language is a version of its own: the Japanese video has a Japanese screen and the diagram from the Japanese take, the English video an English screen and the diagram from the English take.
 
 - **Real preview.** Every preview on screen is the extension's own webview, run from `apps/vscode` with Vite and driven the way the extension host drives it: `docChanged` and `cursorMoved` messages and real button clicks. The exported HTML in cut 9 comes from the real exporter.
-- **Real recording.** Cut 5 is a screen recording (`recordings/jp_take5.mp4`) of Claude Code generating `architecture.dav` for a small demo service, sped up with the factor shown on screen. `architecture.dav` is the file it wrote, unedited.
+- **Real recording.** Cut 5 is a screen recording of Claude Code diagramming a small demo service, sped up with the factor shown on screen: `recordings/jp_take5.mp4` wrote `architecture.dav`, and `recordings/en_take5.mp4` wrote `architecture-en.dav`. Both files are as written, unedited.
+- In the English take, the checker's first run fails (no Node in Bash); Claude Code runs it again in PowerShell and it passes. The cut shows both.
 - **Rebuilt.** The VS Code window (title bar, explorer, tabs, command palette, notifications) is drawn by `stage.html`. Cuts 3 and 4 follow recordings of the real steps; their strings come from the extension (`package.nls*.json`, `extension/skillInstall.ts`) and from VS Code as recorded. The editor text is highlighted with the extension's TextMate grammar and VS Code's Dark+ theme.
-- `architecture-en.dav` is a translation of `architecture.dav` for the English docs animations. It is not presented as generated.
 
 ## Rendering
 
@@ -30,19 +30,21 @@ npm install
 node highlight.mjs
 ```
 
-The video, with captions in Japanese and in English:
+The videos, in Japanese and in English:
 
 ```bash
 node capture.mjs all ja
 node capture.mjs all en
 node build-rec.mjs all
-node sfx.mjs
-node sfx.mjs short
+node sfx.mjs full ja
+node sfx.mjs full en
+node sfx.mjs short ja
+node sfx.mjs short en
 node assemble.mjs pv
 node assemble.mjs short
 ```
 
-The README and docs animations (English screen, no captions):
+The README and docs animations (English screen and diagram, no captions):
 
 ```bash
 node capture.mjs c04_skill,c06_cursor,c07_follow,c08_docs x --docs
@@ -58,10 +60,10 @@ node assemble.mjs gifs
 | `stage.html` | Everything drawn around the preview: the VS Code window, captions, the pointer, the title and end cards |
 | `cuts.mjs` | Each cut: its scene, length and a timeline of clicks and messages |
 | `capture.mjs` | Renders cuts frame by frame at 60 fps |
-| `build-rec.mjs` | Trims and speeds up the recording for cut 5 and overlays captions |
+| `build-rec.mjs` | Trims, speeds up and frames the recording of each language for cut 5, and overlays captions |
 | `sfx.mjs` | Synthesizes the sound track (no samples) |
 | `assemble.mjs` | Joins cuts, adds sound, makes the GIFs |
-| `variant.mjs` | Video (Japanese screen) or docs (`--docs`, English screen) |
+| `variant.mjs` | Screen language, diagram and captions: `ja`, `en`, or `--docs` (English, no captions) |
 | `recording-guide.md` | How the recordings were made |
 
 Two details keep the animation at its real speed:
