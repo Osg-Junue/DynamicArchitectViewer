@@ -23,7 +23,7 @@ export interface ExportPayload {
 }
 
 // Vite leaves a build marker comment at the end of the extracted CSS.
-export const PLAYER_CSS = playerStyles.replace(/\/\*[\s\S]*?\*\//g, '').trim();
+const PLAYER_CSS = playerStyles.replace(/\/\*[\s\S]*?\*\//g, '').trim();
 const PAGE_STYLES = `html,body{margin:0;height:100%;background:var(--dav-bg);overflow:hidden}${PLAYER_CSS}`;
 
 export interface ExportOptions {

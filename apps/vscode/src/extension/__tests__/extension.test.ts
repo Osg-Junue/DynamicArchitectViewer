@@ -19,6 +19,7 @@ const host = vi.hoisted(() => ({
   existing: new Set<string>(),
   copied: [] as Array<{ from: string; to: string }>,
   warningAnswer: undefined as string | undefined,
+  saveDefaultUri: undefined as string | undefined,
 }));
 
 vi.mock('vscode', () => {
@@ -127,7 +128,10 @@ vi.mock('vscode', () => {
         host.quickPick = items;
         return host.pickIndex === null ? undefined : items[host.pickIndex];
       },
-      showSaveDialog: async () => ({ fsPath: 'out.html' }),
+      showSaveDialog: async (options?: { defaultUri?: { fsPath: string } }) => {
+        host.saveDefaultUri = options?.defaultUri?.fsPath;
+        return { fsPath: 'out.html' };
+      },
       createWebviewPanel: () => ({
         title: '',
         reveal() {},
@@ -147,6 +151,7 @@ vi.mock('vscode', () => {
   };
 });
 
+import { homedir } from 'node:os';
 import { activate } from '../extension';
 
 function fakeDocument(text: string, name: string, languageId = 'dav') {
@@ -179,6 +184,7 @@ describe('extension commands', () => {
     host.existing.clear();
     host.copied.length = 0;
     host.warningAnswer = undefined;
+    host.saveDefaultUri = undefined;
     activate({ subscriptions: [], extensionUri: { fsPath: '/ext' } } as never);
   });
 
@@ -320,6 +326,36 @@ describe('extension commands', () => {
       await run('dav.exportSvg');
 
       expect(host.written).toEqual([]);
+    });
+
+    it('reads a stepped document only once when exporting', async () => {
+      const getText = vi.fn(() => stepped.getText());
+      host.activeTextEditor = { document: { ...stepped, getText } };
+
+      await run('dav.exportSvg');
+
+      expect(getText).toHaveBeenCalledTimes(1);
+      expect(host.written).toHaveLength(1);
+    });
+
+    it('anchors untitled save dialogs in the workspace or home directory', async () => {
+      const untitled = {
+        ...docA,
+        isUntitled: true,
+        uri: { fsPath: 'Untitled-1', toString: () => 'untitled:Untitled-1' },
+      };
+      host.activeTextEditor = { document: untitled };
+      host.workspaceFolders = [{ uri: { fsPath: '/repo' } }];
+
+      await run('dav.exportSvg');
+      expect(host.saveDefaultUri).toBe('/repo/diagram.svg');
+
+      await run('dav.exportHtml');
+      expect(host.saveDefaultUri).toBe('/repo/diagram.html');
+
+      host.workspaceFolders = undefined;
+      await run('dav.exportSvg');
+      expect(host.saveDefaultUri).toBe(`${homedir()}/diagram.svg`);
     });
   });
 

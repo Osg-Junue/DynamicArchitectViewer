@@ -33,7 +33,6 @@ const COLOR = {
   borderStrong: 'var(--dav-border-strong)',
   accent: 'var(--dav-accent)',
   nodeBg: 'var(--dav-node-bg)',
-  zone: 'var(--dav-zone)',
 } as const;
 
 export const SCENE_PADDING = 48;
@@ -127,7 +126,8 @@ function groupElement(g: ResolvedGroup): VElement {
       width,
       height,
       rx: 14,
-      fill: g.color ? `color-mix(in srgb, ${paint(g.color)} 14%, transparent)` : COLOR.zone,
+      fill: g.color ? paint(g.color) : COLOR.fg,
+      'fill-opacity': g.color ? 0.14 : 0.07,
     }),
   );
 }

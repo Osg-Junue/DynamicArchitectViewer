@@ -18,6 +18,7 @@ export default defineConfig({
     },
   },
   test: {
+    css: true,
     include: ['src/**/*.test.ts'],
   },
 });

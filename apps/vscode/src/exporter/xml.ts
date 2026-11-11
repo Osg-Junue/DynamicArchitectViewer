@@ -5,7 +5,7 @@ const NAME = /^[A-Za-z][\w:-]*$/;
 
 /** Characters that XML 1.0 does not allow anywhere in a document. */
 // biome-ignore lint/suspicious/noControlCharactersInRegex: these are the characters to remove.
-const INVALID_XML = /[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿]/g;
+const INVALID_XML = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uD800-\uDFFF\uFFFE\uFFFF]/gu;
 
 function escapeText(s: string): string {
   return s

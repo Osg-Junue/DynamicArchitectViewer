@@ -1,3 +1,4 @@
+import { homedir } from 'node:os';
 import * as vscode from 'vscode';
 import { format, parse } from '../dsl';
 import { exportHtml, exportSvg } from '../exporter';
@@ -21,15 +22,22 @@ export function formattingEdit(
   return formatted === text ? undefined : { range: toRange(doc, 0, text.length), text: formatted };
 }
 
+function defaultExportUri(doc: vscode.TextDocument, ext: 'html' | 'svg'): vscode.Uri {
+  if (!doc.isUntitled) {
+    return vscode.Uri.file(`${doc.uri.fsPath.replace(/\.dav$/i, '')}.${ext}`);
+  }
+  const base = vscode.workspace.workspaceFolders?.[0]?.uri ?? vscode.Uri.file(homedir());
+  return vscode.Uri.joinPath(base, `diagram.${ext}`);
+}
+
 export async function exportDocumentToHtml(
   doc: vscode.TextDocument,
   overrideDsl?: string,
 ): Promise<void> {
   const dsl = overrideDsl ?? doc.getText();
   const html = await exportHtml(dsl, { locale: uiLocale() });
-  const defaultPath = `${doc.uri.fsPath.replace(/\.dav$/i, '')}.html`;
   const targetUri = await vscode.window.showSaveDialog({
-    defaultUri: doc.isUntitled ? vscode.Uri.file('diagram.html') : vscode.Uri.file(defaultPath),
+    defaultUri: defaultExportUri(doc, 'html'),
     filters: { [t('スタンドアロン HTML', 'Standalone HTML')]: ['html'] },
   });
   if (!targetUri) return;
@@ -44,9 +52,9 @@ export async function exportDocumentToHtml(
  * following the steps, or a still picture of the whole diagram.
  */
 export async function exportDocumentToSvg(doc: vscode.TextDocument): Promise<void> {
-  const dsl = doc.getText();
+  const { document } = parse(doc.getText());
   let animate = true;
-  if (parse(dsl).document.steps.length > 0) {
+  if (document.steps.length > 0) {
     const picked = await vscode.window.showQuickPick(
       [
         {
@@ -68,10 +76,9 @@ export async function exportDocumentToSvg(doc: vscode.TextDocument): Promise<voi
     if (!picked) return;
     animate = picked.animate;
   }
-  const svg = exportSvg(dsl, { locale: uiLocale(), animate });
-  const defaultPath = `${doc.uri.fsPath.replace(/\.dav$/i, '')}.svg`;
+  const svg = exportSvg(document, { locale: uiLocale(), animate });
   const targetUri = await vscode.window.showSaveDialog({
-    defaultUri: doc.isUntitled ? vscode.Uri.file('diagram.svg') : vscode.Uri.file(defaultPath),
+    defaultUri: defaultExportUri(doc, 'svg'),
     filters: { SVG: ['svg'] },
   });
   if (!targetUri) return;

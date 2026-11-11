@@ -41,4 +41,14 @@ export {
 export { estimateTextWidth, fitText } from './text';
 export { HOLD_MS, MIN_PACKET_MS, PHASE_MS } from './timing';
 export { h, type VElement, type VNode } from './vnode';
-export { ZONE_LABEL, type ZoneMove, type ZonePlace, zoneColor, zoneMoves } from './zones';
+export {
+  placeZoneLabels,
+  ZONE_LABEL,
+  type ZoneLabelEntry,
+  type ZoneLabelPosition,
+  type ZoneMove,
+  type ZonePlace,
+  zoneColor,
+  zoneLabelRoom,
+  zoneMoves,
+} from './zones';

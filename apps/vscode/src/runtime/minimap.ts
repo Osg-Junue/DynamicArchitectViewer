@@ -63,7 +63,8 @@ export class Minimap {
         width: r.width,
         height: r.height,
         rx: 16,
-        fill: `color-mix(in srgb, ${zoneColor(zone.color)} 55%, transparent)`,
+        fill: zoneColor(zone.color),
+        'fill-opacity': 0.55,
       });
       this.#zones.set(zone.id, rect);
       this.element.append(rect);

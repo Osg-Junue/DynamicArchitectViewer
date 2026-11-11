@@ -137,6 +137,174 @@ describe('exportSvg', () => {
   it('labels steps in the chosen language', () => {
     expect(exportSvg(STEPPED, { locale: 'ja' })).toContain('ステップ 1 / 2');
   });
+
+  it('accepts an already-parsed document without re-parsing', () => {
+    const { document } = parse(STEPPED);
+    expect(exportSvg(document)).toBe(exportSvg(STEPPED));
+  });
+
+  it('links <desc> via aria-describedby only when a description is present', () => {
+    const animated = exportSvg(STEPPED);
+    expect(animated).toContain('aria-describedby="dav-desc"');
+    expect(animated).toContain('<desc id="dav-desc">1. Order\n2. Nothing moves</desc>');
+
+    const still = exportSvg(STEPPED, { animate: false });
+    expect(still).not.toContain('aria-describedby');
+    expect(still).not.toContain('<desc');
+  });
+
+  it('inlines only compacted scene styles scoped to .dav-svg', () => {
+    const svg = exportSvg('dav 1\ntitle "Plain"\nnode a\nnode b\na --> b');
+    const style = /<style>([\s\S]*?)<\/style>/.exec(svg)?.[1] ?? '';
+
+    expect(style).toContain('.dav-svg{');
+    expect(style).not.toMatch(/:root\b|(^|\})svg\{|\/\*|\n/);
+    expect(style).not.toMatch(/\.dav-(app|topbar|btn|playback-bar|dock|timeline|zone-hud)\b/);
+    expect(Buffer.byteLength(style, 'utf8')).toBeLessThan(2500);
+  });
+
+  it('paints translucent zones and minimap areas with fill-opacity rather than color-mix', () => {
+    const svg = exportSvg(sampleDsl('enterprise-zero-trust-10anim'));
+
+    expect(svg).not.toContain('fill="color-mix(');
+    expect(svg).toContain('fill-opacity="0.55"');
+    expect(svg).toMatch(/fill-opacity="0\.(14|07)"/);
+  });
+
+  it('fills a phase-free step ruler bar immediately without a width animation', () => {
+    const svg = exportSvg('dav 1\nnode a\nstep "Idle" {\n  state a [badge: "ok"]\n}\n');
+
+    expect(svg).toContain('width="960" height="3" fill="var(--dav-accent)"');
+    expect(svg).not.toContain('attributeName="width"');
+  });
+
+  it('frames Step 1 from t=0 on both the canvas and the minimap', () => {
+    const svg = exportSvg(sampleDsl('enterprise-zero-trust-10anim'));
+    const canvasSvg = attrs(svg, 'svg').find((a) => a.preserveAspectRatio === 'xMidYMid meet');
+    const viewBoxAnim = attrs(svg, 'animate').find((a) => a.attributeName === 'viewBox');
+    const minimapRect = attrs(svg, 'rect').find((a) => a.class === 'dav-minimap-view');
+
+    expect(canvasSvg?.viewBox).toBeDefined();
+    const keyframes = (viewBoxAnim?.values ?? '').split(';');
+    // Camera starts already on Step 1 and holds it until the next camera event (no t=0 fly-in).
+    expect(keyframes[0]).toBe(canvasSvg?.viewBox);
+    expect(keyframes[1]).toBe(canvasSvg?.viewBox);
+    expect(keyframes[keyframes.length - 1]).not.toBe(canvasSvg?.viewBox);
+
+    expect(`${minimapRect?.x} ${minimapRect?.y} ${minimapRect?.width} ${minimapRect?.height}`).toBe(
+      canvasSvg?.viewBox,
+    );
+  });
+
+  it('keeps zone names inside the visible viewBox as the camera zooms into a wide zone', () => {
+    const wideZone = [
+      'dav 1',
+      'group g "Wide Zone" {',
+      '  group inner "Inner Zone" {',
+      ...Array.from({ length: 8 }, (_, i) => `    node n${i} "Node ${i}"`),
+      '  }',
+      '}',
+      ...Array.from({ length: 7 }, (_, i) => `n${i} --> n${i + 1}`),
+      'step "Right end" {',
+      '  focus n7',
+      '}',
+      'step "Left end" {',
+      '  focus n0',
+      '}',
+    ].join('\n');
+
+    const svg = exportSvg(wideZone);
+    const canvasSvg = attrs(svg, 'svg').find((a) => a.preserveAspectRatio === 'xMidYMid meet');
+    const [vx = 0, vy = 0, vw = 0, vh = 0] = (canvasSvg?.viewBox ?? '').split(' ').map(Number);
+
+    expect(svg).toContain('class="dav-layer-zone-labels"');
+    const labels = attrs(svg, 'text').filter((a) => a.class === 'dav-group-label');
+    expect(labels).toHaveLength(2);
+    for (const label of labels) {
+      expect(Number(label.x)).toBeGreaterThanOrEqual(vx);
+      expect(Number(label.x)).toBeLessThanOrEqual(vx + vw);
+      expect(Number(label.y)).toBeGreaterThanOrEqual(vy);
+      expect(Number(label.y)).toBeLessThanOrEqual(vy + vh);
+    }
+    // Nested zone name stays below its enclosing zone's name, and slides horizontally between steps.
+    expect(Number(labels[1]?.y)).toBeGreaterThanOrEqual(Number(labels[0]?.y) + 24);
+    expect(svg).toContain('attributeName="x"');
+  });
+
+  it('hides exiting nested zone names before an enclosing label slides over them and omits flat tracks', () => {
+    const nestedPan = [
+      'dav 1',
+      'node hub "Hub"',
+      'group outer "Outer Zone" {',
+      '  group mid "Middle Zone" {',
+      '    group inner "Inner Zone" {',
+      '      node n1 "Top"',
+      '    }',
+      '    node n2 "Mid"',
+      '  }',
+      '  group lower "Lower Zone" {',
+      ...Array.from({ length: 6 }, (_, i) => `    node n${i + 3} "Row ${i + 3}"`),
+      '  }',
+      '}',
+      ...Array.from({ length: 8 }, (_, i) => `hub --> n${i + 1}`),
+      'step "Top" {',
+      '  focus n1',
+      '}',
+      'step "Bottom" {',
+      '  focus n8',
+      '}',
+    ].join('\n');
+
+    const svg = exportSvg(nestedPan);
+    const zoneLayer =
+      /<g class="dav-layer-zone-labels">([\s\S]*?)<\/g><g class="dav-layer-packets"/.exec(
+        svg,
+      )?.[1] ?? '';
+    expect(zoneLayer.length).toBeGreaterThan(0);
+
+    // Inner zone leaves its room as soon as the downward pan starts, so no dimmed Step 2 copy is emitted.
+    expect(zoneLayer).not.toContain('class="dav-group dav-dimmed" data-id="inner"');
+    // Branches whose visible span has a constant coordinate emit no <animate attributeName="y">.
+    expect(zoneLayer).toContain(
+      '<g class="dav-group" data-id="mid"><text x="319.3" y="212.1" class="dav-group-label" font-size="16" fill="var(--dav-fg)">Middle Zone</text>',
+    );
+    expect(zoneLayer).toContain(
+      '<g class="dav-group dav-dimmed" data-id="lower"><text x="324.7" y="538" class="dav-group-label" font-size="16" fill="var(--dav-fg)">Lower Zone</text>',
+    );
+  });
+
+  it('omits coordinate animations when every step shares the same zoomed-in camera pose', () => {
+    const staticZoom = [
+      'dav 1',
+      'group z1 "Zone 1" { node n0 "N0" }',
+      'group z2 "Zone 2" {',
+      ...Array.from({ length: 8 }, (_, i) => `  node m${i} "M${i}"`),
+      '}',
+      ...Array.from({ length: 7 }, (_, i) => `m${i} --> m${i + 1}`),
+      'step "S1" { focus n0 }',
+      'step "S2" {',
+      '  focus n0',
+      '  state n0 [badge: "2"]',
+      '}',
+    ].join('\n');
+
+    const svg = exportSvg(staticZoom);
+    expect(svg).toContain('class="dav-minimap-view"');
+    expect(svg).toContain('class="dav-layer-zone-labels"');
+    const animatedAttrs = attrs(svg, 'animate').map((a) => a.attributeName);
+    expect(animatedAttrs.every((name) => name === 'display')).toBe(true);
+  });
+
+  it.each(SAMPLES.map((s) => [s.id]))(
+    'matches root height attribute to viewBox height for %s',
+    (id) => {
+      const svg = exportSvg(sampleDsl(id));
+      const root = attrs(svg, 'svg')[0];
+      expect(root?.width).toBe('960');
+      expect(root?.height).toMatch(/^\d+$/);
+      expect(root?.viewBox).toBe(`0 0 960 ${root?.height}`);
+    },
+  );
 });
 
 describe('planCamera', () => {
@@ -184,6 +352,14 @@ describe('toXml', () => {
 
   it('drops characters XML does not allow', () => {
     expect(toXml(h('text', {}, 'a\u0000b\u0008c'))).toBe('<text>abc</text>');
+  });
+
+  it('drops lone surrogates and U+FFFE/U+FFFF while preserving emoji and CJK surrogate pairs', () => {
+    const input = 'Rocket 🚀 Kanji 𠮷\t\n\r\uD800\uDC00_lone:\uD800!\uDC00?\uFFFE\uFFFF';
+    // Note: adjacent \uD800\uDC00 forms valid U+10000 (𐀀); separated \uD800 and \uDC00 are lone surrogates.
+    expect(toXml(h('text', { 'aria-label': '🚀 𠮷 \uD83D!\uDE80' }, input))).toBe(
+      '<text aria-label="🚀 𠮷 !">Rocket 🚀 Kanji 𠮷\t\n\r𐀀_lone:!?</text>',
+    );
   });
 
   it('rejects element and attribute names that a scene never builds', () => {

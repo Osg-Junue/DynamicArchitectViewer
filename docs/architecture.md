@@ -141,9 +141,10 @@ Motion uses SMIL only, because `<img>` runs no script. Every animation lasts the
 | :--- | :--- |
 | The step's scene, a phase's packets, flows, lit stops, emphasized labels and zone outlines | One copy per state, shown with a discrete `display` animation |
 | The camera | `viewBox` of the canvas, eased between the poses the preview's camera would head for |
+| Zone names on the canvas | Kept inside the visible `viewBox` as the camera moves, as in the preview |
 | A packet riding its rail, and the leader of its callout | Positions sampled every 66 ms, interpolated in between |
 
-The camera follows the preview's rules from `scene/framing.ts`: each step starts on `stepFrame`, and a phase whose nodes are off screen moves to `calmFrame`. The preview's "follow" toggle and the reader's own panning have no counterpart. Each element's attributes hold its state at the start of the loop, so a viewer without SMIL shows the first moment of the first step. Colors follow the reader's system light or dark setting, which can differ from the theme of the site showing the image.
+The camera follows the preview's rules from `scene/framing.ts`: each step starts on `stepFrame`, and a phase whose nodes are off screen moves to `calmFrame`. The preview's "follow" toggle and the reader's own panning have no counterpart, and SMIL animations in an `<img>` cannot honor `prefers-reduced-motion` (use the still SVG export when motion is unwanted). Each element's attributes hold its state at the start of the loop, so a viewer without SMIL shows the first moment of the first step. Colors follow the reader's system light or dark setting, which can differ from the theme of the site showing the image.
 
 **Security.** The scene is serialized by `exporter/xml.ts`, which escapes every text and attribute value and drops characters XML does not allow. The file has no script, no `foreignObject` and no external reference.
 

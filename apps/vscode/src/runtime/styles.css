@@ -1,16 +1,9 @@
+@import "./scene.css";
+
 /*
- * Theme tokens. Inside VS Code every value follows the active color theme; the raw values
- * below only apply to exported HTML.
+ * Player UI tokens. Diagram tokens and SVG scene rules live in scene.css.
  */
 :root {
-  color-scheme: light dark;
-  --raw-bg: #f8f7f2;
-  --raw-panel: #f0efe8;
-  --raw-node: #fffefa;
-  --raw-fg: #20282f;
-  --raw-muted: #5c6670;
-  --raw-border: #d6d3c8;
-  --raw-border-strong: #858b8f;
   --raw-focus: #c94f12;
   --raw-hover: rgba(32, 40, 47, 0.08);
   --raw-selected: rgba(32, 40, 47, 0.12);
@@ -27,13 +20,6 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --raw-bg: #191b1e;
-    --raw-panel: #212429;
-    --raw-node: #212429;
-    --raw-fg: #dde0e4;
-    --raw-muted: #9ca5ae;
-    --raw-border: #363b42;
-    --raw-border-strong: #737c86;
     --raw-focus: #f0641e;
     --raw-hover: rgba(255, 255, 255, 0.09);
     --raw-selected: rgba(255, 255, 255, 0.14);
@@ -50,22 +36,6 @@
 }
 
 :root {
-  --dav-font: var(
-    --vscode-font-family,
-    "Segoe UI",
-    system-ui,
-    -apple-system,
-    "Hiragino Sans",
-    "Noto Sans JP",
-    sans-serif
-  );
-  --dav-mono: var(--vscode-editor-font-family, "Cascadia Code", Consolas, ui-monospace, monospace);
-  --dav-bg: var(--vscode-editor-background, var(--raw-bg));
-  --dav-panel: var(--vscode-sideBar-background, var(--raw-panel));
-  --dav-fg: var(--vscode-foreground, var(--raw-fg));
-  --dav-muted: var(--vscode-descriptionForeground, var(--raw-muted));
-  --dav-border: var(--vscode-panel-border, var(--raw-border));
-  --dav-border-strong: var(--vscode-input-placeholderForeground, var(--raw-border-strong));
   --dav-focus: var(--vscode-focusBorder, var(--raw-focus));
   --dav-hover: var(--vscode-toolbar-hoverBackground, var(--raw-hover));
   --dav-selected: var(--vscode-inputOption-activeBackground, var(--raw-selected));
@@ -80,28 +50,6 @@
   --dav-warning: var(--vscode-editorWarning-foreground, var(--raw-warning));
   --dav-ok: var(--vscode-testing-iconPassed, var(--raw-ok));
   --dav-shadow: var(--vscode-widget-shadow, var(--raw-shadow));
-
-  /* Canvas */
-  --dav-node-bg: var(--vscode-editorWidget-background, var(--raw-node));
-  --dav-zone: color-mix(in srgb, var(--dav-fg) 7%, transparent);
-  --dav-icon: var(--dav-muted);
-  --dav-edge: color-mix(in srgb, var(--dav-fg) 38%, var(--dav-bg));
-
-  /*
-   * The diagram palette: the single definition of every diagram color, as
-   * light-dark(<light theme>, <dark theme>), resolved through color-scheme.
-   */
-  --dav-accent: light-dark(#c8500a, #eb6101);
-  --dav-accent-text: light-dark(#b8460f, #ff8a4c);
-  --dav-c-red: light-dark(#a8142e, #e23a52);
-  --dav-c-orange: light-dark(#c24a00, #ff7a2f);
-  --dav-c-yellow: light-dark(#9a6f00, #ffc21f);
-  --dav-c-green: light-dark(#0e7f4f, #1fbf7a);
-  --dav-c-teal: light-dark(#007a85, #00b8c4);
-  --dav-c-blue: light-dark(#0f62c4, #2e90ff);
-  --dav-c-purple: light-dark(#6330c8, #9b5cff);
-  --dav-c-pink: light-dark(#c8578f, #f4a6c8);
-  --dav-c-gray: light-dark(#6e7074, #b4b6ba);
 }
 
 .vscode-dark,
@@ -392,12 +340,6 @@
 .dav-minimap[hidden] {
   display: none;
 }
-.dav-minimap-view {
-  fill: color-mix(in srgb, var(--dav-fg) 12%, transparent);
-  stroke: var(--dav-fg);
-  stroke-width: 1.5px;
-  vector-effect: non-scaling-stroke;
-}
 @media (max-width: 560px), (max-height: 420px) {
   .dav-minimap {
     display: none;
@@ -473,56 +415,14 @@
 .dav-canvas text {
   font-family: inherit;
 }
-/* A background-colored outline keeps text readable where a line passes behind it. */
-.dav-group-label,
-.dav-edge-label text,
-.dav-node-label,
-.dav-node-sub {
-  paint-order: stroke;
-  stroke: var(--dav-bg);
-  stroke-width: 1.5px;
-  stroke-linejoin: round;
-}
-.dav-group-label {
-  font-weight: 500;
-}
-.dav-node-label,
-.dav-packet-label {
-  font-weight: 700;
-}
-.dav-layer-packets,
-.dav-edge-label,
-.dav-flow {
-  pointer-events: none;
-}
 .dav-node,
 .dav-edge,
 .dav-edge-label,
 .dav-group {
   transition: opacity 0.2s ease;
 }
-.dav-dimmed {
-  opacity: 0.38;
-}
 .dav-flow[hidden] {
   display: none;
-}
-/* Widths are in drawing units, so every line keeps its proportion at any zoom. */
-.dav-rail {
-  stroke-width: 4px;
-}
-.dav-flow {
-  stroke-width: 4px;
-}
-
-.dav-layer-stops {
-  pointer-events: none;
-}
-.dav-stop text {
-  font-weight: 700;
-}
-.dav-stop.is-current circle {
-  r: 14px;
 }
 @media (prefers-reduced-motion: reduce) {
   .dav-node,

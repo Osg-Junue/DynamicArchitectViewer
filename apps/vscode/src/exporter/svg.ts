@@ -2,6 +2,7 @@ import { parse } from '../dsl';
 import { computeLayout, type Layout, type Rect } from '../layout';
 import type { DavDocument } from '../model/types';
 import { VIEWER_STRINGS, type ViewerLocale } from '../runtime/i18n';
+import sceneStyles from '../runtime/scene.css?raw';
 import {
   activeLabelFill,
   boundsOf,
@@ -23,6 +24,7 @@ import {
   packetPosition,
   packetsOnScreen,
   paint,
+  placeZoneLabels,
   type ResolvedView,
   resolveView,
   type Size,
@@ -31,13 +33,15 @@ import {
   type VNode,
   visibleWorld,
   wholeDiagramFrame,
+  ZONE_LABEL,
+  type ZoneLabelEntry,
   type ZoneMove,
   zoneColor,
+  zoneLabelRoom,
   zoneMoves,
 } from '../scene';
 import { ICON_SHAPES } from '../scene/icons';
 import { wrapText } from '../scene/text';
-import { PLAYER_CSS } from './export';
 import { toXml } from './xml';
 
 export interface SvgExportOptions {
@@ -70,11 +74,18 @@ const MINIMAP_MAX = { width: 180, height: 64 } as const;
 const MINIMAP_PAD = 40;
 const MAX_ZONE_MOVES = 3;
 
-const SVG_STYLES = `${PLAYER_CSS}svg{font-family:var(--dav-font)}.dav-mono{font-family:var(--dav-mono)}`;
+const SVG_STYLES = sceneStyles
+  .replace(/\/\*[\s\S]*?\*\//g, '')
+  .replace(/\s+/g, ' ')
+  .replace(/\s*([{};,])\s*/g, '$1')
+  .replace(/([;{])(--?[\w-]+)\s*:\s*/g, '$1$2:')
+  .replace(/;}/g, '}')
+  .replace(/:root\b/g, '.dav-svg')
+  .trim();
 
 /** Generates an SVG file that needs no script and makes no external request. */
-export function exportSvg(dsl: string, options: SvgExportOptions = {}): string {
-  const { document } = parse(dsl);
+export function exportSvg(source: string | DavDocument, options: SvgExportOptions = {}): string {
+  const document = typeof source === 'string' ? parse(source).document : source;
   const layout = computeLayout(document);
   return options.animate === false || document.steps.length === 0
     ? stillSvg(document, layout)
@@ -95,14 +106,16 @@ function svgDocument(
     'svg',
     {
       xmlns: 'http://www.w3.org/2000/svg',
+      class: 'dav-svg',
       width: num(size.width),
       height: num(size.height),
       viewBox,
       role: 'img',
       'aria-label': title,
+      'aria-describedby': description ? 'dav-desc' : undefined,
     },
     h('title', {}, title),
-    description ? h('desc', {}, description) : null,
+    description ? h('desc', { id: 'dav-desc' }, description) : null,
     h('style', {}, SVG_STYLES),
     ...children,
   );
@@ -113,7 +126,7 @@ function stillSvg(doc: DavDocument, layout: Layout): string {
   const view = resolveView(doc, layout, null);
   const { rect } = wholeDiagramFrame(layout, view);
   return svgDocument(rect, viewBoxOf(rect), doc.title || 'DynamicArchitectViewer', undefined, [
-    h('rect', { ...rect, fill: 'var(--dav-bg)' }),
+    h('rect', { ...roundRect(rect), fill: 'var(--dav-bg)' }),
     buildDefs(),
     buildScene(view, ICON_SHAPES),
   ]);
@@ -229,6 +242,11 @@ class Clock {
     for (const key of [[0, first[1]] as const, ...keys, [this.total, last[1]] as const]) {
       const prev = all[all.length - 1];
       if (prev && prev[0] === key[0] && prev[1] === key[1]) continue;
+      const prev2 = all[all.length - 2];
+      if (!options.eased && prev && prev2 && prev2[1] === key[1] && prev[1] === key[1]) {
+        all[all.length - 1] = key;
+        continue;
+      }
       all.push(key);
     }
     const splines = options.eased
@@ -314,14 +332,14 @@ export function planCamera(
 }
 
 /**
- * The camera's path as eased moves between poses. The loop starts where it ends, so the first
- * move comes from the last step's pose.
+ * The camera's path as eased moves between poses, starting framed on the first step and holding
+ * the last pose until the loop restarts.
  */
 function cameraKeys(events: Array<[number, Pose]>, total: number): Array<[number, Pose]> {
-  const last = events[events.length - 1]?.[1];
-  if (!last) return [];
-  const keys: Array<[number, Pose]> = [[0, last]];
-  let current = last;
+  const first = events[0]?.[1];
+  if (!first) return [];
+  const keys: Array<[number, Pose]> = [[0, first]];
+  let current = first;
   events.forEach(([t, pose], i) => {
     if (samePose(pose, current)) return;
     const next = events[i + 1]?.[0] ?? total;
@@ -329,6 +347,59 @@ function cameraKeys(events: Array<[number, Pose]>, total: number): Array<[number
     current = pose;
   });
   return keys;
+}
+
+const cubicCoord = (p1: number, p2: number, s: number): number =>
+  3 * (1 - s) * (1 - s) * s * p1 + 3 * (1 - s) * s * s * p2 + s * s * s;
+
+/** Evaluates `CAMERA_SPLINE` ('0.2 0.8 0.3 1') at normalized segment time `u` in [0, 1]. */
+function cameraEase(u: number): number {
+  if (u <= 0) return 0;
+  if (u >= 1) return 1;
+  let lo = 0;
+  let hi = 1;
+  for (let i = 0; i < 20; i++) {
+    const mid = (lo + hi) / 2;
+    if (cubicCoord(0.2, 0.3, mid) < u) lo = mid;
+    else hi = mid;
+  }
+  return cubicCoord(0.8, 1, (lo + hi) / 2);
+}
+
+/** Samples the visible world rect across camera moves, staying sparse while the camera rests. */
+function cameraSamples(
+  camera: ReadonlyArray<readonly [number, Rect]>,
+  fallback: Rect,
+  total: number,
+): Array<[number, Rect]> {
+  const start = camera[0]?.[1] ?? fallback;
+  const out: Array<[number, Rect]> = [[0, start]];
+  for (let i = 0; i < camera.length - 1; i++) {
+    const [t0, a] = camera[i] ?? [0, start];
+    const [t1, b] = camera[i + 1] ?? [t0, a];
+    if (t1 <= t0) continue;
+    if (a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height) {
+      out.push([t1, b]);
+      continue;
+    }
+    const count = Math.max(2, Math.ceil((t1 - t0) / SAMPLE_MS));
+    for (let j = 1; j <= count; j++) {
+      const u = j / count;
+      const v = cameraEase(u);
+      out.push([
+        t0 + (t1 - t0) * u,
+        {
+          x: a.x + (b.x - a.x) * v,
+          y: a.y + (b.y - a.y) * v,
+          width: a.width + (b.width - a.width) * v,
+          height: a.height + (b.height - a.height) * v,
+        },
+      ]);
+    }
+  }
+  const last = out[out.length - 1];
+  if (last && last[0] < total) out.push([total, last[1]]);
+  return out;
 }
 
 // -----------------------------------------------------------------------------
@@ -431,7 +502,7 @@ function animateHighlights(scene: VElement, step: StepSlot, clock: Clock): void 
       groups.children.push(
         clock.showDuring(
           h('rect', {
-            ...rect,
+            ...roundRect(rect),
             rx: 14,
             fill: 'none',
             stroke: color,
@@ -518,7 +589,10 @@ function header(
   const descs = steps.map((step) => wrapText(step.view.description ?? '', DESC_SIZE, room, 2));
   const descLines = Math.max(0, ...descs.map((lines) => lines.length));
   const titleY = 12 + TITLE_SIZE + 2;
-  const height = Math.max(titleY + descLines * DESC_LINE + 12, aside ? aside.height + 16 : 0);
+  const height = Math.max(
+    titleY + descLines * DESC_LINE + 12,
+    aside ? Math.ceil(aside.height) + 16 : 0,
+  );
   const el = h('g', {}, h('rect', { x: 0, y: 0, width: WIDTH, height, fill: COLOR.bg }));
   steps.forEach((step, i) => {
     const stepNo = strings.stepLabel(i + 1, steps.length);
@@ -577,6 +651,7 @@ function timeline(steps: readonly StepSlot[], top: number, clock: Clock, total: 
         h('path', { d: `M ${num(x)} ${top} V ${top + TIMELINE_HEIGHT}`, stroke: COLOR.border }),
       );
     }
+    const hasPhases = step.start < step.phasesEnd;
     el.children.push(
       h(
         'text',
@@ -589,11 +664,19 @@ function timeline(steps: readonly StepSlot[], top: number, clock: Clock, total: 
       ),
       clock.showDuring(
         pushAll(
-          h('rect', { x: num(x), y: fillY, width: 0, height: 3, fill: COLOR.accent }),
-          clock.track('width', [
-            [step.start, '0'],
-            [step.phasesEnd, num(width)],
-          ]),
+          h('rect', {
+            x: num(x),
+            y: fillY,
+            width: hasPhases ? 0 : num(width),
+            height: 3,
+            fill: COLOR.accent,
+          }),
+          hasPhases
+            ? clock.track('width', [
+                [step.start, '0'],
+                [step.phasesEnd, num(width)],
+              ])
+            : null,
         ),
         [[step.start, step.end]],
       ),
@@ -742,9 +825,10 @@ function minimap(
     inner.children.push(
       clock.showDuring(
         h('rect', {
-          ...r,
+          ...roundRect(r),
           rx: 16,
-          fill: `color-mix(in srgb, ${zoneColor(zone.color)} 55%, transparent)`,
+          fill: zoneColor(zone.color),
+          'fill-opacity': 0.55,
         }),
         shown,
       ),
@@ -783,6 +867,148 @@ function minimap(
 
 function roundRect(r: Rect): Record<'x' | 'y' | 'width' | 'height', string> {
   return { x: num(r.x), y: num(r.y), width: num(r.width), height: num(r.height) };
+}
+
+function intersect(a: readonly Interval[], b: readonly Interval[]): Interval[] {
+  const out: Interval[] = [];
+  for (const [a0, a1] of a) {
+    for (const [b0, b1] of b) {
+      const lo = Math.max(a0, b0);
+      const hi = Math.min(a1, b1);
+      if (lo < hi) out.push([lo, hi]);
+    }
+  }
+  return out;
+}
+
+/**
+ * Keeps zone names inside the visible `viewBox` as the camera moves, matching `ZoneLabels.follow`
+ * in the preview. Drawn in one layer above the step scenes so station nodes never cover a sliding
+ * zone name.
+ */
+function zoneLabelLayer(
+  doc: DavDocument,
+  layout: Layout,
+  steps: readonly StepSlot[],
+  camera: ReadonlyArray<readonly [number, Rect]>,
+  startWorld: Rect,
+  clock: Clock,
+  total: number,
+): VElement | null {
+  const indices = new Map<string, number>();
+  const zones: Array<ZoneLabelEntry & { id: string; text: string }> = [];
+  for (const g of doc.groups) {
+    const rect = layout.groups[g.id];
+    if (!rect) continue;
+    const text = fitText(g.label, ZONE_LABEL.size, zoneLabelRoom(rect.width));
+    indices.set(g.id, zones.length);
+    zones.push({
+      id: g.id,
+      text,
+      rect,
+      width: estimateTextWidth(text, ZONE_LABEL.size),
+      parentIndex: g.parentId === undefined ? -1 : (indices.get(g.parentId) ?? -1),
+    });
+  }
+  if (zones.length === 0) return null;
+
+  const samples = cameraSamples(camera, startWorld, total);
+  const placements = samples.map(([, w]) => placeZoneLabels(zones, w));
+  const out = h('g', { class: 'dav-layer-zone-labels' });
+
+  zones.forEach((zone, i) => {
+    const coords = samples.map((_, s) => {
+      const p = placements[s]?.[i];
+      return p && !p.hidden ? { x: p.x, y: p.y } : undefined;
+    });
+
+    const visible: Interval[] = [];
+    for (let s = 0; s < samples.length - 1; s++) {
+      if (!coords[s] || !coords[s + 1]) continue;
+      const a = samples[s]?.[0] ?? 0;
+      const b = samples[s + 1]?.[0] ?? total;
+      if (b <= a) continue;
+      const prev = visible[visible.length - 1];
+      if (prev && prev[1] === a) visible[visible.length - 1] = [prev[0], b];
+      else visible.push([a, b]);
+    }
+    if (visible.length === 0) return;
+
+    const coordAt = (t: number): { x: number; y: number } => {
+      for (let s = 0; s < samples.length - 1; s++) {
+        const t0 = samples[s]?.[0] ?? 0;
+        const t1 = samples[s + 1]?.[0] ?? total;
+        const c0 = coords[s];
+        const c1 = coords[s + 1];
+        if (!c0 || !c1 || t < t0 || t > t1) continue;
+        if (t <= t0) return c0;
+        if (t >= t1) return c1;
+        const u = (t - t0) / (t1 - t0);
+        return { x: c0.x + (c1.x - c0.x) * u, y: c0.y + (c1.y - c0.y) * u };
+      }
+      return { x: zone.rect.x + ZONE_LABEL.inset, y: zone.rect.y + ZONE_LABEL.baseline };
+    };
+
+    const stepIntervals = (dimmed: boolean): Interval[] => {
+      const spans: Interval[] = [];
+      for (const step of steps) {
+        if (Boolean(step.view.groups.find((g) => g.id === zone.id)?.dimmed) !== dimmed) continue;
+        const prev = spans[spans.length - 1];
+        if (prev && prev[1] === step.start) spans[spans.length - 1] = [prev[0], step.end];
+        else spans.push([step.start, step.end]);
+      }
+      return spans;
+    };
+
+    for (const dimmed of [false, true]) {
+      const intervals = intersect(visible, stepIntervals(dimmed));
+      if (intervals.length === 0) continue;
+      const points: Array<[number, { x: number; y: number }]> = [];
+      for (const [a, b] of intervals) {
+        points.push([a, coordAt(a)]);
+        for (let s = 0; s < samples.length; s++) {
+          const t = samples[s]?.[0] ?? 0;
+          const c = coords[s];
+          if (c && t > a && t < b) points.push([t, c]);
+        }
+        points.push([b, coordAt(b)]);
+      }
+      const start = points[0]?.[1];
+      if (!start) continue;
+      const textEl = pushAll(
+        h(
+          'text',
+          {
+            x: num(start.x),
+            y: num(start.y),
+            class: 'dav-group-label',
+            'font-size': ZONE_LABEL.size,
+            fill: COLOR.fg,
+          },
+          zone.text,
+        ),
+        clock.track(
+          'x',
+          points.map(([t, p]) => [t, num(p.x)]),
+        ),
+        clock.track(
+          'y',
+          points.map(([t, p]) => [t, num(p.y)]),
+        ),
+      );
+      out.children.push(
+        clock.showDuring(
+          h(
+            'g',
+            { class: dimmed ? 'dav-group dav-dimmed' : 'dav-group', 'data-id': zone.id },
+            textEl,
+          ),
+          intervals,
+        ),
+      );
+    }
+  });
+  return out.children.length > 0 ? out : null;
 }
 
 function animatedSvg(doc: DavDocument, layout: Layout, locale: ViewerLocale): string {
@@ -837,9 +1063,16 @@ function animatedSvg(doc: DavDocument, layout: Layout, locale: ViewerLocale): st
   );
   for (const step of steps) {
     const scene = buildScene(step.view, ICON_SHAPES);
+    const labels = layer(scene, 'dav-layer-labels');
+    if (labels) {
+      labels.children = labels.children.filter(
+        (c) => !isElement(c) || !childWithClass(c, 'dav-group-label'),
+      );
+    }
     animateHighlights(scene, step, clock);
     world.children.push(clock.showDuring(h('g', {}, scene), [[step.start, step.end]]));
   }
+  pushAll(world, zoneLabelLayer(doc, layout, steps, camera, startWorld, clock, total));
   const packets = h('g', { class: 'dav-layer-packets' });
   for (const step of steps) {
     for (const phase of step.phases) {
@@ -871,7 +1104,7 @@ function animatedSvg(doc: DavDocument, layout: Layout, locale: ViewerLocale): st
   const description = doc.steps.map((step, i) => `${i + 1}. ${step.title}`).join('\n');
   return svgDocument(
     { width: WIDTH, height: canvasBottom },
-    `0 0 ${WIDTH} ${canvasBottom}`,
+    `0 0 ${WIDTH} ${num(canvasBottom)}`,
     titleText,
     description,
     [
