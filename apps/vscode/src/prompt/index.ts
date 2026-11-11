@@ -1,7 +1,9 @@
-import { COLOR_NAMES, ICON_NAMES, KEYWORD_NAMES } from '../model/types';
+import { COLOR_NAMES, type DavLocale, ICON_NAMES, KEYWORD_NAMES } from '../model/types';
+
+export type Locale = DavLocale;
 
 export interface AiPromptOptions {
-  locale?: 'ja' | 'en';
+  locale?: Locale;
   currentDsl?: string;
   includeCurrentDsl?: boolean;
 }

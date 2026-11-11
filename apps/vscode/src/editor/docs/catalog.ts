@@ -1,6 +1,7 @@
 import { ICON_META, type IconCategory } from '../../model/icons';
 import { COLOR_NAMES, type ColorName, ICON_NAMES, type IconName } from '../../model/types';
 import { clear, html } from '../../runtime/dom';
+import type { ViewerLocale } from '../../runtime/i18n';
 import { paint } from '../../scene';
 import {
   copyButton,
@@ -109,13 +110,17 @@ function colorChips<C extends ColorName | null>(
 }
 
 /** Applies a chosen color to every element kind at once, in a running player. */
-export function colorLab(t: Translate, track: (cleanup: () => void) => void): HTMLElement {
+export function colorLab(
+  locale: ViewerLocale,
+  t: Translate,
+  track: (cleanup: () => void) => void,
+): HTMLElement {
   let figure: LiveFigure | null = null;
   const slot = html('div', { 'data-testid': 'doc-color-lab' });
   const show = (color: ColorName) => {
     figure?.destroy();
     clear(slot);
-    figure = liveFigure(colorLabDsl(color), t);
+    figure = liveFigure(colorLabDsl(color), locale, t);
     slot.append(figure.element);
   };
   track(() => figure?.destroy());
