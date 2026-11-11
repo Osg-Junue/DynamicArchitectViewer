@@ -24,3 +24,8 @@ export const THEME_COLOR = {
 export function paint(color: string): string {
   return isColorName(color) ? `var(--dav-c-${color})` : color;
 }
+
+/** The emphasized color of a label on a rail whose flow has the given color. */
+export function activeLabelFill(flowColor: string): string {
+  return flowColor === THEME_COLOR.accent ? THEME_COLOR.accentText : paint(flowColor);
+}

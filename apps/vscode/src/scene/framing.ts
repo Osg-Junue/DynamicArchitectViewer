@@ -1,7 +1,7 @@
 import { type Layout, type Rect, rectContains } from '../layout';
 import { boundsOf } from './bounds';
 import { calloutRect, computePacketCalloutBox } from './callout';
-import type { Bezier } from './geometry';
+import { type Bezier, clamp } from './geometry';
 import type { Packet, ResolvedView } from './resolve';
 
 /**
@@ -45,7 +45,7 @@ const FOLLOW_PAD = 56;
 const FOLLOW_MIN_SIZE = { width: 200, height: 160 };
 const MAX_FOLLOW_ZOOM = 1.65;
 
-export const clampZoom = (zoom: number): number => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
+export const clampZoom = (zoom: number): number => clamp(zoom, MIN_ZOOM, MAX_ZOOM);
 
 /** The zoom at which a rectangle exactly fits the canvas; unbounded while it has no size. */
 export function fitZoom(canvas: Size, b: Rect): number {

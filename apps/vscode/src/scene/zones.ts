@@ -29,7 +29,7 @@ export interface ZoneLabelEntry {
   parentIndex: number;
 }
 
-export interface ZoneLabelPosition {
+interface ZoneLabelPosition {
   x: number;
   y: number;
   hidden: boolean;
