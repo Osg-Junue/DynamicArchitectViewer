@@ -9,6 +9,9 @@ export type HostToWebviewMessage =
       offset: number;
     };
 
+/** What the preview's Export menu offers. */
+export type ExportFormat = 'html' | 'svg-animated' | 'svg-still';
+
 export type WebviewToHostMessage =
   | {
       type: 'ready';
@@ -21,6 +24,11 @@ export type WebviewToHostMessage =
   | {
       type: 'exportHtml';
       dsl: string;
+    }
+  | {
+      type: 'exportSvg';
+      dsl: string;
+      animate: boolean;
     }
   | {
       type: 'formatDocument';

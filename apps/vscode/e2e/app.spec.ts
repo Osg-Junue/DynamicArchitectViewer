@@ -9,6 +9,7 @@ import { ICON_NAMES } from '../src/model/types';
 interface PostedMessage {
   type: string;
   from?: number;
+  animate?: boolean;
 }
 
 const DEFAULT_DSL = readFileSync(
@@ -266,10 +267,38 @@ test.describe('webview preview', () => {
     const revealMsg = (await postedMessages(page)).filter((m) => m.type === 'revealRange').pop();
     expect(revealMsg?.from).toBe(dsl.indexOf('node api "API"'));
 
-    // Export HTML button posts `exportHtml` to Extension Host
-    await page.getByTestId('btn-export-html').click();
-    const exportMsg = (await postedMessages(page)).some((m) => m.type === 'exportHtml');
-    expect(exportMsg).toBe(true);
+    // The Export menu posts the picked format to Extension Host
+    const exportBtn = page.getByTestId('btn-export');
+    await exportBtn.click();
+    await expect(exportBtn).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByRole('menuitem')).toHaveCount(3);
+    await expect(page.getByTestId('export-html')).toBeFocused();
+    await page.getByTestId('export-html').click();
+    await expect(page.getByRole('menu')).toBeHidden();
+    expect((await postedMessages(page)).some((m) => m.type === 'exportHtml')).toBe(true);
+
+    // Keyboard: arrows move through the formats, Enter picks one, Escape closes
+    await exportBtn.focus();
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowDown');
+    await expect(page.getByTestId('export-svg-animated')).toBeFocused();
+    await page.keyboard.press('Enter');
+    await exportBtn.click();
+    await page.keyboard.press('End');
+    await page.keyboard.press('Enter');
+    const svgMessages = (await postedMessages(page)).filter((m) => m.type === 'exportSvg');
+    expect(svgMessages.map((m) => m.animate)).toEqual([true, false]);
+    await exportBtn.click();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('menu')).toBeHidden();
+    await expect(exportBtn).toBeFocused();
+    await expect(page.locator('.dav-step-title')).toContainText('Step 2 / 2');
+
+    // A click elsewhere closes it without exporting
+    await exportBtn.click();
+    await page.locator('.dav-viewport').click({ position: { x: 5, y: 5 } });
+    await expect(page.getByRole('menu')).toBeHidden();
+    expect((await postedMessages(page)).filter((m) => m.type.startsWith('export'))).toHaveLength(3);
   });
 
   for (const [lang, nav, close] of [
@@ -391,7 +420,16 @@ test.describe('webview preview', () => {
     }));
     expect(toolbarOverflow.scrollWidth).toBeLessThanOrEqual(toolbarOverflow.clientWidth);
     await expect(page.locator('header.toolbar [data-testid="btn-play"]')).toBeVisible();
-    await expect(page.getByTestId('btn-export-html')).toBeVisible();
+    await expect(page.getByTestId('btn-export')).toBeVisible();
+    // The open menu stays inside the narrow pane
+    await page.getByTestId('btn-export').click();
+    const menuBox = await page.getByRole('menu').boundingBox();
+    expect(menuBox).not.toBeNull();
+    if (menuBox) {
+      expect(menuBox.x).toBeGreaterThanOrEqual(0);
+      expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(600);
+    }
+    await page.keyboard.press('Escape');
 
     expect(errors).toEqual([]);
   });
@@ -481,7 +519,9 @@ test('switching documents discards the previous one', async ({ page }) => {
     );
   });
   await expect(page.locator('.dav-node')).toHaveCount(1);
-  await page.getByTestId('btn-export-html').waitFor();
+  await page.getByTestId('btn-export').waitFor();
+  // Without steps there is nothing to animate
+  await expect(page.getByTestId('export-svg-animated')).toBeDisabled();
 
   await page.evaluate(() => {
     window.postMessage({ type: 'docChanged', dsl: '', uri: 'file:///b.dav' }, '*');

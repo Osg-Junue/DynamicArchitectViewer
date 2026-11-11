@@ -7,6 +7,7 @@ import { clear, html, svg } from '../runtime/dom';
 import { detectLocale } from '../runtime/i18n';
 import { Player } from '../runtime/player';
 import { ICON_SHAPES } from '../scene/icons';
+import { ExportMenu } from './ExportMenu';
 import { HelpModal } from './HelpModal';
 
 interface VsCodeApi {
@@ -47,15 +48,14 @@ export function mountApp(container: HTMLElement): void {
     },
     controlIcon(CONTROL_ICONS.docs),
   );
-  const exportBtn = html(
-    'button',
-    {
-      type: 'button',
-      class: 'btn primary',
-      'data-testid': 'btn-export-html',
-    },
-    locale === 'ja' ? 'HTML を書き出す' : 'Export HTML',
-  );
+  // The host owns the save dialog and reports the outcome itself.
+  const exportMenu = new ExportMenu(locale, (format) => {
+    vscodeApi.postMessage(
+      format === 'html'
+        ? { type: 'exportHtml', dsl }
+        : { type: 'exportSvg', dsl, animate: format === 'svg-animated' },
+    );
+  });
   const playbackSlot = html('div', {
     class: 'toolbar-group toolbar-left',
     'data-testid': 'toolbar-playback-slot',
@@ -77,7 +77,7 @@ export function mountApp(container: HTMLElement): void {
         'header',
         { class: 'toolbar' },
         playbackSlot,
-        html('div', { class: 'toolbar-group toolbar-right' }, exportBtn, helpBtn),
+        html('div', { class: 'toolbar-group toolbar-right' }, exportMenu.element, helpBtn),
       ),
       html('section', { class: 'preview-pane' }, playerHost),
       helpModal.element,
@@ -144,6 +144,7 @@ export function mountApp(container: HTMLElement): void {
       player = createPlayer();
     }
     renderHighlight();
+    exportMenu.setHasSteps(lastValid.document.steps.length > 0);
     helpModal.update(dsl);
   }
 
@@ -164,11 +165,6 @@ export function mountApp(container: HTMLElement): void {
 
   helpBtn.addEventListener('click', () => {
     helpModal.open();
-  });
-
-  // The host owns the save dialog and reports the outcome itself.
-  exportBtn.addEventListener('click', () => {
-    vscodeApi.postMessage({ type: 'exportHtml', dsl });
   });
 
   window.addEventListener('message', (event: MessageEvent<unknown>) => {

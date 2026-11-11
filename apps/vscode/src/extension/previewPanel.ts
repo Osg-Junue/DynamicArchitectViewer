@@ -1,6 +1,12 @@
 import * as vscode from 'vscode';
 import type { HostToWebviewMessage, WebviewToHostMessage } from '../protocol/messages';
-import { exportDocumentToHtml, formattingEdit, LANGUAGE_ID, toRange } from './documents';
+import {
+  exportDocumentToHtml,
+  exportDocumentToSvg,
+  formattingEdit,
+  LANGUAGE_ID,
+  toRange,
+} from './documents';
 import { t, uiLocale } from './locale';
 
 const previewTitle = (doc: vscode.TextDocument): string =>
@@ -103,6 +109,10 @@ export class CanvasPanelManager {
 
       case 'exportHtml':
         await exportDocumentToHtml(doc, msg.dsl);
+        break;
+
+      case 'exportSvg':
+        await exportDocumentToSvg(doc, { dsl: msg.dsl, animate: msg.animate });
         break;
 
       case 'formatDocument': {

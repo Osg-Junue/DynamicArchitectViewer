@@ -169,7 +169,8 @@ The extension and webview talk through typed messages in `protocol/messages.ts`:
 | `docChanged` | Extension to webview | The text changed, so update the diagram |
 | `cursorMoved` | Extension to webview | Highlight the element at the cursor, and go to its step |
 | `revealRange` | Webview to extension | Double-clicking an element jumps to its declaration |
-| `exportHtml` | Webview to extension | Export from the toolbar |
+| `exportHtml` | Webview to extension | Export HTML from the toolbar's Export menu |
+| `exportSvg` | Webview to extension | Export an animated or still SVG from the same menu |
 
 **Language.** The UI is Japanese when `vscode.env.language` is Japanese, and English otherwise. The extension writes this into `<html lang>` for the webview, and command titles come from `package.nls*.json`.
 

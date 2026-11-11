@@ -20,6 +20,7 @@ const host = vi.hoisted(() => ({
   copied: [] as Array<{ from: string; to: string }>,
   warningAnswer: undefined as string | undefined,
   saveDefaultUri: undefined as string | undefined,
+  receive: (_msg: unknown): void => {},
 }));
 
 vi.mock('vscode', () => {
@@ -144,7 +145,10 @@ vi.mock('vscode', () => {
           cspSource: 'csp',
           asWebviewUri: (uri: unknown) => uri,
           postMessage: async () => true,
-          onDidReceiveMessage: event,
+          onDidReceiveMessage: (listener: (msg: unknown) => void) => {
+            host.receive = listener;
+            return noop;
+          },
         },
       }),
     },
@@ -326,6 +330,21 @@ describe('extension commands', () => {
       await run('dav.exportSvg');
 
       expect(host.written).toEqual([]);
+    });
+
+    it('exports the kind the preview picked, from the text it shows, without asking', async () => {
+      host.activeTextEditor = { document: stepped };
+      await run('dav.openPreview');
+
+      host.receive({ type: 'exportSvg', dsl: stepped.getText(), animate: false });
+      await vi.waitFor(() => expect(host.written).toHaveLength(1));
+
+      expect(host.quickPick).toEqual([]);
+      expect(host.written[0]).not.toContain('<animate');
+
+      host.receive({ type: 'exportSvg', dsl: stepped.getText(), animate: true });
+      await vi.waitFor(() => expect(host.written).toHaveLength(2));
+      expect(host.written[1]).toContain('<animate');
     });
 
     it('reads a stepped document only once when exporting', async () => {

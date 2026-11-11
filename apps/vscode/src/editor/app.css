@@ -91,6 +91,66 @@ body {
   border-color: transparent;
 }
 
+.export-menu {
+  position: relative;
+}
+.export-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.export-caret {
+  flex: none;
+}
+.export-menu-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  width: max-content;
+  min-width: 220px;
+  max-width: min(320px, calc(100vw - 24px));
+  padding: 4px;
+  background: var(--dav-panel);
+  border: 1px solid var(--dav-border);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px var(--dav-shadow);
+}
+.export-menu-list[hidden] {
+  display: none;
+}
+.export-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--dav-fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.export-item:hover:not(:disabled),
+.export-item:focus-visible {
+  background: var(--dav-hover);
+  outline: none;
+}
+.export-item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.export-item-label {
+  font-weight: 600;
+}
+.export-item-detail {
+  color: var(--dav-muted);
+  font-size: 11px;
+}
+
 .preview-pane,
 .preview-host {
   min-width: 0;

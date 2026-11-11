@@ -49,13 +49,17 @@ export async function exportDocumentToHtml(
 
 /**
  * Exports an SVG image for places that run no script, such as a README: animated with the camera
- * following the steps, or a still picture of the whole diagram.
+ * following the steps, or a still picture of the whole diagram. The preview's Export menu has
+ * already picked the kind and sends the text it shows; the command asks for the kind.
  */
-export async function exportDocumentToSvg(doc: vscode.TextDocument): Promise<void> {
-  const { document } = parse(doc.getText());
-  let animate = true;
-  if (document.steps.length > 0) {
-    const picked = await vscode.window.showQuickPick(
+export async function exportDocumentToSvg(
+  doc: vscode.TextDocument,
+  picked?: { dsl: string; animate: boolean },
+): Promise<void> {
+  const { document } = parse(picked?.dsl ?? doc.getText());
+  let animate = picked?.animate ?? true;
+  if (!picked && document.steps.length > 0) {
+    const kind = await vscode.window.showQuickPick(
       [
         {
           label: t('アニメーション', 'Animated'),
@@ -73,8 +77,8 @@ export async function exportDocumentToSvg(doc: vscode.TextDocument): Promise<voi
       ],
       { placeHolder: t('書き出す SVG の種類', 'Kind of SVG to export') },
     );
-    if (!picked) return;
-    animate = picked.animate;
+    if (!kind) return;
+    animate = kind.animate;
   }
   const svg = exportSvg(document, { locale: uiLocale(), animate });
   const targetUri = await vscode.window.showSaveDialog({
