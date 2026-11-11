@@ -13,7 +13,7 @@ import {
   visibleWorld,
   wholeDiagramFrame,
 } from '../scene';
-import { SAMPLE_MS, type StepSlot } from './svgClock';
+import { clamp, SAMPLE_MS, type StepSlot } from './svgClock';
 
 export const WIDTH = 960;
 export const CANVAS_HEIGHT = 540;
@@ -146,7 +146,7 @@ export function wholeCanvas(rect: Rect): Size {
   const height = Math.round(rect.height * zoom);
   return {
     width: WIDTH,
-    height: Math.min(WHOLE_CANVAS_HEIGHT.max, Math.max(WHOLE_CANVAS_HEIGHT.min, height)),
+    height: clamp(height, WHOLE_CANVAS_HEIGHT.min, WHOLE_CANVAS_HEIGHT.max),
   };
 }
 

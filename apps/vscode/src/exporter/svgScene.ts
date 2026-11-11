@@ -1,4 +1,5 @@
 import type { Layout, Rect } from '../layout';
+import { pushToMap } from '../model/text';
 import type { DavDocument } from '../model/types';
 import { idPair } from '../model/zones';
 import {
@@ -10,6 +11,7 @@ import {
   fitText,
   flowColors,
   h,
+  type IconShapes,
   type Packet,
   packetBubblePath,
   packetPosition,
@@ -24,7 +26,6 @@ import {
   zoneLabelRoom,
   zoneMoves,
 } from '../scene';
-import { ICON_SHAPES } from '../scene/icons';
 import { cameraSamples } from './svgCamera';
 import {
   type Clock,
@@ -43,11 +44,6 @@ import {
   type StepSlot,
   withAttrs,
 } from './svgClock';
-
-/** Adds to a list keyed by a string, keeping first-seen order. */
-function addTo<K, V>(map: Map<K, V[]>, key: K, value: V): void {
-  map.set(key, [...(map.get(key) ?? []), value]);
-}
 
 const activeLabelAttrs = (color: string) => ({
   fill: activeLabelFill(color),
@@ -68,7 +64,7 @@ export function animateHighlights(scene: VElement, step: StepSlot, clock: Clock)
     const byColor = new Map<string, Interval[]>();
     phases.forEach((phase, j) => {
       const color = colors[j]?.get(edgeId);
-      if (color !== undefined) addTo(byColor, color, during(phase));
+      if (color !== undefined) pushToMap(byColor, color, during(phase));
     });
     return byColor;
   };
@@ -181,8 +177,13 @@ function packetTimes(durationMs: number): number[] {
 }
 
 /** A packet riding its rail during its phase; it waits at the end once it arrives. */
-export function animatedPacket(packet: Packet, phase: PhaseSlot, clock: Clock): VElement {
-  const el = buildPacket(packet, ICON_SHAPES, 0);
+export function animatedPacket(
+  packet: Packet,
+  phase: PhaseSlot,
+  clock: Clock,
+  icons: IconShapes,
+): VElement {
+  const el = buildPacket(packet, icons, 0);
   const times = packetTimes(packet.durationMs);
   const points = times.map((ms) => packetPosition(packet, ms / packet.durationMs));
   const dot = childWithClass(el, 'dav-packet-dot');

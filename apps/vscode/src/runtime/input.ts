@@ -8,7 +8,7 @@ export function bindPointer(viewport: HTMLElement, svgEl: SVGSVGElement, on: Poi
   let drag: { id: number; x: number; y: number; captured: boolean } | null = null;
   const down = (e: PointerEvent) => {
     if (e.button !== 0 || e.defaultPrevented) return;
-    if ((e.target as Element | null)?.closest('.dav-zoom-group, .dav-minimap')) return;
+    if (e.target instanceof Element && e.target.closest('.dav-zoom-group, .dav-minimap')) return;
     drag = { id: e.pointerId, x: e.clientX, y: e.clientY, captured: false };
   };
   const move = (e: PointerEvent) => {
@@ -34,7 +34,7 @@ export function bindPointer(viewport: HTMLElement, svgEl: SVGSVGElement, on: Poi
     drag = null;
     viewport.classList.remove('dav-dragging');
     if (!wasDragged && e.type === 'pointerup') {
-      const nodeEl = (e.target as Element | null)?.closest('.dav-node');
+      const nodeEl = e.target instanceof Element ? e.target.closest('.dav-node') : null;
       const nodeId = nodeEl?.getAttribute('data-id');
       if (nodeId) on.selectNode(nodeId);
     }
@@ -64,10 +64,9 @@ export function bindKeyboard(
   playbackBar: HTMLElement,
   on: KeyboardActions,
 ): () => void {
-  const onKey = (e: Event) => {
+  const onKey = (ke: KeyboardEvent) => {
     if (!root.isConnected) return;
-    const ke = e as KeyboardEvent;
-    const targetEl = ke.target as HTMLElement | null;
+    const targetEl = ke.target instanceof Element ? ke.target : null;
     const tag = targetEl?.tagName;
     if (
       ke.defaultPrevented ||
@@ -77,7 +76,7 @@ export function bindKeyboard(
       tag === 'INPUT' ||
       tag === 'TEXTAREA' ||
       tag === 'SELECT' ||
-      targetEl?.isContentEditable ||
+      (targetEl instanceof HTMLElement && targetEl.isContentEditable) ||
       document.querySelector('dialog[open]') !== null
     ) {
       return;
@@ -89,11 +88,12 @@ export function bindKeyboard(
     else return;
     ke.preventDefault();
   };
-  target.addEventListener('keydown', onKey);
+  const keyTarget: GlobalEventHandlers = target;
+  keyTarget.addEventListener('keydown', onKey);
   const externalBar = target !== window && !root.contains(playbackBar);
   if (externalBar) playbackBar.addEventListener('keydown', onKey);
   return () => {
-    target.removeEventListener('keydown', onKey);
+    keyTarget.removeEventListener('keydown', onKey);
     if (externalBar) playbackBar.removeEventListener('keydown', onKey);
   };
 }

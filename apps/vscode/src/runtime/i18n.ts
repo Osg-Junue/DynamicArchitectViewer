@@ -1,4 +1,6 @@
-export type ViewerLocale = 'ja' | 'en';
+import type { DavLocale } from '../model/types';
+
+export type ViewerLocale = DavLocale;
 
 export interface ViewerStrings {
   overview: string;

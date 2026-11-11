@@ -7,16 +7,21 @@ const NAME = /^[A-Za-z][\w:-]*$/;
 // biome-ignore lint/suspicious/noControlCharactersInRegex: these are the characters to remove.
 const INVALID_XML = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uD800-\uDFFF\uFFFE\uFFFF]/gu;
 
+function escapeEntities(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/** Escapes `&`, `<`, `>`, and `"` for safe interpolation in HTML text or quoted attributes. */
+export function escapeHtml(s: string): string {
+  return escapeEntities(s).replace(/"/g, '&quot;');
+}
+
 function escapeText(s: string): string {
-  return s
-    .replace(INVALID_XML, '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+  return escapeEntities(s.replace(INVALID_XML, ''));
 }
 
 function escapeAttr(s: string): string {
-  return escapeText(s).replace(/"/g, '&quot;');
+  return escapeHtml(s.replace(INVALID_XML, ''));
 }
 
 /**

@@ -16,7 +16,7 @@ import {
   visibleWorld,
   wholeDiagramFrame,
 } from '../scene';
-import { ICON_SHAPES } from '../scene/icons';
+import { collectUsedIcons } from './icons';
 import {
   CANVAS_HEIGHT,
   cameraKeys,
@@ -163,23 +163,25 @@ const stepDescLine = (index: number, title: string | undefined): string =>
 
 function stillSvg(doc: DavDocument, layout: Layout): string {
   const view = resolveView(doc, layout, null);
+  const icons = collectUsedIcons(doc);
   const { rect } = wholeDiagramFrame(layout, view);
   return svgDocument(rect, viewBoxOf(rect), doc.title, undefined, [
     h('rect', { ...roundRect(rect), fill: THEME_COLOR.bg }),
     buildDefs(),
-    buildScene(view, ICON_SHAPES),
+    buildScene(view, icons),
   ]);
 }
 
 /** One step as a still picture of the whole diagram, under the step's number and text. */
 function stepStillSvg(doc: DavDocument, layout: Layout, index: number, locale: ViewerLocale) {
   const view = resolveView(doc, layout, index);
+  const icons = collectUsedIcons(doc);
   const { rect } = wholeDiagramFrame(layout, view);
   const canvas = wholeCanvas(rect);
   const slot: StepSlot = { index, view, start: 0, phasesEnd: 0, end: 1, phases: [] };
   // A clock whose one moment is the whole file: nothing in it changes, so nothing animates.
   const head = header([slot], doc.steps.length, locale, new Clock(1), null);
-  const scene = buildScene(view, ICON_SHAPES);
+  const scene = buildScene(view, icons);
   stillHighlights(scene, view);
   const world = worldSvg(
     head.height + 1,
@@ -203,6 +205,7 @@ function animatedSvg(
   only?: number,
 ): string {
   const { steps, total } = schedule(doc, layout, only);
+  const icons = collectUsedIcons(doc);
   const clock = new Clock(total);
   const wholeRect = wholeAcrossSteps(doc, layout, steps);
   const canvas: Size =
@@ -247,7 +250,7 @@ function animatedSvg(
     ),
   );
   for (const step of steps) {
-    const scene = buildScene(step.view, ICON_SHAPES, { groupLabels: false });
+    const scene = buildScene(step.view, icons, { groupLabels: false });
     animateHighlights(scene, step, clock);
     world.children.push(clock.showDuring(h('g', {}, scene), [[step.start, step.end]]));
   }
@@ -257,7 +260,7 @@ function animatedSvg(
     for (const phase of step.phases) {
       packets.children.push(
         clock.showDuring(
-          h('g', {}, ...phase.packets.map((packet) => animatedPacket(packet, phase, clock))),
+          h('g', {}, ...phase.packets.map((packet) => animatedPacket(packet, phase, clock, icons))),
           [[phase.start, phase.end]],
         ),
       );

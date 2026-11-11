@@ -281,7 +281,7 @@ export function zoneStrip(
   return el.children.length > 1 ? el : null;
 }
 
-export interface MinimapFrame {
+interface MinimapFrame {
   zones: MinimapZone[];
   bounds: Rect;
   size: Size;

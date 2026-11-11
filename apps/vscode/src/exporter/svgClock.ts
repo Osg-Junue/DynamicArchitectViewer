@@ -107,7 +107,7 @@ export class Clock {
   constructor(readonly total: number) {}
 
   #keyTime(t: number): string {
-    return String(Number(Math.min(1, Math.max(0, t / this.total)).toFixed(5)));
+    return String(Number(clamp(t / this.total, 0, 1).toFixed(5)));
   }
 
   #timing(): Record<string, string> {
@@ -183,7 +183,10 @@ export class Clock {
   }
 }
 
-export const num = (v: number): string => String(Math.round(v * 10) / 10);
+export const clamp = (v: number, min: number, max: number): number =>
+  Math.max(min, Math.min(max, v));
+const round = (v: number): number => Math.round(v * 10) / 10;
+export const num = (v: number): string => String(round(v));
 export const viewBoxOf = (r: Rect): string =>
   `${num(r.x)} ${num(r.y)} ${num(r.width)} ${num(r.height)}`;
 
