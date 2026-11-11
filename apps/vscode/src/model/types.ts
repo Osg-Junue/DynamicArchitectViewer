@@ -91,6 +91,7 @@ export const KEYWORD_NAMES = [
 
 export type LineStyle = 'solid' | 'dashed';
 export type Direction = 'forward' | 'bidirectional';
+export type DavLocale = 'ja' | 'en';
 
 export interface Point {
   x: number;

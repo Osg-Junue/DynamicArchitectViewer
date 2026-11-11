@@ -25,3 +25,73 @@ export function isWide(ch: string): boolean {
     code >= 0x1f300
   );
 }
+
+/**
+ * Normalizes line endings (`\r\n?` -> `\n`) and tabs (`\t` -> two spaces), trims trailing
+ * spaces per line, and strips the minimum common leading indentation across non-empty lines.
+ *
+ * By default, single-line input is trimmed and multi-line input drops at most one leading and
+ * one trailing blank line (matching raw triple-backtick code fences). With
+ * `stripAllOuterBlankLines: true`, all leading and trailing blank lines are removed.
+ */
+export function normalizeCodeIndent(
+  text: string,
+  options?: { stripAllOuterBlankLines?: boolean },
+): string {
+  const normalized = text.replace(/\r\n?/g, '\n').replace(/\t/g, '  ');
+
+  if (!options?.stripAllOuterBlankLines && !normalized.includes('\n')) {
+    return normalized.trim();
+  }
+
+  const lines = normalized.split('\n');
+  if (options?.stripAllOuterBlankLines) {
+    while (lines.length > 0 && lines[0]?.trim() === '') {
+      lines.shift();
+    }
+    while (lines.length > 0 && lines[lines.length - 1]?.trim() === '') {
+      lines.pop();
+    }
+    if (lines.length === 0) return '';
+  } else {
+    if (lines.length > 0 && lines[0]?.trim() === '') {
+      lines.shift();
+    }
+    if (lines.length > 0 && lines[lines.length - 1]?.trim() === '') {
+      lines.pop();
+    }
+  }
+
+  const trimmed = lines.map((line) => line.trimEnd());
+  let minIndent = Number.POSITIVE_INFINITY;
+  for (const line of trimmed) {
+    if (line.length === 0) continue;
+    const spaces = /^ */.exec(line)?.[0].length ?? 0;
+    if (spaces < minIndent) minIndent = spaces;
+  }
+
+  if (!Number.isFinite(minIndent) || minIndent === 0) {
+    return trimmed.join('\n');
+  }
+  return trimmed.map((line) => (line.length > 0 ? line.slice(minIndent) : '')).join('\n');
+}
+
+/** Returns the 1-based line number at `offset` (clamped to `[0, text.length]`). */
+export function lineAtOffset(text: string, offset: number): number {
+  const clamped = Number.isNaN(offset) ? 0 : Math.max(0, Math.min(text.length, Math.trunc(offset)));
+  let line = 1;
+  for (let i = 0; i < clamped; i++) {
+    if (text.charCodeAt(i) === 10) line++;
+  }
+  return line;
+}
+
+/** Appends `value` to `map`'s array bucket for `key` in O(1) amortized time. */
+export function pushToMap<K, V>(map: Map<K, V[]>, key: K, value: V): void {
+  const bucket = map.get(key);
+  if (bucket) {
+    bucket.push(value);
+  } else {
+    map.set(key, [value]);
+  }
+}
