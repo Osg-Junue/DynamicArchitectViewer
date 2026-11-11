@@ -11,6 +11,13 @@ export const THEME_COLOR = {
   accentText: 'var(--dav-accent-text)',
   nodeBg: 'var(--dav-node-bg)',
   edge: 'var(--dav-edge)',
+  codeBg: 'var(--dav-code-bg)',
+  codeHeadBg: 'var(--dav-code-head-bg)',
+  codeKey: 'var(--dav-code-key)',
+  codeStr: 'var(--dav-code-str)',
+  codeNum: 'var(--dav-code-num)',
+  codeKw: 'var(--dav-code-kw)',
+  codePunc: 'var(--dav-code-punc)',
 } as const;
 
 /** Color names resolve to a per-theme token; default colors are tokens already. */

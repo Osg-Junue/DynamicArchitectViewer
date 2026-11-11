@@ -73,6 +73,7 @@ export interface SvgExportOptions {
 const SVG_STYLES = sceneStyles
   .replace(/\/\*[\s\S]*?\*\//g, '')
   .replace(/\s+/g, ' ')
+  .replace(/var\(\s*--vscode-[\w-]+,\s*((?:[^()]+|\([^()]*\))+)\)/g, '$1')
   .replace(/\s*([{};,])\s*/g, '$1')
   .replace(/([;{])(--?[\w-]+)\s*:\s*/g, '$1$2:')
   .replace(/;}/g, '}')

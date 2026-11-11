@@ -2,6 +2,7 @@ import type { Layout, Rect } from '../layout';
 import { estimateTextWidth } from '../model/text';
 import {
   COLOR_RESET,
+  type CodeBlock,
   type ColorName,
   type DavDocument,
   type DavEdge,
@@ -71,6 +72,7 @@ export interface Packet {
   toLabel: string;
   label?: string;
   description?: string;
+  code?: CodeBlock;
   color: string;
   /** What the packet carries; a plain dot when absent. */
   icon?: IconName;
@@ -300,6 +302,7 @@ function resolvePhases(
     if (edge) packet.edgeId = edge.id;
     if (a.label !== undefined) packet.label = a.label;
     if (a.description !== undefined) packet.description = a.description;
+    if (a.code !== undefined && a.code.body.trim().length > 0) packet.code = a.code;
     if (a.icon !== undefined) packet.icon = a.icon;
     const current = phases[phases.length - 1];
     if (a.parallel && current) current.push(packet);
