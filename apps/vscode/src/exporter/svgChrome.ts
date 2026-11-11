@@ -12,11 +12,11 @@ import {
   type Size,
   THEME_COLOR,
   type VElement,
+  wrapText,
   type ZoneMove,
   zoneColor,
   zoneMoves,
 } from '../scene';
-import { wrapText } from '../scene/text';
 import { WIDTH } from './svgCamera';
 import {
   type Clock,

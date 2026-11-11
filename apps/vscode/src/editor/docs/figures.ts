@@ -86,8 +86,6 @@ export function swatchDot(cssColor: string): HTMLElement {
 }
 
 function svgFrame(frame: Rect, view: ResolvedView, label: string): SVGSVGElement {
-  const defs = renderSvg(buildDefs());
-  const scene = renderSvg(buildScene(view, ICON_SHAPES));
   return svg(
     'svg',
     {
@@ -96,8 +94,8 @@ function svgFrame(frame: Rect, view: ResolvedView, label: string): SVGSVGElement
       'aria-label': label,
       viewBox: `${frame.x} ${frame.y} ${frame.width} ${frame.height}`,
     },
-    ...(defs instanceof SVGElement ? [defs] : []),
-    ...(scene instanceof SVGElement ? [scene] : []),
+    renderSvg(buildDefs()),
+    renderSvg(buildScene(view, ICON_SHAPES)),
   );
 }
 

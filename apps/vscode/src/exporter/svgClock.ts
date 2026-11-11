@@ -1,12 +1,14 @@
 import type { Layout, Rect } from '../layout';
 import type { DavDocument } from '../model/types';
 import {
+  clamp,
   HOLD_MS,
   h,
   type Packet,
   PHASE_MS,
   type ResolvedView,
   resolveView,
+  round,
   type VElement,
   type VNode,
 } from '../scene';
@@ -183,9 +185,6 @@ export class Clock {
   }
 }
 
-export const clamp = (v: number, min: number, max: number): number =>
-  Math.max(min, Math.min(max, v));
-const round = (v: number): number => Math.round(v * 10) / 10;
 export const num = (v: number): string => String(round(v));
 export const viewBoxOf = (r: Rect): string =>
   `${num(r.x)} ${num(r.y)} ${num(r.width)} ${num(r.height)}`;

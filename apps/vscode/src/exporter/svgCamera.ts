@@ -3,6 +3,7 @@ import type { DavDocument } from '../model/types';
 import {
   boundsOf,
   calmFrame,
+  clamp,
   framePose,
   MAX_FIT_ZOOM,
   type Pose,
@@ -13,7 +14,7 @@ import {
   visibleWorld,
   wholeDiagramFrame,
 } from '../scene';
-import { clamp, SAMPLE_MS, type StepSlot } from './svgClock';
+import { SAMPLE_MS, type StepSlot } from './svgClock';
 
 export const WIDTH = 960;
 export const CANVAS_HEIGHT = 540;
