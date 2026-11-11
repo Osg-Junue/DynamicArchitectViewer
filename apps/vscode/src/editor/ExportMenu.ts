@@ -1,6 +1,8 @@
-import type { ExportFormat } from '../protocol/messages';
 import { html, svg } from '../runtime/dom';
 import type { ViewerLocale } from '../runtime/i18n';
+
+/** What the preview's Export menu offers. */
+export type ExportFormat = 'html' | 'svg-animated' | 'svg-whole' | 'svg-still';
 
 /** What the menu needs to know about the diagram each time it opens. */
 export interface ExportContext {
@@ -17,7 +19,8 @@ const STRINGS = {
     menu: '書き出す形式',
     scope: '範囲',
     allSteps: 'すべてのステップ',
-    thisStep: (n: number, title: string) => `このステップ: ${n}. ${title}`,
+    thisStep: (n: number, title: string) =>
+      title ? `このステップ: ${n}. ${title}` : `このステップ: ${n}`,
     noSteps: 'ステップのない図は静止画になります',
     stillStep: '何も動かないステップです',
     htmlAll: 'HTML にはすべてのステップが入ります',
@@ -31,7 +34,8 @@ const STRINGS = {
     menu: 'Export format',
     scope: 'Range',
     allSteps: 'All steps',
-    thisStep: (n: number, title: string) => `This step: ${n}. ${title}`,
+    thisStep: (n: number, title: string) =>
+      title ? `This step: ${n}. ${title}` : `This step: ${n}`,
     noSteps: 'A diagram without steps exports as a still picture',
     stillStep: 'Nothing moves in this step',
     htmlAll: 'An HTML file always holds every step',
@@ -67,11 +71,20 @@ export class ExportMenu {
   readonly #button: HTMLButtonElement;
   readonly #list: HTMLElement;
   readonly #scopeGroup: HTMLElement;
+  readonly #separator: HTMLElement;
   readonly #scopes: Record<Scope, HTMLButtonElement>;
   readonly #formats: Record<ExportFormat, HTMLButtonElement>;
   readonly #stillDetail: HTMLElement;
   #scope: Scope = 'all';
+  #scopeStepIndex: number | null = null;
   #shown: ExportContext = { hasSteps: false, step: null };
+  #listening = false;
+  readonly #onPointerDown = (e: PointerEvent): void => {
+    if (!this.element.contains(e.target as Node | null)) this.close(false);
+  };
+  readonly #onWindowBlur = (): void => {
+    this.close(false);
+  };
 
   constructor(
     locale: ViewerLocale,
@@ -124,8 +137,8 @@ export class ExportMenu {
       { class: 'export-scope-group', role: 'group', 'aria-label': s.scope },
       this.#scopes.all,
       this.#scopes.step,
-      html('div', { class: 'export-separator', role: 'separator' }),
     );
+    this.#separator = html('div', { class: 'export-separator', role: 'separator' });
 
     const [stillLabel, stillDetail] = itemContent(s.still[0], s.still[1]);
     this.#stillDetail = stillDetail;
@@ -159,6 +172,7 @@ export class ExportMenu {
       'div',
       { id: 'export-menu-list', class: 'export-menu-list', role: 'menu', 'aria-label': s.menu },
       this.#scopeGroup,
+      this.#separator,
       ...Object.values(this.#formats),
     );
     this.#list.hidden = true;
@@ -173,13 +187,17 @@ export class ExportMenu {
       e.preventDefault();
       this.open(e.key === 'ArrowUp' ? 'last' : 'first');
     });
+    // Keeps pressing disabled buttons (which suppress mousedown in Blink), separators, or menu
+    // padding from blurring the active item while leaving click activation intact.
+    this.#list.addEventListener('pointerdown', (e) => e.preventDefault());
+    this.#list.addEventListener('mousedown', (e) => e.preventDefault());
     this.#list.addEventListener('keydown', (e) => this.#onKey(e));
-    // Clicking or focusing anywhere else closes the menu, as a native one would.
-    document.addEventListener('pointerdown', (e) => {
-      if (!this.#list.hidden && !this.element.contains(e.target as Node)) this.close(false);
-    });
     this.element.addEventListener('focusout', (e) => {
-      if (!this.#list.hidden && !this.element.contains(e.relatedTarget as Node | null)) {
+      if (
+        !this.#list.hidden &&
+        e.relatedTarget !== null &&
+        !this.element.contains(e.relatedTarget as Node)
+      ) {
         this.close(false);
       }
     });
@@ -187,25 +205,68 @@ export class ExportMenu {
 
   /** Opens on the diagram as it is now; the range stays as last chosen while that step shows. */
   open(focus: 'first' | 'last' = 'first'): void {
-    this.#shown = this.#context();
-    if (!this.#shown.step) this.#scope = 'all';
-    this.#refresh();
+    this.#loadContext();
     this.#list.hidden = false;
     this.#button.setAttribute('aria-expanded', 'true');
+    if (!this.#listening) {
+      document.addEventListener('pointerdown', this.#onPointerDown);
+      window.addEventListener('blur', this.#onWindowBlur);
+      this.#listening = true;
+    }
     const enabled = this.#enabled();
     (focus === 'first' ? enabled[0] : enabled[enabled.length - 1])?.focus();
   }
 
   close(returnFocus: boolean): void {
+    if (this.#listening) {
+      document.removeEventListener('pointerdown', this.#onPointerDown);
+      window.removeEventListener('blur', this.#onWindowBlur);
+      this.#listening = false;
+    }
     this.#list.hidden = true;
     this.#button.setAttribute('aria-expanded', 'false');
     if (returnFocus) this.#button.focus();
+  }
+
+  /** Refreshes the open menu when the diagram or its active step changes underneath it. */
+  sync(): void {
+    if (this.#list.hidden) return;
+    const hadFocusInList = this.#list.contains(document.activeElement);
+    this.#loadContext();
+    if (hadFocusInList) {
+      const enabled = this.#enabled();
+      if (!enabled.includes(document.activeElement as HTMLButtonElement)) {
+        enabled[0]?.focus();
+      }
+    }
+  }
+
+  /** Clears all per-document menu state when switching to another document. */
+  reset(): void {
+    this.close(false);
+    this.#scope = 'all';
+    this.#scopeStepIndex = null;
+  }
+
+  destroy(): void {
+    this.close(false);
+  }
+
+  #loadContext(): void {
+    this.#shown = this.#context();
+    const stepIndex = this.#shown.step?.index ?? null;
+    if (stepIndex === null || stepIndex !== this.#scopeStepIndex) {
+      this.#scope = 'all';
+    }
+    this.#scopeStepIndex = stepIndex;
+    this.#refresh();
   }
 
   #refresh(): void {
     const s = this.#strings;
     const { hasSteps, step } = this.#shown;
     this.#scopeGroup.hidden = !step;
+    this.#separator.hidden = !step;
     if (step) this.#scopes.step.textContent = s.thisStep(step.index + 1, step.title);
     for (const [scope, el] of Object.entries(this.#scopes) as Array<[Scope, HTMLButtonElement]>) {
       el.setAttribute('aria-checked', String(scope === this.#scope));
@@ -231,12 +292,21 @@ export class ExportMenu {
   }
 
   #onKey(e: KeyboardEvent): void {
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     const enabled = this.#enabled();
     const index = enabled.indexOf(document.activeElement as HTMLButtonElement);
     let next: HTMLButtonElement | undefined;
     if (e.key === 'ArrowDown') next = enabled[(index + 1) % enabled.length];
-    else if (e.key === 'ArrowUp') next = enabled[(index - 1 + enabled.length) % enabled.length];
-    else if (e.key === 'Home') next = enabled[0];
+    else if (e.key === 'ArrowUp') {
+      next =
+        index < 0
+          ? enabled[enabled.length - 1]
+          : enabled[(index - 1 + enabled.length) % enabled.length];
+    } else if (e.key === 'Home') next = enabled[0];
     else if (e.key === 'End') next = enabled[enabled.length - 1];
     else if (e.key === 'Escape') {
       e.preventDefault();

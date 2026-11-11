@@ -92,6 +92,15 @@ export async function exportDocumentToSvg(
     options = kind.options;
   }
   const step = picked?.step ?? null;
+  if (step !== null && (!Number.isInteger(step) || step < 0 || step >= document.steps.length)) {
+    void vscode.window.showWarningMessage(
+      t(
+        `ステップ ${step + 1} は存在しません（全 ${document.steps.length} ステップ）。`,
+        `Step ${step + 1} does not exist (${document.steps.length} steps in diagram).`,
+      ),
+    );
+    return;
+  }
   const svg = exportSvg(document, {
     locale: uiLocale(),
     ...options,

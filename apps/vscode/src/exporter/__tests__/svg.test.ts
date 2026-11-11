@@ -3,6 +3,8 @@ import { parse } from '../../dsl';
 import { computeLayout } from '../../layout';
 import { SAMPLES } from '../../samples';
 import {
+  calloutRect,
+  computePacketCalloutBox,
   framePose,
   HOLD_MS,
   h,
@@ -320,23 +322,101 @@ describe("exportSvg with camera: 'whole'", () => {
     expect(svg).not.toContain('class="dav-minimap-view"');
   });
 
-  it('frames everything every step draws', () => {
-    const dsl = sampleDsl('enterprise-zero-trust-10anim');
+  it.each(SAMPLES.map((s) => [s.id]))(
+    'frames every node, group and packet callout for %s',
+    (id) => {
+      const dsl = sampleDsl(id);
+      const { document } = parse(dsl);
+      const layout = computeLayout(document);
+      const { steps } = schedule(document, layout);
+      const [vx = 0, vy = 0, vw = 0, vh = 0] = (
+        canvasOf(exportSvg(dsl, { camera: 'whole' }))?.viewBox ?? ''
+      )
+        .split(' ')
+        .map(Number);
+
+      for (const r of [...Object.values(layout.nodes), ...Object.values(layout.groups)]) {
+        expect(r.x).toBeGreaterThanOrEqual(vx);
+        expect(r.y).toBeGreaterThanOrEqual(vy);
+        expect(r.x + r.width).toBeLessThanOrEqual(vx + vw);
+        expect(r.y + r.height).toBeLessThanOrEqual(vy + vh);
+      }
+
+      const callouts = steps
+        .flatMap((step) => step.view.phases.flat())
+        .flatMap((packet) => computePacketCalloutBox(packet) ?? [])
+        .map(calloutRect);
+      expect(callouts.length).toBeGreaterThan(0);
+      for (const r of callouts) {
+        expect(r.x).toBeGreaterThanOrEqual(vx);
+        expect(r.y).toBeGreaterThanOrEqual(vy);
+        expect(r.x + r.width).toBeLessThanOrEqual(vx + vw);
+        expect(r.y + r.height).toBeLessThanOrEqual(vy + vh);
+      }
+    },
+  );
+
+  it.each([
+    ['event-driven-async', 2],
+    ['lan-office-network', 2],
+    ['lan-office-network', 4],
+  ] as const)('keeps unshifted top-edge callouts inside viewBox for %s step %i', (id, step) => {
+    const dsl = sampleDsl(id);
     const { document } = parse(dsl);
     const layout = computeLayout(document);
-    const { steps } = schedule(document, layout);
+    const { steps } = schedule(document, layout, step);
     const [vx = 0, vy = 0, vw = 0, vh = 0] = (
-      canvasOf(exportSvg(dsl, { camera: 'whole' }))?.viewBox ?? ''
+      canvasOf(exportSvg(dsl, { step, camera: 'whole' }))?.viewBox ?? ''
     )
       .split(' ')
       .map(Number);
 
-    for (const step of steps) {
-      const r = wholeDiagramFrame(layout, step.view).rect;
-      expect(r.x).toBeGreaterThanOrEqual(vx - 0.1);
-      expect(r.y).toBeGreaterThanOrEqual(vy - 0.1);
-      expect(r.x + r.width).toBeLessThanOrEqual(vx + vw + 0.1);
-      expect(r.y + r.height).toBeLessThanOrEqual(vy + vh + 0.1);
+    const callouts = steps
+      .flatMap((s) => s.view.phases.flat())
+      .flatMap((packet) => computePacketCalloutBox(packet) ?? [])
+      .map(calloutRect);
+    expect(callouts.length).toBeGreaterThan(0);
+    for (const r of callouts) {
+      expect(r.x).toBeGreaterThanOrEqual(vx);
+      expect(r.y).toBeGreaterThanOrEqual(vy);
+      expect(r.x + r.width).toBeLessThanOrEqual(vx + vw);
+      expect(r.y + r.height).toBeLessThanOrEqual(vy + vh);
+    }
+  });
+
+  it('fits every node of a >6400px wide diagram without clamping zoom or showing a minimap', () => {
+    const veryWide = [
+      'dav 1',
+      'group z "Zone" {',
+      ...Array.from({ length: 65 }, (_, i) => `  node n${i} "Node ${i}"`),
+      '}',
+      ...Array.from({ length: 64 }, (_, i) => `n${i} --> n${i + 1}`),
+      'step "Traverse" {',
+      '  animate n0 --> n1 : "Hop"',
+      '}',
+    ].join('\n');
+
+    const { document } = parse(veryWide);
+    const layout = computeLayout(document);
+    const { steps } = schedule(document, layout);
+    const first = steps[0];
+    if (!first) throw new Error('no step');
+    expect(wholeDiagramFrame(layout, first.view).rect.width).toBeGreaterThan(6400);
+
+    for (const svg of [
+      exportSvg(veryWide, { camera: 'whole' }),
+      exportSvg(veryWide, { step: 0, animate: false }),
+    ]) {
+      expect(svg).not.toContain('class="dav-minimap-view"');
+      const [vx = 0, vy = 0, vw = 0, vh = 0] = (canvasOf(svg)?.viewBox ?? '')
+        .split(' ')
+        .map(Number);
+      for (const r of [...Object.values(layout.nodes), ...Object.values(layout.groups)]) {
+        expect(r.x).toBeGreaterThanOrEqual(vx);
+        expect(r.y).toBeGreaterThanOrEqual(vy);
+        expect(r.x + r.width).toBeLessThanOrEqual(vx + vw);
+        expect(r.y + r.height).toBeLessThanOrEqual(vy + vh);
+      }
     }
   });
 
@@ -366,18 +446,42 @@ describe("exportSvg with camera: 'whole'", () => {
 });
 
 describe('exportSvg with step', () => {
+  const rootOf = (svg: string) => attrs(svg, 'svg')[0];
+  const canvasOf = (svg: string) =>
+    attrs(svg, 'svg').find((a) => a.preserveAspectRatio === 'xMidYMid meet');
+
   it('plays only that step, under its number in the diagram', () => {
     const { document } = parse(STEPPED);
     const layout = computeLayout(document);
     const only = schedule(document, layout, 0);
     const svg = exportSvg(STEPPED, { step: 0 });
+    const transforms = attrs(svg, 'animateTransform');
 
     expect(only.steps.map((s) => s.index)).toEqual([0]);
     expect(only.total).toBe(schedule(document, layout).steps[0]?.end);
     expect(svg).toContain('Step 1 / 2');
     expect(svg).not.toContain('Step 2 / 2');
     expect(svg).toContain('<desc id="dav-desc">1. Order</desc>');
-    expect(new Set(attrs(svg, 'animate').map((a) => a.dur))).toEqual(new Set([`${only.total}ms`]));
+    expect(transforms.length).toBeGreaterThan(0);
+    expect(new Set([...attrs(svg, 'animate'), ...transforms].map((a) => a.dur))).toEqual(
+      new Set([`${only.total}ms`]),
+    );
+  });
+
+  it('combines single-step playback with camera: whole', () => {
+    const dsl = sampleDsl('enterprise-zero-trust-10anim');
+    const followOne = exportSvg(dsl, { step: 0 });
+    const wholeOne = exportSvg(dsl, { step: 0, camera: 'whole' });
+    const stillOne = exportSvg(dsl, { step: 0, animate: false });
+
+    expect(followOne).toContain('class="dav-minimap-view"');
+    expect(wholeOne).toContain('Step 1 / ');
+    expect(wholeOne).not.toContain('Step 2 / ');
+    expect(wholeOne).not.toMatch(/font-size="10.5"/);
+    expect(wholeOne).toContain('<animateTransform');
+    expect(attrs(wholeOne, 'animate').map((a) => a.attributeName)).not.toContain('viewBox');
+    expect(wholeOne).not.toContain('class="dav-minimap-view"');
+    expect(canvasOf(wholeOne)?.viewBox).toBe(canvasOf(stillOne)?.viewBox);
   });
 
   it('leaves out the step ruler', () => {
@@ -385,6 +489,37 @@ describe('exportSvg with step', () => {
     // The ruler numbers every step from 01.
     expect(exportSvg(STEPPED)).toMatch(/class="dav-mono" font-size="10.5"[^>]*>01</);
     expect(one).not.toMatch(/font-size="10.5"/);
+  });
+
+  it('omits the 36px zone strip when a step only animates between ungrouped nodes', () => {
+    const partialZone = [
+      'dav 1',
+      'node client "Client"',
+      'node edge "Edge"',
+      'group backend "Backend" {',
+      '  node db "DB"',
+      '}',
+      'client --> edge',
+      'edge --> db',
+      'step "Outside" {',
+      '  animate client --> edge : "Ping"',
+      '}',
+      'step "Into zone" {',
+      '  animate edge --> db : "Query"',
+      '}',
+    ].join('\n');
+
+    const outsideFollow = exportSvg(partialZone, { step: 0 });
+    const intoZoneFollow = exportSvg(partialZone, { step: 1 });
+    const outside = exportSvg(partialZone, { step: 0, camera: 'whole' });
+    const intoZone = exportSvg(partialZone, { step: 1, camera: 'whole' });
+
+    expect(outsideFollow).not.toContain('● </tspan>');
+    expect(outside).not.toContain('● </tspan>');
+    expect(intoZoneFollow).toContain('● </tspan>');
+    expect(intoZone).toContain('● </tspan>');
+    expect(Number(canvasOf(intoZoneFollow)?.y) - Number(canvasOf(outsideFollow)?.y)).toBe(36);
+    expect(Number(canvasOf(intoZone)?.y) - Number(canvasOf(outside)?.y)).toBe(36);
   });
 
   it('draws a still step with its state and every flow lit, and nothing animated', () => {
@@ -399,9 +534,53 @@ describe('exportSvg with step', () => {
     expect(attrs(failed, 'path').filter((a) => a.class === 'dav-flow')).toHaveLength(0);
   });
 
+  it('draws the still-step header divider at head.height + 0.5 after the header background', () => {
+    const still = exportSvg(STEPPED, { step: 0, animate: false });
+    const wholeAnim = exportSvg(STEPPED, { step: 0, camera: 'whole' });
+    const canvas = canvasOf(still);
+    const headHeight = Number(canvas?.y) - 1;
+    const divider = `<path d="M 0 ${headHeight + 0.5} H 960" stroke="var(--dav-border)"/>`;
+
+    expect(still).toContain(
+      `<g><rect x="0" y="0" width="960" height="${headHeight}" fill="var(--dav-bg)"/>`,
+    );
+    expect(still).toContain(divider);
+    expect(still).not.toContain(`<path d="M 0 ${headHeight} H 960"`);
+    expect(still.indexOf(divider)).toBeGreaterThan(still.indexOf('Step 1 / 2'));
+    expect(rootOf(still)?.height).toBe(String(headHeight + 1 + Number(canvas?.height)));
+    expect(rootOf(still)?.height).toBe(rootOf(wholeAnim)?.height);
+  });
+
+  it('omits a trailing dot and space in <desc> when a step has an empty title', () => {
+    const untitled = [
+      'dav 1',
+      'node a',
+      'node b',
+      'a --> b',
+      'step "" {',
+      '  animate a --> b : "Go"',
+      '}',
+      'step "Named" {',
+      '  state b [badge: "ok"]',
+      '}',
+    ].join('\n');
+
+    expect(exportSvg(untitled)).toContain('<desc id="dav-desc">1\n2. Named</desc>');
+    expect(exportSvg(untitled, { step: 0 })).toContain('<desc id="dav-desc">1</desc>');
+    expect(exportSvg(untitled, { step: 0, animate: false })).toContain(
+      '<desc id="dav-desc">1</desc>',
+    );
+  });
+
   it('rejects a step the diagram does not have', () => {
     expect(() => exportSvg(STEPPED, { step: 2 })).toThrow(RangeError);
     expect(() => exportSvg(STEPPED, { step: -1, animate: false })).toThrow(RangeError);
+    expect(() => exportSvg(STEPPED, { step: 0.5 })).toThrow(RangeError);
+    expect(() => exportSvg(STEPPED, { step: Number.NaN })).toThrow(RangeError);
+    expect(() => exportSvg(STEPPED, { step: Number.POSITIVE_INFINITY })).toThrow(RangeError);
+    expect(() => exportSvg(STEPPED, { step: Number.NEGATIVE_INFINITY, animate: false })).toThrow(
+      RangeError,
+    );
     expect(() => exportSvg('dav 1\nnode a', { step: 0 })).toThrow(RangeError);
   });
 });

@@ -79,19 +79,23 @@ function controlBox({ p0, p1, p2, p3 }: Bezier): Rect {
   return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
 }
 
-/** Everything the diagram draws, including callouts moved aside past its edge. */
+/** Everything the diagram draws, including packet callouts that reach past its edge. */
 export function wholeDiagramFrame(layout: Layout, view: ResolvedView): Frame {
-  const movedCallouts = view.phases
+  const base = boundsOf([...Object.values(layout.nodes), ...Object.values(layout.groups)]);
+  const callouts = view.phases
     .flat()
-    .filter((packet) => packet.calloutShift !== undefined)
     .flatMap((packet) => computePacketCalloutBox(packet) ?? [])
     .map(calloutRect);
+  if (callouts.length === 0) {
+    return { rect: base, maxZoom: MAX_FIT_ZOOM };
+  }
+  const extra = boundsOf(callouts, 16, 0);
+  const x = Math.min(base.x, extra.x);
+  const y = Math.min(base.y, extra.y);
+  const right = Math.max(base.x + base.width, extra.x + extra.width);
+  const bottom = Math.max(base.y + base.height, extra.y + extra.height);
   return {
-    rect: boundsOf([
-      ...Object.values(layout.nodes),
-      ...Object.values(layout.groups),
-      ...movedCallouts,
-    ]),
+    rect: { x, y, width: right - x, height: bottom - y },
     maxZoom: MAX_FIT_ZOOM,
   };
 }

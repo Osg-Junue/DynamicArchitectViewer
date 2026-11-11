@@ -29,9 +29,11 @@ export function mountApp(container: HTMLElement): void {
   let dsl = '';
   let documentUri: string | undefined;
   let cursorTargetId: string | null = null;
+  let lastStepIndex: number | null = null;
 
   const empty = parse(dsl);
-  let lastValid: { document: DavDocument; layout: Layout; sourceMap: SourceMap } = {
+  let lastValid: { dsl: string; document: DavDocument; layout: Layout; sourceMap: SourceMap } = {
+    dsl: '',
     document: empty.document,
     layout: computeLayout(empty.document),
     sourceMap: empty.sourceMap,
@@ -60,16 +62,21 @@ export function mountApp(container: HTMLElement): void {
         step:
           index === null || !step
             ? null
-            : { index, title: step.title, animates: step.animations.length > 0 },
+            : {
+                index,
+                title: step.title,
+                animates: (player?.getView().phases.length ?? 0) > 0,
+              },
       };
     },
     (format, step) => {
+      const exportDsl = lastValid.dsl;
       vscodeApi.postMessage(
         format === 'html'
-          ? { type: 'exportHtml', dsl }
+          ? { type: 'exportHtml', dsl: exportDsl }
           : {
               type: 'exportSvg',
-              dsl,
+              dsl: exportDsl,
               animate: format !== 'svg-still',
               camera: format === 'svg-whole' ? 'whole' : 'follow',
               step,
@@ -134,6 +141,12 @@ export function mountApp(container: HTMLElement): void {
         initialStep: lastValid.document.steps.length > 0 ? 0 : null,
         globalKeyboard: true,
         playbackSlot,
+        onPhaseChange: (view) => {
+          if (view.stepIndex !== lastStepIndex) {
+            lastStepIndex = view.stepIndex;
+            exportMenu.sync();
+          }
+        },
       },
     );
     created.getWorldElement().append(highlightLayer);
@@ -154,6 +167,7 @@ export function mountApp(container: HTMLElement): void {
       parsed.document.groups.length === 0;
     if (!hasFatalError) {
       lastValid = {
+        dsl,
         document: parsed.document,
         layout: computeLayout(parsed.document),
         sourceMap: parsed.sourceMap,
@@ -164,6 +178,8 @@ export function mountApp(container: HTMLElement): void {
     } else {
       player = createPlayer();
     }
+    lastStepIndex = player.getStepIndex();
+    exportMenu.sync();
     renderHighlight();
     helpModal.update(dsl);
   }
@@ -195,11 +211,14 @@ export function mountApp(container: HTMLElement): void {
         // Nothing of the previous document may survive into another one.
         documentUri = msg.uri;
         lastValid = {
+          dsl: '',
           document: empty.document,
           layout: computeLayout(empty.document),
           sourceMap: empty.sourceMap,
         };
         cursorTargetId = null;
+        lastStepIndex = null;
+        exportMenu.reset();
         player?.destroy();
         player = null;
       }

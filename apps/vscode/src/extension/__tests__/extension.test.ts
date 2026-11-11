@@ -18,8 +18,11 @@ const host = vi.hoisted(() => ({
   pickIndex: 0 as number | null,
   existing: new Set<string>(),
   copied: [] as Array<{ from: string; to: string }>,
+  warnings: [] as string[],
+  errors: [] as string[],
   warningAnswer: undefined as string | undefined,
   saveDefaultUri: undefined as string | undefined,
+  saveUri: { fsPath: 'out.html' } as { fsPath: string } | undefined,
   receive: (_msg: unknown): void => {},
 }));
 
@@ -123,15 +126,21 @@ vi.mock('vscode', () => {
       onDidChangeTextEditorSelection: event,
       onDidChangeActiveTextEditor: event,
       showInformationMessage: async () => undefined,
-      showErrorMessage: async () => undefined,
-      showWarningMessage: async () => host.warningAnswer,
+      showErrorMessage: async (msg: string) => {
+        host.errors.push(msg);
+        return undefined;
+      },
+      showWarningMessage: async (msg: string) => {
+        host.warnings.push(msg);
+        return host.warningAnswer;
+      },
       showQuickPick: async (items: typeof host.quickPick) => {
         host.quickPick = items;
         return host.pickIndex === null ? undefined : items[host.pickIndex];
       },
       showSaveDialog: async (options?: { defaultUri?: { fsPath: string } }) => {
         host.saveDefaultUri = options?.defaultUri?.fsPath;
-        return { fsPath: 'out.html' };
+        return host.saveUri;
       },
       createWebviewPanel: () => ({
         title: '',
@@ -156,6 +165,7 @@ vi.mock('vscode', () => {
 });
 
 import { homedir } from 'node:os';
+import { isHostToWebviewMessage, isWebviewToHostMessage } from '../../protocol/messages';
 import { activate } from '../extension';
 
 function fakeDocument(text: string, name: string, languageId = 'dav') {
@@ -187,8 +197,11 @@ describe('extension commands', () => {
     host.pickIndex = 0;
     host.existing.clear();
     host.copied.length = 0;
+    host.warnings.length = 0;
+    host.errors.length = 0;
     host.warningAnswer = undefined;
     host.saveDefaultUri = undefined;
+    host.saveUri = { fsPath: 'out.html' };
     activate({ subscriptions: [], extensionUri: { fsPath: '/ext' } } as never);
   });
 
@@ -420,6 +433,153 @@ describe('extension commands', () => {
       await run('dav.exportSvg');
       expect(host.saveDefaultUri).toBe(`${homedir()}/diagram.svg`);
     });
+
+    it('uses overrideDsl from webview exportHtml and exportSvg over doc.getText()', async () => {
+      const brokenEditorDoc = fakeDocument('dav 1\n/* unclosed comment', 'live.dav');
+      host.activeTextEditor = { document: brokenEditorDoc };
+      await run('dav.openPreview');
+
+      host.receive({
+        type: 'exportHtml',
+        dsl: 'dav 1\ntitle "Preview HTML"\nnode shown',
+      });
+      await vi.waitFor(() => expect(host.written).toHaveLength(1));
+      expect(host.written[0]).toContain('<title>Preview HTML</title>');
+
+      host.receive({
+        type: 'exportSvg',
+        dsl: 'dav 1\ntitle "Preview SVG"\nnode shown',
+        animate: false,
+        camera: 'follow',
+        step: null,
+      });
+      await vi.waitFor(() => expect(host.written).toHaveLength(2));
+      expect(host.written[1]).toContain('<title>Preview SVG</title>');
+    });
+
+    it.each([
+      ['en', 'Step 6 does not exist (2 steps in diagram).'],
+      ['ja', 'ステップ 6 は存在しません（全 2 ステップ）。'],
+    ])(
+      'warns cleanly in %s without saving when webview exportSvg requests an out-of-bounds step',
+      async (language, expectedWarning) => {
+        host.language = language;
+        const twoSteps = fakeDocument(
+          'dav 1\nnode a\nnode b\na --> b\nstep "S1" {\n  focus a\n}\nstep "S2" {\n  animate a --> b\n}',
+          'two.dav',
+        );
+        host.activeTextEditor = { document: twoSteps };
+        await run('dav.openPreview');
+
+        host.receive({
+          type: 'exportSvg',
+          dsl: twoSteps.getText(),
+          animate: false,
+          camera: 'follow',
+          step: 5,
+        });
+        await vi.waitFor(() => expect(host.warnings).toEqual([expectedWarning]));
+
+        expect(host.errors).toEqual([]);
+        expect(host.saveDefaultUri).toBeUndefined();
+        expect(host.written).toEqual([]);
+      },
+    );
+
+    it('exports step: 1 of a multi-step diagram as -step2.svg with Step 2 / 3', async () => {
+      const multi = fakeDocument(
+        'dav 1\nnode a\nnode b\na --> b\nstep "First" {\n  focus a\n}\nstep "Second" {\n  animate a --> b\n}\nstep "Third" {\n  focus b\n}',
+        'multi.dav',
+      );
+      host.activeTextEditor = { document: multi };
+      await run('dav.openPreview');
+
+      host.receive({
+        type: 'exportSvg',
+        dsl: multi.getText(),
+        animate: true,
+        camera: 'follow',
+        step: 1,
+      });
+      await vi.waitFor(() => expect(host.written).toHaveLength(1));
+
+      expect(host.saveDefaultUri?.replaceAll('\\', '/')).toMatch(/multi-step2\.svg$/);
+      expect(host.written[0]).toContain('Step 2 / 3');
+      expect(host.written[0]).toContain('<animate');
+    });
+
+    it('defaults an untitled document with step: 1 to diagram-step2.svg', async () => {
+      const multiText =
+        'dav 1\nnode a\nnode b\na --> b\nstep "S1" {\n  focus a\n}\nstep "S2" {\n  animate a --> b\n}';
+      const untitledMulti = {
+        ...fakeDocument(multiText, 'Untitled-1'),
+        isUntitled: true,
+        uri: { fsPath: 'Untitled-1', toString: () => 'untitled:Untitled-1' },
+      };
+      host.activeTextEditor = { document: untitledMulti };
+      host.workspaceFolders = [{ uri: { fsPath: '/repo' } }];
+      await run('dav.openPreview');
+
+      host.receive({
+        type: 'exportSvg',
+        dsl: multiText,
+        animate: false,
+        camera: 'follow',
+        step: 1,
+      });
+      await vi.waitFor(() => expect(host.written).toHaveLength(1));
+      expect(host.saveDefaultUri).toBe('/repo/diagram-step2.svg');
+
+      host.workspaceFolders = undefined;
+      host.receive({
+        type: 'exportSvg',
+        dsl: multiText,
+        animate: false,
+        camera: 'follow',
+        step: 1,
+      });
+      await vi.waitFor(() => expect(host.written).toHaveLength(2));
+      expect(host.saveDefaultUri).toBe(`${homedir()}/diagram-step2.svg`);
+    });
+
+    it('localizes dav.exportSvg QuickPick in ja and writes nothing when save dialog is cancelled', async () => {
+      host.language = 'ja';
+      host.activeTextEditor = { document: stepped };
+      host.saveUri = undefined;
+
+      await run('dav.exportSvg');
+      await run('dav.exportHtml');
+
+      expect(host.quickPick.map((item) => item.label)).toEqual([
+        'アニメーション',
+        'アニメーション（全体固定）',
+        '静止画',
+      ]);
+      expect(host.written).toEqual([]);
+    });
+
+    it('ignores malformed webview messages without errors, warnings, or writes', async () => {
+      host.activeTextEditor = { document: stepped };
+      await run('dav.openPreview');
+
+      host.receive(null);
+      host.receive({ type: 'exportSvg', step: 0.5 });
+      host.receive({
+        type: 'exportSvg',
+        dsl: stepped.getText(),
+        animate: true,
+        camera: 'follow',
+        step: 0.5,
+      });
+      host.receive({ type: 'revealRange', from: Number.NaN, to: 1 });
+      host.receive({ type: 'unknown' });
+      host.receive({ type: 'exportHtml', dsl: 'dav 1\ntitle "Valid After Malformed"\nnode a' });
+
+      await vi.waitFor(() => expect(host.written).toHaveLength(1));
+      expect(host.errors).toEqual([]);
+      expect(host.warnings).toEqual([]);
+      expect(host.written[0]).toContain('<title>Valid After Malformed</title>');
+    });
   });
 
   it('leaves a closed preview document out of the AI prompt', async () => {
@@ -465,5 +625,93 @@ describe('extension commands', () => {
 
     expect(actions?.map((a) => a.title)).toEqual(["Change to 'server'"]);
     expect(actions?.[0]?.edit.newText).toBe('server');
+  });
+});
+
+describe('protocol message guards', () => {
+  it('validates HostToWebviewMessage including optional string uri and finite offset', () => {
+    expect(isHostToWebviewMessage({ type: 'docChanged', dsl: 'dav 1' })).toBe(true);
+    expect(isHostToWebviewMessage({ type: 'docChanged', dsl: 'dav 1', uri: 'file:///a.dav' })).toBe(
+      true,
+    );
+    expect(isHostToWebviewMessage({ type: 'cursorMoved', offset: 0 })).toBe(true);
+
+    expect(isHostToWebviewMessage(null)).toBe(false);
+    expect(isHostToWebviewMessage({ type: 'docChanged', dsl: 'dav 1', uri: 123 })).toBe(false);
+    expect(isHostToWebviewMessage({ type: 'cursorMoved', offset: Number.NaN })).toBe(false);
+    expect(isHostToWebviewMessage({ type: 'cursorMoved', offset: Number.POSITIVE_INFINITY })).toBe(
+      false,
+    );
+    expect(isHostToWebviewMessage({ type: 'unknown' })).toBe(false);
+  });
+
+  it('validates every WebviewToHostMessage variant and rejects malformed payloads', () => {
+    expect(isWebviewToHostMessage({ type: 'ready' })).toBe(true);
+    expect(isWebviewToHostMessage({ type: 'formatDocument' })).toBe(true);
+    expect(isWebviewToHostMessage({ type: 'revealRange', from: 0, to: 10 })).toBe(true);
+    expect(isWebviewToHostMessage({ type: 'exportHtml', dsl: 'dav 1' })).toBe(true);
+    expect(
+      isWebviewToHostMessage({
+        type: 'exportSvg',
+        dsl: 'dav 1',
+        animate: true,
+        camera: 'whole',
+        step: 0,
+      }),
+    ).toBe(true);
+    expect(
+      isWebviewToHostMessage({
+        type: 'exportSvg',
+        dsl: 'dav 1',
+        animate: false,
+        camera: 'follow',
+        step: null,
+      }),
+    ).toBe(true);
+
+    expect(isWebviewToHostMessage(null)).toBe(false);
+    expect(isWebviewToHostMessage({ type: 'exportSvg', step: 0.5 })).toBe(false);
+    expect(
+      isWebviewToHostMessage({
+        type: 'exportSvg',
+        dsl: 'dav 1',
+        animate: true,
+        camera: 'follow',
+        step: 0.5,
+      }),
+    ).toBe(false);
+    expect(
+      isWebviewToHostMessage({
+        type: 'exportSvg',
+        dsl: 'dav 1',
+        animate: true,
+        camera: 'follow',
+        step: -1,
+      }),
+    ).toBe(false);
+    expect(
+      isWebviewToHostMessage({
+        type: 'exportSvg',
+        dsl: 'dav 1',
+        animate: 'true',
+        camera: 'follow',
+        step: null,
+      }),
+    ).toBe(false);
+    expect(
+      isWebviewToHostMessage({
+        type: 'exportSvg',
+        dsl: 'dav 1',
+        animate: true,
+        camera: 'pan',
+        step: null,
+      }),
+    ).toBe(false);
+    expect(isWebviewToHostMessage({ type: 'exportHtml' })).toBe(false);
+    expect(isWebviewToHostMessage({ type: 'revealRange', from: Number.NaN, to: 1 })).toBe(false);
+    expect(
+      isWebviewToHostMessage({ type: 'revealRange', from: 0, to: Number.POSITIVE_INFINITY }),
+    ).toBe(false);
+    expect(isWebviewToHostMessage({ type: 'unknown' })).toBe(false);
   });
 });

@@ -1,5 +1,9 @@
 import * as vscode from 'vscode';
-import type { HostToWebviewMessage, WebviewToHostMessage } from '../protocol/messages';
+import {
+  type HostToWebviewMessage,
+  isWebviewToHostMessage,
+  type WebviewToHostMessage,
+} from '../protocol/messages';
 import {
   exportDocumentToHtml,
   exportDocumentToSvg,
@@ -51,7 +55,8 @@ export class CanvasPanelManager {
         for (const d of this.disposables) d.dispose();
         this.disposables = [];
       }),
-      panel.webview.onDidReceiveMessage((msg: WebviewToHostMessage) => {
+      panel.webview.onDidReceiveMessage((msg: unknown) => {
+        if (!isWebviewToHostMessage(msg)) return;
         this.onWebviewMessage(msg).catch((err: unknown) => {
           const detail = err instanceof Error ? err.message : String(err);
           void vscode.window.showErrorMessage(`DynamicArchitectViewer: ${detail}`);

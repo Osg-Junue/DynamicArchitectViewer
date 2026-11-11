@@ -13,6 +13,7 @@ import {
   computePacketCalloutBox,
   estimateTextWidth,
   fitText,
+  fitZoom,
   flowColors,
   framePose,
   HOLD_MS,
@@ -60,8 +61,8 @@ export interface SvgExportOptions {
   camera?: 'follow' | 'whole';
   /**
    * Exports only this step (0-based), keeping its number in the diagram. Animated, it repeats the
-   * step's phases, as "Play step" does; still, it shows the step as the preview does with
-   * animation stopped. Every step by default.
+   * step's phases, as "Play step" does; still, it frames the whole diagram while showing the
+   * step's state and lit flows as the preview does with animation stopped. Every step by default.
    */
   step?: number;
 }
@@ -749,7 +750,12 @@ function zoneName(
 }
 
 /** Names the zones of the running phase, as the strip above the preview's canvas does. */
-function zoneStrip(steps: readonly StepSlot[], top: number, locale: ViewerLocale, clock: Clock) {
+function zoneStrip(
+  steps: readonly StepSlot[],
+  top: number,
+  locale: ViewerLocale,
+  clock: Clock,
+): VElement | null {
   const inside = VIEWER_STRINGS[locale].zoneInside;
   const y = top + ZONE_STRIP_HEIGHT / 2 + 5;
   const lineY = top + ZONE_STRIP_HEIGHT / 2 - 1;
@@ -763,7 +769,8 @@ function zoneStrip(steps: readonly StepSlot[], top: number, locale: ViewerLocale
 
   for (const step of steps) {
     for (const phase of step.phases) {
-      const moves = zoneMoves(step.view, phase.packets).slice(0, MAX_ZONE_MOVES);
+      const allMoves = zoneMoves(step.view, phase.packets);
+      const moves = allMoves.slice(0, MAX_ZONE_MOVES);
       if (moves.length === 0) continue;
       const widths = moves.map(([from, to]) =>
         from === to
@@ -805,7 +812,7 @@ function zoneStrip(steps: readonly StepSlot[], top: number, locale: ViewerLocale
         }
         x += (widths[i] ?? 0) + ZONE_MOVE_GAP;
       });
-      const more = zoneMoves(step.view, phase.packets).length - MAX_ZONE_MOVES;
+      const more = allMoves.length - MAX_ZONE_MOVES;
       if (more > 0) {
         parts.push(
           h('text', { x: num(x), y, 'font-size': ZONE_SIZE, fill: COLOR.muted }, `+${more}`),
@@ -814,7 +821,7 @@ function zoneStrip(steps: readonly StepSlot[], top: number, locale: ViewerLocale
       el.children.push(clock.showDuring(h('g', {}, ...parts), [[phase.start, phase.end]]));
     }
   }
-  return el;
+  return el.children.length > 1 ? el : null;
 }
 
 interface MinimapFrame {
@@ -1047,7 +1054,7 @@ function zoneLabelLayer(
   return out.children.length > 0 ? out : null;
 }
 
-/** Everything any step draws, including callouts that a step moves aside past the edge. */
+/** Everything any step draws, including packet callouts that reach past the diagram's edge. */
 function wholeAcrossSteps(doc: DavDocument, layout: Layout, steps: readonly StepSlot[]): Rect {
   const rects = (
     steps.length > 0 ? steps.map((s) => s.view) : [resolveView(doc, layout, null)]
@@ -1071,6 +1078,19 @@ function wholeCanvas(rect: Rect): Size {
     height: Math.min(WHOLE_CANVAS_HEIGHT.max, Math.max(WHOLE_CANVAS_HEIGHT.min, height)),
   };
 }
+
+/** Centers the whole diagram on the canvas without clamping to the interactive minimum zoom. */
+function wholePose(canvas: Size, rect: Rect): Pose {
+  const zoom = Math.min(MAX_FIT_ZOOM, fitZoom(canvas, rect));
+  return {
+    zoom,
+    panX: (canvas.width - rect.width * zoom) / 2 - rect.x * zoom,
+    panY: (canvas.height - rect.height * zoom) / 2 - rect.y * zoom,
+  };
+}
+
+const stepDescLine = (index: number, title: string | undefined): string =>
+  title ? `${index + 1}. ${title}` : `${index + 1}`;
 
 /**
  * Draws a step as the preview does with animation stopped: every flow of the step lit in its
@@ -1109,26 +1129,26 @@ function stepStillSvg(doc: DavDocument, layout: Layout, index: number, locale: V
     'svg',
     {
       x: 0,
-      y: head.height,
+      y: head.height + 1,
       width: WIDTH,
       height: canvas.height,
-      viewBox: viewBoxOf(visibleWorld(canvas, framePose(canvas, { rect, maxZoom: MAX_FIT_ZOOM }))),
+      viewBox: viewBoxOf(visibleWorld(canvas, wholePose(canvas, rect))),
       preserveAspectRatio: 'xMidYMid meet',
     },
     buildDefs(),
     scene,
   );
-  const height = head.height + canvas.height;
+  const height = head.height + 1 + canvas.height;
   return svgDocument(
     { width: WIDTH, height },
     `0 0 ${WIDTH} ${num(height)}`,
     doc.title || 'DynamicArchitectViewer',
-    `${index + 1}. ${doc.steps[index]?.title ?? ''}`,
+    stepDescLine(index, doc.steps[index]?.title),
     [
       h('rect', { x: 0, y: 0, width: WIDTH, height, fill: COLOR.bg }),
-      h('path', { d: `M 0 ${head.height} H ${WIDTH}`, stroke: COLOR.border }),
       world,
       head.el,
+      h('path', { d: `M 0 ${head.height + 0.5} H ${WIDTH}`, stroke: COLOR.border }),
     ],
   );
 }
@@ -1148,7 +1168,7 @@ function animatedSvg(
 
   const events: Array<[number, Pose]> =
     cameraMode === 'whole'
-      ? [[0, framePose(canvas, { rect: wholeRect, maxZoom: MAX_FIT_ZOOM })]]
+      ? [[0, wholePose(canvas, wholeRect)]]
       : planCamera(canvas, layout, steps);
   const camera = cameraKeys(events, total).map(([t, pose]): [number, Rect] => [
     t,
@@ -1165,14 +1185,14 @@ function animatedSvg(
       r.x + r.width < whole.x + whole.width - 1 ||
       r.y + r.height < whole.y + whole.height - 1,
   );
-  const mapFrame = zoomedIn ? minimapFrame(doc, layout) : null;
+  const mapFrame = cameraMode === 'follow' && zoomedIn ? minimapFrame(doc, layout) : null;
 
   const head = header(steps, doc.steps.length, locale, clock, mapFrame?.size ?? null);
   const timelineTop = head.height;
   // One step has nothing to rule; a line separates the header from what follows.
   const zoneTop = timelineTop + (only === undefined ? TIMELINE_HEIGHT : 1);
-  const hasZones = doc.groups.length > 0;
-  const canvasTop = zoneTop + (hasZones ? ZONE_STRIP_HEIGHT : 0);
+  const strip = doc.groups.length > 0 ? zoneStrip(steps, zoneTop, locale, clock) : null;
+  const canvasTop = zoneTop + (strip ? ZONE_STRIP_HEIGHT : 0);
   const canvasBottom = canvasTop + canvas.height;
 
   const world = h(
@@ -1236,7 +1256,7 @@ function animatedSvg(
 
   const titleText = doc.title || 'DynamicArchitectViewer';
   const description = steps
-    .map((step) => `${step.index + 1}. ${doc.steps[step.index]?.title ?? ''}`)
+    .map((step) => stepDescLine(step.index, doc.steps[step.index]?.title))
     .join('\n');
   return svgDocument(
     { width: WIDTH, height: canvasBottom },
@@ -1250,7 +1270,7 @@ function animatedSvg(
       only === undefined
         ? timeline(steps, timelineTop, clock, total)
         : h('path', { d: `M 0 ${timelineTop + 0.5} H ${WIDTH}`, stroke: COLOR.border }),
-      hasZones ? zoneStrip(steps, zoneTop, locale, clock) : null,
+      strip,
       map,
     ].filter((c): c is VElement => c !== null),
   );
