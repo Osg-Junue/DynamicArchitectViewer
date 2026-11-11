@@ -136,10 +136,12 @@ class Printer {
         case 'Label':
           parts.push(sliceOf(this.text, child));
           break;
-        case ',':
+        case ',': {
           // Focus list separator.
-          parts[parts.length - 1] += ',';
+          const prev = parts[parts.length - 1];
+          if (prev !== undefined) parts[parts.length - 1] = `${prev},`;
           break;
+        }
         default:
           parts.push(sliceOf(this.text, child));
       }
@@ -233,7 +235,8 @@ class Printer {
 
   private appendToLastLine(suffix: string): void {
     const last = this.lines.length - 1;
-    if (last >= 0) this.lines[last] += suffix;
+    const prev = this.lines[last];
+    if (prev !== undefined) this.lines[last] = prev + suffix;
     else this.lines.push(suffix.trimStart());
   }
 }

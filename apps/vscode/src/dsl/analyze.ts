@@ -1,8 +1,6 @@
 import type { SyntaxNode } from '@lezer/common';
 import {
   type Animation,
-  COLOR_NAMES,
-  COLOR_RESET,
   type CodeBlock,
   CURRENT_DSL_VERSION,
   type DavDocument,
@@ -10,52 +8,23 @@ import {
   type DavGroup,
   type DavNode,
   type DavStep,
-  ICON_NAMES,
   implicitEdgeId,
-  isColorName,
-  isIconName,
   type StateOverride,
 } from '../model/types';
+import { type ParsedAttrs, readAttributes, readStringLiteral, type ValidAttr } from './attributes';
 import type { Diagnostic, DiagnosticCode, Severity } from './diagnostics';
+import { ARROW_SPECS, type AttrOwner, STATE_ATTRIBUTES_BY_TARGET } from './schema';
 import {
-  ARROW_SPECS,
-  ATTRIBUTE_SCHEMA,
-  type AttrOwner,
-  type AttrType,
-  type AttrValueByType,
-  type OwnerAttrs,
-  STATE_ATTRIBUTES_BY_TARGET,
-} from './schema';
-import { closestMatch } from './suggest';
-import {
-  attributeValueNode,
-  childNodes,
-  parseTree,
-  sliceOf,
-  unescapeCodeFence,
-  unescapeString,
-} from './syntax';
+  type ElementKind,
+  type ElementSource,
+  rangeOf,
+  type SourceMap,
+  type SourceRange,
+} from './sourceMap';
+import { childNodes, parseTree, sliceOf, unescapeCodeFence } from './syntax';
 
-export type ElementKind = 'node' | 'group' | 'edge';
-
-export interface SourceRange {
-  from: number;
-  to: number;
-}
-
-export interface ElementSource extends SourceRange {
-  kind: ElementKind;
-  id: string;
-  /** Range of the identifier token (absent for implicit edge IDs). */
-  idRange?: SourceRange;
-}
-
-export interface SourceMap {
-  /** Keyed by element ID (implicit edge IDs use `from->to`). First declaration wins. */
-  elements: ReadonlyMap<string, ElementSource>;
-  /** Statement range for each step, by index. */
-  steps: readonly SourceRange[];
-}
+export type { ElementKind, ElementSource, SourceMap, SourceRange } from './sourceMap';
+export { findAtOffset } from './sourceMap';
 
 export interface ParseResult {
   document: DavDocument;
@@ -69,32 +38,12 @@ interface Reference {
   allowed: ReadonlyArray<ElementKind>;
 }
 
-interface ValidAttr<V = AttrValueByType[AttrType]> {
-  value: V;
-  node: SyntaxNode;
-}
-
-interface ParsedAttrs<O extends AttrOwner> {
-  get<K extends keyof OwnerAttrs<O> & string>(key: K): ValidAttr<OwnerAttrs<O>[K]> | undefined;
-  value<K extends keyof OwnerAttrs<O> & string>(key: K): OwnerAttrs<O>[K] | undefined;
-  readonly entries: ReadonlyMap<string, ValidAttr>;
-}
-
 interface PendingStateCheck {
   target: string;
   attrs: ReadonlyMap<string, ValidAttr>;
 }
 
 const DEFAULT_ARROW = { style: 'solid', direction: 'forward' } as const;
-
-const EXPECTED_BY_TYPE: Record<AttrType, string> = {
-  string: '"..."',
-  bool: 'true | false',
-  color: COLOR_NAMES.join(' | '),
-  stateColor: [...COLOR_NAMES, COLOR_RESET].join(' | '),
-  icon: ICON_NAMES.join(' | '),
-  ident: 'identifier',
-};
 
 /** Parses and validates DSL v1 text. Never throws. */
 export function parse(text: string): ParseResult {
@@ -128,6 +77,14 @@ class Analyzer {
     steps: [],
   };
   private titleSeen = false;
+  private readonly reportFn = (
+    code: DiagnosticCode,
+    severity: Severity,
+    range: SourceRange,
+    args: Record<string, string> = {},
+  ): void => {
+    this.report(code, severity, range, args);
+  };
 
   constructor(private readonly text: string) {}
 
@@ -521,17 +478,7 @@ class Analyzer {
   // ---------------------------------------------------------------------------
 
   private readString(node: SyntaxNode): string {
-    const { value, invalid } = unescapeString(sliceOf(this.text, node));
-    for (const esc of invalid) {
-      const from = node.from + esc.offset;
-      this.report(
-        'invalid-escape',
-        'error',
-        { from, to: from + esc.sequence.length },
-        { sequence: esc.sequence },
-      );
-    }
-    return value;
+    return readStringLiteral(this.text, node, this.reportFn);
   }
 
   private readChildString(node: SyntaxNode, wrapper?: string): string | undefined {
@@ -552,91 +499,8 @@ class Analyzer {
     return out;
   }
 
-  /** Reads and validates an attribute list. Invalid entries are reported and omitted. */
   private readAttributes<O extends AttrOwner>(node: SyntaxNode | null, owner: O): ParsedAttrs<O> {
-    const entries = new Map<string, ValidAttr>();
-    if (node) {
-      const schema = ATTRIBUTE_SCHEMA[owner];
-      const seen = new Set<string>();
-
-      for (const attr of node.getChildren('Attribute')) {
-        const nameNode = attr.getChild('AttrName');
-        const valueNode = attributeValueNode(attr);
-        if (!nameNode || !valueNode) continue;
-        const name = sliceOf(this.text, nameNode);
-
-        const type = Object.hasOwn(schema, name) ? schema[name] : undefined;
-        if (!type) {
-          this.report('unknown-attribute', 'warning', nameNode, { name, owner });
-          continue;
-        }
-        if (seen.has(name)) {
-          this.report('duplicate-attribute', 'warning', nameNode, { name });
-        }
-        seen.add(name);
-
-        const value = this.convertValue(name, type, valueNode);
-        if (value !== undefined) entries.set(name, { value, node: valueNode });
-      }
-    }
-    return {
-      entries,
-      get: <K extends keyof OwnerAttrs<O> & string>(key: K) =>
-        entries.get(key) as ValidAttr<OwnerAttrs<O>[K]> | undefined,
-      value: <K extends keyof OwnerAttrs<O> & string>(key: K) =>
-        entries.get(key)?.value as OwnerAttrs<O>[K] | undefined,
-    };
-  }
-
-  private convertValue(
-    name: string,
-    type: AttrType,
-    node: SyntaxNode,
-  ): AttrValueByType[AttrType] | undefined {
-    const raw = sliceOf(this.text, node);
-    const invalid = () => {
-      this.report('invalid-attribute-value', 'error', node, {
-        name,
-        expected: EXPECTED_BY_TYPE[type],
-      });
-      return undefined;
-    };
-
-    switch (type) {
-      case 'string':
-        return node.name === 'String' ? this.readString(node) : invalid();
-      case 'bool':
-        return node.name === 'Boolean' ? raw === 'true' : invalid();
-      case 'ident':
-        return node.name === 'Identifier' ? raw : invalid();
-      case 'color':
-      case 'stateColor': {
-        if (node.name !== 'Identifier' && node.name !== 'Color') return invalid();
-        const colorName = raw.toLowerCase();
-        if (isColorName(colorName)) return colorName;
-        const allowsReset = type === 'stateColor';
-        if (allowsReset && colorName === COLOR_RESET) return COLOR_RESET;
-        const suggestion = node.name === 'Color' ? undefined : closestMatch(raw, COLOR_NAMES);
-        this.report('invalid-color', 'error', node, {
-          value: raw,
-          suggestion: suggestion ?? '',
-          names: (allowsReset ? [...COLOR_NAMES, COLOR_RESET] : COLOR_NAMES).join(', '),
-        });
-        return undefined;
-      }
-      case 'icon': {
-        if (node.name !== 'Identifier') return invalid();
-        const iconName = raw.toLowerCase();
-        if (!isIconName(iconName)) {
-          this.report('unknown-icon', 'error', node, {
-            icon: raw,
-            suggestion: closestMatch(raw, ICON_NAMES) ?? '',
-          });
-          return undefined;
-        }
-        return iconName;
-      }
-    }
+    return readAttributes(this.text, node, owner, this.reportFn);
   }
 
   // ---------------------------------------------------------------------------
@@ -690,36 +554,4 @@ class Analyzer {
   ): void {
     this.diagnostics.push({ code, severity, from: range.from, to: range.to, args });
   }
-}
-
-function rangeOf(node: SourceRange): SourceRange {
-  return { from: node.from, to: node.to };
-}
-
-/**
- * Resolves a character offset in DSL text to the innermost element (`node`, `group`, or `edge`)
- * and/or the enclosing `step` index.
- */
-export function findAtOffset(
-  sourceMap: SourceMap,
-  offset: number,
-): { elementId: string | null; stepIndex: number | null } {
-  let stepIndex: number | null = null;
-  for (let i = 0; i < sourceMap.steps.length; i++) {
-    const r = sourceMap.steps[i];
-    if (r && r.from <= offset && offset <= r.to) {
-      stepIndex = i;
-      break;
-    }
-  }
-
-  let best: ElementSource | null = null;
-  for (const el of sourceMap.elements.values()) {
-    if (el.from <= offset && offset <= el.to) {
-      if (!best || el.to - el.from < best.to - best.from) {
-        best = el;
-      }
-    }
-  }
-  return { elementId: best?.id ?? null, stepIndex };
 }

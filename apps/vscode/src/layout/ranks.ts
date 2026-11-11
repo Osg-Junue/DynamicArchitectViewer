@@ -1,3 +1,5 @@
+import { pushToMap } from '../model/text';
+
 export interface RankResult {
   rank: Map<string, number>;
   predecessors: Map<string, string[]>;
@@ -66,12 +68,7 @@ function invert(forward: ReadonlyMap<string, readonly string[]>): Map<string, st
   const preds = new Map<string, string[]>();
   for (const [from, targets] of forward) {
     for (const t of targets) {
-      let list = preds.get(t);
-      if (!list) {
-        list = [];
-        preds.set(t, list);
-      }
-      list.push(from);
+      pushToMap(preds, t, from);
     }
   }
   return preds;

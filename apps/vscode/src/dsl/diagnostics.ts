@@ -1,3 +1,5 @@
+import type { DavLocale } from '../model/types';
+
 export type Severity = 'error' | 'warning';
 
 export type DiagnosticCode =
@@ -32,7 +34,7 @@ export interface Diagnostic {
   args: Readonly<Record<string, string>>;
 }
 
-export type Locale = 'ja' | 'en';
+export type Locale = DavLocale;
 
 const MESSAGES: Record<Locale, Record<DiagnosticCode, string>> = {
   ja: {

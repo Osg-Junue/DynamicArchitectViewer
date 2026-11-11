@@ -18,15 +18,14 @@ function levenshtein(a: string, b: string): number {
   const prev = Array.from({ length: b.length + 1 }, (_, i) => i);
   for (let i = 1; i <= a.length; i++) {
     let diag = prev[0] ?? 0;
-    prev[0] = i;
+    let left = i;
+    prev[0] = left;
     for (let j = 1; j <= b.length; j++) {
-      const temp = prev[j] ?? 0;
-      prev[j] = Math.min(
-        (prev[j] ?? 0) + 1,
-        (prev[j - 1] ?? 0) + 1,
-        diag + (a[i - 1] === b[j - 1] ? 0 : 1),
-      );
-      diag = temp;
+      const up = prev[j] ?? 0;
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      left = Math.min(up + 1, left + 1, diag + cost);
+      prev[j] = left;
+      diag = up;
     }
   }
   return prev[b.length] ?? 0;

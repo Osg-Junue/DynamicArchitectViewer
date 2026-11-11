@@ -65,7 +65,7 @@ export const STATE_ATTRIBUTES_BY_TARGET: Record<'node' | 'group' | 'edge', Reado
 };
 
 export const ARROW_TOKENS = ['-->', '..>', '<->', '<.>'] as const;
-export type ArrowToken = (typeof ARROW_TOKENS)[number];
+type ArrowToken = (typeof ARROW_TOKENS)[number];
 
 const SPECS = {
   '-->': { style: 'solid', direction: 'forward' },

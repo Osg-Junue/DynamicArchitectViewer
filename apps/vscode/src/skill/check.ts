@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { format, formatDiagnostic, parse } from '../dsl';
+import { lineAtOffset } from '../model/text';
 
 /**
  * The checker bundled with the agent skill: the diagnostics and formatter of the extension,
@@ -13,8 +14,9 @@ const EXIT_DIAGNOSTICS = 1;
 const EXIT_USAGE = 2;
 
 function location(text: string, offset: number): string {
-  const lines = text.slice(0, offset).split('\n');
-  return `${lines.length}:${(lines.at(-1)?.length ?? 0) + 1}`;
+  const clamped = Number.isNaN(offset) ? 0 : Math.max(0, Math.min(text.length, Math.trunc(offset)));
+  const column = clamped === 0 ? 1 : clamped - text.lastIndexOf('\n', clamped - 1);
+  return `${lineAtOffset(text, clamped)}:${column}`;
 }
 
 /** Prints the result for one file, and returns whether it is free of diagnostics. */
