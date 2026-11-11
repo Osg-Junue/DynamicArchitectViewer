@@ -8,3 +8,4 @@ export {
   exportHtml,
 } from './export';
 export { type ImportResult, importContent } from './import';
+export { exportSvg, type SvgExportOptions } from './svg';

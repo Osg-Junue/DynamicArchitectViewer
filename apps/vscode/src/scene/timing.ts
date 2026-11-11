@@ -1,6 +1,9 @@
 import { curveLength } from './geometry';
 import type { Packet } from './resolve';
 
+/** Pause after a step's last phase at 1x. */
+export const HOLD_MS = 1800;
+
 /** A typical phase at 1x; the actual length of each one depends on what travels how far. */
 export const PHASE_MS = 2000;
 

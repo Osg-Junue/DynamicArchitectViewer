@@ -1,24 +1,27 @@
-import type { Layout, Rect } from '../layout';
+import type { Layout } from '../layout';
 import type { DavDocument } from '../model/types';
 import {
   activeLabelFill,
-  type Bezier,
-  boundsOf,
   buildDefs,
   buildPacket,
   buildScene,
-  calloutRect,
+  calmFrame,
   computePacketCalloutBox,
   flowColors,
+  followFrame,
+  HOLD_MS,
   type IconShapes,
   type Packet,
   type PacketCalloutBox,
   PHASE_MS,
   packetBubblePath,
   packetPosition,
+  packetsOnScreen,
   paint,
   type ResolvedView,
   resolveView,
+  stepFrame,
+  wholeDiagramFrame,
   type ZoneMove,
   zoneColor,
   zoneMoves,
@@ -32,7 +35,7 @@ import { Minimap } from './minimap';
 import { renderZoneHud } from './zoneHud';
 import { ZoneLabels } from './zoneLabels';
 
-export { SPEEDS };
+export { HOLD_MS, SPEEDS };
 
 export interface PlayerData {
   document: DavDocument;
@@ -62,35 +65,11 @@ export interface PlayerOptions {
   fixedFrame?: boolean;
 }
 
-/** Pause after a step's last phase at 1x. */
-export const HOLD_MS = 1800;
-const MAX_FIT_ZOOM = 1.4;
-/** Room kept around what the camera shows while it follows packets from zone to zone. */
-const CALM_FRAME_PAD = 120;
-/** Below this zoom, text stops being comfortable to read. */
-const MIN_ZONE_FRAME_ZOOM = 0.6;
-const MAX_CALM_ZOOM = 1.25;
-/** How close to the screen's edge a moving packet may get before the camera follows. */
-const CALM_EDGE_MARGIN = 40;
-/** Room kept around what the camera shows while it follows every phase. */
-const FOLLOW_PAD = 56;
-const FOLLOW_MIN_SIZE = { width: 200, height: 160 };
-const MAX_FOLLOW_ZOOM = 1.65;
-
 interface PacketEntry {
   packet: Packet;
   box: PacketCalloutBox | null;
   dotEl: SVGGElement | null;
   bubbleEl: SVGPathElement | null;
-}
-
-/** The box around a curve's control points. */
-function controlBox({ p0, p1, p2, p3 }: Bezier): Rect {
-  const xs = [p0.x, p1.x, p2.x, p3.x];
-  const ys = [p0.y, p1.y, p2.y, p3.y];
-  const x = Math.min(...xs);
-  const y = Math.min(...ys);
-  return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
 }
 
 /**
@@ -651,42 +630,16 @@ export class Player {
     this.#minimap.setCamera(world);
   }
 
-  /** The rectangles of the nodes the current phase moves between. */
-  #phaseSpots(): Rect[] {
-    const { nodes } = this.#data.layout;
-    return this.#currentPackets()
-      .flatMap((p) => [nodes[p.from], nodes[p.to]])
-      .filter((r) => r !== undefined);
-  }
-
   /** Whether the camera, where it is heading, already shows the current phase. */
   #packetsOnScreen(): boolean {
-    const spots = this.#phaseSpots();
     const world = this.#camera.destinationWorld();
-    if (spots.length === 0 || !world) return true;
-    const need = boundsOf(spots, CALM_EDGE_MARGIN, 0);
-    return (
-      need.x >= world.x &&
-      need.y >= world.y &&
-      need.x + need.width <= world.x + world.width &&
-      need.y + need.height <= world.y + world.height
-    );
+    return !world || packetsOnScreen(this.#data.layout, this.#currentPackets(), world);
   }
 
   /** Frames the whole zones of the current phase, so that the reader keeps their bearings. */
   #calmFocus(smooth: boolean): void {
-    const spots = this.#phaseSpots();
-    if (spots.length === 0) return;
-    const { groups } = this.#data.layout;
-    const zoneRects = this.#currentPackets()
-      .flatMap((p) => [p.fromZone, p.toZone])
-      .flatMap((id) => (id !== undefined && groups[id] ? [groups[id]] : []));
-    const zones = boundsOf(zoneRects.length > 0 ? zoneRects : spots, CALM_FRAME_PAD, 0);
-    const target =
-      this.#camera.fitZoom(zones) >= MIN_ZONE_FRAME_ZOOM
-        ? zones
-        : boundsOf(spots, CALM_FRAME_PAD, 0);
-    this.#camera.frame(target, MAX_CALM_ZOOM, smooth);
+    const frame = calmFrame(this.#camera.viewSize, this.#data.layout, this.#currentPackets());
+    if (frame) this.#camera.frame(frame, smooth);
   }
 
   /**
@@ -877,35 +830,13 @@ export class Player {
         : this.#isStopped() && !this.#pinned
           ? phases.flat()
           : this.#currentPackets();
-
-    const { nodes, groups } = this.#data.layout;
-    if (packets.length === 0) {
-      const whole = boundsOf([...Object.values(nodes), ...Object.values(groups)]);
-      this.#camera.frame(whole, MAX_CALM_ZOOM, smooth);
-      return;
-    }
-
-    const rects = packets.flatMap((packet) => [
-      ...[nodes[packet.from], nodes[packet.to]].filter((r) => r !== undefined),
-      ...[computePacketCalloutBox(packet)].flatMap((box) => (box ? [calloutRect(box)] : [])),
-      controlBox(packet.path),
-    ]);
-    const b = boundsOf(rects, FOLLOW_PAD, 0);
-    this.#camera.frame(
-      {
-        ...b,
-        width: Math.max(FOLLOW_MIN_SIZE.width, b.width),
-        height: Math.max(FOLLOW_MIN_SIZE.height, b.height),
-      },
-      MAX_FOLLOW_ZOOM,
-      smooth,
-    );
+    this.#camera.frame(followFrame(this.#data.layout, packets), smooth);
   }
 
   /** Shows the whole diagram and hands the camera back to automatic framing. */
   #fit(): void {
     this.#userMoved = false;
-    this.#camera.frame(this.#wholeDiagramBounds(), MAX_FIT_ZOOM, false);
+    this.#camera.frame(wholeDiagramFrame(this.#data.layout, this.#view), false);
   }
 
   /** The fit button: stops following, and keeps the whole diagram until the next step. */
@@ -923,39 +854,14 @@ export class Player {
     this.#updateCameraOverlays();
   }
 
-  #wholeDiagramBounds(): Rect {
-    const { nodes, groups } = this.#data.layout;
-    // A callout moved aside can reach past the diagram.
-    const movedCallouts = this.#view.phases
-      .flat()
-      .filter((packet) => packet.calloutShift !== undefined)
-      .flatMap((packet) => computePacketCalloutBox(packet) ?? [])
-      .map(calloutRect);
-    return boundsOf([...Object.values(nodes), ...Object.values(groups), ...movedCallouts]);
-  }
-
-  /**
-   * Frames what the current step is about, so text stays legible on wide diagrams.
-   * Steps without a focus (and the overview) show the whole diagram.
-   */
+  /** Frames what the current step is about (see `stepFrame`). */
   #frameStep(smooth: boolean): void {
-    const rects = this.#view.nodes.filter((n) => n.focused).map((n) => n.rect);
-    if (rects.length === 0 || this.#fixedFrame) {
-      this.#camera.frame(this.#wholeDiagramBounds(), MAX_FIT_ZOOM, smooth);
-      return;
-    }
-    for (const packet of this.#view.phases.flat()) {
-      const callout = computePacketCalloutBox(packet);
-      if (callout) rects.push(calloutRect(callout));
-    }
-    const bounds = boundsOf(rects);
-    const legible = this.#camera.fitZoom(bounds) >= MIN_ZONE_FRAME_ZOOM;
-    // A step too spread out to read at once is followed instead, zone by zone.
-    if (!legible && !this.#holdFrame && !this.#isStopped() && this.#view.phases.length > 0) {
-      this.#calmFocus(smooth);
-      return;
-    }
-    this.#camera.frame(bounds, MAX_FIT_ZOOM, smooth);
+    const follow = !this.#holdFrame && !this.#isStopped() && this.#view.phases.length > 0;
+    const frame = stepFrame(this.#camera.viewSize, this.#data.layout, this.#view, {
+      fixed: this.#fixedFrame,
+      ...(follow ? { follow: this.#currentPackets() } : {}),
+    });
+    this.#camera.frame(frame, smooth);
   }
 
   #zoomBy(factor: number, cx?: number, cy?: number): void {

@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { importContent } from '../exporter';
 import { buildAiPrompt } from '../prompt';
 import { SAMPLES } from '../samples';
-import { exportDocumentToHtml, LANGUAGE_ID } from './documents';
+import { exportDocumentToHtml, exportDocumentToSvg, LANGUAGE_ID } from './documents';
 import { registerLanguageFeatures } from './languageFeatures';
 import { t, uiLocale } from './locale';
 import { CanvasPanelManager } from './previewPanel';
@@ -47,6 +47,14 @@ export function activate(context: vscode.ExtensionContext): void {
         return;
       }
       await exportDocumentToHtml(doc);
+    }),
+    vscode.commands.registerCommand('dav.exportSvg', async () => {
+      const doc = commandTargetDocument();
+      if (!doc) {
+        void vscode.window.showInformationMessage(openDavFirst());
+        return;
+      }
+      await exportDocumentToSvg(doc);
     }),
     vscode.commands.registerCommand('dav.importHtml', async () => {
       const uris = await vscode.window.showOpenDialog({

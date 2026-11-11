@@ -278,6 +278,51 @@ describe('extension commands', () => {
     expect(host.written).toEqual([]);
   });
 
+  describe('dav.exportSvg', () => {
+    const stepped = fakeDocument(
+      'dav 1\ntitle "Doc S"\nnode a\nnode b\na --> b\nstep "Go" {\n  animate a --> b\n}',
+      's.dav',
+    );
+
+    it('asks for animated or still when the diagram has steps', async () => {
+      host.activeTextEditor = { document: stepped };
+
+      await run('dav.exportSvg');
+
+      expect(host.quickPick.map((item) => item.label)).toEqual(['Animated', 'Still']);
+      expect(host.written[0]).toContain('<animate');
+      expect(host.written[0]).toContain('<title>Doc S</title>');
+    });
+
+    it('writes a still picture when that is picked', async () => {
+      host.activeTextEditor = { document: stepped };
+      host.pickIndex = 1;
+
+      await run('dav.exportSvg');
+
+      expect(host.written[0]).toMatch(/^<\?xml/);
+      expect(host.written[0]).not.toContain('<animate');
+    });
+
+    it('writes a still picture without asking when there are no steps', async () => {
+      host.activeTextEditor = { document: docA };
+
+      await run('dav.exportSvg');
+
+      expect(host.quickPick).toEqual([]);
+      expect(host.written[0]).not.toContain('<animate');
+    });
+
+    it('does nothing when the picker is dismissed', async () => {
+      host.activeTextEditor = { document: stepped };
+      host.pickIndex = null;
+
+      await run('dav.exportSvg');
+
+      expect(host.written).toEqual([]);
+    });
+  });
+
   it('leaves a closed preview document out of the AI prompt', async () => {
     host.activeTextEditor = { document: docA };
     await run('dav.openPreview');

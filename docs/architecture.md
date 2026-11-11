@@ -5,7 +5,7 @@ DynamicArchitectViewer is a VS Code extension in `apps/vscode`. It turns a `.dav
 ## Principles
 
 1. **The text is the source of truth.** There is no diagram state apart from the `.dav` file.
-2. **One renderer.** The preview and exported HTML run the same layout, scene and player code.
+2. **One renderer.** The preview and exported HTML run the same layout, scene and player code. The SVG export draws the same scene and frames it with the same camera rules.
 3. **Exported HTML stands alone.** It makes no network requests and keeps working from `file://`.
 4. **Input is untrusted.** Opening a `.dav` or HTML file from someone else must be safe.
 5. **Easy to write, including for AI agents.** No coordinates, and errors say what to fix.
@@ -25,6 +25,7 @@ flowchart LR
   Build --> Player["runtime: Player"]
   Player --> Preview["Preview webview"]
   Player --> Html["Exported HTML"]
+  Build --> Svg["Exported SVG"]
 ```
 
 `resolveView` works out the state of the diagram at a step. `buildScene` turns that into a tree of virtual SVG elements, and `Player` renders the tree and runs the animation. Everything before `Player` is free of the DOM.
@@ -53,9 +54,9 @@ All paths are under `apps/vscode/src`.
 | `model/` | Data types and icon metadata. No coordinates or source positions | Nothing |
 | `dsl/` | Parser, validation, completions, formatter | `model` |
 | `layout/` | `computeLayout(doc)`. See [How diagrams are laid out](layout.md) | `model` |
-| `scene/` | Step state, rail geometry, callouts, virtual SVG. No DOM | `layout`, `model` |
+| `scene/` | Step state, rail geometry, callouts, camera framing, virtual SVG. No DOM | `layout`, `model` |
 | `runtime/` | `Player`, shared by the preview and exported HTML | `scene`, `layout`, `model` |
-| `exporter/` | Standalone HTML export and import | `dsl`, `layout`, `model`, `scene`, `runtime` |
+| `exporter/` | Standalone HTML and SVG export, HTML import | `dsl`, `layout`, `model`, `scene`, `runtime` |
 | `prompt/` | Prompt template that teaches the language to AI agents | `model` |
 | `skill/` | The `dav-check` command bundled with the agent skill | `dsl`, `model` |
 | `protocol/` | Types of the messages between extension and webview | Nothing |
@@ -127,6 +128,25 @@ findAtOffset(sourceMap, offset): { elementId: string | null; stepIndex: number |
 
 **Extracting the DSL.** `importContent(content)` in `exporter/import.ts` reads the `dav-data` JSON without evaluating the page. It checks `format`, `version` and the type of `dsl`, and otherwise returns a reason such as `unrecognized-html`, `unsupported-version` or `corrupt`.
 
+## Exported SVG
+
+`exportSvg(dsl, options)` in `exporter/svg.ts` writes an image for places that show pictures but run no script, such as a README on GitHub or GitLab, where it goes in an `<img>`.
+
+- **Still** (`animate: false`, or a diagram without steps): the overview, framed on the whole diagram.
+- **Animated**: every step in a loop at 1x, as "Play all" plays them. The canvas is 960 × 540 below a header with the step's title and description, the step ruler and, when the diagram has zones, the zone strip. When the camera ever shows less than the whole diagram, a minimap sits beside the header rather than over the canvas.
+
+Motion uses SMIL only, because `<img>` runs no script. Every animation lasts the length of the whole playback and repeats, so they stay in step without referring to one another:
+
+| What changes | How |
+| :--- | :--- |
+| The step's scene, a phase's packets, flows, lit stops, emphasized labels and zone outlines | One copy per state, shown with a discrete `display` animation |
+| The camera | `viewBox` of the canvas, eased between the poses the preview's camera would head for |
+| A packet riding its rail, and the leader of its callout | Positions sampled every 66 ms, interpolated in between |
+
+The camera follows the preview's rules from `scene/framing.ts`: each step starts on `stepFrame`, and a phase whose nodes are off screen moves to `calmFrame`. The preview's "follow" toggle and the reader's own panning have no counterpart. Each element's attributes hold its state at the start of the loop, so a viewer without SMIL shows the first moment of the first step. Colors follow the reader's system light or dark setting, which can differ from the theme of the site showing the image.
+
+**Security.** The scene is serialized by `exporter/xml.ts`, which escapes every text and attribute value and drops characters XML does not allow. The file has no script, no `foreignObject` and no external reference.
+
 ## The extension host
 
 `extension/languageFeatures.ts` provides diagnostics, Quick Fixes, completions, formatting and the outline. `extension/extension.ts` registers these commands:
@@ -135,6 +155,7 @@ findAtOffset(sourceMap, offset): { elementId: string | null; stepIndex: number |
 | :--- | :--- |
 | `dav.openPreview` | Open the preview beside the editor |
 | `dav.exportHtml` | Export a standalone HTML file |
+| `dav.exportSvg` | Export an animated or still SVG image |
 | `dav.importHtml` | Open the `.dav` text embedded in an exported file |
 | `dav.newFromTemplate` | Create a diagram from a sample |
 | `dav.copyAiPrompt` | Copy a prompt that teaches the language to an AI agent |

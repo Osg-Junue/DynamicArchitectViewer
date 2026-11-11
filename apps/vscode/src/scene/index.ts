@@ -10,6 +10,21 @@ export {
   sceneBounds,
 } from './build';
 export { calloutRect, computePacketCalloutBox, type PacketCalloutBox } from './callout';
+export {
+  calmFrame,
+  clampZoom,
+  type Frame,
+  fitZoom,
+  followFrame,
+  framePose,
+  MAX_FIT_ZOOM,
+  type Pose,
+  packetsOnScreen,
+  type Size,
+  stepFrame,
+  visibleWorld,
+  wholeDiagramFrame,
+} from './framing';
 export { type Bezier, connect, type Point, pointAt, reverse, svgPath } from './geometry';
 export type { IconShapes } from './icons';
 export { paint } from './paint';
@@ -24,6 +39,6 @@ export {
   resolveView,
 } from './resolve';
 export { estimateTextWidth, fitText } from './text';
-export { MIN_PACKET_MS, PHASE_MS } from './timing';
+export { HOLD_MS, MIN_PACKET_MS, PHASE_MS } from './timing';
 export { h, type VElement, type VNode } from './vnode';
 export { ZONE_LABEL, type ZoneMove, type ZonePlace, zoneColor, zoneMoves } from './zones';

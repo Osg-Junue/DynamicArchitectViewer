@@ -47,6 +47,7 @@ The documentation button in the preview toolbar opens a guide to the language, w
 - **Playback** with step selection, play all, adjustable speed, and a still view of each step.
 - **Language support:** highlighting, diagnostics with Quick Fixes, completions for names, attributes and the 42 built-in icons, a formatter that keeps comments, and an outline.
 - **Standalone HTML export.** One file that works offline, with a strict Content Security Policy. The source can be extracted from it again.
+- **SVG export for READMEs.** An animated SVG plays every step with the camera following the flow, and needs no script, so it plays as an image on GitHub and GitLab. A still SVG shows the whole diagram.
 - **AI-friendly.** Install an agent skill that lets Claude Code, GitHub Copilot and Codex write and validate `.dav` files, or copy a prompt for chat assistants.
 - **Japanese and English UI**, following the VS Code display language.
 
@@ -56,6 +57,7 @@ The documentation button in the preview toolbar opens a guide to the language, w
 | :--- | :--- |
 | Open Canvas Preview to the Side | `Ctrl+Shift+V` / `⌘⇧V` |
 | Export Standalone HTML | |
+| Export SVG Image... | |
 | Extract DSL from Standalone HTML... | |
 | New Diagram from Sample Template... | |
 | Copy AI Prompt Template (DSL v1 Spec) | |
