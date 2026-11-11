@@ -58,7 +58,8 @@ var l = {
 		icon: "icon",
 		color: "color",
 		parallel: "bool",
-		desc: "string"
+		desc: "string",
+		code: "string"
 	}
 }, u = {
 	node: /* @__PURE__ */ new Set([
@@ -1808,14 +1809,15 @@ var we = {
 	step: 68,
 	focus: 76,
 	state: 80,
-	animate: 84
+	animate: 84,
+	code: 91
 }, Te = xe.deserialize({
 	version: 14,
-	states: "-UQkQPOOOrQPO'#CzOOQO'#Dc'#DcOOQO'#DY'#DYQYQPOOQYQPOOOwQPO'#C_O|QPO'#CcO!RQPO'#CxO!WQPO'#CfO!]QPO'#C}O!bQPO,59fOOQO-E7W-E7WOOQO,58y,58yOOQO,58},58}O!gQPO,59dO#UQPO,59QO#aQPO,59iO#fQPO1G/QOOQO'#Ch'#ChO$QQPO'#CkOOQO1G/O1G/OO$]QPO1G/OO$wQPO'#CwOOQO1G.l1G.lO#[QPO1G.lO#XQPO1G.lO%SQPO'#DPOOQO1G/T1G/TO%eQPO'#C|OOQO7+$l7+$lO%jQPO7+$lOOQO'#Cm'#CmO&RQPO'#ClOOQO,59V,59VO&WQPO,59VOOQO7+$j7+$jOOQO'#D['#D[O&`QPO,59cOOQO,59c,59cOOQO7+$W7+$WO#[QPO7+$WOOQO'#De'#DeOOQO'#D]'#D]O&kQPO,59kOOQO,59k,59kO&|QPO'#DQO'RQPO'#DRO'WQPO'#DTO']QPO'#DVOOQO,59h,59hOOQO<<HW<<HWO'bQPO,59WO'vQPO1G.qO(RQPO1G.qOOQO1G.q1G.qOOQO-E7Y-E7YOOQO1G.}1G.}OOQO<<Gr<<GrOOQO-E7Z-E7ZOOQO1G/V1G/VOOQO,59l,59lO(ZQPO,59mO(oQPO,59oO(tQPO,59qOOQO'#Dd'#DdOOQO1G.r1G.rOOQO'#Cq'#CqOOQO,59u,59uOOQO7+$]7+$]O(yQPO7+$]OOQO-E7X-E7XO)UQPO'#D^O)ZQPO1G/XOOQO1G/Z1G/ZO)oQPO1G/]OOQO<<Gw<<GwP)tQPO'#DZOOQO,59x,59xOOQO-E7[-E7[O)|QPO7+$wO*hQPO'#DXOOQO<<Hc<<HcO*pQPO<<HcO+UQPO<<HcOOQO'#D_'#D_O+]QPO,59sOOQO,59s,59sOOQOAN=}AN=}O+eQPOAN=}OOQO-E7]-E7]OOQO1G/_1G/_OOQOG23iG23i",
-	stateData: "+y~O!UOSPOS~OSPOWVOZXOmWOrYO~OTUO~PYOoZO~OU]O~OX^O~OS_O~OS`O~OXaO~OSbO~OXcO^dOSlaWlaZlamlarla!Slaila~OXcO^dOjgO~OjkO~O^dOcmOSniWniZnimnirni!Sni~OSpO]rObpO~O^dOSliWliZlimlirli!Sliili~OZXOiwOmWO~Ob!OOi}Ov!POx!QOz!RO~OX!SO~O^dOSnqWnqZnqmnqrnq!Snq~Oc!UO~O]!XOh!VO~OZXOi!ZOmWO~Ob!OOi!^Ov!POx!QOz!RO~OX!_O~OS!`O~OS!aO~OS!bO~OS!cOU!cOX!cOd!cOf!eOg!eO~OSpO]!gObpO~O]!gOh!hO~Oh!jObuaiuavuaxuazua~O^dO~Oo!mO~OSpO]!nObpO~OS!pO~Oh!jObuiiuivuixuizui~OS!rO~OSpObpO~O^dOcmOj!sObyqiyqvyqxyqzyq~Ob!OOi!yO~Oj!sObyyiyyvyyxyyzyy~O^dO~P*pOb!OOi!}O~Oj!sOby!Riy!Rvy!Rxy!Rzy!R~O",
-	goto: "%n!YPPP!ZPPP!^PP!cP!lPP!r#_#gPPP#mPPPPP#p!cP!^P#z!^P$Q$T$]P$]P$]P$a$k$r$x%O%U%[PPP%b%g%jRTOVQOSTUQOSTTugvQf_Rj`Qe_Qi`QnbQtfQyjQ!ToQ!l!aQ!u!rR!{!vQsdV!f!V!h!oXqd!V!h!oR!c!UQh`SxijR![yQobR!v!rRlaSzk|T!w!s!xTzk|Q!t!rS!z!u!vR#O!{SSOTR[SQ!WsR!i!WQvgR!YvQ|kR!]|Q!k!`R!q!kQ!x!sR!|!xVROSTR!d!UT{k|",
-	nodeNames: "⚠ LineComment Document Header Identifier dav Number Title title String Group group Label ] [ Attributes Attribute AttrName desc : Color Boolean true false , } { GroupBody Node node Edge Arrow EdgeLabel Step step StepBody Desc Focus focus State state Animate animate AnimateBody",
-	maxTerm: 55,
+	states: ".QQkQPOOOrQPO'#CzOOQO'#Df'#DfOOQO'#D]'#D]QYQPOOQYQPOOOwQPO'#C_O|QPO'#CcO!RQPO'#CxO!WQPO'#CfO!]QPO'#C}O!bQPO,59fOOQO-E7Z-E7ZOOQO,58y,58yOOQO,58},58}O!gQPO,59dO#UQPO,59QO#aQPO,59iO#fQPO1G/QOOQO'#Ch'#ChO$QQPO'#CkOOQO1G/O1G/OO$]QPO1G/OO$wQPO'#CwOOQO1G.l1G.lO#[QPO1G.lO#XQPO1G.lO%SQPO'#DPOOQO1G/T1G/TO%eQPO'#C|OOQO7+$l7+$lO%jQPO7+$lOOQO'#Cm'#CmO&RQPO'#ClOOQO,59V,59VO&WQPO,59VOOQO7+$j7+$jOOQO'#D_'#D_O&`QPO,59cOOQO,59c,59cOOQO7+$W7+$WO#[QPO7+$WOOQO'#Dh'#DhOOQO'#D`'#D`O&kQPO,59kOOQO,59k,59kO&|QPO'#DQO'RQPO'#DRO'WQPO'#DTO']QPO'#DVOOQO,59h,59hOOQO<<HW<<HWO'bQPO,59WO'vQPO1G.qO(RQPO1G.qOOQO1G.q1G.qOOQO-E7]-E7]OOQO1G.}1G.}OOQO<<Gr<<GrOOQO-E7^-E7^OOQO1G/V1G/VOOQO,59l,59lO(ZQPO,59mO(oQPO,59oO(tQPO,59qOOQO'#Dg'#DgOOQO1G.r1G.rOOQO'#Cq'#CqOOQO,59x,59xOOQO7+$]7+$]O(yQPO7+$]OOQO-E7[-E7[O)UQPO'#DaO)ZQPO1G/XOOQO1G/Z1G/ZO)oQPO1G/]OOQO<<Gw<<GwP)tQPO'#D^OOQO,59{,59{OOQO-E7_-E7_O)|QPO7+$wO*hQPO'#DXOOQO<<Hc<<HcO*sQPO<<HcO+XQPO<<HcOOQO'#Db'#DbO+`QPO,59sOOQO,59s,59sO+kQPO'#DYOOQOAN=}AN=}O+vQPOAN=}OOQO-E7`-E7`OOQO1G/_1G/_O,[QPO,59tOOQO,59t,59tO,jQPO,59tOOQOG23iG23iOOQO1G/`1G/`O,rQPO1G/`OOQO7+$z7+$z",
+	stateData: "-Q~O!XOSPOS~OSPOWVOZXOmWOrYO~OTUO~PYOoZO~OU]O~OX^O~OS_O~OS`O~OXaO~OSbO~OXcO^dOSlaWlaZlamlarla!Vlaila~OXcO^dOjgO~OjkO~O^dOcmOSniWniZnimnirni!Vni~OSpO]rObpO~O^dOSliWliZlimlirli!Vliili~OZXOiwOmWO~Ob!OOi}Ov!POx!QOz!RO~OX!SO~O^dOSnqWnqZnqmnqrnq!Vnq~Oc!UO~O]!XOh!VO~OZXOi!ZOmWO~Ob!OOi!^Ov!POx!QOz!RO~OX!_O~OS!`O~OS!aO~OS!bO~OS!cOU!cOX!cOd!cOf!eOg!eO~OSpO]!gObpO~O]!gOh!hO~Oh!jObuaiuavuaxuazua~O^dO~Oo!mO~OSpO]!nObpO~OS!pO~Oh!jObuiiuivuixuizui~OS!rO~OSpObpO~O^dOcmOj!sObyqiyqvyqxyqzyq~Ob!OOi!yO}!zO~Oj!sObyyiyyvyyxyyzyy~O^dO~P*sOb!OOi#OO}!zO~OS#ROX#PO!O#QO~Oj!sOby!Riy!Rvy!Rxy!Rzy!R~O!O#TOb|ai|a}|a~OX#UO!O#TO~O!O#VOb|ii|i}|i~O",
+	goto: "%q!]PPP!^PPP!aPP!fP!oPP!u#b#jPPP#pPPPPP#s!fP!aP#}!aP$T$W$`P$`P$`P$d$[PP$n$u${%R%X%_PPP%e%j%mRTOVQOSTUQOSTTugvQf_Rj`Qe_Qi`QnbQtfQyjQ!ToQ!l!aQ!u!rR!|!vQsdV!f!V!h!oXqd!V!h!oR!c!UQh`SxijR![yQobR!v!rRlaSzk|T!w!s!xTzk|Q!t!rS!{!u!vR#S!|SSOTR[SQ!WsR!i!WQvgR!YvQ|kR!]|Q!k!`R!q!kQ!x!sR!}!xVROSTR!d!UT{k|",
+	nodeNames: "⚠ LineComment Document Header Identifier dav Number Title title String Group group Label ] [ Attributes Attribute AttrName desc : Color Boolean true false , } { GroupBody Node node Edge Arrow EdgeLabel Step step StepBody Desc Focus focus State state Animate animate AnimateBody Code code CodeFence",
+	maxTerm: 58,
 	nodeProps: [[
 		"openedBy",
 		13,
@@ -1831,7 +1833,7 @@ var we = {
 	]],
 	skippedNodes: [0, 1],
 	repeatNodeCount: 6,
-	tokenData: "(t~RjX^!spq!srs#hst%[|}%v}!O%{!O!P&z!P!Q'Q!Q![&a![!]'o!^!_'t!c!}'}!}#O(`#P#Q(e#R#S'}#T#o'}#o#p(j#q#r(o#y#z!s$f$g!s#BY#BZ!s$IS$I_!s$I|$JO!s$JT$JU!s$KV$KW!s&FU&FV!s~!xY!U~X^!spq!s#y#z!s$f$g!s#BY#BZ!s$IS$I_!s$I|$JO!s$JT$JU!s$KV$KW!s&FU&FV!s~#kWOY#hZr#hrs$Ts#O#h#O#P$Y#P;'S#h;'S;=`%U<%lO#h~$YOX~~$]RO;'S#h;'S;=`$f;=`O#h~$iXOY#hZr#hrs$Ts#O#h#O#P$Y#P;'S#h;'S;=`%U;=`<%l#h<%lO#h~%XP;=`<%l#h~%_R!Q![%h!c!}%h#T#o%h~%mRd~!Q![%h!c!}%h#T#o%h~%{Oh~~&OQ}!O&U!Q![&a~&XP!`!a&[~&aOo~~&fQU~!O!P&l!Q![&a~&oP!Q![&r~&wPU~!Q![&r~&}P!O!P&U~'TP!P!Q'W~']SP~OY'WZ;'S'W;'S;=`'i<%lO'W~'lP;=`<%l'W~'tOc~~'wQ}!O&U!O!P&U~(SSS~!Q!['}!c!}'}#R#S'}#T#o'}~(eO^~~(jO]~~(oOj~~(tOi~",
+	tokenData: "*h~RkX^!vpq!vrs#kst%_|}%y}!O&O!O!P&}!P!Q'T!Q![&d![!]'r!^!_'w!c!}(Q!}#O(c#P#Q(h#R#S(Q#S#T(m#T#o(Q#o#p*^#q#r*c#y#z!v$f$g!v#BY#BZ!v$IS$I_!v$I|$JO!v$JT$JU!v$KV$KW!v&FU&FV!v~!{Y!X~X^!vpq!v#y#z!v$f$g!v#BY#BZ!v$IS$I_!v$I|$JO!v$JT$JU!v$KV$KW!v&FU&FV!v~#nWOY#kZr#krs$Ws#O#k#O#P$]#P;'S#k;'S;=`%X<%lO#k~$]OX~~$`RO;'S#k;'S;=`$i;=`O#k~$lXOY#kZr#krs$Ws#O#k#O#P$]#P;'S#k;'S;=`%X;=`<%l#k<%lO#k~%[P;=`<%l#k~%bR!Q![%k!c!}%k#T#o%k~%pRd~!Q![%k!c!}%k#T#o%k~&OOh~~&RQ}!O&X!Q![&d~&[P!`!a&_~&dOo~~&iQU~!O!P&o!Q![&d~&rP!Q![&u~&zPU~!Q![&u~'QP!O!P&X~'WP!P!Q'Z~'`SP~OY'ZZ;'S'Z;'S;=`'l<%lO'Z~'oP;=`<%l'Z~'wOc~~'zQ}!O&X!O!P&X~(VSS~!Q![(Q!c!}(Q#R#S(Q#T#o(Q~(hO^~~(mO]~~(pP#S#T(s~(vP#S#T(y~(|TO#S(y#S#T)]#T;'S(y;'S;=`*W<%lO(y~)`TO#S(y#S#T)o#T;'S(y;'S;=`*W<%lO(y~)rTO#S(y#S#T*R#T;'S(y;'S;=`*W<%lO(y~*WO!O~~*ZP;=`<%l(y~*cOj~~*hOi~",
 	tokenizers: [0],
 	topRules: { Document: [0, 2] },
 	specialized: [{
@@ -1895,11 +1897,24 @@ function ke(e) {
 		invalid: t
 	};
 }
+function Ae(e) {
+	let t = e.startsWith("```"), n = e.length >= (t ? 6 : 3) && e.endsWith("```"), r = e.slice(t ? 3 : 0, n ? -3 : void 0).replace(/\r\n?/g, "\n").replace(/\t/g, "  ");
+	if (!r.includes("\n")) return r.trim();
+	let i = r.split("\n");
+	i.length > 0 && i[0]?.trim() === "" && i.shift(), i.length > 0 && i[i.length - 1]?.trim() === "" && i.pop();
+	let a = i.map((e) => e.trimEnd()), o = Infinity;
+	for (let e of a) {
+		if (e.length === 0) continue;
+		let t = /^ */.exec(e)?.[0].length ?? 0;
+		t < o && (o = t);
+	}
+	return !Number.isFinite(o) || o === 0 ? a.join("\n") : a.map((e) => e.length > 0 ? e.slice(o) : "").join("\n");
+}
 // src/dsl/analyze.ts
-var Ae = {
+var je = {
 	style: "solid",
 	direction: "forward"
-}, je = {
+}, Me = {
 	string: "\"...\"",
 	bool: "true | false",
 	color: i.join(" | "),
@@ -1907,10 +1922,10 @@ var Ae = {
 	icon: n.join(" | "),
 	ident: "identifier"
 };
-function Me(e) {
-	return new Ne(e).run();
+function Ne(e) {
+	return new Pe(e).run();
 }
-var Ne = class {
+var Pe = class {
 	text;
 	diagnostics = [];
 	elements = /* @__PURE__ */ new Map();
@@ -2040,7 +2055,7 @@ var Ne = class {
 	readEdge(e) {
 		let t = e.getChildren("Identifier"), n = e.getChild("Arrow"), [r, i] = t;
 		if (!r || !i || !n) return;
-		let a = X(this.text, r), o = X(this.text, i), s = X(this.text, n), l = f[s] ?? Ae;
+		let a = X(this.text, r), o = X(this.text, i), s = X(this.text, n), l = f[s] ?? je;
 		a === o && l.direction === "bidirectional" && this.report("invalid-self-arrow", "error", n, {
 			arrow: s,
 			suggestion: l.style === "dashed" ? "..>" : "-->"
@@ -2136,7 +2151,7 @@ var Ne = class {
 	readAnimate(e, t) {
 		let [n, r] = e.getChildren("Identifier"), i = e.getChild("Arrow");
 		if (!n || !r || !i) return;
-		let a = X(this.text, i), o = f[a] ?? Ae;
+		let a = X(this.text, i), o = f[a] ?? je;
 		o.style === "dashed" ? this.report("invalid-animate-arrow", "error", i, {
 			arrow: a,
 			suggestion: o.direction === "bidirectional" ? "<->" : "-->"
@@ -2156,7 +2171,17 @@ var Ne = class {
 		let d = s.value("icon");
 		d !== void 0 && (c.icon = d);
 		let p = [], m = s.value("desc");
-		m !== void 0 && m.length > 0 && p.push(m), p.push(...this.readDescList(e.getChild("AnimateBody"))), p.length > 0 && (c.description = p.join("\n")), t.animations.push(c), this.references.push({
+		m !== void 0 && m.length > 0 && p.push(m);
+		let h = e.getChild("AnimateBody");
+		p.push(...this.readDescList(h)), p.length > 0 && (c.description = p.join("\n"));
+		let g = !1, _, v = s.get("code");
+		if (v !== void 0 && (g = !0, v.value.trim().length > 0 && (_ = { body: v.value })), h) for (let e of Y(h)) {
+			if (e.name !== "Code") continue;
+			g && this.report("duplicate-code", "warning", e), g = !0;
+			let t = this.readCode(e);
+			t !== void 0 && (_ = t);
+		}
+		_ !== void 0 && (c.code = _), t.animations.push(c), this.references.push({
 			id: c.from,
 			range: Z(n),
 			allowed: ["node"]
@@ -2165,6 +2190,12 @@ var Ne = class {
 			range: Z(r),
 			allowed: ["node"]
 		});
+	}
+	readCode(e) {
+		let t = e.getChild("Identifier"), n = e.getChild("String"), r = e.getChild("CodeFence"), i, a;
+		if (r ? (n && (i = this.readString(n)), a = Ae(X(this.text, r))) : n && (a = this.readString(n)), a === void 0 || a.trim().length === 0) return;
+		let o = { body: a };
+		return t && (o.lang = X(this.text, t)), i !== void 0 && (o.title = i), o;
 	}
 	readString(e) {
 		let { value: t, invalid: n } = ke(X(this.text, e));
@@ -2223,7 +2254,7 @@ var Ne = class {
 		let c = X(this.text, s), l = () => {
 			this.report("invalid-attribute-value", "error", s, {
 				name: e,
-				expected: je[t]
+				expected: Me[t]
 			});
 		};
 		switch (t) {
@@ -2301,7 +2332,7 @@ function Z(e) {
 var Q = d.map((e) => e.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
 new RegExp(Q), RegExp(`(?:${Q})\\s*\\w*$`), RegExp(`${Q}|^\\s*animate\\b`);
 // src/dsl/diagnostics.ts
-var Pe = {
+var Fe = {
 	ja: {
 		"syntax-error": "構文エラー: \"{token}\" は解釈できません",
 		"unexpected-eof": "入力が途中で終わっています（\"}\" や \"]\" の閉じ忘れの可能性があります）",
@@ -2321,7 +2352,8 @@ var Pe = {
 		"invalid-self-arrow": "自己ループに双方向の矢印 \"{arrow}\" は使えません{suggestion}",
 		"invalid-escape": "エスケープシーケンス \"{sequence}\" は使えません（使用可: \\\" \\\\ \\n \\t）",
 		"attribute-not-applicable": "属性 \"{name}\" は{kind}には適用されません",
-		"empty-state": "state に属性が指定されていません"
+		"empty-state": "state に属性が指定されていません",
+		"duplicate-code": "code は1つの animate に1つだけ指定できます（後の値が使われます）"
 	},
 	en: {
 		"syntax-error": "Syntax error: unexpected \"{token}\"",
@@ -2342,9 +2374,10 @@ var Pe = {
 		"invalid-self-arrow": "Bidirectional arrow \"{arrow}\" cannot form a self-loop{suggestion}",
 		"invalid-escape": "Invalid escape sequence \"{sequence}\" (allowed: \\\" \\\\ \\n \\t)",
 		"attribute-not-applicable": "Attribute \"{name}\" does not apply to a {kind}",
-		"empty-state": "state has no attributes"
+		"empty-state": "state has no attributes",
+		"duplicate-code": "Only one code block is allowed per animate (the last value wins)"
 	}
-}, Fe = {
+}, Ie = {
 	ja: {
 		node: "ノード",
 		group: "グループ",
@@ -2359,27 +2392,27 @@ var Pe = {
 		state: "state",
 		animate: "animate"
 	}
-}, Ie = {
+}, Le = {
 	ja: "（もしかして \"{value}\"？）",
 	en: " (did you mean \"{value}\"?)"
-}, Le = /* @__PURE__ */ new Set([
+}, Re = /* @__PURE__ */ new Set([
 	"owner",
 	"kind",
 	"actual",
 	"expected"
 ]);
-function Re(e, t = "en") {
-	return Pe[t][e.code].replace(/\{(\w+)\}/g, (n, r) => {
+function ze(e, t = "en") {
+	return Fe[t][e.code].replace(/\{(\w+)\}/g, (n, r) => {
 		let i = e.args[r] ?? "";
-		return r === "suggestion" ? i ? Ie[t].replace("{value}", i) : "" : Le.has(r) ? i.split(/\s*\|\s*/).map((e) => Fe[t][e] ?? e).join(t === "ja" ? "・" : " or ") : i;
+		return r === "suggestion" ? i ? Le[t].replace("{value}", i) : "" : Re.has(r) ? i.split(/\s*\|\s*/).map((e) => Ie[t][e] ?? e).join(t === "ja" ? "・" : " or ") : i;
 	});
 }
 // src/dsl/format.ts
-var ze = "  ", Be = /* @__PURE__ */ new Set([
+var Be = "  ", Ve = /* @__PURE__ */ new Set([
 	"GroupBody",
 	"StepBody",
 	"AnimateBody"
-]), Ve = {
+]), He = {
 	Group: {
 		body: "GroupBody",
 		emptySuffix: " {}"
@@ -2392,7 +2425,7 @@ var ze = "  ", Be = /* @__PURE__ */ new Set([
 		body: "AnimateBody",
 		emptySuffix: ""
 	}
-}, He = /* @__PURE__ */ new Set([
+}, Ue = /* @__PURE__ */ new Set([
 	"Header",
 	"Title",
 	"Group",
@@ -2402,40 +2435,45 @@ var ze = "  ", Be = /* @__PURE__ */ new Set([
 	"Desc",
 	"Focus",
 	"State",
-	"Animate"
+	"Animate",
+	"Code"
 ]);
-function Ue(e) {
+function We(e) {
 	let t = De(e), n = !1;
 	if (t.iterate({ enter: (e) => (e.type.isError && (n = !0), !n) }), n) return e;
 	let r = [];
-	new We(e, r).block(t.topNode, 0);
+	new Ge(e, r).block(t.topNode, 0);
 	let i = e.includes("\r\n") ? "\r\n" : "\n";
 	return r.length > 0 ? `${r.join(i)}${i}` : "";
 }
-var We = class {
+var Ge = class {
 	text;
 	lines;
 	constructor(e, t) {
 		this.text = e, this.lines = t;
 	}
 	block(e, t) {
-		let n = ze.repeat(t), r = -1, i = !0;
+		let n = Be.repeat(t), r = -1, i = !0;
 		for (let a of Y(e)) {
 			let e = a.name === "LineComment";
-			if (!e && !He.has(a.name)) continue;
-			let o = Ke(r >= 0 ? this.text.slice(r, a.from) : "");
+			if (!e && !Ue.has(a.name)) continue;
+			let o = qe(r >= 0 ? this.text.slice(r, a.from) : "");
 			e && r >= 0 && o === 0 ? this.appendToLastLine(` ${X(this.text, a).trimEnd()}`) : (!i && o >= 2 && this.lines.push(""), e ? this.lines.push(n + X(this.text, a).trimEnd()) : this.statement(a, t)), r = a.to, i = !1;
 		}
 	}
 	statement(e, t) {
-		let n = ze.repeat(t);
-		if (Ge(e)) {
-			this.verbatim(e, n);
+		let n = Be.repeat(t);
+		if (Ke(e)) {
+			e.name === "Code" ? this.verbatimCode(e, n) : this.verbatim(e, n);
 			return;
 		}
-		let r = Object.hasOwn(Ve, e.name) ? Ve[e.name] : void 0;
+		if (e.name === "Code") {
+			this.code(e, n);
+			return;
+		}
+		let r = Object.hasOwn(He, e.name) ? He[e.name] : void 0;
 		if (r) {
-			let i = e.getChild(r.body), a = this.inline(e, (e) => !Be.has(e.name)), o = i !== null && Y(i).some((e) => e.name !== "{" && e.name !== "}");
+			let i = e.getChild(r.body), a = this.inline(e, (e) => !Ve.has(e.name)), o = i !== null && Y(i).some((e) => e.name !== "{" && e.name !== "}");
 			if (!i || !o) {
 				this.lines.push(`${n}${a}${r.emptySuffix}`);
 				return;
@@ -2470,13 +2508,37 @@ var We = class {
 			return `${t ? X(this.text, t) : ""}: ${n ? X(this.text, n) : ""}`;
 		}).join(", ")}]`;
 	}
+	code(e, t) {
+		let n = e.getChild("Identifier"), r = e.getChild("String"), i = e.getChild("CodeFence"), a = ["code"];
+		n && a.push(X(this.text, n)), r && a.push(X(this.text, r)), i ? (a.push("```"), this.lines.push(`${t}${a.join(" ")}`), this.fenceBody(i, t)) : this.lines.push(`${t}${a.join(" ")}`);
+	}
+	verbatimCode(e, t) {
+		let n = e.getChild("CodeFence");
+		if (!n) {
+			this.verbatim(e, t);
+			return;
+		}
+		let r = X(this.text, {
+			from: e.from,
+			to: n.from
+		}).replace(/[ \t]*$/, ""), i = r.endsWith("\n"), a = i ? r.replace(/\r?\n$/, "") : r;
+		this.verbatimSpan(a, e.from, t), i ? this.lines.push(`${t}\`\`\``) : this.appendToLastLine(" ```"), this.fenceBody(n, t);
+	}
+	fenceBody(e, t) {
+		let n = Ae(X(this.text, e));
+		if (n.length > 0) for (let e of n.split("\n")) this.lines.push(e.length > 0 ? `${t}  ${e}` : "");
+		this.lines.push(`${t}\`\`\``);
+	}
 	verbatim(e, t) {
-		let n = X(this.text, e).split(/\r?\n/), r = qe(this.lineAt(e.from));
-		n.forEach((e, n) => {
-			if (n === 0) this.lines.push(t + e.trimEnd());
+		this.verbatimSpan(X(this.text, e), e.from, t);
+	}
+	verbatimSpan(e, t, n) {
+		let r = e.split(/\r?\n/), i = Je(this.lineAt(t));
+		r.forEach((e, t) => {
+			if (t === 0) this.lines.push(n + e.trimEnd());
 			else {
-				let n = e.startsWith(r) ? e.slice(r.length) : e.trimStart();
-				this.lines.push(t + n.trimEnd());
+				let t = e.startsWith(i) ? e.slice(i.length) : e.trimStart();
+				this.lines.push(n + t.trimEnd());
 			}
 		});
 	}
@@ -2489,48 +2551,48 @@ var We = class {
 		t >= 0 ? this.lines[t] += e : this.lines.push(e.trimStart());
 	}
 };
-function Ge(e) {
-	for (let t of Y(e)) if (t.name === "LineComment" || !Be.has(t.name) && Ge(t)) return !0;
+function Ke(e) {
+	for (let t of Y(e)) if (t.name === "LineComment" || !Ve.has(t.name) && Ke(t)) return !0;
 	return !1;
 }
-function Ke(e) {
+function qe(e) {
 	let t = 0;
 	for (let n of e) n === "\n" && t++;
 	return t;
 }
-function qe(e) {
+function Je(e) {
 	return /^\s*/.exec(e)?.[0] ?? "";
 }
 // src/skill/check.ts
-var Je = "Usage: node dav-check.mjs [--write] <file.dav>...", Ye = 0, Xe = 1, $ = 2;
-function Ze(e, t) {
+var Ye = "Usage: node dav-check.mjs [--write] <file.dav>...", Xe = 0, Ze = 1, $ = 2;
+function Qe(e, t) {
 	let n = e.slice(0, t).split("\n");
 	return `${n.length}:${(n.at(-1)?.length ?? 0) + 1}`;
 }
-function Qe(n, r) {
+function $e(n, r) {
 	let i = e(n, "utf8").replace(/^﻿/, "");
 	if (r) {
-		let e = Ue(i);
+		let e = We(i);
 		e !== i && (t(n, e), i = e);
 	}
-	let { document: a, diagnostics: o } = Me(i);
-	for (let e of o) console.log(`${n}:${Ze(i, e.from)}: ${e.severity} ${e.code}: ${Re(e)}`);
+	let { document: a, diagnostics: o } = Ne(i);
+	for (let e of o) console.log(`${n}:${Qe(i, e.from)}: ${e.severity} ${e.code}: ${ze(e)}`);
 	if (o.length === 0) {
 		let { nodes: e, edges: t, steps: r } = a;
 		console.log(`${n}: ok (${e.length} nodes, ${t.length} edges, ${r.length} steps)`);
 	}
 	return o.length === 0;
 }
-function $e(e) {
-	if (e.includes("--help") || e.includes("-h")) return console.log(Je), Ye;
+function et(e) {
+	if (e.includes("--help") || e.includes("-h")) return console.log(Ye), Xe;
 	let t = e.includes("--write"), n = e.filter((e) => e !== "--write");
-	if (n.length === 0 || n.some((e) => e.startsWith("-"))) return console.error(Je), $;
+	if (n.length === 0 || n.some((e) => e.startsWith("-"))) return console.error(Ye), $;
 	let r = !0;
 	for (let e of n) try {
-		Qe(e, t) || (r = !1);
+		$e(e, t) || (r = !1);
 	} catch (t) {
 		return console.error(`${e}: ${t instanceof Error ? t.message : String(t)}`), $;
 	}
-	return r ? Ye : Xe;
+	return r ? Xe : Ze;
 }
-process.exitCode = $e(process.argv.slice(2));
+process.exitCode = et(process.argv.slice(2));

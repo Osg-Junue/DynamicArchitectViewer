@@ -16,8 +16,9 @@ The normative definition of the `.dav` language, version 1. For a guided introdu
 | Encoding | UTF-8 |
 | Line endings | `\n` or `\r\n` |
 | Comment | `//` to the end of the line |
-| Identifier | `^[a-zA-Z_][a-zA-Z0-9_]*$`, excluding keywords |
+| Identifier | `^[a-zA-Z_][a-zA-Z0-9_]*$`, excluding keywords (`code` is contextual, not a keyword) |
 | String | Double-quoted. Escapes: `\"`, `\\`, `\n`, `\t` |
+| CodeFence | ```` ``` ... ``` ````. Verbatim text up to the closing ```` ``` ````; common leading indentation on multi-line content is stripped |
 | Color | `red`, `orange`, `yellow`, `green`, `teal`, `blue`, `purple`, `pink`, `gray`. Case-insensitive. Rendered in a shade that suits the active theme |
 | Boolean | `true` or `false` |
 
@@ -45,11 +46,15 @@ StepStmt      ::= DescStmt | FocusStmt | StateStmt | AnimateStmt
 DescStmt      ::= "desc" String
 FocusStmt     ::= "focus" Identifier ("," Identifier)*
 StateStmt     ::= "state" Identifier AttrBlock
-AnimateStmt   ::= "animate" Identifier AnimateArrow Identifier (":" String)? AttrBlock? ("{" DescStmt* "}")?
+AnimateStmt   ::= "animate" Identifier AnimateArrow Identifier (":" String)? AttrBlock? AnimateBody?
+AnimateBody   ::= "{" (DescStmt | CodeStmt)* "}"
+CodeStmt      ::= "code" Identifier? (String CodeFence | CodeFence | String)
 
 AttrBlock     ::= "[" (Attr ("," Attr)* ","?)? "]"
 Attr          ::= (Identifier | "desc") ":" (String | Number | Color | Identifier | Boolean)
 ```
+
+`code` is a contextual keyword inside `AnimateBody`, not a reserved word: declarations such as `node code` remain valid.
 
 ## Semantics
 
@@ -154,6 +159,28 @@ A step has effects that **accumulate** and effects that **last for that step onl
 | `color` | color | accent color | Color of the packet and of the running rail |
 | `parallel` | boolean | `false` | Plays in the same phase as the preceding `animate` |
 | `desc` | string | none | Text of the callout. Can also be written as a `{ desc "..." }` block |
+| `code` | string | none | Monospace snippet inside the callout, such as `[code: "{ \"status\": 201 }"]`. Usually written as a `{ code ... }` block |
+
+````dav
+animate cdn --> api : "POST /orders" [desc: "Order API validates idempotencyKey"] {
+  code json "Order Request" ```
+    {
+      "orderId": "ord_01JCK9X7",
+      "amount": 14800
+    }
+  ```
+}
+````
+
+Inside `{ ... }`, `code` takes an optional language identifier (`json`, `sql`, `http`, etc.), an optional title string (`"Order Request"`), and a ```` ``` ... ``` ```` fence — or a one-line string (`code json "{ \"ok\": true }"` or `code "{ \"ok\": true }"`):
+
+- ```` code json "Title" ``` ... ``` ````
+- ```` code json ``` ... ``` ````
+- ```` code "Title" ``` ... ``` ````
+- ```` code ``` ... ``` ````
+- `code json "{ \"ok\": true }"` or `code "{ \"ok\": true }"`
+
+Common leading indentation inside ```` ``` ... ``` ```` is stripped automatically, and the formatter indents fenced lines two spaces inside `code`. The code frame is shown inside the packet's callout on the canvas and in exported SVG/HTML only when non-empty `code` is present (with no copy button), and hidden completely when absent. At most one `code` is allowed per `animate` (`duplicate-code`).
 
 `animate` accepts two arrows: `-->` goes one way and `<->` goes there and back in the time of a one-way trip. The arrow of the edge does not affect the packet. On a self-loop, the packet goes around the loop once.
 
@@ -170,6 +197,7 @@ A step has effects that **accumulate** and effects that **last for that step onl
 | `reference-kind-mismatch` | Error | A reference has the wrong kind, such as a group as an edge endpoint or in `animate` |
 | `unknown-attribute` | Warning | The attribute is not allowed on this statement |
 | `duplicate-attribute` | Warning | An attribute appears twice in one block |
+| `duplicate-code` | Warning | More than one `code` is given on the same `animate` (the last value wins) |
 | `invalid-attribute-value` | Error | The value has the wrong type or is not one of the allowed values |
 | `attribute-not-applicable` | Warning | A `state` attribute does not apply to its kind of target |
 | `empty-state` | Warning | A `state` has an empty attribute block |

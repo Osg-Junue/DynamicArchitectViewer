@@ -440,7 +440,7 @@ test.describe('webview preview', () => {
     await expect(badgeRow.locator('td').last()).toHaveText('—');
 
     await page.getByTestId('doc-nav-diagnostics').click();
-    await expect(page.getByTestId('doc-diagnostics').locator('tbody tr')).toHaveCount(19);
+    await expect(page.getByTestId('doc-diagnostics').locator('tbody tr')).toHaveCount(20);
 
     await page.getByTestId('doc-nav-prompt').click();
     await expect(page.getByTestId('ai-prompt-textarea')).toHaveValue(/dav 1/);
