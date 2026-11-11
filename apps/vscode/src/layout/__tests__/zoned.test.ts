@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
-import { computeLayout, type Rect } from '../index';
+import { computeLayout, type Rect, rectContains, rectOverlaps } from '../index';
 
 /** Zones of `size` chained nodes in a row, with links from the first zone to all the others. */
 function bigDiagram(size = 6, zones = 8): string {
@@ -22,15 +22,6 @@ function bigDiagram(size = 6, zones = 8): string {
   lines.push('}');
   return lines.join('\n');
 }
-
-const overlaps = (a: Rect, b: Rect) =>
-  a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
-
-const contains = (outer: Rect, inner: Rect) =>
-  inner.x >= outer.x &&
-  inner.y >= outer.y &&
-  inner.x + inner.width <= outer.x + outer.width &&
-  inner.y + inner.height <= outer.y + outer.height;
 
 describe('zoned placement', () => {
   const { document } = parse(bigDiagram());
@@ -74,7 +65,7 @@ b1 --> b2`);
       expect(widened.groups.z1?.width).toBeGreaterThan(layout.groups.z1?.width as number);
       const rects = Object.values(widened.groups);
       rects.forEach((a, i) => {
-        for (const b of rects.slice(i + 1)) expect(overlaps(a, b)).toBe(false);
+        for (const b of rects.slice(i + 1)) expect(rectOverlaps(a, b)).toBe(false);
       });
     });
 
@@ -91,12 +82,12 @@ b1 --> b2`);
     expect(ids).toHaveLength(document.nodes.length);
     ids.forEach((a, i) => {
       for (const b of ids.slice(i + 1)) {
-        expect(overlaps(layout.nodes[a] as Rect, layout.nodes[b] as Rect)).toBe(false);
+        expect(rectOverlaps(layout.nodes[a] as Rect, layout.nodes[b] as Rect)).toBe(false);
       }
     });
     for (const n of document.nodes) {
       expect(
-        contains(layout.groups[n.parentId as string] as Rect, layout.nodes[n.id] as Rect),
+        rectContains(layout.groups[n.parentId as string] as Rect, layout.nodes[n.id] as Rect),
       ).toBe(true);
     }
   });
@@ -104,7 +95,7 @@ b1 --> b2`);
   it('never overlaps two zones', () => {
     const rects = Object.values(layout.groups);
     rects.forEach((a, i) => {
-      for (const b of rects.slice(i + 1)) expect(overlaps(a, b)).toBe(false);
+      for (const b of rects.slice(i + 1)) expect(rectOverlaps(a, b)).toBe(false);
     });
   });
 
@@ -120,8 +111,8 @@ z0n0 --> deep
 deep --> loose`;
     const doc = parse(source).document;
     const result = computeLayout(doc);
-    expect(contains(result.groups.inner as Rect, result.nodes.deep as Rect)).toBe(true);
-    expect(contains(result.groups.outer as Rect, result.groups.inner as Rect)).toBe(true);
+    expect(rectContains(result.groups.inner as Rect, result.nodes.deep as Rect)).toBe(true);
+    expect(rectContains(result.groups.outer as Rect, result.groups.inner as Rect)).toBe(true);
     expect(result.nodes.loose).toBeDefined();
     expect(result.groups.loose).toBeUndefined();
   });

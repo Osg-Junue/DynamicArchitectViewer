@@ -1,30 +1,33 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const host = vi.hoisted(() => ({
-  commands: new Map<string, () => Promise<void> | void>(),
-  codeActionProvider: null as null | {
-    provideCodeActions(
-      doc: unknown,
-      range: unknown,
-    ): Array<{ title: string; edit: { newText: string } }>;
-  },
-  disposePanel: () => {},
-  activeTextEditor: undefined as undefined | { document: unknown },
-  written: [] as string[],
-  clipboard: [] as string[],
-  language: 'en',
-  workspaceFolders: undefined as undefined | Array<{ uri: { fsPath: string } }>,
-  quickPick: [] as Array<{ label: string; description: string; detail: string }>,
-  pickIndex: 0 as number | null,
-  existing: new Set<string>(),
-  copied: [] as Array<{ from: string; to: string }>,
-  warnings: [] as string[],
-  errors: [] as string[],
-  warningAnswer: undefined as string | undefined,
-  saveDefaultUri: undefined as string | undefined,
-  saveUri: { fsPath: 'out.html' } as { fsPath: string } | undefined,
-  receive: (_msg: unknown): void => {},
-}));
+const { freshHostState, host } = vi.hoisted(() => {
+  const freshHostState = () => ({
+    commands: new Map<string, () => Promise<void> | void>(),
+    codeActionProvider: null as null | {
+      provideCodeActions(
+        doc: unknown,
+        range: unknown,
+      ): Array<{ title: string; edit: { newText: string } }>;
+    },
+    disposePanel: () => {},
+    activeTextEditor: undefined as undefined | { document: unknown },
+    written: [] as string[],
+    clipboard: [] as string[],
+    language: 'en',
+    workspaceFolders: undefined as undefined | Array<{ uri: { fsPath: string } }>,
+    quickPick: [] as Array<{ label: string; description: string; detail: string }>,
+    pickIndex: 0 as number | null,
+    existing: new Set<string>(),
+    copied: [] as Array<{ from: string; to: string }>,
+    warnings: [] as string[],
+    errors: [] as string[],
+    warningAnswer: undefined as string | undefined,
+    saveDefaultUri: undefined as string | undefined,
+    saveUri: { fsPath: 'out.html' } as { fsPath: string } | undefined,
+    receive: (_msg: unknown): void => {},
+  });
+  return { freshHostState, host: freshHostState() };
+});
 
 vi.mock('vscode', () => {
   const noop = { dispose() {} };
@@ -168,12 +171,15 @@ import { homedir } from 'node:os';
 import { isHostToWebviewMessage, isWebviewToHostMessage } from '../../protocol/messages';
 import { activate } from '../extension';
 
-function fakeDocument(text: string, name: string, languageId = 'dav') {
+function fakeDocument(text: string, name: string, languageId = 'dav', isUntitled = false) {
   return {
     languageId,
     isClosed: false,
-    isUntitled: false,
-    uri: { fsPath: name, toString: () => `file:///${name}` },
+    isUntitled,
+    uri: {
+      fsPath: name,
+      toString: () => (isUntitled ? `untitled:${name}` : `file:///${name}`),
+    },
     getText: () => text,
     positionAt: (offset: number) => ({ line: 0, character: offset }),
     offsetAt: (position: { character: number }) => position.character,
@@ -187,21 +193,7 @@ describe('extension commands', () => {
   const docB = fakeDocument('dav 1\ntitle "Doc B"\nnode b', 'b.dav');
 
   beforeEach(() => {
-    host.commands.clear();
-    host.written.length = 0;
-    host.clipboard.length = 0;
-    host.activeTextEditor = undefined;
-    host.language = 'en';
-    host.workspaceFolders = undefined;
-    host.quickPick = [];
-    host.pickIndex = 0;
-    host.existing.clear();
-    host.copied.length = 0;
-    host.warnings.length = 0;
-    host.errors.length = 0;
-    host.warningAnswer = undefined;
-    host.saveDefaultUri = undefined;
-    host.saveUri = { fsPath: 'out.html' };
+    Object.assign(host, freshHostState());
     activate({ subscriptions: [], extensionUri: { fsPath: '/ext' } } as never);
   });
 
@@ -439,11 +431,7 @@ describe('extension commands', () => {
     });
 
     it('anchors untitled save dialogs in the workspace or home directory', async () => {
-      const untitled = {
-        ...docA,
-        isUntitled: true,
-        uri: { fsPath: 'Untitled-1', toString: () => 'untitled:Untitled-1' },
-      };
+      const untitled = fakeDocument(docA.getText(), 'Untitled-1', 'dav', true);
       host.activeTextEditor = { document: untitled };
       host.workspaceFolders = [{ uri: { fsPath: '/repo' } }];
 
@@ -535,11 +523,7 @@ describe('extension commands', () => {
     it('defaults an untitled document with step: 1 to diagram-step2.svg', async () => {
       const multiText =
         'dav 1\nnode a\nnode b\na --> b\nstep "S1" {\n  focus a\n}\nstep "S2" {\n  animate a --> b\n}';
-      const untitledMulti = {
-        ...fakeDocument(multiText, 'Untitled-1'),
-        isUntitled: true,
-        uri: { fsPath: 'Untitled-1', toString: () => 'untitled:Untitled-1' },
-      };
+      const untitledMulti = fakeDocument(multiText, 'Untitled-1', 'dav', true);
       host.activeTextEditor = { document: untitledMulti };
       host.workspaceFolders = [{ uri: { fsPath: '/repo' } }];
       await run('dav.openPreview');
@@ -671,7 +655,6 @@ describe('protocol message guards', () => {
 
   it('validates every WebviewToHostMessage variant and rejects malformed payloads', () => {
     expect(isWebviewToHostMessage({ type: 'ready' })).toBe(true);
-    expect(isWebviewToHostMessage({ type: 'formatDocument' })).toBe(true);
     expect(isWebviewToHostMessage({ type: 'revealRange', from: 0, to: 10 })).toBe(true);
     expect(isWebviewToHostMessage({ type: 'exportHtml', dsl: 'dav 1' })).toBe(true);
     expect(
@@ -694,6 +677,7 @@ describe('protocol message guards', () => {
     ).toBe(true);
 
     expect(isWebviewToHostMessage(null)).toBe(false);
+    expect(isWebviewToHostMessage({ type: 'formatDocument' })).toBe(false);
     expect(isWebviewToHostMessage({ type: 'exportSvg', step: 0.5 })).toBe(false);
     expect(
       isWebviewToHostMessage({

@@ -1,18 +1,18 @@
-import type { VElement, VNode } from '../scene/vnode';
+import type { VNode } from '../scene/vnode';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
+
+function setSvgAttributes(el: Element, attrs: Record<string, string | number>): void {
+  for (const [name, value] of Object.entries(attrs)) el.setAttribute(name, String(value));
+}
 
 /** Renders a scene VNode into SVG DOM using only safe DOM APIs (no innerHTML). */
 export function renderSvg(node: VNode): Node {
   if (typeof node === 'string') return document.createTextNode(node);
   const el = document.createElementNS(SVG_NS, node.tag);
-  setAttributes(el, node);
+  setSvgAttributes(el, node.attrs);
   for (const child of node.children) el.appendChild(renderSvg(child));
   return el;
-}
-
-function setAttributes(el: Element, node: VElement): void {
-  for (const [name, value] of Object.entries(node.attrs)) el.setAttribute(name, String(value));
 }
 
 export function svg<K extends keyof SVGElementTagNameMap>(
@@ -21,7 +21,7 @@ export function svg<K extends keyof SVGElementTagNameMap>(
   ...children: Node[]
 ): SVGElementTagNameMap[K] {
   const el = document.createElementNS(SVG_NS, tag);
-  for (const [name, value] of Object.entries(attrs)) el.setAttribute(name, String(value));
+  setSvgAttributes(el, attrs);
   for (const child of children) el.appendChild(child);
   return el;
 }

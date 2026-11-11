@@ -2,6 +2,7 @@ import type { Layout, Rect } from '../layout';
 import { estimateTextWidth } from '../model/text';
 import {
   COLOR_RESET,
+  type ColorName,
   type DavDocument,
   type DavEdge,
   type DavStep,
@@ -9,15 +10,16 @@ import {
   type IconName,
   type LineStyle,
 } from '../model/types';
-import { ancestorIds, zoneOfGroups } from '../model/zones';
+import { ancestorIds, parentMap, zoneOfNodes } from '../model/zones';
 import { separatePhaseCallouts } from './callout';
 import { type Bezier, reverse } from './geometry';
+import { THEME_COLOR } from './paint';
 import { RailRouter } from './rails';
 import { PHASE_MS, pacePhase } from './timing';
 import { ZONE_LABEL, zoneLabelRoom } from './zones';
 
-export const DEFAULT_FLOW_COLOR = 'var(--dav-accent)';
-const DEFAULT_EDGE_COLOR = 'var(--dav-edge)';
+export const DEFAULT_FLOW_COLOR = THEME_COLOR.accent;
+const DEFAULT_EDGE_COLOR = THEME_COLOR.edge;
 
 export interface ResolvedNode {
   id: string;
@@ -26,7 +28,7 @@ export interface ResolvedNode {
   icon: IconName;
   badge?: string;
   /** Author-specified color; absent when the station follows the theme. */
-  accent?: string;
+  accent?: ColorName;
   rect: Rect;
   visible: boolean;
   focused: boolean;
@@ -36,7 +38,7 @@ export interface ResolvedNode {
 export interface ResolvedGroup {
   id: string;
   label: string;
-  color?: string;
+  color?: ColorName;
   rect: Rect;
   depth: number;
   dimmed: boolean;
@@ -126,7 +128,7 @@ export function flowColors(packets: readonly Packet[]): Map<string, string> {
 type Override = Partial<{
   badge: string;
   visible: boolean;
-  color: string;
+  color: ColorName;
 }>;
 
 /** What every stage of resolving a step needs to know. */
@@ -148,10 +150,11 @@ function accumulateOverrides(doc: DavDocument, index: number | null): Map<string
   if (index === null) return overrides;
   for (const s of doc.steps.slice(0, index + 1)) {
     for (const st of s.states) {
-      const { target, ...rest } = st;
-      const merged = { ...overrides.get(target), ...rest };
-      if (merged.color === COLOR_RESET) delete merged.color;
-      overrides.set(target, merged);
+      const { target, color, ...rest } = st;
+      const next: Override = { ...overrides.get(target), ...rest };
+      if (color === COLOR_RESET) delete next.color;
+      else if (color !== undefined) next.color = color;
+      overrides.set(target, next);
     }
   }
   return overrides;
@@ -219,8 +222,7 @@ function resolveGroups(ctx: StepContext, nodes: readonly ResolvedNode[]): Resolv
   }
   for (const id of focus) {
     if (!groupParent.has(id)) continue;
-    focusedGroups.add(id);
-    for (const g of ancestorIds(groupParent, groupParent.get(id))) focusedGroups.add(g);
+    for (const g of ancestorIds(groupParent, id)) focusedGroups.add(g);
   }
   return doc.groups.flatMap((g) => {
     const rect = layout.groups[g.id];
@@ -262,13 +264,8 @@ function resolvePhases(
   rails: RailRouter,
   labelAreas: readonly Rect[],
 ): ResolvedPhases {
-  const zoneOfGroup = zoneOfGroups(ctx.doc.groups);
-  const zoneOf = (nodeId: string) => {
-    const parent = ctx.nodeParent.get(nodeId);
-    return parent === undefined ? undefined : zoneOfGroup.get(parent);
-  };
+  const zoneOf = zoneOfNodes(ctx.doc);
   const phases: Packet[][] = [];
-  const activeEdges = new Map<string, string>();
   for (const a of ctx.step?.animations ?? []) {
     const fromNode = nodeById.get(a.from);
     const toNode = nodeById.get(a.to);
@@ -283,7 +280,6 @@ function resolvePhases(
         const edgePath = rails.ofEdge(edge, edgeFrom, edgeTo);
         path = edge.from === a.from ? edgePath : reverse(edgePath);
       }
-      if (!activeEdges.has(edge.id)) activeEdges.set(edge.id, color);
     }
     const packet: Packet = {
       from: a.from,
@@ -297,8 +293,8 @@ function resolvePhases(
       labelAreas,
       durationMs: PHASE_MS,
     };
-    const fromZone = zoneOf(a.from);
-    const toZone = zoneOf(a.to);
+    const fromZone = zoneOf.get(a.from);
+    const toZone = zoneOf.get(a.to);
     if (fromZone !== undefined) packet.fromZone = fromZone;
     if (toZone !== undefined) packet.toZone = toZone;
     if (edge) packet.edgeId = edge.id;
@@ -310,7 +306,7 @@ function resolvePhases(
     else phases.push([packet]);
   }
   for (const phase of phases) separatePhaseCallouts(phase);
-  return { phases, phaseDurations: phases.map(pacePhase), activeEdges };
+  return { phases, phaseDurations: phases.map(pacePhase), activeEdges: flowColors(phases.flat()) };
 }
 
 function resolveEdges(
@@ -370,8 +366,8 @@ export function resolveView(
     overrides: accumulateOverrides(doc, index),
     focus,
     filtering: step !== undefined && focus.size > 0,
-    groupParent: new Map(doc.groups.map((g) => [g.id, g.parentId])),
-    nodeParent: new Map(doc.nodes.map((n) => [n.id, n.parentId])),
+    groupParent: parentMap(doc.groups),
+    nodeParent: parentMap(doc.nodes),
   };
 
   const nodes = resolveNodes(ctx);

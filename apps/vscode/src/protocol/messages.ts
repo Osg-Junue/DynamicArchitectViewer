@@ -32,9 +32,6 @@ export type WebviewToHostMessage =
       camera: SvgCamera;
       /** The one step to export (0-based), or `null` for every step. */
       step: number | null;
-    }
-  | {
-      type: 'formatDocument';
     };
 
 export function isHostToWebviewMessage(v: unknown): v is HostToWebviewMessage {
@@ -54,7 +51,6 @@ export function isWebviewToHostMessage(v: unknown): v is WebviewToHostMessage {
   const r = v as Record<string, unknown>;
   switch (r.type) {
     case 'ready':
-    case 'formatDocument':
       return true;
     case 'revealRange':
       return (

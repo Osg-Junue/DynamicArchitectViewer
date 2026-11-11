@@ -2,6 +2,7 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { ICON_NAMES } from '../../model/types';
 import { format, parse } from '../index';
+import { ARROW_TOKENS } from '../schema';
 
 /** Encodes a value as a DSL string literal. */
 function quoteString(value: string): string {
@@ -14,7 +15,7 @@ function quoteString(value: string): string {
 }
 
 const ICONS = ICON_NAMES;
-const ARROWS = ['-->', '..>', '<->', '<.>'] as const;
+const ARROWS = ARROW_TOKENS;
 
 // Weighted toward the characters that need escaping, which plain strings almost never contain.
 const labelUnit = fc.constantFrom('a', 'Z', ' ', '"', '\\', '\n', '\t', 'あ', '#', '/');

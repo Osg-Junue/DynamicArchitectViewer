@@ -18,5 +18,13 @@
     "exactOptionalPropertyTypes": true,
     "types": ["vite/client", "node", "vscode"]
   },
-  "include": ["src", "vite.config.ts", "vite.runtime.config.ts", "vite.extension.config.ts"]
+  "include": [
+    "src",
+    "e2e",
+    "vite.config.ts",
+    "vite.runtime.config.ts",
+    "vite.extension.config.ts",
+    "vite.skill.config.ts",
+    "playwright.config.ts"
+  ]
 }

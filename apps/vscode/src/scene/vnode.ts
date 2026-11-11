@@ -1,10 +1,8 @@
-/** Minimal, DOM-free description of SVG/HTML elements. Rendered by the runtime (DOM) or React. */
+/** Minimal, DOM-free description of SVG/HTML elements. */
 export interface VElement {
   tag: string;
   attrs: Record<string, string | number>;
   children: VNode[];
-  /** Optional stable key (element ID) for renderers that diff. */
-  key?: string;
 }
 
 export type VNode = VElement | string;

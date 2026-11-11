@@ -1,3 +1,32 @@
+:root {
+  --raw-primary-bg: #20282f;
+  --raw-primary-hover: #38434d;
+  --raw-primary-fg: #fffefa;
+  --raw-error: #cf222e;
+  --raw-warning: #9a6700;
+  --raw-ok: #1a7f37;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --raw-primary-bg: #dde0e4;
+    --raw-primary-hover: #ffffff;
+    --raw-primary-fg: #191b1e;
+    --raw-error: #f48771;
+    --raw-warning: #e2b341;
+    --raw-ok: #73c991;
+  }
+}
+
+:root {
+  --dav-primary-bg: var(--vscode-button-background, var(--raw-primary-bg));
+  --dav-primary-hover: var(--vscode-button-hoverBackground, var(--raw-primary-hover));
+  --dav-primary-fg: var(--vscode-button-foreground, var(--raw-primary-fg));
+  --dav-error: var(--vscode-errorForeground, var(--raw-error));
+  --dav-warning: var(--vscode-editorWarning-foreground, var(--raw-warning));
+  --dav-ok: var(--vscode-testing-iconPassed, var(--raw-ok));
+}
+
 *,
 ::before,
 ::after {
@@ -134,9 +163,6 @@ body {
   border-radius: 4px;
   box-shadow: 0 4px 12px var(--dav-shadow);
 }
-.export-menu-list[hidden] {
-  display: none;
-}
 .export-item {
   display: flex;
   flex-direction: column;
@@ -161,9 +187,6 @@ body {
 .export-scope-group {
   display: flex;
   flex-direction: column;
-}
-.export-scope-group[hidden] {
-  display: none;
 }
 .export-scope {
   display: block;
@@ -194,6 +217,8 @@ body {
   margin: 4px 2px;
   background: var(--dav-border);
 }
+.export-menu-list[hidden],
+.export-scope-group[hidden],
 .export-separator[hidden] {
   display: none;
 }

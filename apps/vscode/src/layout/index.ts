@@ -1,9 +1,10 @@
 import { EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH, estimateTextWidth } from '../model/text';
-import type { DavDocument, IconName } from '../model/types';
-import { ancestorIds } from '../model/zones';
+import type { DavDocument } from '../model/types';
+import { ancestorIds, parentMap } from '../model/zones';
 import { countCrossings, crossingsOf, type Link, linksOf, segmentsOf } from './links';
 import {
   EMPTY_GROUP_CONTENT,
+  enclosingRect,
   GROUP_HEADER,
   GROUP_PADDING,
   type Layout,
@@ -11,9 +12,10 @@ import {
   ORIGIN,
   type Rect,
   rectRecord,
-  STATION_CENTER,
+  STATION_SIZE,
   selfLoopRoom,
 } from './metrics';
+import { computeRanks, type RankResult } from './ranks';
 import {
   applyZonePlacement,
   hasZonesToPlace,
@@ -25,10 +27,16 @@ import {
 } from './zoned';
 
 export { countCrossings } from './links';
-export { type Layout, NODE_SIZE, type Rect } from './metrics';
-
-const STATION_SIZE = 44;
-const WINDOW_SIZE = { width: 54, height: 44 } as const;
+export {
+  type Layout,
+  NODE_SIZE,
+  type Rect,
+  rectContains,
+  rectOverlaps,
+  STATION_SIZE,
+  stationRect,
+  WINDOW_SIZE,
+} from './metrics';
 
 const COLUMN_GAP = 36;
 const EDGE_LABEL_MARGIN = 32;
@@ -40,19 +48,6 @@ const MAX_SWEEPS = 16;
 const SWEEP_PATIENCE = 4;
 /** Layout runs on every edit, and counting crossings is quadratic in the edges. */
 const MAX_REFINED_EDGES = 500;
-
-/** The station symbol within a node's rectangle. */
-export function stationRect(node: Rect, icon: IconName): Rect {
-  const size =
-    icon === 'screen' || icon === 'modal'
-      ? WINDOW_SIZE
-      : { width: STATION_SIZE, height: STATION_SIZE };
-  return {
-    x: node.x + (node.width - size.width) / 2,
-    y: node.y + STATION_CENTER - size.height / 2,
-    ...size,
-  };
-}
 
 /**
  * Computes automatic positions and sizes for every node and group.
@@ -97,25 +92,66 @@ function planZones(doc: DavDocument): ZonePlacement | undefined {
   return better ? placement : undefined;
 }
 
+interface NodePlacement {
+  nodes: Record<string, Rect>;
+  placeholders: Record<string, Rect>;
+}
+
+function pushToMap<K, V>(map: Map<K, V[]>, key: K, value: V): void {
+  let list = map.get(key);
+  if (!list) {
+    list = [];
+    map.set(key, list);
+  }
+  list.push(value);
+}
+
 function computeColumnLayout(doc: DavDocument): Layout {
-  const emptyGroups = findEmptyGroups(doc);
+  const groupParent = parentMap(doc.groups);
+  const nodeParent = parentMap(doc.nodes);
+  const childrenOf = new Map<string, string[]>();
+  for (const g of doc.groups) {
+    if (g.parentId) pushToMap(childrenOf, g.parentId, g.id);
+  }
+  const nodesOf = new Map<string, string[]>();
+  for (const n of doc.nodes) {
+    if (n.parentId) pushToMap(nodesOf, n.parentId, n.id);
+  }
+
+  const emptyGroups = findEmptyGroups(doc, groupParent);
   const loopRoom = selfLoopRoom(doc);
   const ranks = computeRanks(
     doc.nodes.map((n) => n.id),
     doc.edges.map((e) => [e.from, e.to] as const),
   );
-  const frames = measureFrameEdges(doc, ranks.rank, emptyGroups);
+  const frames = measureFrameEdges(doc, ranks.rank, emptyGroups, childrenOf, nodesOf);
+  const plan =
+    doc.nodes.length > 0 || emptyGroups.size > 0
+      ? buildColumnPlan(doc, emptyGroups, ranks, frames, groupParent, nodeParent)
+      : undefined;
 
-  const place = (guide?: SweepGuide): Layout => {
+  const place = (guide?: SweepGuide): NodePlacement => {
     const nodes = rectRecord();
     const placeholders = rectRecord();
-    if (doc.nodes.length > 0 || emptyGroups.size > 0) {
-      placeAuto(doc, emptyGroups, ranks, nodes, placeholders, loopRoom, frames, guide);
+    if (plan) {
+      placeAuto(plan, ranks, nodes, placeholders, loopRoom, guide);
     }
-    return { nodes, groups: computeGroupRects(doc, nodes, placeholders, loopRoom, frames) };
+    return { nodes, placeholders };
   };
 
-  return refineOrder(doc, ranks.rank, place);
+  const winning = refineOrder(doc, ranks.rank, place);
+  return {
+    nodes: winning.nodes,
+    groups: computeGroupRects(
+      doc,
+      winning.nodes,
+      winning.placeholders,
+      loopRoom,
+      frames,
+      childrenOf,
+      nodesOf,
+    ),
+  };
 }
 
 interface FrameEdges {
@@ -134,6 +170,8 @@ function measureFrameEdges(
   doc: DavDocument,
   rank: ReadonlyMap<string, number>,
   emptyGroups: ReadonlySet<string>,
+  childrenOf: ReadonlyMap<string, readonly string[]>,
+  nodesOf: ReadonlyMap<string, readonly string[]>,
 ): FrameEdges {
   type Span = { min: number; max: number; left: number; right: number };
   const spans = new Map<string, Span>();
@@ -141,9 +179,9 @@ function measureFrameEdges(
   const startsAt = new Set<number>();
   // Children come after their parents in the document, so this goes from the inside out.
   for (const g of [...doc.groups].reverse()) {
-    const inner = doc.groups.flatMap((c) => (c.parentId === g.id ? (spans.get(c.id) ?? []) : []));
+    const inner = (childrenOf.get(g.id) ?? []).flatMap((id) => spans.get(id) ?? []);
     const columns = [
-      ...doc.nodes.filter((n) => n.parentId === g.id).map((n) => rank.get(n.id) ?? 0),
+      ...(nodesOf.get(g.id) ?? []).map((id) => rank.get(id) ?? 0),
       ...(emptyGroups.has(g.id) ? [0] : []),
       ...inner.flatMap((c) => [c.min, c.max]),
     ];
@@ -176,7 +214,7 @@ function measureFrameEdges(
 
 /** Directs a placement by the positions of the previous one. */
 interface SweepGuide {
-  previous: Layout;
+  previous: NodePlacement;
   /** Nodes a node's position within its column follows in this pass. */
   columnNeighbors: ReadonlyMap<string, readonly string[]>;
   /** All nodes linked to a node, which decide where its group goes. */
@@ -186,8 +224,8 @@ interface SweepGuide {
 function refineOrder(
   doc: DavDocument,
   rank: ReadonlyMap<string, number>,
-  place: (guide?: SweepGuide) => Layout,
-): Layout {
+  place: (guide?: SweepGuide) => NodePlacement,
+): NodePlacement {
   const links = linksOf(doc);
   let current = place();
   if (links.length === 0 || links.length > MAX_REFINED_EDGES) return current;
@@ -195,7 +233,7 @@ function refineOrder(
   const neighbors = (keep: (self: number, other: number) => boolean) => {
     const out = new Map<string, string[]>();
     const add = (a: string, b: string) => {
-      if (keep(rank.get(a) ?? 0, rank.get(b) ?? 0)) out.set(a, [...(out.get(a) ?? []), b]);
+      if (keep(rank.get(a) ?? 0, rank.get(b) ?? 0)) pushToMap(out, a, b);
     };
     for (const [from, to] of links) {
       add(from, to);
@@ -227,117 +265,81 @@ function refineOrder(
   return best;
 }
 
-function scoreOf(links: readonly Link[], layout: Layout) {
-  const segments = segmentsOf(links, layout);
+function scoreOf(links: readonly Link[], placement: NodePlacement) {
+  const segments = segmentsOf(links, placement);
   return {
     crossings: crossingsOf(segments),
     length: segments.reduce((sum, s) => sum + Math.abs(s.ay - s.by), 0),
   };
 }
 
-/** Longest-path ranks; back edges found by DFS are ignored so cycles terminate. */
-function computeRanks(ids: string[], edges: ReadonlyArray<readonly [string, string]>) {
-  const known = new Set(ids);
-  const out = new Map<string, string[]>(ids.map((id) => [id, []]));
-  for (const [from, to] of edges) {
-    if (known.has(from) && known.has(to) && from !== to) out.get(from)?.push(to);
-  }
-
-  // Remove back edges (iterative DFS to avoid stack overflow on large graphs).
-  const state = new Map<string, 0 | 1 | 2>();
-  const forward = new Map<string, string[]>(ids.map((id) => [id, []]));
-  for (const root of ids) {
-    if (state.get(root)) continue;
-    const stack: Array<{ id: string; i: number }> = [{ id: root, i: 0 }];
-    state.set(root, 1);
-    while (stack.length > 0) {
-      const frame = stack[stack.length - 1];
-      if (!frame) break;
-      const targets = out.get(frame.id) ?? [];
-      if (frame.i >= targets.length) {
-        state.set(frame.id, 2);
-        stack.pop();
-        continue;
-      }
-      const next = targets[frame.i++];
-      if (next === undefined) continue;
-      const s = state.get(next) ?? 0;
-      if (s === 1) continue; // back edge
-      forward.get(frame.id)?.push(next);
-      if (s === 0) {
-        state.set(next, 1);
-        stack.push({ id: next, i: 0 });
-      }
-    }
-  }
-
-  // Kahn's algorithm over the acyclic edge set.
-  const indegree = new Map<string, number>(ids.map((id) => [id, 0]));
-  for (const targets of forward.values()) {
-    for (const t of targets) indegree.set(t, (indegree.get(t) ?? 0) + 1);
-  }
-  const rank = new Map<string, number>(ids.map((id) => [id, 0]));
-  const queue = ids.filter((id) => indegree.get(id) === 0);
-  while (queue.length > 0) {
-    const id = queue.shift();
-    if (id === undefined) break;
-    for (const t of forward.get(id) ?? []) {
-      rank.set(t, Math.max(rank.get(t) ?? 0, (rank.get(id) ?? 0) + 1));
-      const d = (indegree.get(t) ?? 0) - 1;
-      indegree.set(t, d);
-      if (d === 0) queue.push(t);
-    }
-  }
-  return { rank, predecessors: invert(forward) };
-}
-
-function invert(forward: Map<string, string[]>): Map<string, string[]> {
-  const preds = new Map<string, string[]>();
-  for (const [from, targets] of forward) {
-    for (const t of targets) {
-      const list = preds.get(t) ?? [];
-      list.push(from);
-      preds.set(t, list);
-    }
-  }
-  return preds;
-}
-
 interface Cluster {
   id: string | undefined;
   nodes: string[];
   children: Cluster[];
+  allNodes: string[];
+  colSpan: readonly [number, number];
+  needsLayout: boolean;
 }
 
-function placeAuto(
+interface ColumnPlan {
+  root: Cluster;
+  columnX: readonly number[];
+  maxRank: number;
+  inset: number;
+}
+
+function buildColumnPlan(
   doc: DavDocument,
-  emptyGroups: Set<string>,
-  ranks: ReturnType<typeof computeRanks>,
-  out: Record<string, Rect>,
-  placeholders: Record<string, Rect>,
-  loopRoom: ReadonlyMap<string, number>,
+  emptyGroups: ReadonlySet<string>,
+  ranks: RankResult,
   frames: FrameEdges,
-  guide?: SweepGuide,
-): void {
-  const needsLayout = (cluster: Cluster): boolean =>
-    cluster.nodes.length > 0 ||
-    (cluster.id !== undefined && emptyGroups.has(cluster.id)) ||
-    cluster.children.some(needsLayout);
-  const parentOf = new Map(doc.nodes.map((n) => [n.id, n.parentId]));
+  groupParent: ReadonlyMap<string, string | undefined>,
+  nodeParent: ReadonlyMap<string, string | undefined>,
+): ColumnPlan {
+  const makeCluster = (id: string | undefined): Cluster => ({
+    id,
+    nodes: [],
+    children: [],
+    allNodes: [],
+    colSpan: [0, 0],
+    needsLayout: false,
+  });
 
   // Cluster tree mirrors the group hierarchy.
   const clusters = new Map<string | undefined, Cluster>();
-  const root: Cluster = { id: undefined, nodes: [], children: [] };
+  const root = makeCluster(undefined);
   clusters.set(undefined, root);
-  for (const g of doc.groups) clusters.set(g.id, { id: g.id, nodes: [], children: [] });
-  for (const g of doc.groups)
-    clusters.get(g.parentId)?.children.push(clusters.get(g.id) as Cluster);
-  for (const n of doc.nodes) clusters.get(parentOf.get(n.id))?.nodes.push(n.id);
+  for (const g of doc.groups) clusters.set(g.id, makeCluster(g.id));
+  for (const g of doc.groups) {
+    const child = clusters.get(g.id);
+    if (child) clusters.get(g.parentId)?.children.push(child);
+  }
+  for (const n of doc.nodes) clusters.get(nodeParent.get(n.id))?.nodes.push(n.id);
+
+  const rankOf = (id: string) => ranks.rank.get(id) ?? 0;
+  const populate = (cluster: Cluster): number[] => {
+    const cols = cluster.nodes.map(rankOf);
+    if (cluster.id !== undefined && emptyGroups.has(cluster.id)) cols.push(0);
+    const allNodes = [...cluster.nodes];
+    let childNeedsLayout = false;
+    for (const child of cluster.children) {
+      cols.push(...populate(child));
+      allNodes.push(...child.allNodes);
+      if (child.needsLayout) childNeedsLayout = true;
+    }
+    cluster.allNodes = allNodes;
+    cluster.colSpan = cols.length === 0 ? [0, 0] : [Math.min(...cols), Math.max(...cols)];
+    cluster.needsLayout =
+      cluster.nodes.length > 0 ||
+      (cluster.id !== undefined && emptyGroups.has(cluster.id)) ||
+      childNeedsLayout;
+    return cols;
+  };
+  populate(root);
 
   // Column x positions shared by all clusters.
-  const rankOf = (id: string) => ranks.rank.get(id) ?? 0;
   const maxRank = Math.max(0, ...doc.nodes.map((n) => rankOf(n.id)));
-  const groupParent = new Map(doc.groups.map((g) => [g.id, g.parentId]));
   const maxDepth = Math.max(0, ...doc.groups.map((g) => ancestorIds(groupParent, g.id).length));
   const inset = maxDepth * GROUP_PADDING;
 
@@ -364,18 +366,18 @@ function placeAuto(
     x += NODE_SIZE.width + Math.max(COLUMN_GAP, needed) + clearanceAfter(rank);
   }
 
-  const collectColumns = (cluster: Cluster): number[] => {
-    const cols = cluster.nodes.map(rankOf);
-    if (cluster.id !== undefined && emptyGroups.has(cluster.id)) cols.push(0);
-    for (const child of cluster.children) cols.push(...collectColumns(child));
-    return cols;
-  };
+  return { root, columnX, maxRank, inset };
+}
 
-  const clusterNodes = (cluster: Cluster): string[] => [
-    ...cluster.nodes,
-    ...cluster.children.flatMap(clusterNodes),
-  ];
-
+function placeAuto(
+  plan: ColumnPlan,
+  ranks: RankResult,
+  out: Record<string, Rect>,
+  placeholders: Record<string, Rect>,
+  loopRoom: ReadonlyMap<string, number>,
+  guide?: SweepGuide,
+): void {
+  const rankOf = (id: string) => ranks.rank.get(id) ?? 0;
   const previousY = (id: string) => guide?.previous.nodes[id]?.y ?? 0;
   const meanY = (ids: readonly string[]) =>
     ids.length > 0 ? ids.reduce((sum, id) => sum + previousY(id), 0) / ids.length : undefined;
@@ -398,12 +400,6 @@ function placeAuto(
       : Number.POSITIVE_INFINITY;
   };
 
-  const colSpan = (cluster: Cluster): readonly [number, number] => {
-    const cols = collectColumns(cluster);
-    if (cols.length === 0) return [0, 0];
-    return [Math.min(...cols), Math.max(...cols)];
-  };
-
   type LayoutItem =
     | { kind: 'col'; rank: number; ids: string[]; minCol: number; maxCol: number; order: number }
     | { kind: 'group'; child: Cluster; minCol: number; maxCol: number; order: number };
@@ -413,15 +409,12 @@ function placeAuto(
     // Applied to the whole cluster so that rails between stations in a row stay straight.
     const room = Math.max(0, ...cluster.nodes.map((id) => loopRoom.get(id) ?? 0));
     const startY = top + (hasFrame ? GROUP_HEADER + GROUP_PADDING : 0) + room;
-    const colBottom = Array.from({ length: maxRank + 1 }, () => startY);
+    const colBottom = Array.from({ length: plan.maxRank + 1 }, () => startY);
     let maxBottom = startY;
 
     const byColumn = new Map<number, string[]>();
     for (const id of cluster.nodes) {
-      const r = rankOf(id);
-      const list = byColumn.get(r) ?? [];
-      list.push(id);
-      byColumn.set(r, list);
+      pushToMap(byColumn, rankOf(id), id);
     }
 
     const items: LayoutItem[] = [];
@@ -430,16 +423,13 @@ function placeAuto(
       items.push({ kind: 'col', rank, ids, minCol: rank, maxCol: rank, order: order++ });
     }
     for (const child of cluster.children) {
-      if (!needsLayout(child)) continue;
-      const [minCol, maxCol] = colSpan(child);
+      if (!child.needsLayout) continue;
+      const [minCol, maxCol] = child.colSpan;
       items.push({ kind: 'group', child, minCol, maxCol, order: order++ });
     }
     if (guide) {
       const keys = new Map(
-        items.map((item) => [
-          item,
-          blockKey(item.kind === 'col' ? item.ids : clusterNodes(item.child)),
-        ]),
+        items.map((item) => [item, blockKey(item.kind === 'col' ? item.ids : item.child.allNodes)]),
       );
       items.sort((a, b) => (keys.get(a) ?? 0) - (keys.get(b) ?? 0) || a.order - b.order);
     } else {
@@ -453,7 +443,7 @@ function placeAuto(
         keyed.sort((a, b) => a.key - b.key || previousY(a.id) - previousY(b.id) || a.i - b.i);
         let colY = colBottom[rank] ?? startY;
         for (const { id } of keyed) {
-          out[id] = { x: columnX[rank] ?? ORIGIN.x, y: colY, ...NODE_SIZE };
+          out[id] = { x: plan.columnX[rank] ?? ORIGIN.x, y: colY, ...NODE_SIZE };
           colY += NODE_SIZE.height + ROW_GAP + room;
         }
         const bottom = colY - ROW_GAP - room;
@@ -471,21 +461,27 @@ function placeAuto(
     }
 
     if (hasFrame && maxBottom === startY && cluster.id !== undefined) {
-      placeholders[cluster.id] = { x: columnX[0] ?? ORIGIN.x, y: startY, ...EMPTY_GROUP_CONTENT };
+      placeholders[cluster.id] = {
+        x: plan.columnX[0] ?? ORIGIN.x,
+        y: startY,
+        ...EMPTY_GROUP_CONTENT,
+      };
       maxBottom = startY + EMPTY_GROUP_CONTENT.height;
     }
     return maxBottom + (hasFrame ? GROUP_PADDING : 0);
   };
 
-  layoutCluster(root, ORIGIN.y + inset);
+  layoutCluster(plan.root, ORIGIN.y + plan.inset);
 }
 
 /** Groups that contain no nodes at any depth. */
-function findEmptyGroups(doc: DavDocument): Set<string> {
+function findEmptyGroups(
+  doc: DavDocument,
+  groupParent: ReadonlyMap<string, string | undefined>,
+): Set<string> {
   const withNodes = new Set<string>();
-  const parentOf = new Map(doc.groups.map((g) => [g.id, g.parentId]));
   for (const n of doc.nodes) {
-    for (const g of ancestorIds(parentOf, n.parentId)) withNodes.add(g);
+    for (const g of ancestorIds(groupParent, n.parentId)) withNodes.add(g);
   }
   return new Set(doc.groups.filter((g) => !withNodes.has(g.id)).map((g) => g.id));
 }
@@ -497,20 +493,14 @@ function computeGroupRects(
   placeholders: Record<string, Rect>,
   loopRoom: ReadonlyMap<string, number>,
   frames: FrameEdges,
+  childrenOf: ReadonlyMap<string, readonly string[]>,
+  nodesOf: ReadonlyMap<string, readonly string[]>,
 ): Record<string, Rect> {
   const groups = rectRecord();
-  const childrenOf = new Map<string, string[]>();
-  for (const g of doc.groups) {
-    if (g.parentId) childrenOf.set(g.parentId, [...(childrenOf.get(g.parentId) ?? []), g.id]);
-  }
-  const nodesOf = new Map<string, string[]>();
-  for (const n of doc.nodes) {
-    if (n.parentId) nodesOf.set(n.parentId, [...(nodesOf.get(n.parentId) ?? []), n.id]);
-  }
+  const knownGroups = new Set(doc.groups.map((g) => g.id));
 
   const visit = (groupId: string): Rect | undefined => {
-    const group = doc.groups.find((g) => g.id === groupId);
-    if (!group) return undefined;
+    if (!knownGroups.has(groupId)) return undefined;
     const placeholder = placeholders[groupId];
     const childRects = [
       ...(placeholder ? [placeholder] : []),
@@ -529,12 +519,12 @@ function computeGroupRects(
     if (childRects.length === 0) {
       rect = { ...ORIGIN, width: 240, height: 140 };
     } else {
+      const bounds = enclosingRect(childRects);
       const pad = frames.pads.get(groupId);
-      const minX = Math.min(...childRects.map((r) => r.x)) - (pad?.left ?? GROUP_PADDING);
-      const minY = Math.min(...childRects.map((r) => r.y)) - GROUP_PADDING - GROUP_HEADER;
-      const maxX =
-        Math.max(...childRects.map((r) => r.x + r.width)) + (pad?.right ?? GROUP_PADDING);
-      const maxY = Math.max(...childRects.map((r) => r.y + r.height)) + GROUP_PADDING;
+      const minX = bounds.x - (pad?.left ?? GROUP_PADDING);
+      const minY = bounds.y - GROUP_PADDING - GROUP_HEADER;
+      const maxX = bounds.x + bounds.width + (pad?.right ?? GROUP_PADDING);
+      const maxY = bounds.y + bounds.height + GROUP_PADDING;
       rect = {
         x: minX,
         y: minY,

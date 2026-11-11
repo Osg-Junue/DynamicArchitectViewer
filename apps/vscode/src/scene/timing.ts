@@ -1,4 +1,4 @@
-import { curveLength } from './geometry';
+import { curveLength, type Point, pointAt } from './geometry';
 import type { Packet } from './resolve';
 
 /** Pause after a step's last phase at 1x. */
@@ -43,11 +43,15 @@ export function pacePhase(phase: Packet[]): number {
 const easeSine = (u: number) => 0.5 - 0.5 * Math.cos(Math.PI * u);
 
 /** Eased position along a packet's path; a round trip rests briefly at the far end. */
-export function travelProgress(t: number, roundTrip: boolean, durationMs: number): number {
+function travelProgress(t: number, roundTrip: boolean, durationMs: number): number {
   if (!roundTrip) return easeSine(t);
   const rest = Math.min(MAX_TURN_SHARE, TURN_PAUSE_MS / durationMs);
   const leg = (1 - rest) / 2;
   if (t < leg) return easeSine(t / leg);
   if (t < leg + rest) return 1;
   return easeSine((1 - t) / leg);
+}
+
+export function packetPosition(packet: Packet, t: number): Point {
+  return pointAt(packet.path, travelProgress(t, packet.roundTrip, packet.durationMs));
 }

@@ -1,7 +1,5 @@
-import { type ZoneMove, type ZonePlace, zoneColor } from '../scene';
+import { MAX_ZONE_MOVES, type ZoneMove, type ZonePlace, zoneColor } from '../scene';
 import { html } from './dom';
-
-const MAX_MOVES = 3;
 
 function placeName(place: ZonePlace, departing: boolean): HTMLElement {
   const dot = html('i', { class: 'dav-zone-dot' });
@@ -21,7 +19,7 @@ export function renderZoneHud(
   durationMs: number,
   insideLabel: string,
 ): void {
-  for (const [from, to] of moves.slice(0, MAX_MOVES)) {
+  for (const [from, to] of moves.slice(0, MAX_ZONE_MOVES)) {
     const pair = html('span', { class: 'dav-zone-pair' });
     if (from === to) {
       pair.append(placeName(from, false), html('span', { class: 'dav-zone-inside' }, insideLabel));
@@ -37,7 +35,9 @@ export function renderZoneHud(
     }
     container.append(pair);
   }
-  if (moves.length > MAX_MOVES) {
-    container.append(html('span', { class: 'dav-zone-inside' }, `+${moves.length - MAX_MOVES}`));
+  if (moves.length > MAX_ZONE_MOVES) {
+    container.append(
+      html('span', { class: 'dav-zone-inside' }, `+${moves.length - MAX_ZONE_MOVES}`),
+    );
   }
 }

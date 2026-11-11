@@ -10,30 +10,6 @@ export interface Bezier {
   p3: Point;
 }
 
-/** Cubic Bézier between the facing sides of two rectangles. */
-export function connect(from: Rect, to: Rect): Bezier {
-  const fromCx = from.x + from.width / 2;
-  const fromCy = from.y + from.height / 2;
-  const toCx = to.x + to.width / 2;
-  const toCy = to.y + to.height / 2;
-  const dx = toCx - fromCx;
-  const dy = toCy - fromCy;
-
-  if (Math.abs(dx) >= Math.abs(dy) * 0.85) {
-    const sign = dx >= 0 ? 1 : -1;
-    const p0 = { x: sign > 0 ? from.x + from.width : from.x, y: fromCy };
-    const p3 = { x: sign > 0 ? to.x : to.x + to.width, y: toCy };
-    const offset = clamp(Math.abs(p3.x - p0.x) * 0.45, 48, 160);
-    return {
-      p0,
-      p1: { x: p0.x + offset * sign, y: p0.y },
-      p2: { x: p3.x - offset * sign, y: p3.y },
-      p3,
-    };
-  }
-  return connectVertical(from, to);
-}
-
 /** Cubic Bézier between the facing top and bottom of two rectangles. */
 export function connectVertical(from: Rect, to: Rect): Bezier {
   const fromCx = from.x + from.width / 2;

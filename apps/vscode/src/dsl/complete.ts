@@ -2,15 +2,9 @@ import { ICON_META } from '../model/icons';
 import { COLOR_NAMES, COLOR_RESET, ICON_NAMES } from '../model/types';
 import { parse } from './analyze';
 import type { Locale } from './diagnostics';
-import { ATTRIBUTE_SCHEMA, type AttrOwner } from './schema';
+import { ARROW_TOKENS, ATTRIBUTE_SCHEMA, type AttrOwner } from './schema';
 
-export type CompletionItemKind =
-  | 'keyword'
-  | 'property'
-  | 'constant'
-  | 'enum'
-  | 'variable'
-  | 'class';
+export type CompletionItemKind = 'keyword' | 'property' | 'constant' | 'variable' | 'class';
 
 export interface DslCompletionItem {
   label: string;
@@ -142,11 +136,16 @@ function endsInStringOrComment(beforeOnLine: string): boolean {
   return inString;
 }
 
+const ARROW_PATTERN = ARROW_TOKENS.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+const ANY_ARROW_RE = new RegExp(ARROW_PATTERN);
+const AFTER_ARROW_RE = new RegExp(`(?:${ARROW_PATTERN})\\s*\\w*$`);
+const ARROW_OR_ANIMATE_RE = new RegExp(`${ARROW_PATTERN}|^\\s*animate\\b`);
+
 /** The statement kind owning an attribute block, from the line text before its `[`. */
 function attributeOwner(statementHead: string): AttrOwner | null {
   const keyword = /^\s*(node|group|state|animate)\b/.exec(statementHead)?.[1];
   if (keyword) return keyword as AttrOwner;
-  return /-->|<->|\.\.>|<\.>/.test(statementHead) ? 'edge' : null;
+  return ANY_ARROW_RE.test(statementHead) ? 'edge' : null;
 }
 
 /**
@@ -236,10 +235,10 @@ export function computeCompletions(
   if (/^\s*state\s+\w*$/.test(code))
     return { from, to: pos, items: [...nodes, ...groups, ...edges] };
   if (/^\s*state\b/.test(code)) return null;
-  if (/(?:-->|<->|\.\.>|<\.>)\s*\w*$/.test(code) || /^\s*animate\s+\w*$/.test(code)) {
+  if (AFTER_ARROW_RE.test(code) || /^\s*animate\s+\w*$/.test(code)) {
     return { from, to: pos, items: nodes };
   }
-  if (/-->|<->|\.\.>|<\.>|^\s*animate\b/.test(code)) return null;
+  if (ARROW_OR_ANIMATE_RE.test(code)) return null;
 
   if (!wordMatch && !explicit) return null;
 

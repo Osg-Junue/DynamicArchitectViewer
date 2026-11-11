@@ -45,7 +45,6 @@
 
   /* Canvas */
   --dav-node-bg: var(--vscode-editorWidget-background, var(--raw-node));
-  --dav-icon: var(--dav-muted);
   --dav-edge: color-mix(in srgb, var(--dav-fg) 38%, var(--dav-bg));
 
   /*

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeCompletions, findAtOffset, parse } from '../../dsl';
+import { computeCompletions, findAtOffset, parse } from '../index';
 
 describe('findAtOffset', () => {
   const sample = [

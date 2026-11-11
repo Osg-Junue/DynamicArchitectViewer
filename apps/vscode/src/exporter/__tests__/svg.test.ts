@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
 import { computeLayout } from '../../layout';
-import { SAMPLES } from '../../samples';
+import { SAMPLE_TEMPLATES } from '../../samples';
 import {
   calloutRect,
   computePacketCalloutBox,
@@ -41,7 +41,7 @@ function attrs(svg: string, tag: string): Array<Record<string, string>> {
 }
 
 function sampleDsl(id: string): string {
-  const sample = SAMPLES.find((s) => s.id === id);
+  const sample = SAMPLE_TEMPLATES.find((s) => s.id === id);
   if (!sample) throw new Error(`no sample ${id}`);
   return sample.dsl;
 }
@@ -60,7 +60,7 @@ describe('exportSvg', () => {
   });
 
   it('runs no script and requests nothing', () => {
-    for (const sample of SAMPLES) {
+    for (const sample of SAMPLE_TEMPLATES) {
       const svg = exportSvg(sample.dsl);
       expect(svg).not.toMatch(/<script|<foreignObject|\shref="(?!#)|url\((?!#)|@import/i);
     }
@@ -100,7 +100,7 @@ describe('exportSvg', () => {
     expect([...durations]).toEqual([`${total}ms`]);
   });
 
-  it.each(SAMPLES.map((s) => [s.id]))('writes consistent SMIL timing for %s', (id) => {
+  it.each(SAMPLE_TEMPLATES.map((s) => [s.id]))('writes consistent SMIL timing for %s', (id) => {
     const svg = exportSvg(sampleDsl(id));
     const animations = [...attrs(svg, 'animate'), ...attrs(svg, 'animateTransform')];
     expect(animations.length).toBeGreaterThan(0);
@@ -297,7 +297,7 @@ describe('exportSvg', () => {
     expect(animatedAttrs.every((name) => name === 'display')).toBe(true);
   });
 
-  it.each(SAMPLES.map((s) => [s.id]))(
+  it.each(SAMPLE_TEMPLATES.map((s) => [s.id]))(
     'matches root height attribute to viewBox height for %s',
     (id) => {
       const svg = exportSvg(sampleDsl(id));
@@ -322,7 +322,7 @@ describe("exportSvg with camera: 'whole'", () => {
     expect(svg).not.toContain('class="dav-minimap-view"');
   });
 
-  it.each(SAMPLES.map((s) => [s.id]))(
+  it.each(SAMPLE_TEMPLATES.map((s) => [s.id]))(
     'frames every node, group and packet callout for %s',
     (id) => {
       const dsl = sampleDsl(id);

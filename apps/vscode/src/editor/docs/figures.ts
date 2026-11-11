@@ -1,9 +1,9 @@
-import { parse } from '../../dsl';
+import { type ParseResult, parse, parseTree } from '../../dsl';
 import { computeLayout, type Layout, type Rect, stationRect } from '../../layout';
-import type { DavDocument, IconName } from '../../model/types';
+import type { ColorName, DavDocument, IconName } from '../../model/types';
 import { clear, html, renderSvg, svg } from '../../runtime/dom';
 import type { ViewerLocale } from '../../runtime/i18n';
-import { Player, type PlayerData } from '../../runtime/player';
+import { Player } from '../../runtime/player';
 import {
   buildDefs,
   buildScene,
@@ -31,19 +31,30 @@ export interface LiveFigureOptions {
   matrix?: boolean;
 }
 
-function compile(dsl: string): PlayerData {
-  const { document } = parse(dsl);
-  return { document, layout: computeLayout(document), icons: ICON_SHAPES };
+export interface CopyFeedbackOptions {
+  copiedLabel?: string;
+  failedLabel?: string;
+  labelEl?: HTMLElement;
+}
+
+function compile(dsl: string): { parsed: ParseResult; document: DavDocument; layout: Layout } {
+  const parsed = parse(dsl);
+  const { document } = parsed;
+  return { parsed, document, layout: computeLayout(document) };
 }
 
 export async function copyWithFeedback(
   text: string,
   button: HTMLElement,
   label: string,
-  copiedLabel: string,
-  failedLabel: string,
-  labelEl: HTMLElement = button,
+  t: Translate,
+  options: CopyFeedbackOptions = {},
 ): Promise<void> {
+  const {
+    copiedLabel = t('コピー済み', 'Copied'),
+    failedLabel = t('コピー失敗', 'Copy failed'),
+    labelEl = button,
+  } = options;
   let copied = true;
   try {
     await navigator.clipboard.writeText(text);
@@ -59,15 +70,11 @@ export async function copyWithFeedback(
   }, 1400);
 }
 
-export function copyFailedLabel(t: Translate): string {
-  return t('コピー失敗', 'Copy failed');
-}
-
 export function copyButton(text: string, t: Translate): HTMLButtonElement {
   const label = t('コピー', 'Copy');
   const button = html('button', { type: 'button', class: 'doc-copy' }, label);
   button.addEventListener('click', () => {
-    void copyWithFeedback(text, button, label, t('コピー済み', 'Copied'), copyFailedLabel(t));
+    void copyWithFeedback(text, button, label, t);
   });
   return button;
 }
@@ -101,7 +108,7 @@ export function staticDiagram(dsl: string, label: string, stepIndex: number | nu
 }
 
 /** A single icon exactly as it appears on the canvas, cropped to its station. */
-export function stationPreview(icon: IconName, color?: string): SVGSVGElement {
+export function stationPreview(icon: IconName, color?: ColorName): SVGSVGElement {
   const document: DavDocument = {
     version: 1,
     title: '',
@@ -248,10 +255,11 @@ function stateMatrix(document: DavDocument, layout: Layout, t: Translate) {
 
 /** Source next to a real, running Player, with the running statements highlighted. */
 export function liveFigure(dsl: string, t: Translate, options: LiveFigureOptions = {}): LiveFigure {
-  const { document, layout } = compile(dsl);
+  const { parsed, document, layout } = compile(dsl);
   const hasSteps = document.steps.length > 0;
-  const stepLines = mapStepLines(dsl);
-  const lines = renderCodeLines(dsl);
+  const tree = parseTree(dsl);
+  const stepLines = mapStepLines(dsl, parsed, tree);
+  const lines = renderCodeLines(dsl, tree);
   const pre = html('pre', { class: 'doc-code' }, ...lines);
   const toolbar = html('div', { class: 'doc-stage-tools' });
   const host = html('div', { class: 'doc-stage-host' });

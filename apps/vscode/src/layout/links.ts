@@ -20,7 +20,7 @@ export interface Segment {
   by: number;
 }
 
-export function segmentsOf(links: readonly Link[], layout: Layout): Segment[] {
+export function segmentsOf(links: readonly Link[], layout: Pick<Layout, 'nodes'>): Segment[] {
   return links.flatMap(([from, to]) => {
     const a = layout.nodes[from];
     const b = layout.nodes[to];
@@ -58,8 +58,8 @@ export function crossingsOf(segments: readonly Segment[]): number {
   let crossings = 0;
   segments.forEach((s, i) => {
     for (let j = i + 1; j < segments.length; j++) {
-      const t = segments[j] as Segment;
-      if (!shareStation(s, t) && properlyCross(s, t)) crossings++;
+      const t = segments[j];
+      if (t && !shareStation(s, t) && properlyCross(s, t)) crossings++;
     }
   });
   return crossings;

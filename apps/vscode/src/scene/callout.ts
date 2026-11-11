@@ -1,5 +1,5 @@
 import type { Rect } from '../layout';
-import { pointAt } from './geometry';
+import { type Point, pointAt } from './geometry';
 import type { Packet } from './resolve';
 import { estimateTextWidth, fitText, wrapText } from './text';
 
@@ -77,6 +77,42 @@ export const calloutRect = (box: PacketCalloutBox): Rect => ({
   width: box.halfW * 2,
   height: box.boxBottom - box.boxTop,
 });
+
+/**
+ * Builds the path of the stationary annotation box and its leader line, whose end
+ * dynamically follows `dot` along the edge path.
+ */
+export function packetBubblePath(box: PacketCalloutBox, dot: Point): string {
+  const { cx, halfW, boxTop, boxBottom } = box;
+  const left = cx - halfW;
+  const right = cx + halfW;
+  const r = 6;
+  const maxOffset = Math.max(0, halfW - r - 12);
+  const baseX = cx + Math.max(-maxOffset, Math.min(maxOffset, (dot.x - cx) * 0.25));
+  const dx = dot.x - baseX;
+  const dy = Math.max(12, dot.y - boxBottom);
+  const dist = Math.hypot(dx, dy);
+  const pull = Math.min(7, dist * 0.35);
+  const tipX = dot.x - (dx / dist) * pull;
+  const tipY = dot.y - (dy / dist) * pull;
+  const n = (value: number) => value.toFixed(1);
+
+  return [
+    `M ${n(left + r)} ${n(boxTop)}`,
+    `H ${n(right - r)}`,
+    `Q ${n(right)} ${n(boxTop)} ${n(right)} ${n(boxTop + r)}`,
+    `V ${n(boxBottom - r)}`,
+    `Q ${n(right)} ${n(boxBottom)} ${n(right - r)} ${n(boxBottom)}`,
+    `H ${n(baseX)}`,
+    `L ${n(tipX)} ${n(tipY)}`,
+    `L ${n(baseX)} ${n(boxBottom)}`,
+    `H ${n(left + r)}`,
+    `Q ${n(left)} ${n(boxBottom)} ${n(left)} ${n(boxBottom - r)}`,
+    `V ${n(boxTop + r)}`,
+    `Q ${n(left)} ${n(boxTop)} ${n(left + r)} ${n(boxTop)}`,
+    'Z',
+  ].join(' ');
+}
 
 const calloutsClash = (a: PacketCalloutBox, b: PacketCalloutBox): boolean =>
   a.cx - a.halfW < b.cx + b.halfW + CALLOUT_GAP &&

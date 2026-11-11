@@ -1,9 +1,7 @@
 import type { Layout, Rect } from '../layout';
 import type { DavDocument } from '../model/types';
-import { boundsOf, type ResolvedView, zoneColor } from '../scene';
+import { MINIMAP_ZONE_ATTRS, minimapZones, type ResolvedView } from '../scene';
 import { clear, svg } from './dom';
-
-const PAD = 40;
 
 /** A small picture of the top-level zones and of what the camera shows. */
 export class Minimap {
@@ -47,24 +45,18 @@ export class Minimap {
     this.#syncHidden();
     if (!this.#hasZones) return;
 
-    const zones = doc.groups.filter((g) => g.parentId === undefined);
-    const b = boundsOf(
-      zones.flatMap((g) => layout.groups[g.id] ?? []),
-      PAD,
-      0,
-    );
+    const { zones, bounds: b } = minimapZones(doc, layout);
     this.element.setAttribute('viewBox', `${b.x} ${b.y} ${b.width} ${b.height}`);
     for (const zone of zones) {
-      const r = layout.groups[zone.id];
-      if (!r) continue;
+      const { x, y, width, height } = zone.rect;
       const rect = svg('rect', {
-        x: r.x,
-        y: r.y,
-        width: r.width,
-        height: r.height,
-        rx: 16,
-        fill: zoneColor(zone.color),
-        'fill-opacity': 0.55,
+        x,
+        y,
+        width,
+        height,
+        rx: MINIMAP_ZONE_ATTRS.rx,
+        fill: zone.fill,
+        'fill-opacity': MINIMAP_ZONE_ATTRS['fill-opacity'],
       });
       this.#zones.set(zone.id, rect);
       this.element.append(rect);

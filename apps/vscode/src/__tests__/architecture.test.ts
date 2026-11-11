@@ -31,6 +31,10 @@ const RULES: Record<string, { allowedLayers: string[]; forbiddenPackages: RegExp
     allowedLayers: ['protocol'],
     forbiddenPackages: /^(react|react-dom|vscode|@lezer\/)/,
   },
+  samples: {
+    allowedLayers: ['samples'],
+    forbiddenPackages: /^(react|react-dom|vscode|@lezer\/)/,
+  },
   prompt: {
     allowedLayers: ['prompt', 'model'],
     forbiddenPackages: /^(react|react-dom|vscode|@lezer\/)/,
@@ -78,13 +82,20 @@ function sourceFiles(dir: string): string[] {
 }
 
 describe('architecture: layer boundaries', () => {
+  it('covers every layer directory under src/', () => {
+    const dirs = readdirSync(SRC)
+      .filter((name) => name !== '__tests__' && statSync(join(SRC, name)).isDirectory())
+      .sort();
+    expect(dirs).toEqual(Object.keys(RULES).sort());
+  });
+
   for (const [layer, rule] of Object.entries(RULES)) {
     it(`${layer}/ respects its allowed dependencies`, () => {
       const violations: string[] = [];
       for (const file of sourceFiles(join(SRC, layer))) {
         const isTest = file.includes('__tests__');
         const content = readFileSync(file, 'utf8');
-        for (const [, spec] of content.matchAll(/from\s+'([^']+)'/g)) {
+        for (const [, spec] of content.matchAll(/(?:from|import)\s+['"]([^'"]+)['"]/g)) {
           if (!spec) continue;
           if (spec.startsWith('.')) {
             const target = relative(SRC, resolve(join(file, '..'), spec)).split(/[\\/]/)[0] ?? '';
@@ -92,7 +103,11 @@ describe('architecture: layer boundaries', () => {
             const allowed = isTest
               ? [...rule.allowedLayers, 'samples', 'dsl', 'layout']
               : rule.allowedLayers;
-            if (!allowed.includes(target) && !target.endsWith('.grammar')) {
+            if (
+              !allowed.includes(target) &&
+              !target.endsWith('.grammar') &&
+              !spec.endsWith('.dav?raw')
+            ) {
               violations.push(`${relative(SRC, file)} -> ${spec}`);
             }
           } else if (rule.forbiddenPackages.test(spec)) {

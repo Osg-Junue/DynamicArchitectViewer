@@ -1,13 +1,11 @@
 import type { Layout } from '../layout';
 import type { DavDocument } from '../model/types';
 import {
-  activeLabelFill,
   buildDefs,
   buildPacket,
   buildScene,
   calmFrame,
   computePacketCalloutBox,
-  flowColors,
   followFrame,
   HOLD_MS,
   type IconShapes,
@@ -17,21 +15,25 @@ import {
   packetBubblePath,
   packetPosition,
   packetsOnScreen,
-  paint,
   type ResolvedView,
   resolveView,
   stepFrame,
   wholeDiagramFrame,
-  type ZoneMove,
-  zoneColor,
   zoneMoves,
 } from '../scene';
 import { Camera } from './camera';
 import { CONTROL_ICONS } from './controlIcons';
-import { type Controls, createControls, SPEEDS, showPlayState } from './controls';
+import { type Controls, createControls, SPEEDS, setButtonPressed, showPlayState } from './controls';
 import { clear, html, renderSvg, svg } from './dom';
 import { VIEWER_STRINGS, type ViewerLocale, type ViewerStrings } from './i18n';
+import { bindKeyboard, bindPointer } from './input';
 import { Minimap } from './minimap';
+import {
+  collectSceneTargets,
+  outlineZones,
+  type SceneTargets,
+  syncPhaseHighlights,
+} from './sceneHighlights';
 import { renderZoneHud } from './zoneHud';
 import { ZoneLabels } from './zoneLabels';
 
@@ -72,6 +74,10 @@ interface PacketEntry {
   bubbleEl: SVGPathElement | null;
 }
 
+function phasesWhere(phases: readonly Packet[][], pred: (p: Packet) => boolean): number[] {
+  return phases.flatMap((pkts, idx) => (pkts.some(pred) ? [idx] : []));
+}
+
 /**
  * Self-contained diagram player used both by the exported HTML and the webview app.
  * Renders with DOM APIs only (CSP-friendly: no innerHTML, no style attributes; CSSOM only).
@@ -97,6 +103,7 @@ export class Player {
   #lastFrame = 0;
   #frame = 0;
   #packetEls: PacketEntry[] = [];
+  #targets: SceneTargets = { groups: [], flows: [], edgeLabels: [], stops: [] };
 
   readonly #camera: Camera;
   #userMoved = false;
@@ -232,13 +239,26 @@ export class Player {
     );
     container.append(this.#root);
 
-    this.#bindPointer(viewport);
-    this.#bindKeyboard(options.globalKeyboard ? window : this.#root);
+    bindPointer(viewport, this.#svgEl, {
+      panBy: (dx, dy) => {
+        this.#camera.panBy(dx, dy);
+        this.#userMoved = true;
+      },
+      zoomAt: (factor, x, y) => this.#zoomBy(factor, x, y),
+      selectNode: (nodeId) => this.selectNodeAnimation(nodeId),
+    });
+    this.#cleanups.push(
+      bindKeyboard(options.globalKeyboard ? window : this.#root, this.#root, playbackBar, {
+        next: () => this.next(),
+        prev: () => this.prev(),
+        togglePlay: () => this.togglePlay(),
+        showOverview: () => this.#showStep(null),
+      }),
+    );
     if (typeof ResizeObserver !== 'undefined') {
       const ro = new ResizeObserver(() => {
         this.#camera.invalidateSize();
-        if (this.#followAnim) this.#focusCurrentPhase(false);
-        else if (!this.#userMoved) this.#frameStep(false);
+        this.#reframe();
       });
       ro.observe(viewport);
       this.#cleanups.push(() => ro.disconnect());
@@ -263,8 +283,7 @@ export class Player {
     this.#syncZones();
     this.#renderChrome();
     this.#showStep(index, { keepPhase: true });
-    if (this.#followAnim) this.#focusCurrentPhase(false);
-    else if (!this.#userMoved) this.#frameStep(false);
+    this.#reframe();
   }
 
   destroy(): void {
@@ -312,14 +331,6 @@ export class Player {
     );
   }
 
-  getSpeed(): number {
-    return this.#speed;
-  }
-
-  clientToWorld(clientX: number, clientY: number): { x: number; y: number } {
-    return this.#camera.clientToWorld(clientX, clientY);
-  }
-
   next(): void {
     const count = this.#data.document.steps.length;
     if (count === 0) return;
@@ -354,10 +365,11 @@ export class Player {
 
   #updateMotionButton(): void {
     const off = this.#isStopped();
-    const action = off ? this.#strings.startMotion : this.#strings.stopMotion;
-    this.#controls.motionBtn.title = action;
-    this.#controls.motionBtn.setAttribute('aria-label', action);
-    this.#controls.motionBtn.setAttribute('aria-pressed', String(off));
+    setButtonPressed(
+      this.#controls.motionBtn,
+      off,
+      off ? this.#strings.startMotion : this.#strings.stopMotion,
+    );
   }
 
   #isStopped(): boolean {
@@ -399,14 +411,8 @@ export class Player {
   selectNodeAnimation(nodeId: string): void {
     const phases = this.#view.phases;
     if (phases.length === 0) return;
-    let matching = phases
-      .map((pkts, idx) => (pkts.some((p) => p.from === nodeId) ? idx : -1))
-      .filter((idx) => idx >= 0);
-    if (matching.length === 0) {
-      matching = phases
-        .map((pkts, idx) => (pkts.some((p) => p.to === nodeId) ? idx : -1))
-        .filter((idx) => idx >= 0);
-    }
+    let matching = phasesWhere(phases, (p) => p.from === nodeId);
+    if (matching.length === 0) matching = phasesWhere(phases, (p) => p.to === nodeId);
     if (matching.length === 0) return;
 
     const currentPos = matching.indexOf(this.#phase);
@@ -448,13 +454,13 @@ export class Player {
   }
 
   toggleMinimap(): void {
-    this.#controls.minimapBtn.setAttribute('aria-pressed', String(this.#minimap.toggle()));
+    setButtonPressed(this.#controls.minimapBtn, this.#minimap.toggle());
     this.#updateCameraOverlays();
   }
 
   toggleFollowAnim(): void {
     this.#followAnim = !this.#followAnim;
-    this.#controls.followBtn.setAttribute('aria-pressed', String(this.#followAnim));
+    setButtonPressed(this.#controls.followBtn, this.#followAnim);
     if (this.#followAnim) {
       this.#userMoved = false;
       this.#focusCurrentPhase(false);
@@ -527,6 +533,7 @@ export class Player {
     clear(this.#sceneLayer);
     this.#sceneLayer.append(renderSvg(buildScene(this.#view, this.#data.icons)));
     this.#zoneLabels.collect(this.#sceneLayer, this.#view, this.#data.document.groups);
+    this.#targets = collectSceneTargets(this.#sceneLayer);
     this.#updateCameraOverlays();
     this.#minimap.showStep(this.#view);
     if (!opts.keepPhase) this.#holdFrame = false;
@@ -563,7 +570,7 @@ export class Player {
         this.#addPacket(packet, packet.roundTrip ? 0.25 : 0.5);
       }
     }
-    this.#syncPhaseHighlights();
+    syncPhaseHighlights(this.#targets, phases, this.#phase, stopped, this.#pinned);
     if (this.#followAnim) this.#focusCurrentPhase(!stopped);
     else if (
       !stopped &&
@@ -598,28 +605,16 @@ export class Player {
 
   /** Says which zones the current phase moves between, and outlines them. */
   #updateZoneHud(): void {
-    for (const el of Array.from(this.#sceneLayer.querySelectorAll('.dav-group.is-zone-active'))) {
-      el.classList.remove('is-zone-active');
-      el.querySelector<SVGRectElement>('rect')?.style.removeProperty('stroke');
-    }
     clear(this.#zoneHud);
     const packets = this.#currentPackets();
-    if (packets.length === 0 || (this.#isStopped() && !this.#pinned)) return;
+    if (packets.length === 0 || (this.#isStopped() && !this.#pinned)) {
+      outlineZones(this.#targets, []);
+      return;
+    }
     const moves = zoneMoves(this.#view, packets);
     const ms = this.#phaseMs(this.#phase) / this.#speed;
     renderZoneHud(this.#zoneHud, moves, ms, this.#strings.zoneInside);
-    this.#outlineZones(moves);
-  }
-
-  #outlineZones(moves: readonly ZoneMove[]): void {
-    const active = new Map(moves.flat().map((place) => [place.id, place]));
-    for (const el of Array.from(this.#sceneLayer.querySelectorAll('.dav-group'))) {
-      const zone = active.get(el.getAttribute('data-id') ?? '');
-      const rect = el.querySelector<SVGRectElement>('rect');
-      if (!zone || !rect) continue;
-      el.classList.add('is-zone-active');
-      rect.style.setProperty('stroke', zoneColor(zone.color));
-    }
+    outlineZones(this.#targets, moves);
   }
 
   /** Keeps zone names and the minimap on the camera. */
@@ -640,45 +635,6 @@ export class Player {
   #calmFocus(smooth: boolean): void {
     const frame = calmFrame(this.#camera.viewSize, this.#data.layout, this.#currentPackets());
     if (frame) this.#camera.frame(frame, smooth);
-  }
-
-  /**
-   * Shows the `.dav-flow` rail overlay only on the edges of the current animation phase,
-   * or on every edge of the step while animation is stopped.
-   */
-  #syncPhaseHighlights(): void {
-    const phases = this.#view.phases;
-    if (phases.length === 0) return;
-    const stopped = this.#isStopped();
-    const running = this.#currentPackets();
-    // A phase picked while stopped goes first, so that its colors win on shared edges.
-    const activeEdges = flowColors(
-      stopped ? [...(this.#pinned ? running : []), ...phases.flat()] : running,
-    );
-    for (const flow of Array.from(this.#sceneLayer.querySelectorAll<SVGElement>('.dav-flow'))) {
-      const color = activeEdges.get(flow.getAttribute('data-edge') ?? '');
-      if (color === undefined) {
-        flow.setAttribute('hidden', '');
-      } else {
-        flow.removeAttribute('hidden');
-        flow.setAttribute('stroke', paint(color));
-      }
-    }
-    for (const label of Array.from(this.#sceneLayer.querySelectorAll('.dav-edge-label text'))) {
-      const color = activeEdges.get(label.getAttribute('data-edge') ?? '');
-      label.setAttribute('fill', color === undefined ? 'var(--dav-fg)' : activeLabelFill(color));
-      label.setAttribute('font-weight', color === undefined ? '400' : '700');
-    }
-    const currentPhase =
-      stopped && !this.#pinned ? null : String(Math.min(this.#phase, phases.length - 1));
-    for (const stop of Array.from(this.#sceneLayer.querySelectorAll('.dav-stop'))) {
-      const current = stop.getAttribute('data-phase') === currentPhase;
-      stop.classList.toggle('is-current', current);
-      const fill = current ? stop.getAttribute('data-active-fill') : null;
-      const text = current ? stop.getAttribute('data-active-text') : null;
-      stop.querySelector('circle')?.setAttribute('fill', fill ?? 'var(--dav-fg)');
-      stop.querySelector('text')?.setAttribute('fill', text ?? 'var(--dav-bg)');
-    }
   }
 
   #addPacket(packet: Packet, t: number): void {
@@ -822,6 +778,11 @@ export class Player {
   // Pan & zoom
   // ---------------------------------------------------------------------------
 
+  #reframe(): void {
+    if (this.#followAnim) this.#focusCurrentPhase(false);
+    else if (!this.#userMoved) this.#frameStep(false);
+  }
+
   #focusCurrentPhase(smooth: boolean): void {
     const phases = this.#view.phases;
     const packets =
@@ -843,7 +804,7 @@ export class Player {
   #showWholeDiagram(): void {
     if (this.#followAnim) {
       this.#followAnim = false;
-      this.#controls.followBtn.setAttribute('aria-pressed', 'false');
+      setButtonPressed(this.#controls.followBtn, false);
     }
     this.#holdFrame = true;
     this.#fit();
@@ -867,87 +828,5 @@ export class Player {
   #zoomBy(factor: number, cx?: number, cy?: number): void {
     this.#camera.zoomBy(factor, cx, cy);
     this.#userMoved = true;
-  }
-
-  #bindPointer(viewport: HTMLElement): void {
-    let drag: { id: number; x: number; y: number; captured: boolean } | null = null;
-    const down = (e: PointerEvent) => {
-      if (e.button !== 0 || e.defaultPrevented) return;
-      if ((e.target as Element | null)?.closest('.dav-zoom-group, .dav-minimap')) return;
-      drag = { id: e.pointerId, x: e.clientX, y: e.clientY, captured: false };
-    };
-    const move = (e: PointerEvent) => {
-      if (!drag || drag.id !== e.pointerId) return;
-      const dx = e.clientX - drag.x;
-      const dy = e.clientY - drag.y;
-      if (!drag.captured) {
-        if (Math.hypot(dx, dy) < 3) return;
-        drag.captured = true;
-        viewport.setPointerCapture(e.pointerId);
-        viewport.classList.add('dav-dragging');
-      }
-      this.#camera.panBy(dx, dy);
-      drag.x = e.clientX;
-      drag.y = e.clientY;
-      this.#userMoved = true;
-    };
-    const up = (e: PointerEvent) => {
-      if (!drag || drag.id !== e.pointerId) return;
-      const wasDragged = drag.captured;
-      if (drag.captured && viewport.hasPointerCapture(e.pointerId)) {
-        viewport.releasePointerCapture(e.pointerId);
-      }
-      drag = null;
-      viewport.classList.remove('dav-dragging');
-      if (!wasDragged && e.type === 'pointerup') {
-        const nodeEl = (e.target as Element | null)?.closest('.dav-node');
-        const nodeId = nodeEl?.getAttribute('data-id');
-        if (nodeId) this.selectNodeAnimation(nodeId);
-      }
-    };
-    const wheel = (e: WheelEvent) => {
-      e.preventDefault();
-      const box = this.#svgEl.getBoundingClientRect();
-      this.#zoomBy(Math.exp(-e.deltaY * 0.0015), e.clientX - box.left, e.clientY - box.top);
-    };
-    viewport.addEventListener('pointerdown', down);
-    viewport.addEventListener('pointermove', move);
-    viewport.addEventListener('pointerup', up);
-    viewport.addEventListener('pointercancel', up);
-    viewport.addEventListener('wheel', wheel, { passive: false });
-  }
-
-  #bindKeyboard(target: Window | HTMLElement): void {
-    const onKey = (e: Event) => {
-      if (!this.#root.isConnected) return;
-      const ke = e as KeyboardEvent;
-      const targetEl = ke.target as HTMLElement | null;
-      const tag = targetEl?.tagName;
-      if (
-        ke.defaultPrevented ||
-        ke.ctrlKey ||
-        ke.metaKey ||
-        ke.altKey ||
-        tag === 'INPUT' ||
-        tag === 'TEXTAREA' ||
-        tag === 'SELECT' ||
-        targetEl?.isContentEditable ||
-        document.querySelector('dialog[open]') !== null
-      ) {
-        return;
-      }
-      if (ke.key === 'ArrowRight') this.next();
-      else if (ke.key === 'ArrowLeft') this.prev();
-      else if (ke.key === ' ' && tag !== 'BUTTON') this.togglePlay();
-      else if (ke.key === 'Home') this.#showStep(null);
-      else return;
-      ke.preventDefault();
-    };
-    target.addEventListener('keydown', onKey);
-    this.#cleanups.push(() => target.removeEventListener('keydown', onKey));
-    if (target !== window && !this.#root.contains(this.#controls.playbackBar)) {
-      this.#controls.playbackBar.addEventListener('keydown', onKey);
-      this.#cleanups.push(() => this.#controls.playbackBar.removeEventListener('keydown', onKey));
-    }
   }
 }

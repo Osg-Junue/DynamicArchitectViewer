@@ -48,11 +48,17 @@ const STRINGS = {
   },
 } as const;
 
-function menuButton(role: string, testId: string, ...children: Node[]): HTMLButtonElement {
-  const el = html('button', { type: 'button', role, 'data-testid': testId });
-  el.append(...children);
-  el.tabIndex = -1;
-  return el;
+function menuButton(
+  role: string,
+  className: string,
+  testId: string,
+  ...children: Array<Node | string>
+): HTMLButtonElement {
+  return html(
+    'button',
+    { type: 'button', role, class: className, tabindex: '-1', 'data-testid': testId },
+    ...children,
+  );
 }
 
 function itemContent(label: string, detail: string): [HTMLElement, HTMLElement] {
@@ -108,8 +114,6 @@ export class ExportMenu {
         'data-testid': 'btn-export',
       },
       s.button,
-    );
-    this.#button.append(
       svg(
         'svg',
         {
@@ -124,11 +128,10 @@ export class ExportMenu {
     );
 
     this.#scopes = {
-      all: menuButton('menuitemradio', 'export-scope-all', document.createTextNode(s.allSteps)),
-      step: menuButton('menuitemradio', 'export-scope-step'),
+      all: menuButton('menuitemradio', 'export-item export-scope', 'export-scope-all', s.allSteps),
+      step: menuButton('menuitemradio', 'export-item export-scope', 'export-scope-step'),
     };
     for (const [scope, el] of Object.entries(this.#scopes) as Array<[Scope, HTMLButtonElement]>) {
-      el.classList.add('export-item', 'export-scope');
       el.addEventListener('click', () => {
         this.#scope = scope;
         this.#refresh();
@@ -146,23 +149,35 @@ export class ExportMenu {
     const [stillLabel, stillDetail] = itemContent(s.still[0], s.still[1]);
     this.#stillDetail = stillDetail;
     this.#formats = {
-      html: menuButton('menuitem', 'export-html', ...itemContent(s.html[0], s.html[1])),
+      html: menuButton(
+        'menuitem',
+        'export-item',
+        'export-html',
+        ...itemContent(s.html[0], s.html[1]),
+      ),
       'svg-animated': menuButton(
         'menuitem',
+        'export-item',
         'export-svg-animated',
         ...itemContent(s.animated[0], s.animated[1]),
       ),
       'svg-whole': menuButton(
         'menuitem',
+        'export-item',
         'export-svg-whole',
         ...itemContent(s.whole[0], s.whole[1]),
       ),
-      'svg-still': menuButton('menuitem', 'export-svg-still', stillLabel, stillDetail),
+      'svg-still': menuButton(
+        'menuitem',
+        'export-item',
+        'export-svg-still',
+        stillLabel,
+        stillDetail,
+      ),
     };
     for (const [format, el] of Object.entries(this.#formats) as Array<
       [ExportFormat, HTMLButtonElement]
     >) {
-      el.classList.add('export-item');
       el.addEventListener('click', () => {
         if (el.disabled) return;
         const step = this.#scope === 'step' ? (this.#shown.step?.index ?? null) : null;
@@ -245,7 +260,6 @@ export class ExportMenu {
     }
   }
 
-  /** Clears all per-document menu state when switching to another document. */
   /**
    * While the text has a fatal syntax error, the button stays focusable and says why it does
    * nothing: a disabled button could neither take focus nor show its tooltip.
@@ -262,6 +276,7 @@ export class ExportMenu {
     }
   }
 
+  /** Clears all per-document menu state when switching to another document. */
   reset(): void {
     this.close(false);
     this.#scope = 'all';

@@ -1,5 +1,6 @@
 import type { Rect } from '../layout';
 import type { DavGroup } from '../model/types';
+import { parentMap } from '../model/zones';
 import {
   estimateTextWidth,
   placeZoneLabels,
@@ -26,7 +27,7 @@ export class ZoneLabels {
   /** Takes the names out of a freshly drawn scene. */
   collect(scene: SVGGElement, view: ResolvedView, groups: readonly DavGroup[]): void {
     const rects = new Map(view.groups.map((g) => [g.id, g.rect]));
-    const parents = new Map(groups.map((g) => [g.id, g.parentId]));
+    const parents = parentMap(groups);
     const indices = new Map<string, number>();
     const labels: ZoneLabel[] = [];
     clear(this.layer);

@@ -6,16 +6,7 @@ import { expect, type Page, test } from '@playwright/test';
 import { createServer } from 'vite';
 import type { SvgExportOptions } from '../src/exporter';
 import { ICON_NAMES } from '../src/model/types';
-
-interface PostedMessage {
-  type: string;
-  dsl?: string;
-  from?: number;
-  to?: number;
-  animate?: boolean;
-  camera?: string;
-  step?: number | null;
-}
+import type { WebviewToHostMessage } from '../src/protocol/messages';
 
 const DEFAULT_DSL = readFileSync(
   new URL('../../../examples/01-infra-ha-failover.dav', import.meta.url),
@@ -29,8 +20,8 @@ const EVENT_DRIVEN_DSL = readFileSync(
 /** Loads the webview the way the extension does: it reports `ready` and receives the document. */
 async function openWebview(page: Page, dsl: string = DEFAULT_DSL): Promise<void> {
   await page.addInitScript((text) => {
-    const posted: PostedMessage[] = [];
-    (window as unknown as { __posted: PostedMessage[] }).__posted = posted;
+    const posted: WebviewToHostMessage[] = [];
+    (window as unknown as { __posted: WebviewToHostMessage[] }).__posted = posted;
     window.acquireVsCodeApi = () => ({
       postMessage(message) {
         posted.push(message);
@@ -41,8 +32,8 @@ async function openWebview(page: Page, dsl: string = DEFAULT_DSL): Promise<void>
   await page.goto('/');
 }
 
-function postedMessages(page: Page): Promise<PostedMessage[]> {
-  return page.evaluate(() => (window as unknown as { __posted: PostedMessage[] }).__posted);
+function postedMessages(page: Page): Promise<WebviewToHostMessage[]> {
+  return page.evaluate(() => (window as unknown as { __posted: WebviewToHostMessage[] }).__posted);
 }
 
 function sendDsl(page: Page, dsl: string, uri?: string): Promise<void> {
@@ -97,6 +88,30 @@ async function writeSvgExport(
 ): Promise<void> {
   exporter ??= loadExporter();
   await writeFile(file, (await exporter).exportSvg(dsl, options));
+}
+
+async function seekSvgTime(page: Page, seconds: number): Promise<void> {
+  await page.evaluate(async (t) => {
+    for (const svg of document.querySelectorAll('svg')) {
+      svg.pauseAnimations();
+      svg.setCurrentTime(t);
+    }
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
+  }, seconds);
+}
+
+async function expectSvgLoadsInImg(page: Page, htmlPath: string, svgHref: string): Promise<void> {
+  await writeFile(htmlPath, `<!doctype html><img id="diagram" src="${svgHref}" alt="diagram">`);
+  await page.goto(pathToFileURL(htmlPath).href);
+  await expect
+    .poll(() =>
+      page
+        .locator('#diagram')
+        .evaluate((img: HTMLImageElement) => (img.complete ? img.naturalWidth : 0)),
+    )
+    .toBe(960);
 }
 
 /** Collects console errors, page errors and CSP violations. */
@@ -825,12 +840,7 @@ test('switching documents discards the previous one', async ({ page }) => {
     'dav 1\ntitle "A"\nnode a\nnode b\na --> b\nstep "1" {\n focus a\n}\nstep "2" {\n focus b\n}\n',
   );
   await expect(page.locator('.dav-title')).toHaveText('A');
-  await page.evaluate(() => {
-    window.postMessage(
-      { type: 'docChanged', dsl: 'dav 1\ntitle "A"\nnode a', uri: 'file:///a.dav' },
-      '*',
-    );
-  });
+  await sendDsl(page, 'dav 1\ntitle "A"\nnode a', 'file:///a.dav');
   await expect(page.locator('.dav-node')).toHaveCount(1);
   // Without steps there is nothing to animate, and no step to pick
   await page.getByTestId('btn-export').click();
@@ -840,9 +850,7 @@ test('switching documents discards the previous one', async ({ page }) => {
   await expect(page.getByTestId('export-html')).toBeFocused();
   await page.keyboard.press('Escape');
 
-  await page.evaluate(() => {
-    window.postMessage({ type: 'docChanged', dsl: '', uri: 'file:///b.dav' }, '*');
-  });
+  await sendDsl(page, '', 'file:///b.dav');
   await expect(page.locator('.dav-node')).toHaveCount(0);
   await expect(page.locator('.dav-title')).toHaveText('');
 });
@@ -1071,16 +1079,7 @@ test.describe('exported SVG', () => {
     }
 
     // Loads as an <img> without broken-image fallback.
-    const hostHtml = info.outputPath('img-host.html');
-    await writeFile(hostHtml, `<!doctype html><img id="diagram" src="./export.svg" alt="diagram">`);
-    await page.goto(pathToFileURL(hostHtml).href);
-    await expect
-      .poll(() =>
-        page
-          .locator('#diagram')
-          .evaluate((img: HTMLImageElement) => (img.complete ? img.naturalWidth : 0)),
-      )
-      .toBe(960);
+    await expectSvgLoadsInImg(page, info.outputPath('img-host.html'), './export.svg');
 
     expect(errors).toEqual([]);
   });
@@ -1118,14 +1117,8 @@ test.describe('exported SVG', () => {
     await expect(page.locator('parsererror')).toHaveCount(0);
 
     for (const sec of [0, 1.8, 1.835, 1.87, 1.9, 2.6]) {
-      const snapshot = await page.evaluate(async (t) => {
-        for (const svg of document.querySelectorAll('svg')) {
-          svg.pauseAnimations();
-          svg.setCurrentTime(t);
-        }
-        await new Promise<void>((resolve) =>
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-        );
+      await seekSvgTime(page, sec);
+      const snapshot = await page.evaluate(() => {
         const canvas = document.querySelector('svg.dav-svg > svg')?.getBoundingClientRect();
         const labels = Array.from(document.querySelectorAll('.dav-layer-zone-labels > g'))
           .filter((g) => getComputedStyle(g).display !== 'none')
@@ -1140,7 +1133,7 @@ test.describe('exported SVG', () => {
             };
           });
         return { canvas, labels };
-      }, sec);
+      });
 
       expect(snapshot.canvas).toBeDefined();
       expect(snapshot.labels.length).toBeGreaterThan(0);
@@ -1184,16 +1177,7 @@ test.describe('exported SVG', () => {
       await page.goto(pathToFileURL(svgFile).href);
       await expect(page.locator('parsererror')).toHaveCount(0);
 
-      const hostHtml = info.outputPath(`${name}.html`);
-      await writeFile(hostHtml, `<!doctype html><img id="diagram" src="./${name}" alt="diagram">`);
-      await page.goto(pathToFileURL(hostHtml).href);
-      await expect
-        .poll(() =>
-          page
-            .locator('#diagram')
-            .evaluate((img: HTMLImageElement) => (img.complete ? img.naturalWidth : 0)),
-        )
-        .toBe(960);
+      await expectSvgLoadsInImg(page, info.outputPath(`${name}.html`), `./${name}`);
     }
 
     // Inline 03-event-driven-async Step 3 ({ step: 2, camera: 'whole' }): every callout lies inside viewBox
@@ -1206,14 +1190,8 @@ test.describe('exported SVG', () => {
     await page.goto(pathToFileURL(inlineHtml).href);
 
     for (const sec of [0, 0.9]) {
-      const geometry = await page.evaluate(async (t) => {
-        for (const svg of document.querySelectorAll('svg')) {
-          svg.pauseAnimations();
-          svg.setCurrentTime(t);
-        }
-        await new Promise<void>((resolve) =>
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-        );
+      await seekSvgTime(page, sec);
+      const geometry = await page.evaluate(() => {
         const canvasSvg = document.querySelector<SVGSVGElement>('svg.dav-svg > svg');
         if (!canvasSvg) return null;
         const vb = canvasSvg.viewBox.animVal;
@@ -1227,7 +1205,7 @@ test.describe('exported SVG', () => {
           viewBox: { x: vb.x, y: vb.y, width: vb.width, height: vb.height },
           callouts,
         };
-      }, sec);
+      });
 
       expect(geometry).not.toBeNull();
       expect(geometry?.callouts.length).toBeGreaterThan(0);

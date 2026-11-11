@@ -4,7 +4,14 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
 import { SAMPLE_TEMPLATES } from '../../samples';
-import { computeLayout, countCrossings, NODE_SIZE, type Rect } from '../index';
+import {
+  computeLayout,
+  countCrossings,
+  NODE_SIZE,
+  type Rect,
+  rectContains,
+  rectOverlaps,
+} from '../index';
 
 describe('edge label spacing', () => {
   const gapFor = (label: string) => {
@@ -56,15 +63,6 @@ const layoutOf = (dsl: string) => {
   const { document } = parse(dsl);
   return { document, layout: computeLayout(document) };
 };
-
-const overlaps = (a: Rect, b: Rect) =>
-  a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
-
-const contains = (outer: Rect, inner: Rect) =>
-  inner.x >= outer.x &&
-  inner.y >= outer.y &&
-  inner.x + inner.width <= outer.x + outer.width &&
-  inner.y + inner.height <= outer.y + outer.height;
 
 describe('crossing reduction', () => {
   const EXAMPLES = resolve(__dirname, '../../../../../examples');
@@ -196,10 +194,12 @@ api --> db
 api --> cache`);
     for (const n of document.nodes) {
       if (n.parentId)
-        expect(contains(layout.groups[n.parentId] as Rect, layout.nodes[n.id] as Rect)).toBe(true);
+        expect(rectContains(layout.groups[n.parentId] as Rect, layout.nodes[n.id] as Rect)).toBe(
+          true,
+        );
     }
-    expect(contains(layout.groups.vpc as Rect, layout.groups.data as Rect)).toBe(true);
-    expect(overlaps(layout.groups.vpc as Rect, layout.nodes.client as Rect)).toBe(false);
+    expect(rectContains(layout.groups.vpc as Rect, layout.groups.data as Rect)).toBe(true);
+    expect(rectOverlaps(layout.groups.vpc as Rect, layout.nodes.client as Rect)).toBe(false);
   });
 
   it.each(SAMPLE_TEMPLATES.map((s) => [s.id, s.dsl] as const))(
@@ -232,7 +232,7 @@ group g2 {
 n6 --> n0
 n1 --> n0`);
     expect(Object.keys(layout.groups).sort()).toEqual(document.groups.map((g) => g.id).sort());
-    expect(contains(layout.groups.g2 as Rect, layout.groups.g3 as Rect)).toBe(true);
+    expect(rectContains(layout.groups.g2 as Rect, layout.groups.g3 as Rect)).toBe(true);
   });
 
   it('auto layout never overlaps nodes or puts foreign nodes inside groups', () => {
@@ -258,7 +258,7 @@ n1 --> n0`);
         for (let i = 0; i < ids.length; i++) {
           for (let j = i + 1; j < ids.length; j++) {
             expect(
-              overlaps(
+              rectOverlaps(
                 layout.nodes[ids[i] as string] as Rect,
                 layout.nodes[ids[j] as string] as Rect,
               ),
@@ -272,7 +272,7 @@ n1 --> n0`);
             if (other.parentId && descendants.has(other.parentId)) descendants.add(other.id);
           for (const n of document.nodes) {
             const inside = n.parentId !== undefined && descendants.has(n.parentId);
-            if (!inside) expect(overlaps(rect, layout.nodes[n.id] as Rect)).toBe(false);
+            if (!inside) expect(rectOverlaps(rect, layout.nodes[n.id] as Rect)).toBe(false);
           }
         }
       }),

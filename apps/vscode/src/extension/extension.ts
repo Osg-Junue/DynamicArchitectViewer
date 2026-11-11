@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { importContent } from '../exporter';
 import { buildAiPrompt } from '../prompt';
-import { SAMPLES } from '../samples';
+import { SAMPLE_TEMPLATES } from '../samples';
 import { exportDocumentToHtml, exportDocumentToSvg, LANGUAGE_ID } from './documents';
 import { registerLanguageFeatures } from './languageFeatures';
 import { t, uiLocale } from './locale';
@@ -24,6 +24,16 @@ export function activate(context: vscode.ExtensionContext): void {
     return previewed && !previewed.isClosed ? previewed : undefined;
   };
 
+  const withTargetDocument =
+    (fn: (doc: vscode.TextDocument) => Promise<void>) => async (): Promise<void> => {
+      const doc = commandTargetDocument();
+      if (!doc) {
+        void vscode.window.showInformationMessage(openDavFirst());
+        return;
+      }
+      await fn(doc);
+    };
+
   /** Opens text as a new, unsaved diagram, next to its preview. */
   const openNewDocument = async (content: string): Promise<void> => {
     const doc = await vscode.workspace.openTextDocument({ language: LANGUAGE_ID, content });
@@ -40,22 +50,14 @@ export function activate(context: vscode.ExtensionContext): void {
       }
       panelManager.open(doc);
     }),
-    vscode.commands.registerCommand('dav.exportHtml', async () => {
-      const doc = commandTargetDocument();
-      if (!doc) {
-        void vscode.window.showInformationMessage(openDavFirst());
-        return;
-      }
-      await exportDocumentToHtml(doc);
-    }),
-    vscode.commands.registerCommand('dav.exportSvg', async () => {
-      const doc = commandTargetDocument();
-      if (!doc) {
-        void vscode.window.showInformationMessage(openDavFirst());
-        return;
-      }
-      await exportDocumentToSvg(doc);
-    }),
+    vscode.commands.registerCommand(
+      'dav.exportHtml',
+      withTargetDocument((doc) => exportDocumentToHtml(doc)),
+    ),
+    vscode.commands.registerCommand(
+      'dav.exportSvg',
+      withTargetDocument((doc) => exportDocumentToSvg(doc)),
+    ),
     vscode.commands.registerCommand('dav.importHtml', async () => {
       const uris = await vscode.window.showOpenDialog({
         canSelectMany: false,
@@ -79,7 +81,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.commands.registerCommand('dav.newFromTemplate', async () => {
       const picked = await vscode.window.showQuickPick(
-        SAMPLES.map((s) => ({ label: s.name, detail: s.id, dsl: s.dsl })),
+        SAMPLE_TEMPLATES.map((s) => ({ label: s.name, detail: s.id, dsl: s.dsl })),
         { placeHolder: t('サンプルのテンプレートを選択', 'Select a sample diagram template') },
       );
       if (!picked) return;

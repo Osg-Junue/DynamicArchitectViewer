@@ -9,21 +9,24 @@ import {
   type DavGroup,
   type DavNode,
   type DavStep,
-  type Direction,
   ICON_NAMES,
-  type IconName,
   implicitEdgeId,
-  type LineStyle,
+  isColorName,
+  isIconName,
   type StateOverride,
 } from '../model/types';
 import type { Diagnostic, DiagnosticCode, Severity } from './diagnostics';
 import {
+  ARROW_SPECS,
   ATTRIBUTE_SCHEMA,
   type AttrOwner,
   type AttrType,
+  type AttrValueByType,
+  type OwnerAttrs,
   STATE_ATTRIBUTES_BY_TARGET,
 } from './schema';
-import { childNodes, parseTree, sliceOf, unescapeString } from './syntax';
+import { closestMatch } from './suggest';
+import { attributeValueNode, childNodes, parseTree, sliceOf, unescapeString } from './syntax';
 
 export type ElementKind = 'node' | 'group' | 'edge';
 
@@ -58,26 +61,23 @@ interface Reference {
   allowed: ReadonlyArray<ElementKind>;
 }
 
-interface PendingStateCheck {
-  target: string;
-  attrs: Map<string, ValidAttr>;
-}
-
-interface ValidAttr {
-  value: string | boolean;
+interface ValidAttr<V = AttrValueByType[AttrType]> {
+  value: V;
   node: SyntaxNode;
 }
 
-const ARROWS: Record<string, { style: LineStyle; direction: Direction }> = {
-  '-->': { style: 'solid', direction: 'forward' },
-  '..>': { style: 'dashed', direction: 'forward' },
-  '<->': { style: 'solid', direction: 'bidirectional' },
-  '<.>': { style: 'dashed', direction: 'bidirectional' },
-};
+interface ParsedAttrs<O extends AttrOwner> {
+  get<K extends keyof OwnerAttrs<O> & string>(key: K): ValidAttr<OwnerAttrs<O>[K]> | undefined;
+  value<K extends keyof OwnerAttrs<O> & string>(key: K): OwnerAttrs<O>[K] | undefined;
+  readonly entries: ReadonlyMap<string, ValidAttr>;
+}
+
+interface PendingStateCheck {
+  target: string;
+  attrs: ReadonlyMap<string, ValidAttr>;
+}
 
 const DEFAULT_ARROW = { style: 'solid', direction: 'forward' } as const;
-
-const VALUE_NODE_NAMES = new Set(['String', 'Number', 'Color', 'Identifier', 'Boolean']);
 
 const EXPECTED_BY_TYPE: Record<AttrType, string> = {
   string: '"..."',
@@ -230,10 +230,10 @@ class Analyzer {
     const id = sliceOf(this.text, idNode);
     const attrs = this.readAttributes(node.getChild('Attributes'), 'group');
 
-    const group: DavGroup = { id, label: this.readLabel(node) ?? id };
+    const group: DavGroup = { id, label: this.readChildString(node, 'Label') ?? id };
     if (parentId) group.parentId = parentId;
-    const color = attrs.get('color')?.value;
-    if (typeof color === 'string') group.color = color;
+    const color = attrs.value('color');
+    if (color !== undefined) group.color = color;
 
     const declared = this.declare({
       kind: 'group',
@@ -262,14 +262,17 @@ class Analyzer {
 
     const result: DavNode = {
       id,
-      label: this.readLabel(node) ?? id,
-      icon: (attrs.get('icon')?.value as IconName | undefined) ?? 'server',
-      visible: (attrs.get('visible')?.value as boolean | undefined) ?? true,
+      label: this.readChildString(node, 'Label') ?? id,
+      icon: attrs.value('icon') ?? 'server',
+      visible: attrs.value('visible') ?? true,
     };
     if (parentId) result.parentId = parentId;
-    assignString(result, 'sub', attrs);
-    assignString(result, 'badge', attrs);
-    assignString(result, 'color', attrs);
+    const sub = attrs.value('sub');
+    if (sub !== undefined) result.sub = sub;
+    const badge = attrs.value('badge');
+    if (badge !== undefined) result.badge = badge;
+    const color = attrs.value('color');
+    if (color !== undefined) result.color = color;
 
     const declared = this.declare({
       kind: 'node',
@@ -289,7 +292,7 @@ class Analyzer {
     const from = sliceOf(this.text, fromNode);
     const to = sliceOf(this.text, toNode);
     const arrowText = sliceOf(this.text, arrowNode);
-    const arrow = ARROWS[arrowText] ?? DEFAULT_ARROW;
+    const arrow = ARROW_SPECS[arrowText] ?? DEFAULT_ARROW;
     if (from === to && arrow.direction === 'bidirectional') {
       this.report('invalid-self-arrow', 'error', arrowNode, {
         arrow: arrowText,
@@ -300,17 +303,18 @@ class Analyzer {
     const explicit = attrs.get('id');
 
     const edge: DavEdge = {
-      id: typeof explicit?.value === 'string' ? explicit.value : implicitEdgeId(from, to),
+      id: explicit?.value ?? implicitEdgeId(from, to),
       explicitId: explicit !== undefined,
       from,
       to,
       style: arrow.style,
       direction: arrow.direction,
-      visible: (attrs.get('visible')?.value as boolean | undefined) ?? true,
+      visible: attrs.value('visible') ?? true,
     };
-    const label = this.readEdgeLabel(node);
+    const label = this.readChildString(node, 'EdgeLabel');
     if (label !== undefined) edge.label = label;
-    assignString(edge, 'color', attrs);
+    const color = attrs.value('color');
+    if (color !== undefined) edge.color = color;
 
     if (explicit) {
       this.declare({
@@ -334,25 +338,18 @@ class Analyzer {
   }
 
   private readStep(node: SyntaxNode): void {
-    const titleNode = node.getChild('String');
     const step: DavStep = {
       index: this.doc.steps.length,
-      title: titleNode ? this.readString(titleNode) : '',
+      title: this.readChildString(node) ?? '',
       description: '',
       focus: [],
       states: [],
       animations: [],
     };
 
-    const descriptions: string[] = [];
     const body = node.getChild('StepBody');
     for (const stmt of body ? childNodes(body) : []) {
       switch (stmt.name) {
-        case 'Desc': {
-          const str = stmt.getChild('String');
-          if (str) descriptions.push(this.readString(str));
-          break;
-        }
         case 'Focus':
           for (const ref of stmt.getChildren('Identifier')) {
             const id = sliceOf(this.text, ref);
@@ -368,7 +365,7 @@ class Analyzer {
           break;
       }
     }
-    step.description = descriptions.join('\n');
+    step.description = this.readDescList(body).join('\n');
 
     this.stepRanges.push({ from: node.from, to: node.to });
     this.doc.steps.push(step);
@@ -385,10 +382,12 @@ class Analyzer {
     }
 
     const override: StateOverride = { target };
-    const visible = attrs.get('visible')?.value;
-    if (typeof visible === 'boolean') override.visible = visible;
-    assignString(override, 'badge', attrs);
-    assignString(override, 'color', attrs);
+    const visible = attrs.value('visible');
+    if (visible !== undefined) override.visible = visible;
+    const badge = attrs.value('badge');
+    if (badge !== undefined) override.badge = badge;
+    const color = attrs.value('color');
+    if (color !== undefined) override.color = color;
 
     step.states.push(override);
     this.references.push({
@@ -396,7 +395,7 @@ class Analyzer {
       range: rangeOf(targetNode),
       allowed: ['node', 'group', 'edge'],
     });
-    this.stateChecks.push({ target, attrs });
+    this.stateChecks.push({ target, attrs: attrs.entries });
   }
 
   private readAnimate(stmt: SyntaxNode, step: DavStep): void {
@@ -404,7 +403,7 @@ class Analyzer {
     const arrowNode = stmt.getChild('Arrow');
     if (!fromNode || !toNode || !arrowNode) return;
     const arrowText = sliceOf(this.text, arrowNode);
-    const arrow = ARROWS[arrowText] ?? DEFAULT_ARROW;
+    const arrow = ARROW_SPECS[arrowText] ?? DEFAULT_ARROW;
     if (arrow.style === 'dashed') {
       this.report('invalid-animate-arrow', 'error', arrowNode, {
         arrow: arrowText,
@@ -425,28 +424,21 @@ class Analyzer {
       from: sliceOf(this.text, fromNode),
       to: sliceOf(this.text, toNode),
       direction: arrow.direction,
-      parallel: (attrs.get('parallel')?.value as boolean | undefined) ?? false,
+      parallel: attrs.value('parallel') ?? false,
     };
-    const label = this.readEdgeLabel(stmt);
+    const label = this.readChildString(stmt, 'EdgeLabel');
     if (label !== undefined) animation.label = label;
-    assignString(animation, 'color', attrs);
-    const icon = attrs.get('icon')?.value as IconName | undefined;
+    const color = attrs.value('color');
+    if (color !== undefined) animation.color = color;
+    const icon = attrs.value('icon');
     if (icon !== undefined) animation.icon = icon;
 
     const descs: string[] = [];
-    const attrDesc = attrs.get('desc')?.value;
-    if (typeof attrDesc === 'string' && attrDesc.length > 0) {
+    const attrDesc = attrs.value('desc');
+    if (attrDesc !== undefined && attrDesc.length > 0) {
       descs.push(attrDesc);
     }
-    const body = stmt.getChild('AnimateBody');
-    if (body) {
-      for (const child of childNodes(body)) {
-        if (child.name === 'Desc') {
-          const str = child.getChild('String');
-          if (str) descs.push(this.readString(str));
-        }
-      }
-    }
+    descs.push(...this.readDescList(stmt.getChild('AnimateBody')));
     if (descs.length > 0) {
       animation.description = descs.join('\n');
     }
@@ -476,50 +468,65 @@ class Analyzer {
     return value;
   }
 
-  private readLabel(node: SyntaxNode): string | undefined {
-    const str = node.getChild('Label')?.getChild('String');
+  private readChildString(node: SyntaxNode, wrapper?: string): string | undefined {
+    const target = wrapper ? node.getChild(wrapper) : node;
+    const str = target?.getChild('String');
     return str ? this.readString(str) : undefined;
   }
 
-  private readEdgeLabel(node: SyntaxNode): string | undefined {
-    const str = node.getChild('EdgeLabel')?.getChild('String');
-    return str ? this.readString(str) : undefined;
+  private readDescList(container: SyntaxNode | null): string[] {
+    if (!container) return [];
+    const out: string[] = [];
+    for (const child of childNodes(container)) {
+      if (child.name === 'Desc') {
+        const desc = this.readChildString(child);
+        if (desc !== undefined) out.push(desc);
+      }
+    }
+    return out;
   }
 
   /** Reads and validates an attribute list. Invalid entries are reported and omitted. */
-  private readAttributes(node: SyntaxNode | null, owner: AttrOwner): Map<string, ValidAttr> {
-    const result = new Map<string, ValidAttr>();
-    if (!node) return result;
-    const schema = ATTRIBUTE_SCHEMA[owner];
-    const seen = new Set<string>();
+  private readAttributes<O extends AttrOwner>(node: SyntaxNode | null, owner: O): ParsedAttrs<O> {
+    const entries = new Map<string, ValidAttr>();
+    if (node) {
+      const schema = ATTRIBUTE_SCHEMA[owner];
+      const seen = new Set<string>();
 
-    for (const attr of node.getChildren('Attribute')) {
-      const nameNode = attr.getChild('AttrName');
-      const valueNode = childNodes(attr).find((c) => VALUE_NODE_NAMES.has(c.name));
-      if (!nameNode || !valueNode) continue;
-      const name = sliceOf(this.text, nameNode);
+      for (const attr of node.getChildren('Attribute')) {
+        const nameNode = attr.getChild('AttrName');
+        const valueNode = attributeValueNode(attr);
+        if (!nameNode || !valueNode) continue;
+        const name = sliceOf(this.text, nameNode);
 
-      const type = Object.hasOwn(schema, name) ? schema[name] : undefined;
-      if (!type) {
-        this.report('unknown-attribute', 'warning', nameNode, { name, owner });
-        continue;
+        const type = Object.hasOwn(schema, name) ? schema[name] : undefined;
+        if (!type) {
+          this.report('unknown-attribute', 'warning', nameNode, { name, owner });
+          continue;
+        }
+        if (seen.has(name)) {
+          this.report('duplicate-attribute', 'warning', nameNode, { name });
+        }
+        seen.add(name);
+
+        const value = this.convertValue(name, type, valueNode);
+        if (value !== undefined) entries.set(name, { value, node: valueNode });
       }
-      if (seen.has(name)) {
-        this.report('duplicate-attribute', 'warning', nameNode, { name });
-      }
-      seen.add(name);
-
-      const value = this.convertValue(name, type, valueNode);
-      if (value !== undefined) result.set(name, { value, node: valueNode });
     }
-    return result;
+    return {
+      entries,
+      get: <K extends keyof OwnerAttrs<O> & string>(key: K) =>
+        entries.get(key) as ValidAttr<OwnerAttrs<O>[K]> | undefined,
+      value: <K extends keyof OwnerAttrs<O> & string>(key: K) =>
+        entries.get(key)?.value as OwnerAttrs<O>[K] | undefined,
+    };
   }
 
   private convertValue(
     name: string,
     type: AttrType,
     node: SyntaxNode,
-  ): string | boolean | undefined {
+  ): AttrValueByType[AttrType] | undefined {
     const raw = sliceOf(this.text, node);
     const invalid = () => {
       this.report('invalid-attribute-value', 'error', node, {
@@ -540,7 +547,7 @@ class Analyzer {
       case 'stateColor': {
         if (node.name !== 'Identifier' && node.name !== 'Color') return invalid();
         const colorName = raw.toLowerCase();
-        if ((COLOR_NAMES as readonly string[]).includes(colorName)) return colorName;
+        if (isColorName(colorName)) return colorName;
         const allowsReset = type === 'stateColor';
         if (allowsReset && colorName === COLOR_RESET) return COLOR_RESET;
         const suggestion = node.name === 'Color' ? undefined : closestMatch(raw, COLOR_NAMES);
@@ -554,7 +561,7 @@ class Analyzer {
       case 'icon': {
         if (node.name !== 'Identifier') return invalid();
         const iconName = raw.toLowerCase();
-        if (!(ICON_NAMES as readonly string[]).includes(iconName)) {
+        if (!isIconName(iconName)) {
           this.report('unknown-icon', 'error', node, {
             icon: raw,
             suggestion: closestMatch(raw, ICON_NAMES) ?? '',
@@ -621,49 +628,6 @@ class Analyzer {
 
 function rangeOf(node: SourceRange): SourceRange {
   return { from: node.from, to: node.to };
-}
-
-function assignString<K extends string>(
-  target: Partial<Record<K, string>>,
-  key: K,
-  attrs: Map<string, ValidAttr>,
-): void {
-  const value = attrs.get(key)?.value;
-  if (typeof value === 'string') target[key] = value;
-}
-
-/** Returns the closest candidate within an edit distance of 2 (or 1 for <=3-char names), if any. */
-export function closestMatch(input: string, candidates: readonly string[]): string | undefined {
-  let best: string | undefined;
-  let bestDistance = 3;
-  const normalized = input.toLowerCase();
-  for (const candidate of candidates) {
-    const maxDistance = candidate.length <= 3 ? 1 : 2;
-    const d = levenshtein(normalized, candidate);
-    if (d <= maxDistance && d < bestDistance) {
-      best = candidate;
-      bestDistance = d;
-    }
-  }
-  return best;
-}
-
-function levenshtein(a: string, b: string): number {
-  const prev = Array.from({ length: b.length + 1 }, (_, i) => i);
-  for (let i = 1; i <= a.length; i++) {
-    let diag = prev[0] ?? 0;
-    prev[0] = i;
-    for (let j = 1; j <= b.length; j++) {
-      const temp = prev[j] ?? 0;
-      prev[j] = Math.min(
-        (prev[j] ?? 0) + 1,
-        (prev[j - 1] ?? 0) + 1,
-        diag + (a[i - 1] === b[j - 1] ? 0 : 1),
-      );
-      diag = temp;
-    }
-  }
-  return prev[b.length] ?? 0;
 }
 
 /**

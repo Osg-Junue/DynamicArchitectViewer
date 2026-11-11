@@ -9,12 +9,6 @@
   --raw-selected: rgba(32, 40, 47, 0.12);
   --raw-selected-fg: #20282f;
   --raw-input-bg: #fffefa;
-  --raw-primary-bg: #20282f;
-  --raw-primary-hover: #38434d;
-  --raw-primary-fg: #fffefa;
-  --raw-error: #cf222e;
-  --raw-warning: #9a6700;
-  --raw-ok: #1a7f37;
   --raw-shadow: rgba(31, 35, 40, 0.16);
 }
 
@@ -25,12 +19,6 @@
     --raw-selected: rgba(255, 255, 255, 0.14);
     --raw-selected-fg: #ffffff;
     --raw-input-bg: #2a2e34;
-    --raw-primary-bg: #dde0e4;
-    --raw-primary-hover: #ffffff;
-    --raw-primary-fg: #191b1e;
-    --raw-error: #f48771;
-    --raw-warning: #e2b341;
-    --raw-ok: #73c991;
     --raw-shadow: rgba(0, 0, 0, 0.4);
   }
 }
@@ -43,12 +31,6 @@
   --dav-input-bg: var(--vscode-dropdown-background, var(--raw-input-bg));
   --dav-input-fg: var(--vscode-dropdown-foreground, var(--raw-fg));
   --dav-input-border: var(--vscode-dropdown-border, var(--raw-border));
-  --dav-primary-bg: var(--vscode-button-background, var(--raw-primary-bg));
-  --dav-primary-hover: var(--vscode-button-hoverBackground, var(--raw-primary-hover));
-  --dav-primary-fg: var(--vscode-button-foreground, var(--raw-primary-fg));
-  --dav-error: var(--vscode-errorForeground, var(--raw-error));
-  --dav-warning: var(--vscode-editorWarning-foreground, var(--raw-warning));
-  --dav-ok: var(--vscode-testing-iconPassed, var(--raw-ok));
   --dav-shadow: var(--vscode-widget-shadow, var(--raw-shadow));
 }
 

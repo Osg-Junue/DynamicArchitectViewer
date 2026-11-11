@@ -1,6 +1,8 @@
-import type { Rect } from '../layout';
-import { idPair } from '../model/zones';
-import { paint } from './paint';
+import type { Layout, Rect } from '../layout';
+import type { DavDocument } from '../model/types';
+import { idPair, topLevelGroups } from '../model/zones';
+import { boundsOf } from './bounds';
+import { paint, THEME_COLOR } from './paint';
 import type { Packet, ResolvedGroup, ResolvedView } from './resolve';
 
 /** Where a zone's name sits inside its zone; a part of the diagram, so it zooms with it. */
@@ -68,12 +70,42 @@ export function placeZoneLabels(
   return placed;
 }
 
+const MINIMAP_PAD = 40;
+
+export const MAX_ZONE_MOVES = 3;
+export const MINIMAP_ZONE_ATTRS = { rx: 16, 'fill-opacity': 0.55 } as const;
+
+export interface MinimapZone {
+  id: string;
+  rect: Rect;
+  fill: string;
+}
+
 /** One end of a move: a zone, or a node outside any zone, which goes by its own name. */
 export type ZonePlace = Pick<ResolvedGroup, 'id' | 'label' | 'color'>;
 export type ZoneMove = readonly [from: ZonePlace, to: ZonePlace];
 
 export function zoneColor(color: string | undefined): string {
-  return color ? paint(color) : 'var(--dav-border-strong)';
+  return color ? paint(color) : THEME_COLOR.borderStrong;
+}
+
+/** Top-level zones with a layout rectangle and their minimap bounds. */
+export function minimapZones(
+  doc: Pick<DavDocument, 'groups'>,
+  layout: Layout,
+): { zones: MinimapZone[]; bounds: Rect } {
+  const zones = topLevelGroups(doc.groups).flatMap((zone): MinimapZone[] => {
+    const rect = layout.groups[zone.id];
+    return rect ? [{ id: zone.id, rect, fill: zoneColor(zone.color) }] : [];
+  });
+  return {
+    zones,
+    bounds: boundsOf(
+      zones.map((z) => z.rect),
+      MINIMAP_PAD,
+      0,
+    ),
+  };
 }
 
 /** The distinct moves between zones that some packets make, in the order they first appear. */

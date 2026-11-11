@@ -16,7 +16,6 @@ import { colorLab, colorPalette, iconCatalog } from './catalog';
 import { codeBlock } from './code';
 import {
   copyButton,
-  copyFailedLabel,
   copyWithFeedback,
   type LiveFigureOptions,
   liveFigure,
@@ -355,13 +354,9 @@ function renderPrompt(ctx: DocContext): Node[] {
     label,
   );
   copy.addEventListener('click', () => {
-    void copyWithFeedback(
-      promptText(),
-      copy,
-      label,
-      t('コピーしました', 'Copied'),
-      copyFailedLabel(t),
-    );
+    void copyWithFeedback(promptText(), copy, label, t, {
+      copiedLabel: t('コピーしました', 'Copied'),
+    });
   });
   const textarea = html('textarea', {
     class: 'doc-prompt-text',

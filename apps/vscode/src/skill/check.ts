@@ -49,6 +49,7 @@ function main(args: readonly string[]): number {
     console.log(USAGE);
     return EXIT_OK;
   }
+  const write = args.includes('--write');
   const files = args.filter((arg) => arg !== '--write');
   if (files.length === 0 || files.some((file) => file.startsWith('-'))) {
     console.error(USAGE);
@@ -58,7 +59,7 @@ function main(args: readonly string[]): number {
   let clean = true;
   for (const file of files) {
     try {
-      clean = checkFile(file, args.includes('--write')) && clean;
+      if (!checkFile(file, write)) clean = false;
     } catch (error) {
       console.error(`${file}: ${error instanceof Error ? error.message : String(error)}`);
       return EXIT_USAGE;

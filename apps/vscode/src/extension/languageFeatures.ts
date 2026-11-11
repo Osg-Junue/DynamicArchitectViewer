@@ -3,10 +3,11 @@ import {
   computeCompletions,
   type CompletionItemKind as DavCompletionKind,
   type Diagnostic as DavDiagnostic,
+  format,
   formatDiagnostic,
   parse,
 } from '../dsl';
-import { formattingEdit, LANGUAGE_ID, toRange } from './documents';
+import { LANGUAGE_ID, toRange } from './documents';
 import { t, uiLocale } from './locale';
 
 /** Diagnostics, Quick Fixes, completion, formatting and the outline. */
@@ -21,10 +22,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
     latestDiagnostics.set(doc.uri.toString(), parsed);
 
     const items = parsed.map((d) => {
-      const range = new vscode.Range(
-        doc.positionAt(Math.min(d.from, text.length)),
-        doc.positionAt(Math.min(Math.max(d.to, d.from), text.length)),
-      );
+      const range = toRange(doc, d.from, d.to, text.length);
       const severity =
         d.severity === 'error'
           ? vscode.DiagnosticSeverity.Error
@@ -60,6 +58,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
           const list = latestDiagnostics.get(doc.uri.toString()) ?? [];
           const startOffset = doc.offsetAt(range.start);
           const endOffset = doc.offsetAt(range.end);
+          const text = doc.getText();
           const actions: vscode.CodeAction[] = [];
 
           for (const d of list) {
@@ -69,11 +68,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
             const title = t(`'${suggestion}' に変更`, `Change to '${suggestion}'`);
             const action = new vscode.CodeAction(title, vscode.CodeActionKind.QuickFix);
             const edit = new vscode.WorkspaceEdit();
-            edit.replace(
-              doc.uri,
-              new vscode.Range(doc.positionAt(d.from), doc.positionAt(d.to)),
-              suggestion,
-            );
+            edit.replace(doc.uri, toRange(doc, d.from, d.to, text.length), suggestion);
             action.edit = edit;
             action.isPreferred = true;
             actions.push(action);
@@ -91,17 +86,10 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
       LANGUAGE_ID,
       {
         provideCompletionItems(doc, position) {
-          const result = computeCompletions(
-            doc.getText(),
-            doc.offsetAt(position),
-            true,
-            uiLocale(),
-          );
+          const text = doc.getText();
+          const result = computeCompletions(text, doc.offsetAt(position), true, uiLocale());
           if (!result) return undefined;
-          const replaceRange = new vscode.Range(
-            doc.positionAt(result.from),
-            doc.positionAt(result.to),
-          );
+          const replaceRange = toRange(doc, result.from, result.to, text.length);
           return result.items.map((item) => {
             const ci = new vscode.CompletionItem(item.label, mapCompletionKind(item.kind));
             if (item.detail) ci.detail = item.detail;
@@ -121,8 +109,11 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
   context.subscriptions.push(
     vscode.languages.registerDocumentFormattingEditProvider(LANGUAGE_ID, {
       provideDocumentFormattingEdits(doc) {
-        const change = formattingEdit(doc);
-        return change ? [vscode.TextEdit.replace(change.range, change.text)] : [];
+        const text = doc.getText();
+        const formatted = format(text);
+        return formatted === text
+          ? []
+          : [vscode.TextEdit.replace(toRange(doc, 0, text.length, text.length), formatted)];
       },
     }),
   );
@@ -139,8 +130,10 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         ): vscode.DocumentSymbol[] => {
           const src = sourceMap.elements.get(id);
           if (!src) return [];
-          const range = toRange(doc, src.from, src.to);
-          const selRange = src.idRange ? toRange(doc, src.idRange.from, src.idRange.to) : range;
+          const range = toRange(doc, src.from, src.to, text.length);
+          const selRange = src.idRange
+            ? toRange(doc, src.idRange.from, src.idRange.to, text.length)
+            : range;
           return [new vscode.DocumentSymbol(id, label, kind, range, selRange)];
         };
         const symbols = [
@@ -150,7 +143,7 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
         model.steps.forEach((s, idx) => {
           const src = sourceMap.steps[idx];
           if (!src) return;
-          const range = toRange(doc, src.from, src.to);
+          const range = toRange(doc, src.from, src.to, text.length);
           symbols.push(
             new vscode.DocumentSymbol(
               `${t('ステップ', 'Step')} ${idx + 1}: ${s.title}`,
@@ -175,8 +168,6 @@ function mapCompletionKind(kind: DavCompletionKind): vscode.CompletionItemKind {
       return vscode.CompletionItemKind.Property;
     case 'constant':
       return vscode.CompletionItemKind.Constant;
-    case 'enum':
-      return vscode.CompletionItemKind.EnumMember;
     case 'variable':
       return vscode.CompletionItemKind.Variable;
     case 'class':

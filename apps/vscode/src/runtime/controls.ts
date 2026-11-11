@@ -163,6 +163,18 @@ export function createControls(s: ViewerStrings, speed: number, on: ControlActio
   };
 }
 
+export function setButtonPressed(
+  button: HTMLButtonElement,
+  pressed: boolean,
+  label?: string,
+): void {
+  if (label !== undefined) {
+    button.title = label;
+    button.setAttribute('aria-label', label);
+  }
+  button.setAttribute('aria-pressed', String(pressed));
+}
+
 /** Makes a play button offer to pause while its mode is running. */
 export function showPlayState(
   button: HTMLButtonElement,
@@ -171,10 +183,7 @@ export function showPlayState(
   playLabel: string,
   pauseLabel: string,
 ): void {
-  const action = playing ? pauseLabel : playLabel;
   clear(button);
   button.append(controlIcon(playing ? CONTROL_ICONS.pause : icon));
-  button.title = action;
-  button.setAttribute('aria-label', action);
-  button.setAttribute('aria-pressed', String(playing));
+  setButtonPressed(button, playing, playing ? pauseLabel : playLabel);
 }

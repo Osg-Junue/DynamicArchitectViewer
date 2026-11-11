@@ -1,8 +1,13 @@
 import type { SyntaxNode } from '@lezer/common';
-import { childNodes, parseTree, sliceOf } from './syntax';
+import { attributeValueNode, childNodes, parseTree, sliceOf } from './syntax';
 
 const INDENT = '  ';
 const CONTAINERS = new Set(['GroupBody', 'StepBody', 'AnimateBody']);
+const CONTAINER_BY_STMT: Readonly<Record<string, { body: string; emptySuffix: string }>> = {
+  Group: { body: 'GroupBody', emptySuffix: ' {}' },
+  Step: { body: 'StepBody', emptySuffix: ' {}' },
+  Animate: { body: 'AnimateBody', emptySuffix: '' },
+};
 const STATEMENTS = new Set([
   'Header',
   'Title',
@@ -83,39 +88,25 @@ class Printer {
       return;
     }
 
-    switch (node.name) {
-      case 'Group':
-      case 'Step': {
-        const body = node.getChild(node.name === 'Group' ? 'GroupBody' : 'StepBody');
-        const head = this.inline(node, (c) => !CONTAINERS.has(c.name));
-        const hasContent =
-          body !== null && childNodes(body).some((c) => c.name !== '{' && c.name !== '}');
-        if (!body || !hasContent) {
-          this.lines.push(`${indent}${head} {}`);
-          return;
-        }
-        this.lines.push(`${indent}${head} {`);
-        this.block(body, depth + 1);
-        this.lines.push(`${indent}}`);
+    const container = Object.hasOwn(CONTAINER_BY_STMT, node.name)
+      ? CONTAINER_BY_STMT[node.name]
+      : undefined;
+    if (container) {
+      const body = node.getChild(container.body);
+      const head = this.inline(node, (c) => !CONTAINERS.has(c.name));
+      const hasContent =
+        body !== null && childNodes(body).some((c) => c.name !== '{' && c.name !== '}');
+      if (!body || !hasContent) {
+        this.lines.push(`${indent}${head}${container.emptySuffix}`);
         return;
       }
-      case 'Animate': {
-        const body = node.getChild('AnimateBody');
-        const head = this.inline(node, (c) => !CONTAINERS.has(c.name));
-        const hasContent =
-          body !== null && childNodes(body).some((c) => c.name !== '{' && c.name !== '}');
-        if (!body || !hasContent) {
-          this.lines.push(`${indent}${head}`);
-          return;
-        }
-        this.lines.push(`${indent}${head} {`);
-        this.block(body, depth + 1);
-        this.lines.push(`${indent}}`);
-        return;
-      }
-      default:
-        this.lines.push(indent + this.inline(node, () => true));
+      this.lines.push(`${indent}${head} {`);
+      this.block(body, depth + 1);
+      this.lines.push(`${indent}}`);
+      return;
     }
+
+    this.lines.push(indent + this.inline(node, () => true));
   }
 
   /** Renders a statement's tokens on one line with canonical spacing. */
@@ -149,7 +140,7 @@ class Printer {
   private attributes(node: SyntaxNode): string {
     const items = node.getChildren('Attribute').map((attr) => {
       const name = attr.getChild('AttrName');
-      const value = childNodes(attr).find((c) => c.name !== 'AttrName' && c.name !== ':');
+      const value = attributeValueNode(attr);
       return `${name ? sliceOf(this.text, name) : ''}: ${value ? sliceOf(this.text, value) : ''}`;
     });
     return `[${items.join(', ')}]`;

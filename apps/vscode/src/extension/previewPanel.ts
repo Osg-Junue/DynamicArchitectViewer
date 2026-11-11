@@ -1,16 +1,11 @@
+import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
 import {
   type HostToWebviewMessage,
   isWebviewToHostMessage,
   type WebviewToHostMessage,
 } from '../protocol/messages';
-import {
-  exportDocumentToHtml,
-  exportDocumentToSvg,
-  formattingEdit,
-  LANGUAGE_ID,
-  toRange,
-} from './documents';
+import { exportDocumentToHtml, exportDocumentToSvg, LANGUAGE_ID, toRange } from './documents';
 import { t, uiLocale } from './locale';
 
 const previewTitle = (doc: vscode.TextDocument): string =>
@@ -25,15 +20,12 @@ export class CanvasPanelManager {
   constructor(private readonly extensionUri: vscode.Uri) {}
 
   open(document: vscode.TextDocument): void {
-    this.activeDocument = document;
-
     if (this.panel) {
-      this.panel.title = previewTitle(document);
-      this.panel.reveal(vscode.ViewColumn.Beside);
-      this.postDocument(document);
+      this.showDocument(document, true);
       return;
     }
 
+    this.activeDocument = document;
     const webviewRoot = vscode.Uri.joinPath(this.extensionUri, 'dist', 'webview');
     const panel = vscode.window.createWebviewPanel(
       'dav.canvasPreview',
@@ -75,12 +67,18 @@ export class CanvasPanelManager {
       }),
       vscode.window.onDidChangeActiveTextEditor((editor) => {
         if (editor && editor.document.languageId === LANGUAGE_ID) {
-          this.activeDocument = editor.document;
-          panel.title = previewTitle(editor.document);
-          this.postDocument(editor.document);
+          this.showDocument(editor.document);
         }
       }),
     );
+  }
+
+  private showDocument(doc: vscode.TextDocument, reveal = false): void {
+    this.activeDocument = doc;
+    if (!this.panel) return;
+    this.panel.title = previewTitle(doc);
+    if (reveal) this.panel.reveal(vscode.ViewColumn.Beside);
+    this.postDocument(doc);
   }
 
   private isActive(doc: vscode.TextDocument): boolean {
@@ -124,16 +122,6 @@ export class CanvasPanelManager {
           step: msg.step,
         });
         break;
-
-      case 'formatDocument': {
-        const change = formattingEdit(doc);
-        if (change) {
-          const edit = new vscode.WorkspaceEdit();
-          edit.replace(doc.uri, change.range, change.text);
-          await vscode.workspace.applyEdit(edit);
-        }
-        break;
-      }
     }
   }
 
@@ -176,10 +164,5 @@ function fileBasename(fsPath: string): string {
 }
 
 function randomNonce(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let out = '';
-  for (let i = 0; i < 32; i++) {
-    out += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return out;
+  return randomBytes(16).toString('hex');
 }

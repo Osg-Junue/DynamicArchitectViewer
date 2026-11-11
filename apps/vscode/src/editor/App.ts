@@ -2,7 +2,7 @@ import { findAtOffset, hasFatalError, parse, type SourceMap } from '../dsl';
 import { computeLayout, type Layout } from '../layout';
 import type { DavDocument } from '../model/types';
 import { isHostToWebviewMessage, type WebviewToHostMessage } from '../protocol/messages';
-import { CONTROL_ICONS, controlIcon } from '../runtime/controlIcons';
+import { controlIcon, DOCS_ICON } from '../runtime/controlIcons';
 import { clear, html, svg } from '../runtime/dom';
 import { detectLocale } from '../runtime/i18n';
 import { Player } from '../runtime/player';
@@ -26,18 +26,18 @@ export function mountApp(container: HTMLElement): void {
   const locale = detectLocale();
   const helpTitle = locale === 'ja' ? 'ドキュメントを開く' : 'Open documentation';
 
-  let dsl = '';
   let documentUri: string | undefined;
   let cursorTargetId: string | null = null;
   let lastStepIndex: number | null = null;
 
-  const empty = parse(dsl);
-  let lastValid: { dsl: string; document: DavDocument; layout: Layout; sourceMap: SourceMap } = {
+  const empty = parse('');
+  const emptyState: { dsl: string; document: DavDocument; layout: Layout; sourceMap: SourceMap } = {
     dsl: '',
     document: empty.document,
     layout: computeLayout(empty.document),
     sourceMap: empty.sourceMap,
   };
+  let lastValid = emptyState;
 
   const helpBtn = html(
     'button',
@@ -48,7 +48,7 @@ export function mountApp(container: HTMLElement): void {
       'aria-label': helpTitle,
       'data-testid': 'btn-open-help',
     },
-    controlIcon(CONTROL_ICONS.docs),
+    controlIcon(DOCS_ICON),
   );
   // The host owns the save dialog and reports the outcome itself.
   const exportMenu = new ExportMenu(
@@ -94,7 +94,7 @@ export function mountApp(container: HTMLElement): void {
     class: 'editor-cursor-layer',
     'pointer-events': 'none',
   });
-  const helpModal = new HelpModal();
+  const helpModal = new HelpModal(locale);
 
   clear(container);
   container.append(
@@ -158,8 +158,7 @@ export function mountApp(container: HTMLElement): void {
     return created;
   }
 
-  function applyDsl(nextDsl: string): void {
-    dsl = nextDsl;
+  function applyDsl(dsl: string): void {
     const parsed = parse(dsl);
     const fatal = hasFatalError(parsed);
     exportMenu.setBlocked(fatal);
@@ -208,12 +207,7 @@ export function mountApp(container: HTMLElement): void {
       if (msg.uri !== documentUri) {
         // Nothing of the previous document may survive into another one.
         documentUri = msg.uri;
-        lastValid = {
-          dsl: '',
-          document: empty.document,
-          layout: computeLayout(empty.document),
-          sourceMap: empty.sourceMap,
-        };
+        lastValid = emptyState;
         cursorTargetId = null;
         lastStepIndex = null;
         exportMenu.reset();

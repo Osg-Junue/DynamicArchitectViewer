@@ -69,7 +69,6 @@ export const SAMPLE_TEMPLATES: readonly SampleTemplate[] = [
   },
 ];
 
-export const SAMPLES = SAMPLE_TEMPLATES;
 export const DEFAULT_SAMPLE: SampleTemplate = SAMPLE_TEMPLATES[0] ?? {
   id: 'default',
   name: 'Default',

@@ -1,5 +1,5 @@
-import type { Layout, Rect } from '../layout';
-import { boundsOf } from './build';
+import { type Layout, type Rect, rectContains } from '../layout';
+import { boundsOf } from './bounds';
 import { calloutRect, computePacketCalloutBox } from './callout';
 import type { Bezier } from './geometry';
 import type { Packet, ResolvedView } from './resolve';
@@ -51,8 +51,13 @@ export function fitZoom(canvas: Size, b: Rect): number {
 }
 
 /** The pose that centers a frame, zoomed in no further than its `maxZoom`. */
-export function framePose(canvas: Size, { rect, maxZoom }: Frame): Pose {
-  const zoom = clampZoom(Math.min(fitZoom(canvas, rect), maxZoom));
+export function framePose(
+  canvas: Size,
+  { rect, maxZoom }: Frame,
+  options: { clamp?: boolean } = {},
+): Pose {
+  const raw = Math.min(fitZoom(canvas, rect), maxZoom);
+  const zoom = options.clamp === false ? raw : clampZoom(raw);
   return {
     zoom,
     panX: (canvas.width - rect.width * zoom) / 2 - rect.x * zoom,
@@ -90,12 +95,8 @@ export function wholeDiagramFrame(layout: Layout, view: ResolvedView): Frame {
     return { rect: base, maxZoom: MAX_FIT_ZOOM };
   }
   const extra = boundsOf(callouts, 16, 0);
-  const x = Math.min(base.x, extra.x);
-  const y = Math.min(base.y, extra.y);
-  const right = Math.max(base.x + base.width, extra.x + extra.width);
-  const bottom = Math.max(base.y + base.height, extra.y + extra.height);
   return {
-    rect: { x, y, width: right - x, height: bottom - y },
+    rect: boundsOf([base, extra], 0, 0),
     maxZoom: MAX_FIT_ZOOM,
   };
 }
@@ -111,13 +112,7 @@ function spotsOf(layout: Layout, packets: readonly Packet[]): Rect[] {
 export function packetsOnScreen(layout: Layout, packets: readonly Packet[], world: Rect): boolean {
   const spots = spotsOf(layout, packets);
   if (spots.length === 0) return true;
-  const need = boundsOf(spots, CALM_EDGE_MARGIN, 0);
-  return (
-    need.x >= world.x &&
-    need.y >= world.y &&
-    need.x + need.width <= world.x + world.width &&
-    need.y + need.height <= world.y + world.height
-  );
+  return rectContains(world, boundsOf(spots, CALM_EDGE_MARGIN, 0));
 }
 
 /**

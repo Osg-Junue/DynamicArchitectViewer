@@ -11,10 +11,5 @@ export { computeCompletions } from './complete';
 export type { Diagnostic, DiagnosticCode, Locale, Severity } from './diagnostics';
 export { formatDiagnostic } from './diagnostics';
 export { format } from './format';
-export {
-  ATTRIBUTE_SCHEMA,
-  isValidIdentifier,
-  KEYWORDS,
-  STATE_ATTRIBUTES_BY_TARGET,
-} from './schema';
-export { parser, parseTree } from './syntax';
+export { ATTRIBUTE_SCHEMA, KEYWORDS, STATE_ATTRIBUTES_BY_TARGET } from './schema';
+export { parseTree } from './syntax';
