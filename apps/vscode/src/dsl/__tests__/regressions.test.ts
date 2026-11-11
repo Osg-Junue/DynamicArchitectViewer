@@ -225,6 +225,7 @@ describe('computeCompletions context', () => {
     expect(labels('dav 1\na --> b [')?.sort()).toEqual(['color', 'id', 'visible']);
     expect(labels('dav 1\na <.> b [')?.sort()).toEqual(['color', 'id', 'visible']);
     expect(labels('step "s" {\n  animate a --> b [')?.sort()).toEqual([
+      'code',
       'color',
       'desc',
       'icon',
@@ -234,5 +235,32 @@ describe('computeCompletions context', () => {
 
   it('completes icon names inside animate attributes', () => {
     expect(labels('step "s" {\n  animate a --> b [icon: ')).toContain('mail');
+  });
+
+  it('highlights contextual code blocks and code: attribute without reserving code globally', () => {
+    const raw = readFileSync(resolve(__dirname, '../../../syntaxes/dav.tmLanguage.json'), 'utf8');
+    const grammar = JSON.parse(raw) as {
+      repository: Record<
+        string,
+        { begin?: string; end?: string; patterns?: Array<{ match?: string }> }
+      >;
+    };
+    const kwMatch = grammar.repository.keywords?.patterns?.[0]?.match ?? '';
+    expect(new RegExp(kwMatch).test('node')).toBe(true);
+    expect(new RegExp(kwMatch).test('code')).toBe(false);
+
+    expect(grammar.repository['code-fences']?.begin).toBe('```');
+    expect(grammar.repository['code-fences']?.end).toBe('```');
+
+    const codeStmtRe = new RegExp(grammar.repository['code-statement']?.patterns?.[0]?.match ?? '');
+    expect(codeStmtRe.test('    code json "Order" ```')).toBe(true);
+    expect(codeStmtRe.test('    code ```')).toBe(true);
+    expect(codeStmtRe.test('    code "{}"')).toBe(true);
+    expect(codeStmtRe.test('  animate a --> b { code json "{}" }')).toBe(true);
+    expect(codeStmtRe.test('node code "Code"')).toBe(false);
+    expect(codeStmtRe.test('code --> api')).toBe(false);
+
+    const attrRe = new RegExp(grammar.repository.attributes?.patterns?.[2]?.match ?? '');
+    expect(attrRe.test('code: "{}"')).toBe(true);
   });
 });

@@ -67,3 +67,38 @@ export function unescapeString(raw: string): { value: string; invalid: InvalidEs
   }
   return { value, invalid };
 }
+
+/** Decodes and dedents a raw triple-backtick ``` ... ``` token. */
+export function unescapeCodeFence(raw: string): string {
+  const hasOpen = raw.startsWith('```');
+  const closed = raw.length >= (hasOpen ? 6 : 3) && raw.endsWith('```');
+  const inner = raw
+    .slice(hasOpen ? 3 : 0, closed ? -3 : undefined)
+    .replace(/\r\n?/g, '\n')
+    .replace(/\t/g, '  ');
+
+  if (!inner.includes('\n')) {
+    return inner.trim();
+  }
+
+  const lines = inner.split('\n');
+  if (lines.length > 0 && lines[0]?.trim() === '') {
+    lines.shift();
+  }
+  if (lines.length > 0 && lines[lines.length - 1]?.trim() === '') {
+    lines.pop();
+  }
+
+  const trimmed = lines.map((line) => line.trimEnd());
+  let minIndent = Number.POSITIVE_INFINITY;
+  for (const line of trimmed) {
+    if (line.length === 0) continue;
+    const spaces = /^ */.exec(line)?.[0].length ?? 0;
+    if (spaces < minIndent) minIndent = spaces;
+  }
+
+  if (!Number.isFinite(minIndent) || minIndent === 0) {
+    return trimmed.join('\n');
+  }
+  return trimmed.map((line) => (line.length > 0 ? line.slice(minIndent) : '')).join('\n');
+}

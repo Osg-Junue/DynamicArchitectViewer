@@ -69,6 +69,22 @@ const STATEMENT_KEYWORDS: readonly LocalizedItem[] = [
   },
 ];
 
+const ANIMATE_BODY_KEYWORDS: readonly LocalizedItem[] = [
+  {
+    label: 'code',
+    kind: 'keyword',
+    detail: [
+      'コード・ペイロード表示 (code <lang> ``` ... ```)',
+      'Code or payload block (code <lang> ``` ... ```)',
+    ],
+  },
+  {
+    label: 'desc',
+    kind: 'keyword',
+    detail: ['アニメーションの説明文 (desc "...")', 'Animation description (desc "...")'],
+  },
+];
+
 const ATTRIBUTE_KEYS: readonly LocalizedItem[] = [
   { label: 'icon', kind: 'property', insertText: 'icon: ', detail: ['アイコン種別', 'Icon type'] },
   { label: 'sub', kind: 'property', insertText: 'sub: ""', detail: ['サブラベル', 'Sub-label'] },
@@ -98,6 +114,12 @@ const ATTRIBUTE_KEYS: readonly LocalizedItem[] = [
     detail: ['アニメーションの説明文', 'Animation step description'],
   },
   {
+    label: 'code',
+    kind: 'property',
+    insertText: 'code: ""',
+    detail: ['アニメーションのコード片', 'Animation code snippet'],
+  },
+  {
     label: 'id',
     kind: 'property',
     insertText: 'id: ',
@@ -118,23 +140,6 @@ const BOOL_COMPLETIONS: readonly DslCompletionItem[] = [
   { label: 'true', kind: 'keyword' },
   { label: 'false', kind: 'keyword' },
 ];
-
-/** Whether the text before the cursor on its line ends inside a string or a line comment. */
-function endsInStringOrComment(beforeOnLine: string): boolean {
-  let inString = false;
-  for (let i = 0; i < beforeOnLine.length; i++) {
-    const ch = beforeOnLine[i];
-    if (inString) {
-      if (ch === '\\') i++;
-      else if (ch === '"') inString = false;
-    } else if (ch === '"') {
-      inString = true;
-    } else if (ch === '/' && beforeOnLine[i + 1] === '/') {
-      return true;
-    }
-  }
-  return inString;
-}
 
 const ARROW_PATTERN = ARROW_TOKENS.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
 const ANY_ARROW_RE = new RegExp(ARROW_PATTERN);
@@ -158,15 +163,17 @@ export function computeCompletions(
   explicit = false,
   locale: Locale = 'en',
 ): DslCompletionList | null {
+  const ctx = scanContext(text, pos);
+  if (ctx.inString || ctx.inComment || ctx.inCodeFence) return null;
+
   const lineStart = text.lastIndexOf('\n', Math.max(0, pos - 1)) + 1;
   const beforeOnLine = text.slice(lineStart, pos);
-  if (endsInStringOrComment(beforeOnLine)) return null;
 
   const wordMatch = /[A-Za-z_][A-Za-z0-9_]*$/.exec(beforeOnLine);
   const from = wordMatch ? pos - wordMatch[0].length : pos;
 
   // 1. Inside an attribute block, which may span lines.
-  const open = unclosedBracket(text, pos);
+  const open = ctx.openBracket;
   if (open >= 0) {
     const inside = text.slice(open + 1, pos);
     const owner = attributeOwner(text.slice(text.lastIndexOf('\n', open) + 1, open));
@@ -211,6 +218,19 @@ export function computeCompletions(
     return { from, to: pos, items: localized(keys, locale) };
   }
 
+  // 1b. Inside `animate ... { ... }`, only `code` and `desc` statements apply.
+  if (ctx.enclosingBlock === 'animate') {
+    const stmtStart = Math.max(lineStart, ctx.lastOpenBrace + 1);
+    const stmtBefore = text.slice(stmtStart, pos).replace(/"(?:[^"\\]|\\.)*"/g, '""');
+    if (/^\s*(?:desc|code)(?:\s|"|`)/.test(stmtBefore)) return null;
+    if (!wordMatch && !explicit) return null;
+    return {
+      from,
+      to: pos,
+      items: localized(ANIMATE_BODY_KEYWORDS, locale),
+    };
+  }
+
   // 2. Outside attributes: strings are irrelevant, and `:` is always followed by a string.
   const code = beforeOnLine.replace(/"(?:[^"\\]|\\.)*"/g, '""');
   if (code.includes(':') || /^\s*(?:node|group|title|step|desc)\b/.test(code)) return null;
@@ -249,22 +269,135 @@ export function computeCompletions(
   };
 }
 
-/** Offset of the `[` still open at `pos`, ignoring strings and comments, or -1. */
-function unclosedBracket(text: string, pos: number): number {
-  let open = -1;
+type EnclosingBlock = 'top' | 'group' | 'step' | 'animate';
+
+interface ScanContext {
+  inString: boolean;
+  inComment: boolean;
+  inCodeFence: boolean;
+  openBracket: number;
+  enclosingBlock: EnclosingBlock;
+  lastOpenBrace: number;
+}
+
+/** Scans lexical state (strings, comments, code fences, brackets, braces) up to `pos`. */
+function scanContext(text: string, pos: number): ScanContext {
+  let inString = false;
+  let inComment = false;
+  let inCodeFence = false;
+  let openBracket = -1;
+  const blockStack: Array<{ kind: EnclosingBlock; pos: number }> = [];
+  let stmtKeyword: 'group' | 'step' | 'animate' | 'other' | null = null;
+  let atStatementStart = true;
+
   for (let i = 0; i < pos; i++) {
     const ch = text[i];
-    if (ch === '"') {
-      for (i++; i < pos && text[i] !== '"' && text[i] !== '\n'; i++) {
-        if (text[i] === '\\') i++;
+
+    if (inCodeFence) {
+      if (ch === '`' && text[i + 1] === '`' && text[i + 2] === '`' && i + 3 <= pos) {
+        inCodeFence = false;
+        i += 2;
       }
-    } else if (ch === '/' && text[i + 1] === '/') {
-      while (i < pos && text[i] !== '\n') i++;
-    } else if (ch === '[') {
-      open = i;
-    } else if (ch === ']') {
-      open = -1;
+      continue;
+    }
+
+    if (inComment) {
+      if (ch === '\n') {
+        inComment = false;
+        if (openBracket < 0) atStatementStart = true;
+      }
+      continue;
+    }
+
+    if (inString) {
+      if (ch === '\\') {
+        i++;
+      } else if (ch === '"' || ch === '\n') {
+        inString = false;
+        if (ch === '\n' && openBracket < 0) atStatementStart = true;
+      }
+      continue;
+    }
+
+    if (ch === '`' && text[i + 1] === '`' && text[i + 2] === '`' && i + 3 <= pos) {
+      inCodeFence = true;
+      atStatementStart = false;
+      i += 2;
+      continue;
+    }
+
+    if (ch === '/' && text[i + 1] === '/' && i + 2 <= pos) {
+      inComment = true;
+      i++;
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+      atStatementStart = false;
+      continue;
+    }
+
+    if (ch === '[') {
+      openBracket = i;
+      atStatementStart = false;
+      continue;
+    }
+
+    if (ch === ']') {
+      openBracket = -1;
+      continue;
+    }
+
+    if (openBracket >= 0) continue;
+
+    if (ch === '\n') {
+      atStatementStart = true;
+      continue;
+    }
+
+    if (ch === ' ' || ch === '\t' || ch === '\r') {
+      continue;
+    }
+
+    if (ch === '{') {
+      const kind: EnclosingBlock =
+        stmtKeyword === 'group' || stmtKeyword === 'step' || stmtKeyword === 'animate'
+          ? stmtKeyword
+          : 'top';
+      blockStack.push({ kind, pos: i });
+      stmtKeyword = null;
+      atStatementStart = true;
+      continue;
+    }
+
+    if (ch === '}') {
+      blockStack.pop();
+      stmtKeyword = null;
+      atStatementStart = true;
+      continue;
+    }
+
+    if (atStatementStart) {
+      const m = /^[A-Za-z_][A-Za-z0-9_]*/.exec(text.slice(i, pos));
+      if (m) {
+        const word = m[0];
+        stmtKeyword = word === 'group' || word === 'step' || word === 'animate' ? word : 'other';
+        i += word.length - 1;
+      } else {
+        stmtKeyword = 'other';
+      }
+      atStatementStart = false;
     }
   }
-  return open;
+
+  const top = blockStack[blockStack.length - 1];
+  return {
+    inString,
+    inComment,
+    inCodeFence,
+    openBracket,
+    enclosingBlock: top ? top.kind : 'top',
+    lastOpenBrace: top ? top.pos : -1,
+  };
 }

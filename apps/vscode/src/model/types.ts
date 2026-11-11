@@ -137,12 +137,19 @@ export interface StateOverride {
   color?: ColorName | typeof COLOR_RESET;
 }
 
+export interface CodeBlock {
+  lang?: string;
+  title?: string;
+  body: string;
+}
+
 export interface Animation {
   from: string;
   to: string;
   direction: Direction;
   label?: string;
   description?: string;
+  code?: CodeBlock;
   color?: ColorName;
   /** What the packet carries; a plain dot when absent. */
   icon?: IconName;

@@ -3,6 +3,7 @@ import {
   type Animation,
   COLOR_NAMES,
   COLOR_RESET,
+  type CodeBlock,
   CURRENT_DSL_VERSION,
   type DavDocument,
   type DavEdge,
@@ -26,7 +27,14 @@ import {
   STATE_ATTRIBUTES_BY_TARGET,
 } from './schema';
 import { closestMatch } from './suggest';
-import { attributeValueNode, childNodes, parseTree, sliceOf, unescapeString } from './syntax';
+import {
+  attributeValueNode,
+  childNodes,
+  parseTree,
+  sliceOf,
+  unescapeCodeFence,
+  unescapeString,
+} from './syntax';
 
 export type ElementKind = 'node' | 'group' | 'edge';
 
@@ -438,9 +446,36 @@ class Analyzer {
     if (attrDesc !== undefined && attrDesc.length > 0) {
       descs.push(attrDesc);
     }
-    descs.push(...this.readDescList(stmt.getChild('AnimateBody')));
+    const animateBody = stmt.getChild('AnimateBody');
+    descs.push(...this.readDescList(animateBody));
     if (descs.length > 0) {
       animation.description = descs.join('\n');
+    }
+
+    let codeSeen = false;
+    let lastCode: CodeBlock | undefined;
+    const attrCode = attrs.get('code');
+    if (attrCode !== undefined) {
+      codeSeen = true;
+      if (attrCode.value.trim().length > 0) {
+        lastCode = { body: attrCode.value };
+      }
+    }
+    if (animateBody) {
+      for (const child of childNodes(animateBody)) {
+        if (child.name !== 'Code') continue;
+        if (codeSeen) {
+          this.report('duplicate-code', 'warning', child);
+        }
+        codeSeen = true;
+        const parsed = this.readCode(child);
+        if (parsed !== undefined) {
+          lastCode = parsed;
+        }
+      }
+    }
+    if (lastCode !== undefined) {
+      animation.code = lastCode;
     }
 
     step.animations.push(animation);
@@ -448,6 +483,37 @@ class Analyzer {
       { id: animation.from, range: rangeOf(fromNode), allowed: ['node'] },
       { id: animation.to, range: rangeOf(toNode), allowed: ['node'] },
     );
+  }
+
+  private readCode(node: SyntaxNode): CodeBlock | undefined {
+    const langNode = node.getChild('Identifier');
+    const strNode = node.getChild('String');
+    const fenceNode = node.getChild('CodeFence');
+
+    let title: string | undefined;
+    let body: string | undefined;
+
+    if (fenceNode) {
+      if (strNode) {
+        title = this.readString(strNode);
+      }
+      body = unescapeCodeFence(sliceOf(this.text, fenceNode));
+    } else if (strNode) {
+      body = this.readString(strNode);
+    }
+
+    if (body === undefined || body.trim().length === 0) {
+      return undefined;
+    }
+
+    const block: CodeBlock = { body };
+    if (langNode) {
+      block.lang = sliceOf(this.text, langNode);
+    }
+    if (title !== undefined) {
+      block.title = title;
+    }
+    return block;
   }
 
   // ---------------------------------------------------------------------------

@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
+import { KEYWORD_NAMES } from '../../model/types';
 import { SAMPLE_TEMPLATES } from '../../samples';
-import { type DiagnosticCode, formatDiagnostic, hasFatalError, parse } from '../index';
+import {
+  type DiagnosticCode,
+  formatDiagnostic,
+  hasFatalError,
+  parse,
+  unescapeCodeFence,
+} from '../index';
 
 const codes = (text: string) => parse(text).diagnostics.map((d) => d.code);
 
@@ -248,5 +255,197 @@ describe('parse: diagnostics', () => {
     const text = 'dav 1\nnode a [color: #12345]';
     const [d] = parse(text).diagnostics;
     expect(d && text.slice(d.from, d.to)).toBe('#12345');
+  });
+});
+
+describe('unescapeCodeFence', () => {
+  it('trims single-line fenced blocks and expands tabs', () => {
+    expect(unescapeCodeFence('```  { "ok": true }  ```')).toBe('{ "ok": true }');
+    expect(unescapeCodeFence('```\thello\t```')).toBe('hello');
+    expect(unescapeCodeFence('``````')).toBe('');
+    expect(unescapeCodeFence('```  unclosed  ')).toBe('unclosed');
+  });
+
+  it('dedents multi-line blocks, normalizes CRLF/tabs, and trims trailing spaces', () => {
+    const raw = [
+      '```   ',
+      '      {   ',
+      '\t\t\t\t"id": "ord_1",  ',
+      '   ',
+      '        "ok": true',
+      '      }',
+      '    ```',
+    ].join('\r\n');
+    expect(unescapeCodeFence(raw)).toBe('{\n  "id": "ord_1",\n\n  "ok": true\n}');
+  });
+
+  it('preserves single and double backticks inside fenced blocks', () => {
+    expect(unescapeCodeFence('```\n  const q = `a` + ``b``;\n```')).toBe('const q = `a` + ``b``;');
+  });
+});
+
+describe('parse: animate code blocks', () => {
+  it('supports all 6 Code forms inside AnimateBody plus [code: "..."] attribute', () => {
+    const dsl = `dav 1
+node client
+node api
+client --> api
+
+step "Code forms" {
+  animate client --> api {
+    desc "with lang and title"
+    code json "Order Request" \`\`\`
+      {
+        "orderId": "ord_1",
+        "amount": 4200
+      }
+    \`\`\`
+  }
+  animate client --> api {
+    code sql \`\`\`
+      SELECT * FROM orders
+      WHERE id = 1;
+    \`\`\`
+  }
+  animate client --> api {
+    code "Payload" \`\`\`
+      raw-body
+    \`\`\`
+  }
+  animate client --> api {
+    code \`\`\`
+      plain-fence
+    \`\`\`
+  }
+  animate client --> api {
+    code json "{\\"ok\\": true}"
+  }
+  animate client --> api {
+    code "line1\\nline2"
+  }
+  animate client --> api [code: "{\\"status\\": 201}"]
+}
+`;
+    const { document, diagnostics } = parse(dsl);
+    expect(diagnostics).toEqual([]);
+    const anims = document.steps[0]?.animations ?? [];
+    expect(anims.map((a) => a.code)).toEqual([
+      {
+        lang: 'json',
+        title: 'Order Request',
+        body: '{\n  "orderId": "ord_1",\n  "amount": 4200\n}',
+      },
+      {
+        lang: 'sql',
+        body: 'SELECT * FROM orders\nWHERE id = 1;',
+      },
+      {
+        title: 'Payload',
+        body: 'raw-body',
+      },
+      {
+        body: 'plain-fence',
+      },
+      {
+        lang: 'json',
+        body: '{"ok": true}',
+      },
+      {
+        body: 'line1\nline2',
+      },
+      {
+        body: '{"status": 201}',
+      },
+    ]);
+    expect(anims[0]?.description).toBe('with lang and title');
+  });
+
+  it('ignores empty or whitespace-only code blocks so animation.code stays unset', () => {
+    const dsl = `dav 1
+node a
+node b
+step "Empty" {
+  animate a --> b [code: ""]
+  animate a --> b [code: "   \\n\\t "]
+  animate a --> b { code "" }
+  animate a --> b { code json "  " }
+  animate a --> b { code \`\`\`   \`\`\` }
+  animate a --> b {
+    code json "Header Only" \`\`\`
+      
+    \`\`\`
+  }
+}
+`;
+    const { document, diagnostics } = parse(dsl);
+    expect(diagnostics).toEqual([]);
+    for (const anim of document.steps[0]?.animations ?? []) {
+      expect('code' in anim).toBe(false);
+    }
+  });
+
+  it('emits duplicate-code warning and keeps the last non-empty code block', () => {
+    const both = parse(`dav 1
+node a
+node b
+step "Dup" {
+  animate a --> b [code: "attr"] {
+    code json "from-body"
+  }
+  animate a --> b {
+    code "first"
+    code sql "Title" \`\`\`
+      SELECT 1;
+    \`\`\`
+  }
+  animate a --> b [code: "keep-non-empty"] {
+    code "   "
+  }
+}
+`);
+    expect(both.diagnostics.map((d) => [d.code, d.severity])).toEqual([
+      ['duplicate-code', 'warning'],
+      ['duplicate-code', 'warning'],
+      ['duplicate-code', 'warning'],
+    ]);
+    const [d] = both.diagnostics;
+    expect(d && formatDiagnostic(d, 'ja')).toBe(
+      'code は1つの animate に1つだけ指定できます（後の値が使われます）',
+    );
+    expect(d && formatDiagnostic(d, 'en')).toBe(
+      'Only one code block is allowed per animate (the last value wins)',
+    );
+    expect(both.document.steps[0]?.animations.map((a) => a.code)).toEqual([
+      { lang: 'json', body: 'from-body' },
+      { lang: 'sql', title: 'Title', body: 'SELECT 1;' },
+      { body: 'keep-non-empty' },
+    ]);
+  });
+
+  it('keeps code unreserved so node code and group code remain valid', () => {
+    expect(KEYWORD_NAMES).not.toContain('code');
+    const dsl = `dav 1
+group code_zone "Zone" {
+  node code "Code Service"
+}
+node api "API"
+code --> api : "gRPC"
+
+step "Run" {
+  focus code, code_zone
+  state code [badge: "v2"]
+  animate code --> api [code: "ping"]
+  animate api --> code {
+    code code "pong"
+  }
+}
+`;
+    const { document, diagnostics } = parse(dsl);
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((n) => n.id)).toEqual(['code', 'api']);
+    expect(document.steps[0]?.animations[0]?.from).toBe('code');
+    expect(document.steps[0]?.animations[0]?.code).toEqual({ body: 'ping' });
+    expect(document.steps[0]?.animations[1]?.to).toBe('code');
+    expect(document.steps[0]?.animations[1]?.code).toEqual({ lang: 'code', body: 'pong' });
   });
 });

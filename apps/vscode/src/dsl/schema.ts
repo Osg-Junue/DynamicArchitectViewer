@@ -47,6 +47,7 @@ const SCHEMA = {
     color: 'color',
     parallel: 'bool',
     desc: 'string',
+    code: 'string',
   },
 } as const satisfies Record<AttrOwner, Readonly<Record<string, AttrType>>>;
 

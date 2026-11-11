@@ -49,8 +49,19 @@ interface GenSpec {
     desc: string | undefined;
     focusIdx: number;
     stateIdx: number;
+    animFrom: number;
+    animTo: number;
+    codeKind: 'none' | 'attr' | 'string' | 'fence';
+    codeLang: string | undefined;
+    codeTitle: string | undefined;
+    codeBody: string;
   }>;
 }
+
+const codeUnit = fc.constantFrom('a', '1', ' ', '{', '}', ':', '"', '\\', '\n', '\t', '`', 'あ');
+const codeBodyArb = fc
+  .string({ unit: codeUnit, maxLength: 24 })
+  .filter((s) => !s.includes('```') && !s.startsWith('`') && !s.endsWith('`'));
 
 const nodeSpecArb = fc.record({
   name: labelArb,
@@ -83,6 +94,12 @@ const specArb: fc.Arbitrary<GenSpec> = fc.record({
       desc: fc.option(labelArb, { nil: undefined }),
       focusIdx: fc.nat(20),
       stateIdx: fc.nat(20),
+      animFrom: fc.nat(20),
+      animTo: fc.nat(20),
+      codeKind: fc.constantFrom('none', 'attr', 'string', 'fence'),
+      codeLang: fc.option(fc.constantFrom('json', 'sql', 'http', 'code'), { nil: undefined }),
+      codeTitle: fc.option(labelArb, { nil: undefined }),
+      codeBody: codeBodyArb,
     }),
     { maxLength: 3 },
   ),
@@ -131,10 +148,30 @@ function buildDsl(spec: GenSpec): string {
     for (const s of spec.steps) {
       const focusTarget = nodeIds[s.focusIdx % nodeIds.length] ?? 'n0';
       const stateTarget = nodeIds[s.stateIdx % nodeIds.length] ?? 'n0';
+      const animFrom = nodeIds[s.animFrom % nodeIds.length] ?? 'n0';
+      const animTo = nodeIds[s.animTo % nodeIds.length] ?? 'n0';
       lines.push(`step ${quoteString(s.title)} {`);
       if (s.desc !== undefined) lines.push(`  desc ${quoteString(s.desc)}`);
       lines.push(`  focus ${focusTarget}`);
       lines.push(`  state ${stateTarget} [color: blue]`);
+      if (s.codeKind === 'attr') {
+        lines.push(`  animate ${animFrom} --> ${animTo} [code: ${quoteString(s.codeBody)}]`);
+      } else if (s.codeKind === 'string') {
+        const lang = s.codeLang ? ` ${s.codeLang}` : '';
+        lines.push(`  animate ${animFrom} --> ${animTo} {`);
+        lines.push(`    code${lang} ${quoteString(s.codeBody)}`);
+        lines.push('  }');
+      } else if (s.codeKind === 'fence') {
+        const lang = s.codeLang ? ` ${s.codeLang}` : '';
+        const title = s.codeTitle !== undefined ? ` ${quoteString(s.codeTitle)}` : '';
+        lines.push(`  animate ${animFrom} --> ${animTo} {`);
+        lines.push(`    code${lang}${title} \`\`\``);
+        for (const bodyLine of s.codeBody.split('\n')) {
+          lines.push(`      ${bodyLine}`);
+        }
+        lines.push('    ```');
+        lines.push('  }');
+      }
       lines.push('}');
     }
   }
@@ -180,11 +217,15 @@ describe('fuzz: arbitrary input never throws', () => {
     'state',
     'animate',
     'desc',
+    'code',
+    'json',
     'title',
     'a',
     'b',
     '"x"',
     '"',
+    '```',
+    '`',
     '\\',
     '-->',
     '..>',

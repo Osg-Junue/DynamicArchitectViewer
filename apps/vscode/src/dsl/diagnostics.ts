@@ -19,7 +19,8 @@ export type DiagnosticCode =
   | 'invalid-self-arrow'
   | 'invalid-escape'
   | 'attribute-not-applicable'
-  | 'empty-state';
+  | 'empty-state'
+  | 'duplicate-code';
 
 export interface Diagnostic {
   code: DiagnosticCode;
@@ -55,6 +56,7 @@ const MESSAGES: Record<Locale, Record<DiagnosticCode, string>> = {
     'invalid-escape': 'エスケープシーケンス "{sequence}" は使えません（使用可: \\" \\\\ \\n \\t）',
     'attribute-not-applicable': '属性 "{name}" は{kind}には適用されません',
     'empty-state': 'state に属性が指定されていません',
+    'duplicate-code': 'code は1つの animate に1つだけ指定できます（後の値が使われます）',
   },
   en: {
     'syntax-error': 'Syntax error: unexpected "{token}"',
@@ -77,6 +79,7 @@ const MESSAGES: Record<Locale, Record<DiagnosticCode, string>> = {
     'invalid-escape': 'Invalid escape sequence "{sequence}" (allowed: \\" \\\\ \\n \\t)',
     'attribute-not-applicable': 'Attribute "{name}" does not apply to a {kind}',
     'empty-state': 'state has no attributes',
+    'duplicate-code': 'Only one code block is allowed per animate (the last value wins)',
   },
 };
 

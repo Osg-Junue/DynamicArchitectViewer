@@ -365,7 +365,9 @@ DescStmt      ::= "desc" String
 FocusStmt     ::= "focus" Identifier ("," Identifier)*
 StateStmt     ::= "state" Identifier AttrBlock
 AnimateStmt   ::= "animate" Identifier AnimateArrow Identifier (":" String)?
-                  AttrBlock? ("{" DescStmt* "}")?
+                  AttrBlock? AnimateBody?
+AnimateBody   ::= "{" (DescStmt | CodeStmt)* "}"
+CodeStmt      ::= "code" Identifier? (String CodeFence | CodeFence | String)
 AnimateArrow  ::= "-->" | "<->"
 
 AttrBlock     ::= "[" (Attr ("," Attr)* ","?)? "]"
@@ -393,6 +395,8 @@ export const DIAGNOSTIC_EXAMPLES: Record<DiagnosticCode, string> = {
   'invalid-escape': 'dav 1\ntitle "a\\q"',
   'attribute-not-applicable': 'dav 1\ngroup g { node a }\nstep "S" {\n  state g [badge: "x"]\n}',
   'empty-state': 'dav 1\nnode a\nstep "S" {\n  state a []\n}',
+  'duplicate-code':
+    'dav 1\nnode a\nnode b\nstep "S" {\n  animate a --> b [code: "x"] {\n    code "y"\n  }\n}',
 };
 
 /** All documents animated or rendered by the documentation, for validation. */

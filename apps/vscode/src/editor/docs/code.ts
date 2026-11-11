@@ -14,6 +14,7 @@ interface Token {
 
 const SIMPLE_TOKENS: Readonly<Record<string, TokenKind>> = {
   String: 'string',
+  CodeFence: 'string',
   LineComment: 'comment',
   Arrow: 'arrow',
 };
@@ -27,7 +28,7 @@ function tokenize(dsl: string, tree: SyntaxTree): Token[] {
         tokens.push({ from, to, kind: 'attr' });
         return false;
       }
-      if (KEYWORDS.has(name)) {
+      if (KEYWORDS.has(name) || name === 'code') {
         tokens.push({ from, to, kind: 'keyword' });
         return false;
       }

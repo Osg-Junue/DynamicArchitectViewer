@@ -1,5 +1,5 @@
 import type { SyntaxNode } from '@lezer/common';
-import { attributeValueNode, childNodes, parseTree, sliceOf } from './syntax';
+import { attributeValueNode, childNodes, parseTree, sliceOf, unescapeCodeFence } from './syntax';
 
 const INDENT = '  ';
 const CONTAINERS = new Set(['GroupBody', 'StepBody', 'AnimateBody']);
@@ -19,6 +19,7 @@ const STATEMENTS = new Set([
   'Focus',
   'State',
   'Animate',
+  'Code',
 ]);
 
 /**
@@ -84,7 +85,16 @@ class Printer {
 
     // Comments inside a statement cannot be relocated safely: keep its original text.
     if (containsComment(node)) {
-      this.verbatim(node, indent);
+      if (node.name === 'Code') {
+        this.verbatimCode(node, indent);
+      } else {
+        this.verbatim(node, indent);
+      }
+      return;
+    }
+
+    if (node.name === 'Code') {
+      this.code(node, indent);
       return;
     }
 
@@ -146,9 +156,63 @@ class Printer {
     return `[${items.join(', ')}]`;
   }
 
+  private code(node: SyntaxNode, indent: string): void {
+    const langNode = node.getChild('Identifier');
+    const strNode = node.getChild('String');
+    const fenceNode = node.getChild('CodeFence');
+
+    const head = ['code'];
+    if (langNode) head.push(sliceOf(this.text, langNode));
+    if (strNode) head.push(sliceOf(this.text, strNode));
+
+    if (!fenceNode) {
+      this.lines.push(`${indent}${head.join(' ')}`);
+      return;
+    }
+
+    head.push('```');
+    this.lines.push(`${indent}${head.join(' ')}`);
+    this.fenceBody(fenceNode, indent);
+  }
+
+  private verbatimCode(node: SyntaxNode, indent: string): void {
+    const fenceNode = node.getChild('CodeFence');
+    if (!fenceNode) {
+      this.verbatim(node, indent);
+      return;
+    }
+    const prefix = sliceOf(this.text, { from: node.from, to: fenceNode.from }).replace(
+      /[ \t]*$/,
+      '',
+    );
+    const fenceOnNewLine = prefix.endsWith('\n');
+    const headRaw = fenceOnNewLine ? prefix.replace(/\r?\n$/, '') : prefix;
+    this.verbatimSpan(headRaw, node.from, indent);
+    if (fenceOnNewLine) {
+      this.lines.push(`${indent}\`\`\``);
+    } else {
+      this.appendToLastLine(' ```');
+    }
+    this.fenceBody(fenceNode, indent);
+  }
+
+  private fenceBody(fenceNode: SyntaxNode, indent: string): void {
+    const body = unescapeCodeFence(sliceOf(this.text, fenceNode));
+    if (body.length > 0) {
+      for (const line of body.split('\n')) {
+        this.lines.push(line.length > 0 ? `${indent}  ${line}` : '');
+      }
+    }
+    this.lines.push(`${indent}\`\`\``);
+  }
+
   private verbatim(node: SyntaxNode, indent: string): void {
-    const raw = sliceOf(this.text, node).split(/\r?\n/);
-    const baseIndent = leadingWhitespace(this.lineAt(node.from));
+    this.verbatimSpan(sliceOf(this.text, node), node.from, indent);
+  }
+
+  private verbatimSpan(rawText: string, from: number, indent: string): void {
+    const raw = rawText.split(/\r?\n/);
+    const baseIndent = leadingWhitespace(this.lineAt(from));
     raw.forEach((line, i) => {
       if (i === 0) {
         this.lines.push(indent + line.trimEnd());

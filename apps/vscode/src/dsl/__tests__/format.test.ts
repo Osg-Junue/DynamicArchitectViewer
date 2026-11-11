@@ -95,6 +95,109 @@ node a [
     expect(format(broken)).toBe(broken);
   });
 
+  it('formats all code forms in AnimateBody canonically and idempotently', () => {
+    const messy = `dav 1
+node a
+node b
+step "S" {
+  animate a --> b {
+    desc   "send"
+    code   json   "Order Request"   \`\`\`
+          {
+            "id": 1,
+
+            "ok": true
+          }
+        \`\`\`
+  }
+  animate a --> b {
+    code sql \`\`\` SELECT 1; \`\`\`
+  }
+  animate a --> b {
+    code   "Title"   \`\`\`
+      body
+    \`\`\`
+  }
+  animate a --> b {
+    code \`\`\`
+      raw
+    \`\`\`
+  }
+  animate a --> b {
+    code   json   "{\\"a\\":1}"
+  }
+  animate a --> b {
+    code   "plain"
+  }
+}
+`;
+    const expected = `dav 1
+node a
+node b
+step "S" {
+  animate a --> b {
+    desc "send"
+    code json "Order Request" \`\`\`
+      {
+        "id": 1,
+
+        "ok": true
+      }
+    \`\`\`
+  }
+  animate a --> b {
+    code sql \`\`\`
+      SELECT 1;
+    \`\`\`
+  }
+  animate a --> b {
+    code "Title" \`\`\`
+      body
+    \`\`\`
+  }
+  animate a --> b {
+    code \`\`\`
+      raw
+    \`\`\`
+  }
+  animate a --> b {
+    code json "{\\"a\\":1}"
+  }
+  animate a --> b {
+    code "plain"
+  }
+}
+`;
+    const once = format(messy);
+    expect(once).toBe(expected);
+    expect(format(once)).toBe(once);
+    expect(parse(once).document).toEqual(parse(messy).document);
+  });
+
+  it('preserves CRLF line endings inside formatted code fences', () => {
+    const crlf = [
+      'dav 1',
+      'node a',
+      'node b',
+      'step "S" {',
+      '  animate a --> b {',
+      '    code json "Req" ```',
+      '      {',
+      '        "ok": true',
+      '      }',
+      '    ```',
+      '  }',
+      '}',
+      '',
+    ].join('\r\n');
+    expect(format(crlf)).toBe(crlf);
+    expect(parse(crlf).document.steps[0]?.animations[0]?.code).toEqual({
+      lang: 'json',
+      title: 'Req',
+      body: '{\n  "ok": true\n}',
+    });
+  });
+
   it.each(SAMPLE_TEMPLATES.map((s) => [s.id, s.dsl] as const))(
     '%s: is idempotent and preserves semantics',
     (_, dsl) => {
