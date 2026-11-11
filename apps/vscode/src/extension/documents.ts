@@ -2,6 +2,7 @@ import { homedir } from 'node:os';
 import * as vscode from 'vscode';
 import { format, parse } from '../dsl';
 import { exportHtml, exportSvg } from '../exporter';
+import type { SvgCamera } from '../protocol/messages';
 import { t, uiLocale } from './locale';
 
 export const LANGUAGE_ID = 'dav';
@@ -49,15 +50,16 @@ export async function exportDocumentToHtml(
 
 /**
  * Exports an SVG image for places that run no script, such as a README: animated with the camera
- * following the steps, or a still picture of the whole diagram. The preview's Export menu has
- * already picked the kind and sends the text it shows; the command asks for the kind.
+ * following the steps or kept on the whole diagram, or a still picture of the whole diagram. The
+ * preview's Export menu has already picked the kind and sends the text it shows; the command asks
+ * for the kind.
  */
 export async function exportDocumentToSvg(
   doc: vscode.TextDocument,
-  picked?: { dsl: string; animate: boolean },
+  picked?: { dsl: string; animate: boolean; camera: SvgCamera },
 ): Promise<void> {
   const { document } = parse(picked?.dsl ?? doc.getText());
-  let animate = picked?.animate ?? true;
+  let options = { animate: picked?.animate ?? true, camera: picked?.camera ?? 'follow' };
   if (!picked && document.steps.length > 0) {
     const kind = await vscode.window.showQuickPick(
       [
@@ -67,20 +69,28 @@ export async function exportDocumentToSvg(
             'すべてのステップを繰り返し再生し、カメラが流れを追います',
             'Plays every step in a loop, with the camera following the flow',
           ),
-          animate: true,
+          options: { animate: true, camera: 'follow' as const },
+        },
+        {
+          label: t('アニメーション（全体固定）', 'Animated, whole diagram'),
+          detail: t(
+            '図全体を映したまま、すべてのステップを繰り返し再生します',
+            'Plays every step in a loop with the whole diagram in view',
+          ),
+          options: { animate: true, camera: 'whole' as const },
         },
         {
           label: t('静止画', 'Still'),
           detail: t('図全体を 1 枚の画像にします', 'The whole diagram as one picture'),
-          animate: false,
+          options: { animate: false, camera: 'follow' as const },
         },
       ],
       { placeHolder: t('書き出す SVG の種類', 'Kind of SVG to export') },
     );
     if (!kind) return;
-    animate = kind.animate;
+    options = kind.options;
   }
-  const svg = exportSvg(document, { locale: uiLocale(), animate });
+  const svg = exportSvg(document, { locale: uiLocale(), ...options });
   const targetUri = await vscode.window.showSaveDialog({
     defaultUri: defaultExportUri(doc, 'svg'),
     filters: { SVG: ['svg'] },

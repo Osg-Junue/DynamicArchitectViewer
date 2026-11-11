@@ -134,6 +134,7 @@ findAtOffset(sourceMap, offset): { elementId: string | null; stepIndex: number |
 
 - **Still** (`animate: false`, or a diagram without steps): the overview, framed on the whole diagram.
 - **Animated**: every step in a loop at 1x, as "Play all" plays them. The canvas is 960 × 540 below a header with the step's title and description, the step ruler and, when the diagram has zones, the zone strip. When the camera ever shows less than the whole diagram, a minimap sits beside the header rather than over the canvas.
+- **Animated, whole diagram** (`camera: 'whole'`): the same playback with the camera kept on everything any step draws. The canvas stays 960 wide and takes the diagram's proportions, at most the preview's fit zoom, between 240 and 1200 high. No minimap is needed.
 
 Motion uses SMIL only, because `<img>` runs no script. Every animation lasts the length of the whole playback and repeats, so they stay in step without referring to one another:
 
@@ -144,7 +145,7 @@ Motion uses SMIL only, because `<img>` runs no script. Every animation lasts the
 | Zone names on the canvas | Kept inside the visible `viewBox` as the camera moves, as in the preview |
 | A packet riding its rail, and the leader of its callout | Positions sampled every 66 ms, interpolated in between |
 
-The camera follows the preview's rules from `scene/framing.ts`: each step starts on `stepFrame`, and a phase whose nodes are off screen moves to `calmFrame`. The preview's "follow" toggle and the reader's own panning have no counterpart, and SMIL animations in an `<img>` cannot honor `prefers-reduced-motion` (use the still SVG export when motion is unwanted). Each element's attributes hold its state at the start of the loop, so a viewer without SMIL shows the first moment of the first step. Colors follow the reader's system light or dark setting, which can differ from the theme of the site showing the image.
+With `camera: 'follow'`, the default, the camera follows the preview's rules from `scene/framing.ts`: each step starts on `stepFrame`, and a phase whose nodes are off screen moves to `calmFrame`. The preview's "follow" toggle and the reader's own panning have no counterpart, and SMIL animations in an `<img>` cannot honor `prefers-reduced-motion` (the whole-diagram or still export moves less). Each element's attributes hold its state at the start of the loop, so a viewer without SMIL shows the first moment of the first step. Colors follow the reader's system light or dark setting, which can differ from the theme of the site showing the image.
 
 **Security.** The scene is serialized by `exporter/xml.ts`, which escapes every text and attribute value and drops characters XML does not allow. The file has no script, no `foreignObject` and no external reference.
 
@@ -156,7 +157,7 @@ The camera follows the preview's rules from `scene/framing.ts`: each step starts
 | :--- | :--- |
 | `dav.openPreview` | Open the preview beside the editor |
 | `dav.exportHtml` | Export a standalone HTML file |
-| `dav.exportSvg` | Export an animated or still SVG image |
+| `dav.exportSvg` | Export an animated SVG (camera following or whole diagram) or a still one |
 | `dav.importHtml` | Open the `.dav` text embedded in an exported file |
 | `dav.newFromTemplate` | Create a diagram from a sample |
 | `dav.copyAiPrompt` | Copy a prompt that teaches the language to an AI agent |
@@ -170,7 +171,7 @@ The extension and webview talk through typed messages in `protocol/messages.ts`:
 | `cursorMoved` | Extension to webview | Highlight the element at the cursor, and go to its step |
 | `revealRange` | Webview to extension | Double-clicking an element jumps to its declaration |
 | `exportHtml` | Webview to extension | Export HTML from the toolbar's Export menu |
-| `exportSvg` | Webview to extension | Export an animated or still SVG from the same menu |
+| `exportSvg` | Webview to extension | Export an SVG from the same menu, with `animate` and `camera` |
 
 **Language.** The UI is Japanese when `vscode.env.language` is Japanese, and English otherwise. The extension writes this into `<html lang>` for the webview, and command titles come from `package.nls*.json`.
 

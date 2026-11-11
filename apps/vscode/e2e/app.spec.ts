@@ -10,6 +10,7 @@ interface PostedMessage {
   type: string;
   from?: number;
   animate?: boolean;
+  camera?: string;
 }
 
 const DEFAULT_DSL = readFileSync(
@@ -271,7 +272,7 @@ test.describe('webview preview', () => {
     const exportBtn = page.getByTestId('btn-export');
     await exportBtn.click();
     await expect(exportBtn).toHaveAttribute('aria-expanded', 'true');
-    await expect(page.getByRole('menuitem')).toHaveCount(3);
+    await expect(page.getByRole('menuitem')).toHaveCount(4);
     await expect(page.getByTestId('export-html')).toBeFocused();
     await page.getByTestId('export-html').click();
     await expect(page.getByRole('menu')).toBeHidden();
@@ -284,10 +285,16 @@ test.describe('webview preview', () => {
     await expect(page.getByTestId('export-svg-animated')).toBeFocused();
     await page.keyboard.press('Enter');
     await exportBtn.click();
+    await page.getByTestId('export-svg-whole').click();
+    await exportBtn.click();
     await page.keyboard.press('End');
     await page.keyboard.press('Enter');
     const svgMessages = (await postedMessages(page)).filter((m) => m.type === 'exportSvg');
-    expect(svgMessages.map((m) => m.animate)).toEqual([true, false]);
+    expect(svgMessages.map((m) => [m.animate, m.camera])).toEqual([
+      [true, 'follow'],
+      [true, 'whole'],
+      [false, 'follow'],
+    ]);
     await exportBtn.click();
     await page.keyboard.press('Escape');
     await expect(page.getByRole('menu')).toBeHidden();
@@ -298,7 +305,7 @@ test.describe('webview preview', () => {
     await exportBtn.click();
     await page.locator('.dav-viewport').click({ position: { x: 5, y: 5 } });
     await expect(page.getByRole('menu')).toBeHidden();
-    expect((await postedMessages(page)).filter((m) => m.type.startsWith('export'))).toHaveLength(3);
+    expect((await postedMessages(page)).filter((m) => m.type.startsWith('export'))).toHaveLength(4);
   });
 
   for (const [lang, nav, close] of [
@@ -522,6 +529,7 @@ test('switching documents discards the previous one', async ({ page }) => {
   await page.getByTestId('btn-export').waitFor();
   // Without steps there is nothing to animate
   await expect(page.getByTestId('export-svg-animated')).toBeDisabled();
+  await expect(page.getByTestId('export-svg-whole')).toBeDisabled();
 
   await page.evaluate(() => {
     window.postMessage({ type: 'docChanged', dsl: '', uri: 'file:///b.dav' }, '*');

@@ -299,14 +299,28 @@ describe('extension commands', () => {
 
       await run('dav.exportSvg');
 
-      expect(host.quickPick.map((item) => item.label)).toEqual(['Animated', 'Still']);
+      expect(host.quickPick.map((item) => item.label)).toEqual([
+        'Animated',
+        'Animated, whole diagram',
+        'Still',
+      ]);
       expect(host.written[0]).toContain('<animate');
       expect(host.written[0]).toContain('<title>Doc S</title>');
     });
 
-    it('writes a still picture when that is picked', async () => {
+    it('keeps the whole diagram in view when that is picked', async () => {
       host.activeTextEditor = { document: stepped };
       host.pickIndex = 1;
+
+      await run('dav.exportSvg');
+
+      expect(host.written[0]).toContain('<animate');
+      expect(host.written[0]).not.toContain('attributeName="viewBox"');
+    });
+
+    it('writes a still picture when that is picked', async () => {
+      host.activeTextEditor = { document: stepped };
+      host.pickIndex = 2;
 
       await run('dav.exportSvg');
 
@@ -336,15 +350,16 @@ describe('extension commands', () => {
       host.activeTextEditor = { document: stepped };
       await run('dav.openPreview');
 
-      host.receive({ type: 'exportSvg', dsl: stepped.getText(), animate: false });
+      host.receive({ type: 'exportSvg', dsl: stepped.getText(), animate: false, camera: 'follow' });
       await vi.waitFor(() => expect(host.written).toHaveLength(1));
 
       expect(host.quickPick).toEqual([]);
       expect(host.written[0]).not.toContain('<animate');
 
-      host.receive({ type: 'exportSvg', dsl: stepped.getText(), animate: true });
+      host.receive({ type: 'exportSvg', dsl: stepped.getText(), animate: true, camera: 'whole' });
       await vi.waitFor(() => expect(host.written).toHaveLength(2));
       expect(host.written[1]).toContain('<animate');
+      expect(host.written[1]).not.toContain('attributeName="viewBox"');
     });
 
     it('reads a stepped document only once when exporting', async () => {

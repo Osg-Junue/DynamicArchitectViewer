@@ -307,6 +307,64 @@ describe('exportSvg', () => {
   );
 });
 
+describe("exportSvg with camera: 'whole'", () => {
+  const rootOf = (svg: string) => attrs(svg, 'svg')[0];
+  const canvasOf = (svg: string) =>
+    attrs(svg, 'svg').find((a) => a.preserveAspectRatio === 'xMidYMid meet');
+
+  it('keeps the camera still while the flows play', () => {
+    const svg = exportSvg(STEPPED, { camera: 'whole' });
+
+    expect(svg).toContain('<animate');
+    expect(attrs(svg, 'animate').map((a) => a.attributeName)).not.toContain('viewBox');
+    expect(svg).not.toContain('class="dav-minimap-view"');
+  });
+
+  it('frames everything every step draws', () => {
+    const dsl = sampleDsl('enterprise-zero-trust-10anim');
+    const { document } = parse(dsl);
+    const layout = computeLayout(document);
+    const { steps } = schedule(document, layout);
+    const [vx = 0, vy = 0, vw = 0, vh = 0] = (
+      canvasOf(exportSvg(dsl, { camera: 'whole' }))?.viewBox ?? ''
+    )
+      .split(' ')
+      .map(Number);
+
+    for (const step of steps) {
+      const r = wholeDiagramFrame(layout, step.view).rect;
+      expect(r.x).toBeGreaterThanOrEqual(vx - 0.1);
+      expect(r.y).toBeGreaterThanOrEqual(vy - 0.1);
+      expect(r.x + r.width).toBeLessThanOrEqual(vx + vw + 0.1);
+      expect(r.y + r.height).toBeLessThanOrEqual(vy + vh + 0.1);
+    }
+  });
+
+  it('sizes the canvas to the diagram instead of a fixed 960 × 540', () => {
+    const flat = exportSvg(STEPPED, { camera: 'whole' });
+    const follow = exportSvg(STEPPED);
+
+    expect(canvasOf(flat)?.width).toBe('960');
+    expect(Number(canvasOf(flat)?.height)).toBeLessThan(540);
+    expect(canvasOf(follow)?.height).toBe('540');
+    expect(rootOf(flat)?.viewBox).toBe(`0 0 960 ${rootOf(flat)?.height}`);
+  });
+
+  it('keeps a very tall diagram within a readable height', () => {
+    const tall = [
+      'dav 1',
+      ...Array.from({ length: 30 }, (_, i) => `node n${i}`),
+      'step "Go" {',
+      '  state n0 [badge: "x"]',
+      '}',
+    ].join('\n');
+
+    expect(Number(canvasOf(exportSvg(tall, { camera: 'whole' }))?.height)).toBeLessThanOrEqual(
+      1200,
+    );
+  });
+});
+
 describe('planCamera', () => {
   it('starts each step where the preview frames it', () => {
     const { document } = parse(STEPPED);

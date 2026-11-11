@@ -10,7 +10,10 @@ export type HostToWebviewMessage =
     };
 
 /** What the preview's Export menu offers. */
-export type ExportFormat = 'html' | 'svg-animated' | 'svg-still';
+export type ExportFormat = 'html' | 'svg-animated' | 'svg-whole' | 'svg-still';
+
+/** Where an animated SVG's camera looks (see `SvgExportOptions.camera`). */
+export type SvgCamera = 'follow' | 'whole';
 
 export type WebviewToHostMessage =
   | {
@@ -29,6 +32,7 @@ export type WebviewToHostMessage =
       type: 'exportSvg';
       dsl: string;
       animate: boolean;
+      camera: SvgCamera;
     }
   | {
       type: 'formatDocument';

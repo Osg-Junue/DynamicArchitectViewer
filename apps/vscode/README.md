@@ -38,7 +38,7 @@ step "The payment provider fails" {
 2. Press `Ctrl+Shift+V` (`⌘⇧V` on macOS) to open the preview beside the editor.
 3. Play the steps from the toolbar, or move between them with `←` and `→`.
 
-The Export menu in the preview toolbar saves the diagram as a standalone HTML file, an animated SVG or a still SVG. The documentation button next to it opens a guide to the language, with live examples.
+The Export menu in the preview toolbar saves the diagram as a standalone HTML file, an animated SVG (with the camera following the flow, or on the whole diagram) or a still SVG. The documentation button next to it opens a guide to the language, with live examples.
 
 ## Features
 
@@ -47,7 +47,7 @@ The Export menu in the preview toolbar saves the diagram as a standalone HTML fi
 - **Playback** with step selection, play all, adjustable speed, and a still view of each step.
 - **Language support:** highlighting, diagnostics with Quick Fixes, completions for names, attributes and the 42 built-in icons, a formatter that keeps comments, and an outline.
 - **Standalone HTML export.** One file that works offline, with a strict Content Security Policy. The source can be extracted from it again.
-- **SVG export for READMEs.** An animated SVG plays every step with the camera following the flow, and needs no script, so it plays as an image on GitHub and GitLab. A still SVG shows the whole diagram.
+- **SVG export for READMEs.** An animated SVG plays every step with the camera following the flow or kept on the whole diagram, and needs no script, so it plays as an image on GitHub and GitLab. A still SVG shows the whole diagram.
 - **AI-friendly.** Install an agent skill that lets Claude Code, GitHub Copilot and Codex write and validate `.dav` files, or copy a prompt for chat assistants.
 - **Japanese and English UI**, following the VS Code display language.
 

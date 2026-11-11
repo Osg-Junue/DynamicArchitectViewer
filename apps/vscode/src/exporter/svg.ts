@@ -17,6 +17,7 @@ import {
   framePose,
   HOLD_MS,
   h,
+  MAX_FIT_ZOOM,
   type Packet,
   PHASE_MS,
   type Pose,
@@ -51,6 +52,12 @@ export interface SvgExportOptions {
    * preview. `false`, or a diagram without steps, gives a still picture of the whole diagram.
    */
   animate?: boolean;
+  /**
+   * Where an animated SVG looks. `'follow'` (default) moves like the preview's camera: closer on
+   * each step, and on to the zones a phase moves between. `'whole'` keeps the whole diagram in
+   * view, on a canvas of its proportions, and only the flows move.
+   */
+  camera?: 'follow' | 'whole';
 }
 
 /**
@@ -61,6 +68,8 @@ export interface SvgExportOptions {
 
 const WIDTH = 960;
 const CANVAS_HEIGHT = 540;
+/** A fixed camera's canvas follows the diagram's proportions, within these heights. */
+const WHOLE_CANVAS_HEIGHT = { min: 240, max: 1200 } as const;
 const PAD_X = 16;
 const TIMELINE_HEIGHT = 20;
 const ZONE_STRIP_HEIGHT = 36;
@@ -89,7 +98,7 @@ export function exportSvg(source: string | DavDocument, options: SvgExportOption
   const layout = computeLayout(document);
   return options.animate === false || document.steps.length === 0
     ? stillSvg(document, layout)
-    : animatedSvg(document, layout, options.locale ?? 'en');
+    : animatedSvg(document, layout, options.locale ?? 'en', options.camera ?? 'follow');
 }
 
 const num = (v: number): string => String(Math.round(v * 10) / 10);
@@ -1011,17 +1020,52 @@ function zoneLabelLayer(
   return out.children.length > 0 ? out : null;
 }
 
-function animatedSvg(doc: DavDocument, layout: Layout, locale: ViewerLocale): string {
+/** Everything any step draws, including callouts that a step moves aside past the edge. */
+function wholeAcrossSteps(doc: DavDocument, layout: Layout, steps: readonly StepSlot[]): Rect {
+  const rects = (
+    steps.length > 0 ? steps.map((s) => s.view) : [resolveView(doc, layout, null)]
+  ).map((view) => wholeDiagramFrame(layout, view).rect);
+  const x = Math.min(...rects.map((r) => r.x));
+  const y = Math.min(...rects.map((r) => r.y));
+  const right = Math.max(...rects.map((r) => r.x + r.width));
+  const bottom = Math.max(...rects.map((r) => r.y + r.height));
+  return { x, y, width: right - x, height: bottom - y };
+}
+
+/**
+ * A canvas as wide as the header, as tall as the diagram needs at the zoom it gets: no closer
+ * than the preview's fit, and within limits for very flat or very tall diagrams.
+ */
+function wholeCanvas(rect: Rect): Size {
+  const zoom = Math.min(MAX_FIT_ZOOM, WIDTH / rect.width);
+  const height = Math.round(rect.height * zoom);
+  return {
+    width: WIDTH,
+    height: Math.min(WHOLE_CANVAS_HEIGHT.max, Math.max(WHOLE_CANVAS_HEIGHT.min, height)),
+  };
+}
+
+function animatedSvg(
+  doc: DavDocument,
+  layout: Layout,
+  locale: ViewerLocale,
+  cameraMode: 'follow' | 'whole',
+): string {
   const { steps, total } = schedule(doc, layout);
   const clock = new Clock(total);
-  const canvas: Size = { width: WIDTH, height: CANVAS_HEIGHT };
+  const wholeRect = wholeAcrossSteps(doc, layout, steps);
+  const canvas: Size =
+    cameraMode === 'whole' ? wholeCanvas(wholeRect) : { width: WIDTH, height: CANVAS_HEIGHT };
 
-  const events = planCamera(canvas, layout, steps);
+  const events: Array<[number, Pose]> =
+    cameraMode === 'whole'
+      ? [[0, framePose(canvas, { rect: wholeRect, maxZoom: MAX_FIT_ZOOM })]]
+      : planCamera(canvas, layout, steps);
   const camera = cameraKeys(events, total).map(([t, pose]): [number, Rect] => [
     t,
     visibleWorld(canvas, pose),
   ]);
-  const whole = wholeDiagramFrame(layout, steps[0]?.view ?? resolveView(doc, layout, null)).rect;
+  const whole = wholeRect;
   const start = events[0]?.[1];
   const startWorld = start ? visibleWorld(canvas, start) : whole;
   // The minimap only helps when the camera ever shows less than the whole diagram.
@@ -1039,7 +1083,7 @@ function animatedSvg(doc: DavDocument, layout: Layout, locale: ViewerLocale): st
   const zoneTop = timelineTop + TIMELINE_HEIGHT;
   const hasZones = doc.groups.length > 0;
   const canvasTop = zoneTop + (hasZones ? ZONE_STRIP_HEIGHT : 0);
-  const canvasBottom = canvasTop + CANVAS_HEIGHT;
+  const canvasBottom = canvasTop + canvas.height;
 
   const world = h(
     'svg',
@@ -1047,7 +1091,7 @@ function animatedSvg(doc: DavDocument, layout: Layout, locale: ViewerLocale): st
       x: 0,
       y: canvasTop,
       width: WIDTH,
-      height: CANVAS_HEIGHT,
+      height: canvas.height,
       viewBox: viewBoxOf(startWorld),
       preserveAspectRatio: 'xMidYMid meet',
     },

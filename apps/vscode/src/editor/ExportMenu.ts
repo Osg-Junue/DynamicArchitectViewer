@@ -16,7 +16,12 @@ const STRINGS = {
     noSteps: 'ステップのない図は静止画になります',
     items: [
       ['html', '単一 HTML', '操作できる 1 ファイル。オフラインで動きます'],
-      ['svg-animated', 'アニメーション SVG', 'README 用。すべてのステップを繰り返し再生します'],
+      ['svg-animated', 'アニメーション SVG', 'README 用。カメラが流れを追ってステップを再生します'],
+      [
+        'svg-whole',
+        'アニメーション SVG（全体固定）',
+        '図全体を映したまま、すべてのステップを再生します',
+      ],
       ['svg-still', '静止画 SVG', '図全体を 1 枚の画像にします'],
     ],
   },
@@ -26,7 +31,12 @@ const STRINGS = {
     noSteps: 'A diagram without steps exports as a still picture',
     items: [
       ['html', 'Standalone HTML', 'One interactive file that works offline'],
-      ['svg-animated', 'Animated SVG', 'For READMEs: plays every step in a loop'],
+      ['svg-animated', 'Animated SVG', 'For READMEs: the camera follows each step'],
+      [
+        'svg-whole',
+        'Animated SVG, whole diagram',
+        'Plays every step with the whole diagram in view',
+      ],
       ['svg-still', 'Still SVG', 'The whole diagram as one picture'],
     ],
   },
@@ -46,7 +56,7 @@ export class ExportMenu {
   readonly #button: HTMLButtonElement;
   readonly #list: HTMLElement;
   readonly #items: HTMLButtonElement[];
-  readonly #animated: HTMLButtonElement | undefined;
+  readonly #animated: HTMLButtonElement[];
   readonly #noStepsHint: string;
 
   constructor(locale: ViewerLocale, onPick: (format: ExportFormat) => void) {
@@ -99,7 +109,10 @@ export class ExportMenu {
       });
       return el;
     });
-    this.#animated = this.#items[items.findIndex((item) => item.format === 'svg-animated')];
+    this.#animated = this.#items.filter((_, i) => {
+      const format = items[i]?.format;
+      return format === 'svg-animated' || format === 'svg-whole';
+    });
 
     this.#list = html(
       'div',
@@ -132,10 +145,11 @@ export class ExportMenu {
 
   /** An animated SVG needs steps to play; without them only the still picture makes sense. */
   setHasSteps(hasSteps: boolean): void {
-    if (!this.#animated) return;
-    this.#animated.disabled = !hasSteps;
-    if (hasSteps) this.#animated.removeAttribute('title');
-    else this.#animated.title = this.#noStepsHint;
+    for (const item of this.#animated) {
+      item.disabled = !hasSteps;
+      if (hasSteps) item.removeAttribute('title');
+      else item.title = this.#noStepsHint;
+    }
   }
 
   open(focus: 'first' | 'last' = 'first'): void {

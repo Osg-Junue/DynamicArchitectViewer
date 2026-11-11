@@ -53,7 +53,12 @@ export function mountApp(container: HTMLElement): void {
     vscodeApi.postMessage(
       format === 'html'
         ? { type: 'exportHtml', dsl }
-        : { type: 'exportSvg', dsl, animate: format === 'svg-animated' },
+        : {
+            type: 'exportSvg',
+            dsl,
+            animate: format !== 'svg-still',
+            camera: format === 'svg-whole' ? 'whole' : 'follow',
+          },
     );
   });
   const playbackSlot = html('div', {
