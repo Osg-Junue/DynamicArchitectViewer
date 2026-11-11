@@ -151,7 +151,10 @@ export function mountApp(container: HTMLElement): void {
     );
     created.getWorldElement().append(highlightLayer);
     created.getSvgElement().addEventListener('dblclick', (e: MouseEvent) => {
-      const id = (e.target as Element | null)?.closest('[data-id]')?.getAttribute('data-id');
+      const id =
+        e.target instanceof Element
+          ? e.target.closest('[data-id]')?.getAttribute('data-id')
+          : undefined;
       const span = id ? lastValid.sourceMap.elements.get(id) : undefined;
       if (span) vscodeApi.postMessage({ type: 'revealRange', from: span.from, to: span.to });
     });

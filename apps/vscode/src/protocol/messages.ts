@@ -34,39 +34,41 @@ export type WebviewToHostMessage =
       step: number | null;
     };
 
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null;
+}
+
 export function isHostToWebviewMessage(v: unknown): v is HostToWebviewMessage {
-  if (typeof v !== 'object' || v === null) return false;
-  const r = v as Record<string, unknown>;
-  if (r.type === 'docChanged') {
-    return typeof r.dsl === 'string' && (r.uri === undefined || typeof r.uri === 'string');
+  if (!isRecord(v)) return false;
+  if (v.type === 'docChanged') {
+    return typeof v.dsl === 'string' && (v.uri === undefined || typeof v.uri === 'string');
   }
-  if (r.type === 'cursorMoved') {
-    return typeof r.offset === 'number' && Number.isFinite(r.offset);
+  if (v.type === 'cursorMoved') {
+    return typeof v.offset === 'number' && Number.isFinite(v.offset);
   }
   return false;
 }
 
 export function isWebviewToHostMessage(v: unknown): v is WebviewToHostMessage {
-  if (typeof v !== 'object' || v === null) return false;
-  const r = v as Record<string, unknown>;
-  switch (r.type) {
+  if (!isRecord(v)) return false;
+  switch (v.type) {
     case 'ready':
       return true;
     case 'revealRange':
       return (
-        typeof r.from === 'number' &&
-        Number.isFinite(r.from) &&
-        typeof r.to === 'number' &&
-        Number.isFinite(r.to)
+        typeof v.from === 'number' &&
+        Number.isFinite(v.from) &&
+        typeof v.to === 'number' &&
+        Number.isFinite(v.to)
       );
     case 'exportHtml':
-      return typeof r.dsl === 'string';
+      return typeof v.dsl === 'string';
     case 'exportSvg':
       return (
-        typeof r.dsl === 'string' &&
-        typeof r.animate === 'boolean' &&
-        (r.camera === 'follow' || r.camera === 'whole') &&
-        (r.step === null || (typeof r.step === 'number' && Number.isInteger(r.step) && r.step >= 0))
+        typeof v.dsl === 'string' &&
+        typeof v.animate === 'boolean' &&
+        (v.camera === 'follow' || v.camera === 'whole') &&
+        (v.step === null || (typeof v.step === 'number' && Number.isInteger(v.step) && v.step >= 0))
       );
     default:
       return false;

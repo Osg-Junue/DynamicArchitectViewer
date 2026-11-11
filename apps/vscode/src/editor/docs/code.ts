@@ -1,4 +1,5 @@
 import { KEYWORDS, type ParseResult, parse, parseTree } from '../../dsl';
+import { lineAtOffset } from '../../model/text';
 import { isColorName, isIconName } from '../../model/types';
 import { html } from '../../runtime/dom';
 import { paint } from '../../scene';
@@ -92,7 +93,7 @@ export function codeBlock(dsl: string): HTMLElement {
   return html('pre', { class: 'doc-code' }, ...renderCodeLines(dsl));
 }
 
-export interface StepLines {
+interface StepLines {
   /** Inclusive line range of the `step` statement. */
   from: number;
   to: number;
@@ -107,7 +108,7 @@ export function mapStepLines(
   tree: SyntaxTree = parseTree(dsl),
 ): StepLines[] {
   const { document, sourceMap } = parsed;
-  const lineOf = (offset: number) => dsl.slice(0, offset).split('\n').length - 1;
+  const lineOf = (offset: number) => lineAtOffset(dsl, offset) - 1;
   const stepNodes = tree.topNode.getChildren('Step');
 
   return document.steps.map((step, index) => {

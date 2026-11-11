@@ -36,10 +36,10 @@ export class HelpModal {
 
     // A drag that starts on the page and ends outside it also clicks the dialog.
     let pressedBackdrop = false;
-    this.element.addEventListener('pointerdown', (e) => {
+    this.element.addEventListener('pointerdown', (e: PointerEvent) => {
       pressedBackdrop = e.target === this.element;
     });
-    this.element.addEventListener('click', (e) => {
+    this.element.addEventListener('click', (e: MouseEvent) => {
       if (e.target === this.element && pressedBackdrop) this.close();
     });
     this.element.addEventListener('close', () => this.disposePage());

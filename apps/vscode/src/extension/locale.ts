@@ -1,7 +1,10 @@
 import * as vscode from 'vscode';
+import type { DavLocale } from '../model/types';
+
+export type Locale = DavLocale;
 
 /** VS Code's display language, narrowed to the languages this extension is written in. */
-export function uiLocale(): 'ja' | 'en' {
+export function uiLocale(): Locale {
   return vscode.env.language.toLowerCase().startsWith('ja') ? 'ja' : 'en';
 }
 

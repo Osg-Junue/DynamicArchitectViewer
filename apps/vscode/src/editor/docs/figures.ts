@@ -31,7 +31,7 @@ export interface LiveFigureOptions {
   matrix?: boolean;
 }
 
-export interface CopyFeedbackOptions {
+interface CopyFeedbackOptions {
   copiedLabel?: string;
   failedLabel?: string;
   labelEl?: HTMLElement;
@@ -86,6 +86,8 @@ export function swatchDot(cssColor: string): HTMLElement {
 }
 
 function svgFrame(frame: Rect, view: ResolvedView, label: string): SVGSVGElement {
+  const defs = renderSvg(buildDefs());
+  const scene = renderSvg(buildScene(view, ICON_SHAPES));
   return svg(
     'svg',
     {
@@ -94,8 +96,8 @@ function svgFrame(frame: Rect, view: ResolvedView, label: string): SVGSVGElement
       'aria-label': label,
       viewBox: `${frame.x} ${frame.y} ${frame.width} ${frame.height}`,
     },
-    renderSvg(buildDefs()) as SVGElement,
-    renderSvg(buildScene(view, ICON_SHAPES)) as SVGElement,
+    ...(defs instanceof SVGElement ? [defs] : []),
+    ...(scene instanceof SVGElement ? [scene] : []),
   );
 }
 
@@ -118,7 +120,10 @@ export function stationPreview(icon: IconName, color?: ColorName): SVGSVGElement
     steps: [],
   };
   const layout = computeLayout(document);
-  const station = stationRect(layout.nodes.n as Rect, icon);
+  const view = resolveView(document, layout, null);
+  const rect = layout.nodes.n;
+  if (!rect) return svgFrame({ x: 0, y: 0, width: 0, height: 0 }, view, icon);
+  const station = stationRect(rect, icon);
   const pad = 4;
   return svgFrame(
     {
@@ -127,7 +132,7 @@ export function stationPreview(icon: IconName, color?: ColorName): SVGSVGElement
       width: station.width + pad * 2,
       height: station.height + pad * 2,
     },
-    resolveView(document, layout, null),
+    view,
     icon,
   );
 }
@@ -254,7 +259,12 @@ function stateMatrix(document: DavDocument, layout: Layout, t: Translate) {
 }
 
 /** Source next to a real, running Player, with the running statements highlighted. */
-export function liveFigure(dsl: string, t: Translate, options: LiveFigureOptions = {}): LiveFigure {
+export function liveFigure(
+  dsl: string,
+  locale: ViewerLocale,
+  t: Translate,
+  options: LiveFigureOptions = {},
+): LiveFigure {
   const { parsed, document, layout } = compile(dsl);
   const hasSteps = document.steps.length > 0;
   const tree = parseTree(dsl);
@@ -327,7 +337,7 @@ export function liveFigure(dsl: string, t: Translate, options: LiveFigureOptions
     host,
     { document, layout, icons: ICON_SHAPES },
     {
-      locale: t('ja', 'en') as ViewerLocale,
+      locale,
       autoplay: 'step',
       initialStep: hasSteps ? 0 : null,
       playbackSlot: toolbar,
