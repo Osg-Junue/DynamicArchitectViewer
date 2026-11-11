@@ -624,11 +624,28 @@ test.describe('webview preview', () => {
     await expect(page.getByTestId('export-scope-step')).toHaveAttribute('aria-checked', 'false');
     await page.keyboard.press('Escape');
 
-    // Fatal syntax error on the same URI preserves lastValid for both single-step SVG and HTML
+    // A fatal syntax error keeps the last diagram on screen but blocks exporting, and closes the menu
     await stepSelect.selectOption('1');
     await expect(page.locator('.dav-step-title')).toContainText('Step 2 / 2');
+    await exportBtn.click();
+    await expect(page.getByRole('menu')).toBeVisible();
     await sendDsl(page, 'dav 1\n]', 'file:///one.dav');
     await expect(page.locator('.dav-node')).toHaveCount(2);
+    await expect(page.locator('.dav-step-title')).toContainText('Step 2 / 2');
+    await expect(page.getByRole('menu')).toBeHidden();
+    await expect(exportBtn).toHaveAttribute('aria-disabled', 'true');
+    await expect(exportBtn).toHaveAttribute('title', 'Fix the syntax error to export');
+    // Playwright waits for an aria-disabled button to become enabled, so this click is forced.
+    await exportBtn.click({ force: true });
+    await exportBtn.focus();
+    await page.keyboard.press('ArrowDown');
+    await expect(page.getByRole('menu')).toBeHidden();
+    expect((await postedMessages(page)).filter((m) => m.type.startsWith('export'))).toEqual([]);
+
+    // Fixing the text makes exporting possible again
+    await sendDsl(page, validDsl, 'file:///one.dav');
+    await expect(exportBtn).not.toHaveAttribute('aria-disabled');
+    await expect(exportBtn).not.toHaveAttribute('title');
     await expect(page.locator('.dav-step-title')).toContainText('Step 2 / 2');
 
     await exportBtn.click();

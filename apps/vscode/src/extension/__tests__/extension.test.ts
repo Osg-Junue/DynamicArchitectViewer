@@ -280,6 +280,30 @@ describe('extension commands', () => {
     expect(host.written[0]).toContain('<title>Doc A</title>');
   });
 
+  it.each(['dav.exportHtml', 'dav.exportSvg'])(
+    '%s exports nothing and says why while the text has a fatal error',
+    async (command) => {
+      host.activeTextEditor = { document: fakeDocument('dav 1\n]', 'broken.dav') };
+
+      await run(command);
+
+      expect(host.written).toEqual([]);
+      expect(host.quickPick).toEqual([]);
+      expect(host.warnings).toEqual([
+        'Nothing was exported: the diagram has a syntax error and nothing to draw. Fix the error, then export.',
+      ]);
+    },
+  );
+
+  it('exports a diagram whose errors leave something to draw', async () => {
+    host.activeTextEditor = { document: fakeDocument('dav 1\nnode a\n]', 'partial.dav') };
+
+    await run('dav.exportHtml');
+
+    expect(host.written).toHaveLength(1);
+    expect(host.warnings).toEqual([]);
+  });
+
   it('does not export a closed preview document or a non-dav editor', async () => {
     host.activeTextEditor = { document: docA };
     await run('dav.openPreview');

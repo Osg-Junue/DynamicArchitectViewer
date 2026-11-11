@@ -107,6 +107,12 @@ body {
   align-items: center;
   gap: 6px;
 }
+.export-button[aria-disabled="true"],
+.export-button[aria-disabled="true"]:hover {
+  background: var(--dav-primary-bg);
+  opacity: 0.45;
+  cursor: default;
+}
 .export-caret {
   flex: none;
 }

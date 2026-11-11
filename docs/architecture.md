@@ -152,7 +152,7 @@ With `camera: 'follow'`, the default, the camera follows the preview's rules fro
 
 ## The extension host
 
-`extension/languageFeatures.ts` provides diagnostics, Quick Fixes, completions, formatting and the outline. `extension/extension.ts` registers these commands:
+`extension/languageFeatures.ts` provides diagnostics, Quick Fixes, completions, formatting and the outline. `extension/extension.ts` registers these commands. While `hasFatalError` (in `dsl/`) holds, meaning the text has errors and nothing to draw, the preview keeps its last diagram and disables its Export button, and the export commands show a warning instead of writing a file:
 
 | Command | Action |
 | :--- | :--- |

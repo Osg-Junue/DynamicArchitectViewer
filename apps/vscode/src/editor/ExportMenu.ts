@@ -24,6 +24,7 @@ const STRINGS = {
     noSteps: 'ステップのない図は静止画になります',
     stillStep: '何も動かないステップです',
     htmlAll: 'HTML にはすべてのステップが入ります',
+    blocked: '構文エラーを直すと書き出せます',
     html: ['単一 HTML', '操作できる 1 ファイル。オフラインで動きます'],
     animated: ['アニメーション SVG', 'README 用。カメラが流れを追います'],
     whole: ['アニメーション SVG（全体固定）', '図全体を映したまま再生します'],
@@ -39,6 +40,7 @@ const STRINGS = {
     noSteps: 'A diagram without steps exports as a still picture',
     stillStep: 'Nothing moves in this step',
     htmlAll: 'An HTML file always holds every step',
+    blocked: 'Fix the syntax error to export',
     html: ['Standalone HTML', 'One interactive file that works offline'],
     animated: ['Animated SVG', 'For READMEs: the camera follows the flow'],
     whole: ['Animated SVG, whole diagram', 'Plays with the whole diagram in view'],
@@ -79,6 +81,7 @@ export class ExportMenu {
   #scopeStepIndex: number | null = null;
   #shown: ExportContext = { hasSteps: false, step: null };
   #listening = false;
+  #blocked = false;
   readonly #onPointerDown = (e: PointerEvent): void => {
     if (!this.element.contains(e.target as Node | null)) this.close(false);
   };
@@ -205,6 +208,7 @@ export class ExportMenu {
 
   /** Opens on the diagram as it is now; the range stays as last chosen while that step shows. */
   open(focus: 'first' | 'last' = 'first'): void {
+    if (this.#blocked) return;
     this.#loadContext();
     this.#list.hidden = false;
     this.#button.setAttribute('aria-expanded', 'true');
@@ -242,14 +246,26 @@ export class ExportMenu {
   }
 
   /** Clears all per-document menu state when switching to another document. */
+  /**
+   * While the text has a fatal syntax error, the button stays focusable and says why it does
+   * nothing: a disabled button could neither take focus nor show its tooltip.
+   */
+  setBlocked(blocked: boolean): void {
+    this.#blocked = blocked;
+    if (blocked) {
+      this.close(false);
+      this.#button.setAttribute('aria-disabled', 'true');
+      this.#button.title = this.#strings.blocked;
+    } else {
+      this.#button.removeAttribute('aria-disabled');
+      this.#button.removeAttribute('title');
+    }
+  }
+
   reset(): void {
     this.close(false);
     this.#scope = 'all';
     this.#scopeStepIndex = null;
-  }
-
-  destroy(): void {
-    this.close(false);
   }
 
   #loadContext(): void {

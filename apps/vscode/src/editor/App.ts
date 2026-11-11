@@ -1,4 +1,4 @@
-import { findAtOffset, parse, type SourceMap } from '../dsl';
+import { findAtOffset, hasFatalError, parse, type SourceMap } from '../dsl';
 import { computeLayout, type Layout } from '../layout';
 import type { DavDocument } from '../model/types';
 import { isHostToWebviewMessage, type WebviewToHostMessage } from '../protocol/messages';
@@ -161,11 +161,9 @@ export function mountApp(container: HTMLElement): void {
   function applyDsl(nextDsl: string): void {
     dsl = nextDsl;
     const parsed = parse(dsl);
-    const hasFatalError =
-      parsed.diagnostics.some((d) => d.severity === 'error') &&
-      parsed.document.nodes.length === 0 &&
-      parsed.document.groups.length === 0;
-    if (!hasFatalError) {
+    const fatal = hasFatalError(parsed);
+    exportMenu.setBlocked(fatal);
+    if (!fatal) {
       lastValid = {
         dsl,
         document: parsed.document,

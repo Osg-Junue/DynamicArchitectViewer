@@ -93,6 +93,18 @@ export function parse(text: string): ParseResult {
   return new Analyzer(text).run();
 }
 
+/**
+ * The text has errors and nothing left to draw. The preview keeps showing the last diagram it
+ * could draw, and nothing is exported, so that a broken text never replaces a working picture.
+ */
+export function hasFatalError({ diagnostics, document }: ParseResult): boolean {
+  return (
+    diagnostics.some((d) => d.severity === 'error') &&
+    document.nodes.length === 0 &&
+    document.groups.length === 0
+  );
+}
+
 class Analyzer {
   private readonly diagnostics: Diagnostic[] = [];
   private readonly elements = new Map<string, ElementSource>();

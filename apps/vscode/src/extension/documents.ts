@@ -1,6 +1,6 @@
 import { homedir } from 'node:os';
 import * as vscode from 'vscode';
-import { format, parse } from '../dsl';
+import { format, hasFatalError, type ParseResult, parse } from '../dsl';
 import { exportHtml, exportSvg } from '../exporter';
 import type { SvgCamera } from '../protocol/messages';
 import { t, uiLocale } from './locale';
@@ -32,11 +32,24 @@ function defaultExportUri(doc: vscode.TextDocument, ext: 'html' | 'svg', suffix 
   return vscode.Uri.joinPath(base, `diagram${suffix}.${ext}`);
 }
 
+/** Says why nothing is exported while the text cannot be drawn; `true` when that is the case. */
+function refuseFatal(parsed: ParseResult): boolean {
+  if (!hasFatalError(parsed)) return false;
+  void vscode.window.showWarningMessage(
+    t(
+      '構文エラーがあり描ける図がないため、書き出しませんでした。エラーを直してから書き出してください。',
+      'Nothing was exported: the diagram has a syntax error and nothing to draw. Fix the error, then export.',
+    ),
+  );
+  return true;
+}
+
 export async function exportDocumentToHtml(
   doc: vscode.TextDocument,
   overrideDsl?: string,
 ): Promise<void> {
   const dsl = overrideDsl ?? doc.getText();
+  if (refuseFatal(parse(dsl))) return;
   const html = await exportHtml(dsl, { locale: uiLocale() });
   const targetUri = await vscode.window.showSaveDialog({
     defaultUri: defaultExportUri(doc, 'html'),
@@ -59,7 +72,9 @@ export async function exportDocumentToSvg(
   doc: vscode.TextDocument,
   picked?: { dsl: string; animate: boolean; camera: SvgCamera; step: number | null },
 ): Promise<void> {
-  const { document } = parse(picked?.dsl ?? doc.getText());
+  const parsed = parse(picked?.dsl ?? doc.getText());
+  if (refuseFatal(parsed)) return;
+  const { document } = parsed;
   let options = { animate: picked?.animate ?? true, camera: picked?.camera ?? 'follow' };
   if (!picked && document.steps.length > 0) {
     const kind = await vscode.window.showQuickPick(

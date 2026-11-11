@@ -5,7 +5,7 @@ export type {
   SourceMap,
   SourceRange,
 } from './analyze';
-export { findAtOffset, parse } from './analyze';
+export { findAtOffset, hasFatalError, parse } from './analyze';
 export type { CompletionItemKind, DslCompletionItem, DslCompletionList } from './complete';
 export { computeCompletions } from './complete';
 export type { Diagnostic, DiagnosticCode, Locale, Severity } from './diagnostics';

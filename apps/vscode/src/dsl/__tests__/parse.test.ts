@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SAMPLE_TEMPLATES } from '../../samples';
-import { type DiagnosticCode, formatDiagnostic, parse } from '../index';
+import { type DiagnosticCode, formatDiagnostic, hasFatalError, parse } from '../index';
 
 const codes = (text: string) => parse(text).diagnostics.map((d) => d.code);
 
@@ -146,6 +146,18 @@ step "Second" {}
     const r = parse('dav 1\ngroup g\n{\n  node n\n}\n');
     expect(r.diagnostics).toEqual([]);
     expect(r.document.nodes[0]?.parentId).toBe('g');
+  });
+});
+
+describe('hasFatalError', () => {
+  it.each([
+    ['an error with nothing to draw', 'dav 1\n]', true],
+    ['an empty text', '', true],
+    ['an error next to something to draw', 'dav 1\nnode a\n]', false],
+    ['a group alone with an error', 'dav 1\ngroup g {}\n]', false],
+    ['an empty diagram without errors', 'dav 1', false],
+  ])('%s', (_name, text, fatal) => {
+    expect(hasFatalError(parse(text))).toBe(fatal);
   });
 });
 
