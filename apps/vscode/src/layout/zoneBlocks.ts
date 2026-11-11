@@ -93,10 +93,10 @@ export function withoutLabels(doc: DavDocument): DavDocument {
 }
 
 /** Makes something directly inside a zone top-level, for laying the zone out on its own. */
-function detach<T extends { parentId?: string }>(item: T, zoneId: string): T {
+function detach<T extends { parentId?: string }>(item: T, zoneId: string): T | Omit<T, 'parentId'> {
   if (item.parentId !== zoneId) return item;
   const { parentId: _parentId, ...rest } = item;
-  return rest as T;
+  return rest;
 }
 
 export function buildBlocks(
@@ -275,7 +275,7 @@ export function toLayout(placed: readonly Placed[]): Layout {
   const groups = rectRecord();
   for (const p of placed) {
     const left = Math.round(p.x - minX + ORIGIN.x);
-    const top = Math.round(p.y - minY + ORIGIN.x);
+    const top = Math.round(p.y - minY + ORIGIN.y);
     const { block } = p;
     for (const [id, r] of block.nodes) {
       nodes[id] = { ...r, x: left + r.x, y: top + (p.flip ? flippedY(block, r) : r.y) };

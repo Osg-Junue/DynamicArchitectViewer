@@ -146,10 +146,18 @@ const ANY_ARROW_RE = new RegExp(ARROW_PATTERN);
 const AFTER_ARROW_RE = new RegExp(`(?:${ARROW_PATTERN})\\s*\\w*$`);
 const ARROW_OR_ANIMATE_RE = new RegExp(`${ARROW_PATTERN}|^\\s*animate\\b`);
 
+const STATEMENT_OWNER: Readonly<Record<string, AttrOwner>> = {
+  node: 'node',
+  group: 'group',
+  state: 'state',
+  animate: 'animate',
+};
+
 /** The statement kind owning an attribute block, from the line text before its `[`. */
 function attributeOwner(statementHead: string): AttrOwner | null {
   const keyword = /^\s*(node|group|state|animate)\b/.exec(statementHead)?.[1];
-  if (keyword) return keyword as AttrOwner;
+  const owner = keyword ? STATEMENT_OWNER[keyword] : undefined;
+  if (owner) return owner;
   return ANY_ARROW_RE.test(statementHead) ? 'edge' : null;
 }
 

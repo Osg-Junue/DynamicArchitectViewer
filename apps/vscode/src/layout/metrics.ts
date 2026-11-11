@@ -54,7 +54,7 @@ export function selfLoopRoom(doc: Pick<DavDocument, 'edges'>): Map<string, numbe
 
 /** Prototype-less map: IDs such as `__proto__` or `constructor` must behave as plain keys. */
 export function rectRecord(): Record<string, Rect> {
-  return Object.create(null) as Record<string, Rect>;
+  return Object.create(null);
 }
 
 export function rectOverlaps(a: Rect, b: Rect): boolean {
