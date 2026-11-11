@@ -1,8 +1,9 @@
 import type { Rect } from '../layout';
-import { isWide } from '../model/text';
+import { isWide, normalizeCodeIndent } from '../model/text';
 import type { CodeBlock } from '../model/types';
-import { type Point, pointAt } from './geometry';
+import { clamp, type Point, pointAt } from './geometry';
 import type { Packet } from './resolve';
+import { fitText, type WrapTextOptions, wrapText } from './text';
 
 export interface PacketCalloutCodeBox {
   header: string;
@@ -97,13 +98,10 @@ function fitCalloutText(
   maxWidth: number,
   style: CalloutTextStyle,
 ): string {
-  if (estimateCalloutTextWidth(text, fontSize, style) <= maxWidth) return text;
-  let out = '';
-  for (const ch of text) {
-    if (estimateCalloutTextWidth(`${out + ch}…`, fontSize, style) > maxWidth) break;
-    out += ch;
-  }
-  return `${style === 'mono' ? out : out.trimEnd()}…`;
+  return fitText(text, fontSize, maxWidth, {
+    measure: (s, size) => estimateCalloutTextWidth(s, size, style),
+    trimBeforeEllipsis: style !== 'mono',
+  });
 }
 
 function isBreakableToken(ch: string): boolean {
@@ -119,53 +117,14 @@ function isBreakableToken(ch: string): boolean {
   );
 }
 
+const CALLOUT_WRAP_OPTIONS: WrapTextOptions = {
+  measure: (s, size) => estimateCalloutTextWidth(s, size, 'normal'),
+  isBreakable: isBreakableToken,
+  trimBeforeEllipsis: true,
+};
+
 function wrapCalloutText(text: string, fontSize: number, maxWidth: number, maxLines = 4): string[] {
-  const clean = text
-    .trim()
-    .replace(/\s*\n\s*/g, '\n')
-    .replace(/[^\S\n]+/g, ' ');
-  if (!clean) return [];
-
-  const tokens: string[] = [];
-  let word = '';
-  for (const ch of clean) {
-    if (isBreakableToken(ch)) {
-      if (word) {
-        tokens.push(word);
-        word = '';
-      }
-      tokens.push(ch);
-    } else {
-      word += ch;
-    }
-  }
-  if (word) tokens.push(word);
-
-  const lines: string[] = [];
-  let current = '';
-  for (let i = 0; i < tokens.length; i++) {
-    const tok = tokens[i] ?? '';
-    if (!current && tok === ' ') continue;
-    const candidate = current + tok;
-    if (
-      tok === '\n' ||
-      (current && estimateCalloutTextWidth(candidate, fontSize, 'normal') > maxWidth)
-    ) {
-      if (lines.length + 1 >= maxLines) {
-        const rest = (current + tokens.slice(i).join('')).trim().replace(/\n/g, ' ');
-        lines.push(fitCalloutText(rest, fontSize, maxWidth, 'normal'));
-        return lines;
-      }
-      lines.push(fitCalloutText(current.trimEnd(), fontSize, maxWidth, 'normal'));
-      current = tok === ' ' || tok === '\n' ? '' : tok;
-    } else {
-      current = candidate;
-    }
-  }
-  if (current.trim()) {
-    lines.push(fitCalloutText(current.trim(), fontSize, maxWidth, 'normal'));
-  }
-  return lines;
+  return wrapText(text, fontSize, maxWidth, maxLines, CALLOUT_WRAP_OPTIONS);
 }
 
 interface PreparedCodeSpec {
@@ -177,24 +136,9 @@ interface PreparedCodeSpec {
 }
 
 function prepareCodeSpec(code: CodeBlock): PreparedCodeSpec | undefined {
-  const normalized = code.body.replace(/\r\n?/g, '\n').replace(/\t/g, '  ');
-  if (normalized.trim().length === 0) return undefined;
-
-  const rawLines = normalized.split('\n');
-  while (rawLines.length > 0 && (rawLines[0] ?? '').trim().length === 0) rawLines.shift();
-  while (rawLines.length > 0 && (rawLines[rawLines.length - 1] ?? '').trim().length === 0) {
-    rawLines.pop();
-  }
-  if (rawLines.length === 0) return undefined;
-
-  const nonEmpty = rawLines.filter((line) => line.trim().length > 0);
-  const minIndent =
-    nonEmpty.length > 0
-      ? Math.min(...nonEmpty.map((line) => (/^ */.exec(line)?.[0] ?? '').length))
-      : 0;
-  const dedented = rawLines.map((line) =>
-    line.trim().length === 0 ? '' : line.slice(minIndent).replace(/\s+$/, ''),
-  );
+  const normalized = normalizeCodeIndent(code.body, { stripAllOuterBlankLines: true });
+  if (!normalized) return undefined;
+  const dedented = normalized.split('\n');
 
   const capped =
     dedented.length > CALLOUT_CODE_MAX_LINES
@@ -313,7 +257,7 @@ export function packetBubblePath(box: PacketCalloutBox, dot: Point): string {
   const right = cx + halfW;
   const r = 6;
   const maxOffset = Math.max(0, halfW - r - 12);
-  const baseX = cx + Math.max(-maxOffset, Math.min(maxOffset, (dot.x - cx) * 0.25));
+  const baseX = cx + clamp((dot.x - cx) * 0.25, -maxOffset, maxOffset);
   const dx = dot.x - baseX;
   const dy = Math.max(12, dot.y - boxBottom);
   const dist = Math.hypot(dx, dy);

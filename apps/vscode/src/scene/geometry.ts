@@ -175,10 +175,10 @@ export function svgPath(b: Bezier): string {
   return `M ${f(b.p0)} C ${f(b.p1)}, ${f(b.p2)}, ${f(b.p3)}`;
 }
 
-function clamp(v: number, min: number, max: number): number {
+export function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v));
 }
 
-function round(v: number): number {
+export function round(v: number): number {
   return Math.round(v * 10) / 10;
 }

@@ -18,9 +18,11 @@ import {
   buildScene as buildSceneWith,
   calloutRect,
   calmFrame,
+  clamp,
   computePacketCalloutBox,
   DEFAULT_FLOW_COLOR,
   estimateCalloutTextWidth,
+  fitText,
   flowColors,
   framePose,
   type Packet,
@@ -28,12 +30,13 @@ import {
   packetsOnScreen,
   type ResolvedView,
   resolveView,
+  round,
   type VElement,
   type VNode,
   visibleWorld,
   wholeDiagramFrame,
+  wrapText,
 } from '../index';
-import { wrapText } from '../text';
 
 const buildScene = (view: ResolvedView) => buildSceneWith(view, ICON_SHAPES);
 const buildPacket = (packet: Packet, t?: number) => buildPacketWith(packet, ICON_SHAPES, t);
@@ -478,6 +481,26 @@ step "S" {
     const long = 'x'.repeat(200);
     const [, last] = wrapText(`a\nb\n${long}`, 13, 360, 2);
     expect(last).toMatch(/^b x+…$/);
+  });
+
+  it('supports custom fitText/wrapText options and geometry helpers without changing defaults', () => {
+    const fixedMeasure = (s: string) => s.length * 10;
+    // Default keeps trailing space before ellipsis (`trimBeforeEllipsis` false); opt-in trims it.
+    expect(fitText('abc def', 10, 50, { measure: fixedMeasure })).toBe('abc …');
+    expect(fitText('abc def', 10, 50, { measure: fixedMeasure, trimBeforeEllipsis: true })).toBe(
+      'abc…',
+    );
+    expect(
+      wrapText('alpha→beta→gamma', 10, 70, 3, {
+        measure: fixedMeasure,
+        isBreakable: (ch) => ch === '→',
+        trimBeforeEllipsis: true,
+      }),
+    ).toEqual(['alpha→', 'beta→', 'gamma']);
+    expect(clamp(-5, 0, 10)).toBe(0);
+    expect(clamp(15, 0, 10)).toBe(10);
+    expect(clamp(4, 0, 10)).toBe(4);
+    expect(round(12.34)).toBe(12.3);
   });
 
   it('keeps the child groups of a focused group undimmed', () => {

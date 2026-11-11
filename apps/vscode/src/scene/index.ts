@@ -30,7 +30,7 @@ export {
   visibleWorld,
   wholeDiagramFrame,
 } from './framing';
-export { type Bezier, type Point, pointAt, reverse } from './geometry';
+export { type Bezier, clamp, type Point, pointAt, reverse, round } from './geometry';
 export type { IconShapes } from './icons';
 export { paint, THEME_COLOR } from './paint';
 export {
@@ -43,7 +43,7 @@ export {
   type ResolvedView,
   resolveView,
 } from './resolve';
-export { estimateTextWidth, fitText } from './text';
+export { estimateTextWidth, fitText, wrapText } from './text';
 export { HOLD_MS, MIN_PACKET_MS, PHASE_MS, packetPosition } from './timing';
 export { h, type VElement, type VNode } from './vnode';
 export {

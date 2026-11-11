@@ -360,7 +360,7 @@ export function resolveView(
     stepIndex !== null && stepIndex >= 0 && stepIndex < doc.steps.length
       ? doc.steps[stepIndex]
       : undefined;
-  const index = step ? (stepIndex as number) : null;
+  const index = step !== undefined && stepIndex !== null ? stepIndex : null;
   const focus = focusOf(doc, step);
   const ctx: StepContext = {
     doc,
