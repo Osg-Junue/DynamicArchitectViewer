@@ -25,6 +25,15 @@ describe('AI prompt template (M4)', () => {
     for (const word of KEYWORDS) expect(prompt).toContain(`\`${word}\``);
   });
 
+  it.each(['ja', 'en'] as const)('documents animate code blocks in the %s prompt', (locale) => {
+    const prompt = buildAiPrompt({ locale });
+    expect(PROMPT_EXAMPLE_DSL).toContain('code json "Order Request"');
+    expect(prompt).toContain('code json "Order Request"');
+    expect(prompt).toContain('duplicate-code');
+    expect(prompt).toContain('node code');
+    expect(prompt).toContain('````dav');
+  });
+
   it('includes current DSL only when requested', () => {
     const sample = 'dav 1\ntitle "Custom Diagram"\nnode a "A"';
     expect(
