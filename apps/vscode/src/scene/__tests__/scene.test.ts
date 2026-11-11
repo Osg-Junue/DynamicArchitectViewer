@@ -1,24 +1,37 @@
 import { describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
-import { computeLayout, type Rect, stationRect } from '../../layout';
-import { ICON_NAMES } from '../../model/types';
+import { computeLayout, type Rect, rectContains, stationRect } from '../../layout';
+import { type CodeBlock, ICON_NAMES } from '../../model/types';
 import { SAMPLE_TEMPLATES } from '../../samples';
-import { separatePhaseCallouts } from '../callout';
+import {
+  CALLOUT_CODE_LINE_HEIGHT,
+  CALLOUT_CODE_SIZE,
+  CALLOUT_DESC_SIZE,
+  CALLOUT_LINE_HEIGHT,
+  separatePhaseCallouts,
+} from '../callout';
 import { type Bezier, pointAt } from '../geometry';
 import { ICON_SHAPES } from '../icons';
 import {
   activeLabelFill,
   buildPacket as buildPacketWith,
   buildScene as buildSceneWith,
+  calloutRect,
+  calmFrame,
   computePacketCalloutBox,
   DEFAULT_FLOW_COLOR,
+  estimateCalloutTextWidth,
   flowColors,
+  framePose,
   type Packet,
   packetPosition,
+  packetsOnScreen,
   type ResolvedView,
   resolveView,
   type VElement,
   type VNode,
+  visibleWorld,
+  wholeDiagramFrame,
 } from '../index';
 import { wrapText } from '../text';
 
@@ -724,5 +737,263 @@ describe('self-loop room', () => {
     const inner = layout.groups.i as Rect;
     const node = layout.nodes.c as Rect;
     expect(node.y - (inner.y + inner.height)).toBeGreaterThanOrEqual(58);
+  });
+});
+
+describe('packet code callouts and overflow prevention', () => {
+  const makePacket = (
+    opts: {
+      x?: number;
+      label?: string;
+      description?: string;
+      code?: CodeBlock;
+      color?: string;
+    } = {},
+  ): Packet => {
+    const pt = { x: opts.x ?? 200, y: 300 };
+    const pkt: Packet = {
+      from: 'a',
+      to: 'b',
+      fromLabel: 'A',
+      toLabel: 'B',
+      color: opts.color ?? DEFAULT_FLOW_COLOR,
+      path: { p0: pt, p1: pt, p2: pt, p3: pt },
+      roundTrip: false,
+      clearTop: 260,
+      labelAreas: [],
+      durationMs: 2000,
+    };
+    if (opts.label !== undefined) pkt.label = opts.label;
+    if (opts.description !== undefined) pkt.description = opts.description;
+    if (opts.code !== undefined) pkt.code = opts.code;
+    return pkt;
+  };
+
+  it('preserves exact heights and omits .dav-packet-code when code is absent or whitespace-only', () => {
+    const labelOnly = computePacketCalloutBox(makePacket({ label: '201 Created' }));
+    expect(labelOnly).not.toBeNull();
+    expect(labelOnly && labelOnly.boxBottom - labelOnly.boxTop).toBe(30);
+    expect(labelOnly?.code).toBeUndefined();
+
+    const withDesc = computePacketCalloutBox(
+      makePacket({ label: '201 Created', description: 'Line one\nLine two' }),
+    );
+    expect(withDesc && withDesc.boxBottom - withDesc.boxTop).toBe(36 + 2 * CALLOUT_LINE_HEIGHT);
+    expect(withDesc?.code).toBeUndefined();
+
+    const descOnly = computePacketCalloutBox(makePacket({ description: 'Only description' }));
+    expect(descOnly && descOnly.boxBottom - descOnly.boxTop).toBe(14 + 1 * CALLOUT_LINE_HEIGHT);
+    expect(descOnly?.code).toBeUndefined();
+
+    const emptyCodeOnly = computePacketCalloutBox(makePacket({ code: { body: '  \r\n\t  ' } }));
+    expect(emptyCodeOnly).toBeNull();
+
+    const renderedNoCode = buildPacket(
+      makePacket({ label: '201 Created', description: 'Created' }),
+    );
+    expect(findAll(renderedNoCode, (e) => e.attrs.class === 'dav-packet-code')).toEqual([]);
+  });
+
+  it('renders a callout for a code-only packet and handles header combinations', () => {
+    const codeOnly = computePacketCalloutBox(makePacket({ code: { body: '{\n  "ok": true\n}' } }));
+    expect(codeOnly).not.toBeNull();
+    expect(codeOnly?.code).toMatchObject({
+      header: '',
+      headerHeight: 0,
+      lines: ['{', '  "ok": true', '}'],
+      offsetY: 10,
+    });
+
+    const langAndTitle = computePacketCalloutBox(
+      makePacket({
+        label: 'POST /v1/orders',
+        code: { lang: 'json', title: 'Order Request', body: '{"amount": 14800}' },
+      }),
+    );
+    expect(langAndTitle?.code).toMatchObject({
+      header: 'json · Order Request',
+      headerHeight: 22,
+      lines: ['{"amount": 14800}'],
+    });
+    expect(langAndTitle?.code?.width).toBe((langAndTitle?.halfW ?? 0) * 2 - 24);
+
+    const langOnly = computePacketCalloutBox(
+      makePacket({ code: { lang: 'sql', body: 'SELECT 1;' } }),
+    );
+    expect(langOnly?.code?.header).toBe('sql');
+    expect(langOnly?.code?.headerHeight).toBe(22);
+
+    const titleOnly = computePacketCalloutBox(
+      makePacket({ code: { title: 'Payload', body: 'ok' } }),
+    );
+    expect(titleOnly?.code?.header).toBe('Payload');
+    expect(titleOnly?.code?.headerHeight).toBe(22);
+  });
+
+  it('normalizes CRLF/tabs, caps code at 10 lines, and truncates overlong code lines', () => {
+    const twelveLines = Array.from({ length: 12 }, (_, i) => `\t"k${i}": ${i}`).join('\r\n');
+    const longLine = `"payload": "${'x'.repeat(120)}"`;
+    const box = computePacketCalloutBox(
+      makePacket({
+        code: { lang: 'json', body: `{\r\n${twelveLines}\r\n}` },
+      }),
+    );
+    expect(box?.code?.lines).toHaveLength(10);
+    expect(box?.code?.lines[1]).toBe('  "k0": 0');
+    expect(box?.code?.lines[9]).toBe('…');
+    expect(box?.code?.height).toBe(22 + 10 * CALLOUT_CODE_LINE_HEIGHT + 12);
+
+    const wide = computePacketCalloutBox(makePacket({ code: { body: longLine } }));
+    const fittedLine = wide?.code?.lines[0] ?? '';
+    expect(fittedLine.endsWith('…')).toBe(true);
+    expect(estimateCalloutTextWidth(fittedLine, CALLOUT_CODE_SIZE, 'mono')).toBeLessThanOrEqual(
+      380,
+    );
+  });
+
+  it('estimates Unicode symbols/CJK conservatively so Japanese + symbol descriptions never overflow', () => {
+    for (const sym of ['—', '…', '→', '●', '①', '¥']) {
+      expect(estimateCalloutTextWidth(sym, 13, 'normal')).toBeGreaterThanOrEqual(13 * 1.04);
+    }
+    const jpDesc =
+      'エッジWAFでmTLS検証 → Primary DBへ書込 — 決済金額 ¥14,800 を確定し ①監査ログへ記録…さらにレプリカへ非同期転送を実施';
+    const box = computePacketCalloutBox(
+      makePacket({
+        label: '201 Created — 注文確定 → ¥14,800',
+        description: jpDesc,
+        code: {
+          lang: 'json',
+          title: 'Order Response',
+          body: '{\n  "orderId": "ord_01J9X",\n  "amount": 14800,\n  "paid": true\n}',
+        },
+      }),
+    );
+    expect(box).not.toBeNull();
+    if (!box) return;
+    const innerW = box.halfW * 2 - box.padX * 2;
+    for (const line of box.descLines) {
+      expect(estimateCalloutTextWidth(line, CALLOUT_DESC_SIZE, 'normal')).toBeLessThanOrEqual(360);
+      expect(estimateCalloutTextWidth(line, CALLOUT_DESC_SIZE, 'normal')).toBeLessThan(innerW);
+    }
+    expect(box.boxTop + (box.code?.offsetY ?? 0) + (box.code?.height ?? 0) + 10).toBe(
+      box.boxBottom,
+    );
+  });
+
+  it('builds .dav-packet-code with xml:space="preserve", exact indentation, token tspans, and zero Copy button', () => {
+    const body = '{\n  "orderId": "ord-123",\n  "amount": -42,\n  "ok": true\n}';
+    const pkt = makePacket({
+      label: '201 Created',
+      color: 'green',
+      code: { lang: 'json', title: 'Response', body },
+    });
+    const vnode = buildPacket(pkt, 0.5);
+    const codeGroups = findAll(vnode, (e) => e.attrs.class === 'dav-packet-code');
+    expect(codeGroups).toHaveLength(1);
+
+    const codeGroup = codeGroups[0];
+    expect(codeGroup?.children[0]).toMatchObject({
+      tag: 'rect',
+      attrs: { rx: 5, class: 'dav-packet-code-box', fill: 'var(--dav-code-bg)' },
+    });
+
+    const headText = findAll(
+      vnode,
+      (e) => e.tag === 'text' && String(e.attrs.class).includes('dav-packet-code-head'),
+    )[0];
+    expect(headText?.attrs['xml:space']).toBe('preserve');
+    expect(collectText(headText ?? '')).toEqual(['{ } ', 'json · Response']);
+    const braceSpan = headText?.children[0] as VElement;
+    expect(braceSpan.attrs.fill).toBe('var(--dav-c-green)');
+
+    const lineEls = findAll(vnode, (e) => String(e.attrs.class).includes('dav-packet-code-line'));
+    expect(lineEls).toHaveLength(5);
+    for (const el of lineEls) {
+      expect(el.attrs['xml:space']).toBe('preserve');
+    }
+    expect(lineEls.map((el) => collectText(el).join(''))).toEqual(body.split('\n'));
+
+    // Never renders any Copy button, foreignObject, or click handler
+    const allAttrs = collectAttrs(vnode).join('|');
+    const allTexts = collectText(vnode).join('|');
+    expect(allTexts.toLowerCase()).not.toContain('copy');
+    expect(allAttrs).not.toMatch(/on\w+=/i);
+    expect(findAll(vnode, (e) => e.tag === 'button' || e.tag === 'foreignObject')).toEqual([]);
+  });
+
+  it('separates parallel callouts cleanly when one or both carry multi-line code blocks', () => {
+    const doc = parse(
+      'dav 1\nnode a\nnode b\nnode c\na --> b\na --> c\nstep "P" {\n  animate a --> b : "Write"\n  animate a --> c : "Audit" [parallel: true]\n}\n',
+    ).document;
+    const anim0 = doc.steps[0]?.animations[0];
+    const anim1 = doc.steps[0]?.animations[1];
+    if (!anim0 || !anim1) throw new Error('missing animations');
+    anim0.description = 'Primary DBへ注文レコードを書き込み';
+    anim0.code = {
+      lang: 'json',
+      title: 'Primary Write',
+      body: '{\n  "orderId": "ord_01",\n  "amount": 14800\n}',
+    };
+    anim1.description = '監査ログへイベント送信';
+    anim1.code = {
+      lang: 'json',
+      title: 'Audit Event',
+      body: '{\n  "event": "order.created",\n  "actor": "usr_9"\n}',
+    };
+
+    const resolved = resolveView(doc, computeLayout(doc), 0);
+    const phase = resolved.phases[0] ?? [];
+    expect(phase).toHaveLength(2);
+    const [b0, b1] = phase.map((p) => computePacketCalloutBox(p));
+    expect(b0).not.toBeNull();
+    expect(b1).not.toBeNull();
+    if (!b0 || !b1) return;
+    const overlaps =
+      b0.cx - b0.halfW < b1.cx + b1.halfW &&
+      b0.cx + b0.halfW > b1.cx - b1.halfW &&
+      b0.boxTop < b1.boxBottom &&
+      b0.boxBottom > b1.boxTop;
+    expect(overlaps).toBe(false);
+  });
+
+  it('includes tall and parallel code callouts in packetsOnScreen, calmFrame, and wholeDiagramFrame', () => {
+    const doc = parse(
+      'dav 1\ngroup z1 "Zone 1" { node a }\ngroup z2 "Zone 2" { node b }\na --> b\nstep "S" {\n  animate a --> b : "POST"\n  animate a --> b : "Parallel" [parallel: true]\n}\n',
+    ).document;
+    const tallBody = Array.from({ length: 9 }, (_, i) => `  "field_${i}": "value_${i}"`).join(
+      ',\n',
+    );
+    for (const anim of doc.steps[0]?.animations ?? []) {
+      anim.description = '長い日本語の説明文 — エッジからバックエンドへ転送 → 検証完了…';
+      anim.code = { lang: 'json', title: 'Tall Payload', body: `{\n${tallBody}\n}` };
+    }
+    const l = computeLayout(doc);
+    const v = resolveView(doc, l, 0);
+    const packets = v.phases[0] ?? [];
+    const callouts = packets.flatMap((p) => computePacketCalloutBox(p) ?? []).map(calloutRect);
+    expect(callouts).toHaveLength(2);
+
+    const canvas = { width: 960, height: 540 };
+    const calm = calmFrame(canvas, l, packets);
+    expect(calm).not.toBeNull();
+    if (!calm) return;
+    const calmWorld = visibleWorld(canvas, framePose(canvas, calm));
+    for (const rect of callouts) {
+      expect(rectContains(calmWorld, rect)).toBe(true);
+    }
+    expect(packetsOnScreen(l, packets, calmWorld)).toBe(true);
+
+    // A clipped world that cuts off the top of the tall code callout triggers camera follow
+    const clippedWorld: Rect = {
+      ...calmWorld,
+      y: (callouts[0]?.y ?? 0) + 30,
+      height: calmWorld.height,
+    };
+    expect(packetsOnScreen(l, packets, clippedWorld)).toBe(false);
+
+    const whole = wholeDiagramFrame(l, v);
+    for (const rect of callouts) {
+      expect(rectContains(whole.rect, rect)).toBe(true);
+    }
   });
 });

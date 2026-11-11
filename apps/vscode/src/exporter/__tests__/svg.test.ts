@@ -619,6 +619,70 @@ describe('planCamera', () => {
     expect(worlds.length).toBeGreaterThan(steps.length);
     expect(worlds.some((w) => w.width < whole.width * 0.8)).toBe(true);
   });
+
+  it('frames tall and parallel code callouts inside the exported SVG viewBox in both camera modes', () => {
+    const { document } = parse(
+      [
+        'dav 1',
+        'title "Code Export"',
+        'group client "Browser" { node web "Web" [icon: browser] }',
+        'group edge "Edge" { node api "Order API" [icon: api] }',
+        'group data "Data" { node db "Primary DB" [icon: database] }',
+        'web --> api : "HTTPS"',
+        'api --> db : "SQL"',
+        'step "No code" {',
+        '  animate web --> api : "GET /health" [desc: "ヘルスチェック"]',
+        '}',
+        'step "With code" {',
+        '  animate web --> api : "POST /v1/orders" [desc: "注文送信 — 金額 ¥14,800 → 決済開始…"]',
+        '  animate api --> db : "INSERT orders" [parallel: true, desc: "トランザクション書込"]',
+        '}',
+      ].join('\n'),
+    );
+    const step1 = document.steps[1];
+    if (!step1?.animations[0] || !step1.animations[1]) throw new Error('missing step animations');
+    step1.animations[0].code = {
+      lang: 'json',
+      title: 'Order Request',
+      body: '{\n  "orderId": "ord_01J9X",\n  "amount": 14800,\n  "items": ["sku_1", "sku_2"]\n}',
+    };
+    step1.animations[1].code = {
+      lang: 'sql',
+      body: 'INSERT INTO orders (id, amount)\nVALUES ($1, 14800);',
+    };
+
+    const svgNoCode = exportSvg(document, { step: 0, locale: 'ja' });
+    expect(svgNoCode).not.toContain('dav-packet-code"');
+    expect(svgNoCode.toLowerCase()).not.toContain('>copy<');
+
+    const svgFollow = exportSvg(document, { step: 1, locale: 'ja', camera: 'follow' });
+    const svgWhole = exportSvg(document, { step: 1, locale: 'ja', camera: 'whole' });
+
+    for (const svg of [svgFollow, svgWhole]) {
+      expect(svg).toContain('class="dav-packet-code"');
+      expect(svg).toContain('xml:space="preserve"');
+      expect(svg).toContain('--dav-code-bg:light-dark(#f4f3ec,#14171b)');
+      expect(svg).toContain('white-space: pre');
+      expect(svg).toContain('  <tspan fill="var(--dav-code-key)">"orderId"</tspan>');
+      expect(svg).not.toMatch(/<script|<foreignObject|copy/i);
+
+      const canvasSvg = attrs(svg, 'svg').find((a) => a.preserveAspectRatio === 'xMidYMid meet');
+      const [vx = 0, vy = 0, vw = 0, vh = 0] = (canvasSvg?.viewBox ?? '').split(' ').map(Number);
+      const layout = computeLayout(document);
+      const { steps } = schedule(document, layout, 1);
+      const callouts = steps
+        .flatMap((s) => s.view.phases.flat())
+        .flatMap((p) => computePacketCalloutBox(p) ?? [])
+        .map(calloutRect);
+      expect(callouts).toHaveLength(2);
+      for (const r of callouts) {
+        expect(r.x).toBeGreaterThanOrEqual(vx);
+        expect(r.y).toBeGreaterThanOrEqual(vy);
+        expect(r.x + r.width).toBeLessThanOrEqual(vx + vw);
+        expect(r.y + r.height).toBeLessThanOrEqual(vy + vh);
+      }
+    }
+  });
 });
 
 describe('toXml', () => {

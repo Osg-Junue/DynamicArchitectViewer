@@ -1,7 +1,17 @@
 import type { Rect } from '../layout';
+import { isWide } from '../model/text';
+import type { CodeBlock } from '../model/types';
 import { type Point, pointAt } from './geometry';
 import type { Packet } from './resolve';
-import { estimateTextWidth, fitText, wrapText } from './text';
+
+export interface PacketCalloutCodeBox {
+  header: string;
+  headerHeight: number;
+  lines: string[];
+  offsetY: number;
+  width: number;
+  height: number;
+}
 
 export interface PacketCalloutBox {
   cx: number;
@@ -11,12 +21,22 @@ export interface PacketCalloutBox {
   padX: number;
   label: string;
   descLines: string[];
+  code?: PacketCalloutCodeBox;
 }
 
 const CALLOUT_MAX_TEXT_WIDTH = 360;
 export const CALLOUT_LABEL_SIZE = 14;
 export const CALLOUT_DESC_SIZE = 13;
 export const CALLOUT_LINE_HEIGHT = 18;
+
+export const CALLOUT_CODE_SIZE = 11.5;
+export const CALLOUT_CODE_HEAD_SIZE = 11;
+export const CALLOUT_CODE_LINE_HEIGHT = 16.5;
+export const CALLOUT_CODE_PAD_X = 10;
+const CALLOUT_CODE_MAX_LINES = 10;
+const CALLOUT_CODE_MAX_TEXT_WIDTH = 380;
+const CALLOUT_CODE_HEADER_HEIGHT = 22;
+
 /** Keeps a callout above its endpoint nodes, including their badges and crop marks. */
 const CALLOUT_NODE_CLEARANCE = 16;
 const CALLOUT_LABEL_CLEARANCE = 6;
@@ -24,31 +44,234 @@ const CALLOUT_GAP = 12;
 /** Past the clash limit, because landing exactly on it would depend on rounding. */
 const CALLOUT_SHIFT_SLACK = 1;
 
+type CalloutTextStyle = 'normal' | 'bold' | 'mono';
+
+/**
+ * CJK characters, fullwidth forms, and general punctuation/symbols/arrows (`—`, `…`, `→`, `●`,
+ * `①`..`⑳`, `¥`, `·`) render at ~1.0em in UI/CJK fonts even when outside `model/text.ts` `isWide`.
+ */
+function isCalloutWide(ch: string): boolean {
+  if (isWide(ch)) return true;
+  const code = ch.codePointAt(0) ?? 0;
+  return (
+    code === 0x00a5 ||
+    code === 0x00b7 ||
+    code === 0x00d7 ||
+    code === 0x00f7 ||
+    (code >= 0x2000 && code <= 0x2bff) ||
+    (code >= 0x3000 && code <= 0x303f) ||
+    (code >= 0xfe00 && code <= 0xfe6f)
+  );
+}
+
+function charEm(ch: string, style: CalloutTextStyle): number {
+  if (isCalloutWide(ch)) {
+    return style === 'normal' ? 1.05 : 1.08;
+  }
+  if (style === 'mono') {
+    return 0.63;
+  }
+  if (ch === 'W' || ch === 'M' || ch === '@' || ch === '%') {
+    return style === 'bold' ? 0.92 : 0.88;
+  }
+  if ((ch >= 'A' && ch <= 'Z') || ch === '#' || ch === '&') {
+    return style === 'bold' ? 0.72 : 0.68;
+  }
+  return style === 'bold' ? 0.65 : 0.6;
+}
+
+/** Conservative DOM-free width estimator so callout text never overflows its bubble or code box. */
+export function estimateCalloutTextWidth(
+  text: string,
+  fontSize: number,
+  style: CalloutTextStyle = 'normal',
+): number {
+  let em = 0;
+  for (const ch of text) em += charEm(ch, style);
+  return em * fontSize;
+}
+
+function fitCalloutText(
+  text: string,
+  fontSize: number,
+  maxWidth: number,
+  style: CalloutTextStyle,
+): string {
+  if (estimateCalloutTextWidth(text, fontSize, style) <= maxWidth) return text;
+  let out = '';
+  for (const ch of text) {
+    if (estimateCalloutTextWidth(`${out + ch}…`, fontSize, style) > maxWidth) break;
+    out += ch;
+  }
+  return `${style === 'mono' ? out : out.trimEnd()}…`;
+}
+
+function isBreakableToken(ch: string): boolean {
+  return (
+    ch === ' ' ||
+    ch === '\n' ||
+    isWide(ch) ||
+    ch === '—' ||
+    ch === '→' ||
+    ch === '←' ||
+    ch === '↔' ||
+    ch === '・'
+  );
+}
+
+function wrapCalloutText(text: string, fontSize: number, maxWidth: number, maxLines = 4): string[] {
+  const clean = text
+    .trim()
+    .replace(/\s*\n\s*/g, '\n')
+    .replace(/[^\S\n]+/g, ' ');
+  if (!clean) return [];
+
+  const tokens: string[] = [];
+  let word = '';
+  for (const ch of clean) {
+    if (isBreakableToken(ch)) {
+      if (word) {
+        tokens.push(word);
+        word = '';
+      }
+      tokens.push(ch);
+    } else {
+      word += ch;
+    }
+  }
+  if (word) tokens.push(word);
+
+  const lines: string[] = [];
+  let current = '';
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i] ?? '';
+    if (!current && tok === ' ') continue;
+    const candidate = current + tok;
+    if (
+      tok === '\n' ||
+      (current && estimateCalloutTextWidth(candidate, fontSize, 'normal') > maxWidth)
+    ) {
+      if (lines.length + 1 >= maxLines) {
+        const rest = (current + tokens.slice(i).join('')).trim().replace(/\n/g, ' ');
+        lines.push(fitCalloutText(rest, fontSize, maxWidth, 'normal'));
+        return lines;
+      }
+      lines.push(fitCalloutText(current.trimEnd(), fontSize, maxWidth, 'normal'));
+      current = tok === ' ' || tok === '\n' ? '' : tok;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current.trim()) {
+    lines.push(fitCalloutText(current.trim(), fontSize, maxWidth, 'normal'));
+  }
+  return lines;
+}
+
+interface PreparedCodeSpec {
+  header: string;
+  headerHeight: number;
+  lines: string[];
+  minBoxW: number;
+  height: number;
+}
+
+function prepareCodeSpec(code: CodeBlock): PreparedCodeSpec | undefined {
+  const normalized = code.body.replace(/\r\n?/g, '\n').replace(/\t/g, '  ');
+  if (normalized.trim().length === 0) return undefined;
+
+  const rawLines = normalized.split('\n');
+  while (rawLines.length > 0 && (rawLines[0] ?? '').trim().length === 0) rawLines.shift();
+  while (rawLines.length > 0 && (rawLines[rawLines.length - 1] ?? '').trim().length === 0) {
+    rawLines.pop();
+  }
+  if (rawLines.length === 0) return undefined;
+
+  const nonEmpty = rawLines.filter((line) => line.trim().length > 0);
+  const minIndent =
+    nonEmpty.length > 0
+      ? Math.min(...nonEmpty.map((line) => (/^ */.exec(line)?.[0] ?? '').length))
+      : 0;
+  const dedented = rawLines.map((line) =>
+    line.trim().length === 0 ? '' : line.slice(minIndent).replace(/\s+$/, ''),
+  );
+
+  const capped =
+    dedented.length > CALLOUT_CODE_MAX_LINES
+      ? [...dedented.slice(0, CALLOUT_CODE_MAX_LINES - 1), '…']
+      : dedented;
+  const lines = capped.map((line) =>
+    fitCalloutText(line, CALLOUT_CODE_SIZE, CALLOUT_CODE_MAX_TEXT_WIDTH, 'mono'),
+  );
+
+  const lang = code.lang?.trim() ?? '';
+  const title = code.title?.trim() ?? '';
+  const rawHeader = lang && title ? `${lang} · ${title}` : lang || title;
+  const header = rawHeader
+    ? fitCalloutText(rawHeader, CALLOUT_CODE_SIZE, CALLOUT_CODE_MAX_TEXT_WIDTH - 28, 'mono')
+    : '';
+  const headerHeight = header ? CALLOUT_CODE_HEADER_HEIGHT : 0;
+
+  const monoW = (s: string) => estimateCalloutTextWidth(s, CALLOUT_CODE_SIZE, 'mono');
+  const codeTextW = Math.max(header ? monoW(`{ } ${header}`) : 0, ...lines.map(monoW)) + 8;
+  const minBoxW = codeTextW + CALLOUT_CODE_PAD_X * 2;
+  const height = headerHeight + lines.length * CALLOUT_CODE_LINE_HEIGHT + 12;
+
+  return { header, headerHeight, lines, minBoxW, height };
+}
+
 /**
  * Computes the stationary speech-bubble box positioned above the packet's edge path.
  * Keeping the bubble body stationary while only its pointer tip tracks the moving dot
- * eliminates eye-tracking fatigue when reading multi-line descriptions.
+ * eliminates eye-tracking fatigue when reading multi-line descriptions and code blocks.
  */
 export function computePacketCalloutBox(packet: Packet): PacketCalloutBox | null {
   const label = packet.label
-    ? fitText(packet.label, CALLOUT_LABEL_SIZE, CALLOUT_MAX_TEXT_WIDTH)
+    ? fitCalloutText(packet.label, CALLOUT_LABEL_SIZE, CALLOUT_MAX_TEXT_WIDTH, 'bold')
     : '';
   const descLines = packet.description
-    ? wrapText(packet.description, CALLOUT_DESC_SIZE, CALLOUT_MAX_TEXT_WIDTH, 4)
+    ? wrapCalloutText(packet.description, CALLOUT_DESC_SIZE, CALLOUT_MAX_TEXT_WIDTH, 4)
     : [];
-  if (!label && descLines.length === 0) return null;
+  const codeSpec = packet.code ? prepareCodeSpec(packet.code) : undefined;
+  if (!label && descLines.length === 0 && !codeSpec) return null;
 
-  const labelW = label ? estimateTextWidth(label, CALLOUT_LABEL_SIZE) : 0;
+  const labelW = label ? estimateCalloutTextWidth(label, CALLOUT_LABEL_SIZE, 'bold') : 0;
   const descW = descLines.reduce(
-    (m, line) => Math.max(m, estimateTextWidth(line, CALLOUT_DESC_SIZE)),
+    (m, line) => Math.max(m, estimateCalloutTextWidth(line, CALLOUT_DESC_SIZE, 'normal')),
     0,
   );
-  const padX = descLines.length > 0 ? 12 : 10;
-  const minW = descLines.length > 0 ? 200 : 56;
-  const width = Math.max(minW, Math.ceil(Math.max(labelW, descW) + padX * 2));
+  const padX = descLines.length > 0 || codeSpec ? 12 : 10;
+  const minW = codeSpec ? 220 : descLines.length > 0 ? 200 : 56;
+  const contentW = Math.max(
+    label ? labelW + 8 : 0,
+    descLines.length > 0 ? descW + 8 : 0,
+    codeSpec ? codeSpec.minBoxW : 0,
+  );
+  const width = Math.max(minW, Math.ceil(contentW + padX * 2));
   const halfW = width / 2;
-  const height =
-    descLines.length === 0 ? 30 : (label ? 36 : 14) + descLines.length * CALLOUT_LINE_HEIGHT;
+
+  let height: number;
+  let code: PacketCalloutCodeBox | undefined;
+  if (!codeSpec) {
+    height =
+      descLines.length === 0 ? 30 : (label ? 36 : 14) + descLines.length * CALLOUT_LINE_HEIGHT;
+  } else {
+    const offsetY =
+      descLines.length > 0
+        ? (label ? 34 : 12) + descLines.length * CALLOUT_LINE_HEIGHT
+        : label
+          ? 32
+          : 10;
+    height = offsetY + codeSpec.height + 10;
+    code = {
+      header: codeSpec.header,
+      headerHeight: codeSpec.headerHeight,
+      lines: codeSpec.lines,
+      offsetY,
+      width: width - padX * 2,
+      height: codeSpec.height,
+    };
+  }
 
   const mid = pointAt(packet.path, 0.5);
   const minY = Math.min(
@@ -68,7 +291,9 @@ export function computePacketCalloutBox(packet: Packet): PacketCalloutBox | null
   }
   const boxTop = boxBottom - height;
 
-  return { cx, halfW, boxTop, boxBottom, padX, label, descLines };
+  const box: PacketCalloutBox = { cx, halfW, boxTop, boxBottom, padX, label, descLines };
+  if (code) box.code = code;
+  return box;
 }
 
 export const calloutRect = (box: PacketCalloutBox): Rect => ({

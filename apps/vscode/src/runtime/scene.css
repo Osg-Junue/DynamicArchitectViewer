@@ -62,6 +62,13 @@
   --dav-c-purple: light-dark(#6330c8, #9b5cff);
   --dav-c-pink: light-dark(#c8578f, #f4a6c8);
   --dav-c-gray: light-dark(#6e7074, #b4b6ba);
+  --dav-code-bg: light-dark(#f4f3ec, #14171b);
+  --dav-code-head-bg: light-dark(#e8e6dc, #1b1f26);
+  --dav-code-key: light-dark(#0b5cad, #79c0ff);
+  --dav-code-str: light-dark(#116329, #7ee787);
+  --dav-code-num: light-dark(#9a3b00, #ffa657);
+  --dav-code-kw: light-dark(#6f2dbd, #d2a8ff);
+  --dav-code-punc: light-dark(#57606a, #9ca5ae);
 }
 
 .dav-svg {
@@ -69,6 +76,10 @@
 }
 .dav-mono {
   font-family: var(--dav-mono);
+}
+.dav-packet-code-line,
+.dav-packet-code-head {
+  white-space: pre;
 }
 .dav-minimap-view {
   fill: var(--dav-fg);

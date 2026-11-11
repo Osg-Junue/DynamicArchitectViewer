@@ -3,10 +3,16 @@ import { EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH } from '../model/text';
 import type { IconName } from '../model/types';
 import { BUBBLE_HEADROOM, boundsOf } from './bounds';
 import {
+  CALLOUT_CODE_HEAD_SIZE,
+  CALLOUT_CODE_LINE_HEIGHT,
+  CALLOUT_CODE_PAD_X,
+  CALLOUT_CODE_SIZE,
   CALLOUT_DESC_SIZE,
   CALLOUT_LABEL_SIZE,
   CALLOUT_LINE_HEIGHT,
   computePacketCalloutBox,
+  type PacketCalloutBox,
+  type PacketCalloutCodeBox,
   packetBubblePath,
 } from './callout';
 import { type Bezier, curveLength, type Point, pointAt, svgPath } from './geometry';
@@ -22,7 +28,7 @@ import {
 } from './resolve';
 import { estimateTextWidth, fitText } from './text';
 import { packetPosition } from './timing';
-import { h, type VElement } from './vnode';
+import { h, type VElement, type VNode } from './vnode';
 import { ZONE_LABEL, zoneLabelRoom } from './zones';
 
 export { BUBBLE_HEADROOM, boundsOf };
@@ -386,8 +392,8 @@ export function buildPacket(packet: Packet, icons: IconShapes, t = 0): VElement 
   let callout: VElement | null = null;
 
   if (box) {
-    const { cx, halfW, boxTop, padX, label, descLines } = box;
-    const hasDesc = descLines.length > 0;
+    const { cx, halfW, boxTop, padX, label, descLines, code } = box;
+    const alignLeft = descLines.length > 0 || code !== undefined;
     callout = h(
       'g',
       { class: 'dav-packet-callout' },
@@ -403,9 +409,9 @@ export function buildPacket(packet: Packet, icons: IconShapes, t = 0): VElement 
         ? h(
             'text',
             {
-              x: hasDesc ? cx - halfW + padX : cx,
-              y: boxTop + (hasDesc ? 21 : 20),
-              ...(hasDesc ? {} : { 'text-anchor': 'middle' }),
+              x: alignLeft ? cx - halfW + padX : cx,
+              y: boxTop + (alignLeft ? 21 : 20),
+              ...(alignLeft ? {} : { 'text-anchor': 'middle' }),
               'font-size': CALLOUT_LABEL_SIZE,
               fill: THEME_COLOR.fg,
               class: 'dav-packet-label',
@@ -426,6 +432,7 @@ export function buildPacket(packet: Packet, icons: IconShapes, t = 0): VElement 
           line,
         ),
       ),
+      code ? packetCodeElement(packet, box, code) : null,
     );
   }
 
@@ -440,6 +447,175 @@ export function buildPacket(packet: Packet, icons: IconShapes, t = 0): VElement 
         transform: `translate(${dot.x.toFixed(1)} ${dot.y.toFixed(1)})`,
       },
       ...packetMarker(packet, icons),
+    ),
+  );
+}
+
+const CODE_TOKEN_RE =
+  /(\/\/.*$|(?<=^\s*|\s)#(?:\s.*|$))|("(?:\\.|[^"\\])*(?:"|…))|('(?:\\.|[^'\\])*(?:'|…))|\b(true|false|null|undefined|GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS|HTTP\/\d(?:\.\d)?|SELECT|INSERT|UPDATE|FROM|WHERE|INTO|VALUES|RETURNING|SET|AND|OR|LIMIT|BEGIN|COMMIT|ROLLBACK|OK|ERR)\b|((?<![\w.-])-?\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b)|([{}[\](),:;]+)/g;
+
+const CODE_KEYWORDS = new Set([
+  'true',
+  'false',
+  'null',
+  'undefined',
+  'GET',
+  'POST',
+  'PUT',
+  'PATCH',
+  'DELETE',
+  'HEAD',
+  'OPTIONS',
+  'SELECT',
+  'INSERT',
+  'UPDATE',
+  'FROM',
+  'WHERE',
+  'INTO',
+  'VALUES',
+  'RETURNING',
+  'SET',
+  'AND',
+  'OR',
+  'LIMIT',
+  'BEGIN',
+  'COMMIT',
+  'ROLLBACK',
+  'OK',
+  'ERR',
+]);
+
+function highlightCodeLine(line: string): VNode[] {
+  const out: VNode[] = [];
+  const pushPlain = (text: string) => {
+    if (!text) return;
+    const prev = out[out.length - 1];
+    if (typeof prev === 'string') out[out.length - 1] = prev + text;
+    else out.push(text);
+  };
+
+  let start = 0;
+  const unquotedKey = /^(\s*)([A-Za-z_][\w.-]*)(?=\s*:(?!\/))/.exec(line);
+  if (unquotedKey) {
+    const [, indent = '', key = ''] = unquotedKey;
+    if (!CODE_KEYWORDS.has(key)) {
+      pushPlain(indent);
+      out.push(h('tspan', { fill: THEME_COLOR.codeKey }, key));
+      start = indent.length + key.length;
+    }
+  }
+
+  CODE_TOKEN_RE.lastIndex = start;
+  for (let m = CODE_TOKEN_RE.exec(line); m !== null; m = CODE_TOKEN_RE.exec(line)) {
+    if (m.index > start) pushPlain(line.slice(start, m.index));
+    const token = m[0];
+    let fill: string;
+    if (m[1] !== undefined) {
+      fill = THEME_COLOR.codePunc;
+    } else if (m[2] !== undefined) {
+      const after = line.slice(m.index + token.length);
+      fill = /^\s*:/.test(after) ? THEME_COLOR.codeKey : THEME_COLOR.codeStr;
+    } else if (m[3] !== undefined) {
+      fill = THEME_COLOR.codeStr;
+    } else if (m[4] !== undefined) {
+      fill = THEME_COLOR.codeKw;
+    } else if (m[5] !== undefined) {
+      fill = THEME_COLOR.codeNum;
+    } else {
+      fill = THEME_COLOR.codePunc;
+    }
+    out.push(h('tspan', { fill }, token));
+    start = m.index + token.length;
+  }
+  if (start < line.length) pushPlain(line.slice(start));
+  return out;
+}
+
+function packetCodeElement(
+  packet: Packet,
+  box: PacketCalloutBox,
+  code: PacketCalloutCodeBox,
+): VElement {
+  const x = box.cx - box.halfW + box.padX;
+  const y = box.boxTop + code.offsetY;
+  const { width, height, header, headerHeight, lines } = code;
+  const bodyTop = y + headerHeight;
+  const hx = x + 0.5;
+  const hy = y + 0.5;
+  const hw = width - 1;
+  const hr = 4.5;
+  const n = (value: number) => Number(value.toFixed(2));
+
+  return h(
+    'g',
+    { class: 'dav-packet-code' },
+    h('rect', {
+      x: n(x),
+      y: n(y),
+      width: n(width),
+      height: n(height),
+      rx: 5,
+      fill: THEME_COLOR.codeBg,
+      stroke: THEME_COLOR.border,
+      'stroke-width': 1,
+      class: 'dav-packet-code-box',
+    }),
+    headerHeight > 0
+      ? h('path', {
+          d: [
+            `M ${n(hx + hr)} ${n(hy)}`,
+            `H ${n(hx + hw - hr)}`,
+            `Q ${n(hx + hw)} ${n(hy)} ${n(hx + hw)} ${n(hy + hr)}`,
+            `V ${n(bodyTop)}`,
+            `H ${n(hx)}`,
+            `V ${n(hy + hr)}`,
+            `Q ${n(hx)} ${n(hy)} ${n(hx + hr)} ${n(hy)}`,
+            'Z',
+          ].join(' '),
+          fill: THEME_COLOR.codeHeadBg,
+          class: 'dav-packet-code-head-bg',
+        })
+      : null,
+    headerHeight > 0
+      ? h('line', {
+          x1: n(x),
+          y1: n(bodyTop),
+          x2: n(x + width),
+          y2: n(bodyTop),
+          stroke: THEME_COLOR.border,
+          'stroke-width': 1,
+        })
+      : null,
+    headerHeight > 0
+      ? h(
+          'text',
+          {
+            x: n(x + CALLOUT_CODE_PAD_X),
+            y: n(y + 15),
+            'font-size': CALLOUT_CODE_HEAD_SIZE,
+            fill: THEME_COLOR.muted,
+            'xml:space': 'preserve',
+            class: 'dav-mono dav-packet-code-head',
+          },
+          h('tspan', { fill: activeLabelFill(packet.color), 'font-weight': 700 }, '{ } '),
+          header,
+        )
+      : null,
+    ...lines.map((line, i) =>
+      line.length === 0
+        ? null
+        : h(
+            'text',
+            {
+              x: n(x + CALLOUT_CODE_PAD_X),
+              y: n(bodyTop + 18 + i * CALLOUT_CODE_LINE_HEIGHT),
+              'font-size': CALLOUT_CODE_SIZE,
+              fill: THEME_COLOR.fg,
+              'xml:space': 'preserve',
+              class: 'dav-mono dav-packet-code-line',
+            },
+            ...highlightCodeLine(line),
+          ),
     ),
   );
 }

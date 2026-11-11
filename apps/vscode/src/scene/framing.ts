@@ -37,6 +37,9 @@ const MIN_ZONE_FRAME_ZOOM = 0.6;
 const MAX_CALM_ZOOM = 1.25;
 /** How close to the screen's edge a moving packet may get before the camera follows. */
 const CALM_EDGE_MARGIN = 40;
+/** Margin kept around packet callouts when checking visibility or framing. */
+const CALLOUT_EDGE_MARGIN = 16;
+const CALLOUT_FRAME_PAD = 24;
 /** Room kept around what the camera shows while it follows every phase. */
 const FOLLOW_PAD = 56;
 const FOLLOW_MIN_SIZE = { width: 200, height: 160 };
@@ -84,17 +87,19 @@ function controlBox({ p0, p1, p2, p3 }: Bezier): Rect {
   return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
 }
 
+/** The rectangles of the callouts attached to some packets. */
+function calloutsOf(packets: readonly Packet[]): Rect[] {
+  return packets.flatMap((packet) => computePacketCalloutBox(packet) ?? []).map(calloutRect);
+}
+
 /** Everything the diagram draws, including packet callouts that reach past its edge. */
 export function wholeDiagramFrame(layout: Layout, view: ResolvedView): Frame {
   const base = boundsOf([...Object.values(layout.nodes), ...Object.values(layout.groups)]);
-  const callouts = view.phases
-    .flat()
-    .flatMap((packet) => computePacketCalloutBox(packet) ?? [])
-    .map(calloutRect);
+  const callouts = calloutsOf(view.phases.flat());
   if (callouts.length === 0) {
     return { rect: base, maxZoom: MAX_FIT_ZOOM };
   }
-  const extra = boundsOf(callouts, 16, 0);
+  const extra = boundsOf(callouts, CALLOUT_FRAME_PAD, 0);
   return {
     rect: boundsOf([base, extra], 0, 0),
     maxZoom: MAX_FIT_ZOOM,
@@ -108,11 +113,20 @@ function spotsOf(layout: Layout, packets: readonly Packet[]): Rect[] {
     .filter((r) => r !== undefined);
 }
 
-/** Whether a part of the diagram already shows the nodes some packets move between. */
+/** Whether a part of the diagram already shows the nodes and callouts some packets move between. */
 export function packetsOnScreen(layout: Layout, packets: readonly Packet[], world: Rect): boolean {
   const spots = spotsOf(layout, packets);
   if (spots.length === 0) return true;
-  return rectContains(world, boundsOf(spots, CALM_EDGE_MARGIN, 0));
+  const callouts = calloutsOf(packets);
+  const needed =
+    callouts.length > 0
+      ? boundsOf(
+          [boundsOf(spots, CALM_EDGE_MARGIN, 0), boundsOf(callouts, CALLOUT_EDGE_MARGIN, 0)],
+          0,
+          0,
+        )
+      : boundsOf(spots, CALM_EDGE_MARGIN, 0);
+  return rectContains(world, needed);
 }
 
 /**
@@ -126,8 +140,13 @@ export function calmFrame(canvas: Size, layout: Layout, packets: readonly Packet
     .flatMap((p) => [p.fromZone, p.toZone])
     .flatMap((id) => (id !== undefined && layout.groups[id] ? [layout.groups[id]] : []));
   const zones = boundsOf(zoneRects.length > 0 ? zoneRects : spots, CALM_FRAME_PAD, 0);
-  const rect =
+  const baseRect =
     fitZoom(canvas, zones) >= MIN_ZONE_FRAME_ZOOM ? zones : boundsOf(spots, CALM_FRAME_PAD, 0);
+  const callouts = calloutsOf(packets);
+  const rect =
+    callouts.length > 0
+      ? boundsOf([baseRect, boundsOf(callouts, CALLOUT_FRAME_PAD, 0)], 0, 0)
+      : baseRect;
   return { rect, maxZoom: MAX_CALM_ZOOM };
 }
 

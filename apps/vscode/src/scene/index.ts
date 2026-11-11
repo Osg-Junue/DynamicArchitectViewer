@@ -10,7 +10,9 @@ export {
 export {
   calloutRect,
   computePacketCalloutBox,
+  estimateCalloutTextWidth,
   type PacketCalloutBox,
+  type PacketCalloutCodeBox,
   packetBubblePath,
 } from './callout';
 export {
