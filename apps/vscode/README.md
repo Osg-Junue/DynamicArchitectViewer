@@ -38,7 +38,7 @@ step "The payment provider fails" {
 2. Press `Ctrl+Shift+V` (`⌘⇧V` on macOS) to open the preview beside the editor.
 3. Play the steps from the toolbar, or move between them with `←` and `→`.
 
-The Export menu in the preview toolbar saves the diagram as a standalone HTML file, an animated SVG (with the camera following the flow, or on the whole diagram) or a still SVG. The documentation button next to it opens a guide to the language, with live examples.
+The Export menu in the preview toolbar saves the diagram as a standalone HTML file, an animated SVG (with the camera following the flow, or on the whole diagram) or a still SVG, of every step or of the step the preview shows. The documentation button next to it opens a guide to the language, with live examples.
 
 ## Features
 

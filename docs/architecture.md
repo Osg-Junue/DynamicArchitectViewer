@@ -135,6 +135,7 @@ findAtOffset(sourceMap, offset): { elementId: string | null; stepIndex: number |
 - **Still** (`animate: false`, or a diagram without steps): the overview, framed on the whole diagram.
 - **Animated**: every step in a loop at 1x, as "Play all" plays them. The canvas is 960 × 540 below a header with the step's title and description, the step ruler and, when the diagram has zones, the zone strip. When the camera ever shows less than the whole diagram, a minimap sits beside the header rather than over the canvas.
 - **Animated, whole diagram** (`camera: 'whole'`): the same playback with the camera kept on everything any step draws. The canvas stays 960 wide and takes the diagram's proportions, at most the preview's fit zoom, between 240 and 1200 high. No minimap is needed.
+- **One step** (`step: n`): the step keeps its number in the diagram, as "Step 3 / 8". Animated, it repeats the step's phases as "Play step" does, without the step ruler. Still, it shows the step under its header as the preview does with animation stopped: the step's state, every flow lit in its color, with its rail labels emphasized. A step's state includes what earlier steps set, as in the preview.
 
 Motion uses SMIL only, because `<img>` runs no script. Every animation lasts the length of the whole playback and repeats, so they stay in step without referring to one another:
 
@@ -171,7 +172,7 @@ The extension and webview talk through typed messages in `protocol/messages.ts`:
 | `cursorMoved` | Extension to webview | Highlight the element at the cursor, and go to its step |
 | `revealRange` | Webview to extension | Double-clicking an element jumps to its declaration |
 | `exportHtml` | Webview to extension | Export HTML from the toolbar's Export menu |
-| `exportSvg` | Webview to extension | Export an SVG from the same menu, with `animate` and `camera` |
+| `exportSvg` | Webview to extension | Export an SVG from the same menu, with `animate`, `camera` and `step` (`null` for every step) |
 
 **Language.** The UI is Japanese when `vscode.env.language` is Japanese, and English otherwise. The extension writes this into `<html lang>` for the webview, and command titles come from `package.nls*.json`.
 

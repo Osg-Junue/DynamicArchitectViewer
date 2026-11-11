@@ -58,6 +58,12 @@ export interface SvgExportOptions {
    * view, on a canvas of its proportions, and only the flows move.
    */
   camera?: 'follow' | 'whole';
+  /**
+   * Exports only this step (0-based), keeping its number in the diagram. Animated, it repeats the
+   * step's phases, as "Play step" does; still, it shows the step as the preview does with
+   * animation stopped. Every step by default.
+   */
+  step?: number;
 }
 
 /**
@@ -96,9 +102,19 @@ const SVG_STYLES = sceneStyles
 export function exportSvg(source: string | DavDocument, options: SvgExportOptions = {}): string {
   const document = typeof source === 'string' ? parse(source).document : source;
   const layout = computeLayout(document);
+  const locale = options.locale ?? 'en';
+  const { step } = options;
+  if (step !== undefined) {
+    if (!Number.isInteger(step) || step < 0 || step >= document.steps.length) {
+      throw new RangeError(`No step ${step} in a diagram with ${document.steps.length} steps`);
+    }
+    return options.animate === false
+      ? stepStillSvg(document, layout, step, locale)
+      : animatedSvg(document, layout, locale, options.camera ?? 'follow', step);
+  }
   return options.animate === false || document.steps.length === 0
     ? stillSvg(document, layout)
-    : animatedSvg(document, layout, options.locale ?? 'en', options.camera ?? 'follow');
+    : animatedSvg(document, layout, locale, options.camera ?? 'follow');
 }
 
 const num = (v: number): string => String(Math.round(v * 10) / 10);
@@ -156,6 +172,8 @@ export interface PhaseSlot {
 }
 
 export interface StepSlot {
+  /** The step's place in the diagram, which an export of one step keeps. */
+  index: number;
   view: ResolvedView;
   start: number;
   phasesEnd: number;
@@ -163,10 +181,18 @@ export interface StepSlot {
   phases: PhaseSlot[];
 }
 
-/** Plays every step at 1x, as "Play all" does: each phase in turn, then a hold. */
-export function schedule(doc: DavDocument, layout: Layout): { steps: StepSlot[]; total: number } {
+/**
+ * Plays every step at 1x, as "Play all" does: each phase in turn, then a hold. With `only`, plays
+ * that one step, as "Play step" does.
+ */
+export function schedule(
+  doc: DavDocument,
+  layout: Layout,
+  only?: number,
+): { steps: StepSlot[]; total: number } {
   let t = 0;
-  const steps = doc.steps.map((_, i): StepSlot => {
+  const indices = only === undefined ? doc.steps.map((_, i) => i) : [only];
+  const steps = indices.map((i): StepSlot => {
     const view = resolveView(doc, layout, i);
     const start = t;
     const phases = view.phases.map((packets, j): PhaseSlot => {
@@ -180,7 +206,7 @@ export function schedule(doc: DavDocument, layout: Layout): { steps: StepSlot[];
     phases.forEach((phase, j) => {
       phase.end = phases[j + 1]?.start ?? t;
     });
-    return { view, start, phasesEnd, end: t, phases };
+    return { index: i, view, start, phasesEnd, end: t, phases };
   });
   return { steps, total: t };
 }
@@ -588,6 +614,7 @@ const STEP_NO_SIZE = 11.5;
 /** The step's number, title and description; `aside` keeps room on the right for the minimap. */
 function header(
   steps: readonly StepSlot[],
+  stepCount: number,
   locale: ViewerLocale,
   clock: Clock,
   aside: Size | null,
@@ -604,7 +631,7 @@ function header(
   );
   const el = h('g', {}, h('rect', { x: 0, y: 0, width: WIDTH, height, fill: COLOR.bg }));
   steps.forEach((step, i) => {
-    const stepNo = strings.stepLabel(i + 1, steps.length);
+    const stepNo = strings.stepLabel(step.index + 1, stepCount);
     const titleX = PAD_X + estimateTextWidth(stepNo, STEP_NO_SIZE) + 10;
     el.children.push(
       clock.showDuring(
@@ -1045,13 +1072,75 @@ function wholeCanvas(rect: Rect): Size {
   };
 }
 
+/**
+ * Draws a step as the preview does with animation stopped: every flow of the step lit in its
+ * color, with its rail labels emphasized and its numbered stops at rest.
+ */
+function stillHighlights(scene: VElement, view: ResolvedView): void {
+  const colors = flowColors(view.phases.flat());
+  const flows = layer(scene, 'dav-layer-flows');
+  if (flows) {
+    flows.children = flows.children.flatMap((flow) => {
+      if (!isElement(flow)) return [];
+      const color = colors.get(String(flow.attrs['data-edge']));
+      return color === undefined ? [] : [withAttrs(flow, { stroke: paint(color) })];
+    });
+  }
+  for (const label of layer(scene, 'dav-layer-labels')?.children ?? []) {
+    const text = isElement(label) ? label.children[0] : undefined;
+    if (!isElement(label) || !isElement(text)) continue;
+    const color = colors.get(String(text.attrs['data-edge']));
+    if (color === undefined) continue;
+    label.children = [withAttrs(text, { fill: activeLabelFill(color), 'font-weight': 700 })];
+  }
+}
+
+/** One step as a still picture of the whole diagram, under the step's number and text. */
+function stepStillSvg(doc: DavDocument, layout: Layout, index: number, locale: ViewerLocale) {
+  const view = resolveView(doc, layout, index);
+  const { rect } = wholeDiagramFrame(layout, view);
+  const canvas = wholeCanvas(rect);
+  const slot: StepSlot = { index, view, start: 0, phasesEnd: 0, end: 1, phases: [] };
+  // A clock whose one moment is the whole file: nothing in it changes, so nothing animates.
+  const head = header([slot], doc.steps.length, locale, new Clock(1), null);
+  const scene = buildScene(view, ICON_SHAPES);
+  stillHighlights(scene, view);
+  const world = h(
+    'svg',
+    {
+      x: 0,
+      y: head.height,
+      width: WIDTH,
+      height: canvas.height,
+      viewBox: viewBoxOf(visibleWorld(canvas, framePose(canvas, { rect, maxZoom: MAX_FIT_ZOOM }))),
+      preserveAspectRatio: 'xMidYMid meet',
+    },
+    buildDefs(),
+    scene,
+  );
+  const height = head.height + canvas.height;
+  return svgDocument(
+    { width: WIDTH, height },
+    `0 0 ${WIDTH} ${num(height)}`,
+    doc.title || 'DynamicArchitectViewer',
+    `${index + 1}. ${doc.steps[index]?.title ?? ''}`,
+    [
+      h('rect', { x: 0, y: 0, width: WIDTH, height, fill: COLOR.bg }),
+      h('path', { d: `M 0 ${head.height} H ${WIDTH}`, stroke: COLOR.border }),
+      world,
+      head.el,
+    ],
+  );
+}
+
 function animatedSvg(
   doc: DavDocument,
   layout: Layout,
   locale: ViewerLocale,
   cameraMode: 'follow' | 'whole',
+  only?: number,
 ): string {
-  const { steps, total } = schedule(doc, layout);
+  const { steps, total } = schedule(doc, layout, only);
   const clock = new Clock(total);
   const wholeRect = wholeAcrossSteps(doc, layout, steps);
   const canvas: Size =
@@ -1078,9 +1167,10 @@ function animatedSvg(
   );
   const mapFrame = zoomedIn ? minimapFrame(doc, layout) : null;
 
-  const head = header(steps, locale, clock, mapFrame?.size ?? null);
+  const head = header(steps, doc.steps.length, locale, clock, mapFrame?.size ?? null);
   const timelineTop = head.height;
-  const zoneTop = timelineTop + TIMELINE_HEIGHT;
+  // One step has nothing to rule; a line separates the header from what follows.
+  const zoneTop = timelineTop + (only === undefined ? TIMELINE_HEIGHT : 1);
   const hasZones = doc.groups.length > 0;
   const canvasTop = zoneTop + (hasZones ? ZONE_STRIP_HEIGHT : 0);
   const canvasBottom = canvasTop + canvas.height;
@@ -1145,7 +1235,9 @@ function animatedSvg(
     );
 
   const titleText = doc.title || 'DynamicArchitectViewer';
-  const description = doc.steps.map((step, i) => `${i + 1}. ${step.title}`).join('\n');
+  const description = steps
+    .map((step) => `${step.index + 1}. ${doc.steps[step.index]?.title ?? ''}`)
+    .join('\n');
   return svgDocument(
     { width: WIDTH, height: canvasBottom },
     `0 0 ${WIDTH} ${num(canvasBottom)}`,
@@ -1155,7 +1247,9 @@ function animatedSvg(
       h('rect', { x: 0, y: 0, width: WIDTH, height: canvasBottom, fill: COLOR.bg }),
       world,
       head.el,
-      timeline(steps, timelineTop, clock, total),
+      only === undefined
+        ? timeline(steps, timelineTop, clock, total)
+        : h('path', { d: `M 0 ${timelineTop + 0.5} H ${WIDTH}`, stroke: COLOR.border }),
       hasZones ? zoneStrip(steps, zoneTop, locale, clock) : null,
       map,
     ].filter((c): c is VElement => c !== null),

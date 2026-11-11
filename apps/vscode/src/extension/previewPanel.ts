@@ -112,7 +112,12 @@ export class CanvasPanelManager {
         break;
 
       case 'exportSvg':
-        await exportDocumentToSvg(doc, { dsl: msg.dsl, animate: msg.animate, camera: msg.camera });
+        await exportDocumentToSvg(doc, {
+          dsl: msg.dsl,
+          animate: msg.animate,
+          camera: msg.camera,
+          step: msg.step,
+        });
         break;
 
       case 'formatDocument': {

@@ -139,6 +139,41 @@ body {
   background: var(--dav-hover);
   outline: none;
 }
+.export-scope-group {
+  display: flex;
+  flex-direction: column;
+}
+.export-scope-group[hidden] {
+  display: none;
+}
+.export-scope {
+  display: block;
+  padding-left: 24px;
+  position: relative;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.export-scope::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin-top: -5px;
+  border: 1px solid var(--dav-muted);
+  border-radius: 50%;
+}
+.export-scope[aria-checked="true"]::before {
+  background: var(--dav-fg);
+  border-color: var(--dav-fg);
+}
+.export-separator {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--dav-border);
+}
 .export-item:disabled {
   opacity: 0.45;
   cursor: default;

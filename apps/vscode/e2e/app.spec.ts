@@ -11,6 +11,7 @@ interface PostedMessage {
   from?: number;
   animate?: boolean;
   camera?: string;
+  step?: number | null;
 }
 
 const DEFAULT_DSL = readFileSync(
@@ -273,29 +274,41 @@ test.describe('webview preview', () => {
     await exportBtn.click();
     await expect(exportBtn).toHaveAttribute('aria-expanded', 'true');
     await expect(page.getByRole('menuitem')).toHaveCount(4);
-    await expect(page.getByTestId('export-html')).toBeFocused();
+    // The range comes first: every step, or the one the preview shows
+    await expect(page.getByTestId('export-scope-all')).toBeFocused();
+    await expect(page.getByTestId('export-scope-all')).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByTestId('export-scope-step')).toHaveText('This step: 2. S2');
     await page.getByTestId('export-html').click();
     await expect(page.getByRole('menu')).toBeHidden();
     expect((await postedMessages(page)).some((m) => m.type === 'exportHtml')).toBe(true);
 
-    // Keyboard: arrows move through the formats, Enter picks one, Escape closes
+    // Keyboard: arrows move through the range and the formats, Enter picks one, Escape closes
     await exportBtn.focus();
-    await page.keyboard.press('ArrowDown');
-    await page.keyboard.press('ArrowDown');
+    for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowDown');
     await expect(page.getByTestId('export-svg-animated')).toBeFocused();
     await page.keyboard.press('Enter');
     await exportBtn.click();
     await page.getByTestId('export-svg-whole').click();
+
+    // One step: picking it keeps the menu open, and S2 has nothing to animate or to make HTML of
     await exportBtn.click();
+    await page.getByTestId('export-scope-step').click();
+    await expect(page.getByTestId('export-scope-step')).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByRole('menu')).toBeVisible();
+    await expect(page.getByTestId('export-html')).toBeDisabled();
+    await expect(page.getByTestId('export-svg-animated')).toBeDisabled();
+    await expect(page.getByTestId('export-svg-whole')).toBeDisabled();
     await page.keyboard.press('End');
     await page.keyboard.press('Enter');
     const svgMessages = (await postedMessages(page)).filter((m) => m.type === 'exportSvg');
-    expect(svgMessages.map((m) => [m.animate, m.camera])).toEqual([
-      [true, 'follow'],
-      [true, 'whole'],
-      [false, 'follow'],
+    expect(svgMessages.map((m) => [m.animate, m.camera, m.step])).toEqual([
+      [true, 'follow', null],
+      [true, 'whole', null],
+      [false, 'follow', 1],
     ]);
+    // The range stays chosen while the same step shows
     await exportBtn.click();
+    await expect(page.getByTestId('export-scope-step')).toHaveAttribute('aria-checked', 'true');
     await page.keyboard.press('Escape');
     await expect(page.getByRole('menu')).toBeHidden();
     await expect(exportBtn).toBeFocused();
@@ -526,10 +539,13 @@ test('switching documents discards the previous one', async ({ page }) => {
     );
   });
   await expect(page.locator('.dav-node')).toHaveCount(1);
-  await page.getByTestId('btn-export').waitFor();
-  // Without steps there is nothing to animate
+  // Without steps there is nothing to animate, and no step to pick
+  await page.getByTestId('btn-export').click();
   await expect(page.getByTestId('export-svg-animated')).toBeDisabled();
   await expect(page.getByTestId('export-svg-whole')).toBeDisabled();
+  await expect(page.getByTestId('export-scope-step')).toBeHidden();
+  await expect(page.getByTestId('export-html')).toBeFocused();
+  await page.keyboard.press('Escape');
 
   await page.evaluate(() => {
     window.postMessage({ type: 'docChanged', dsl: '', uri: 'file:///b.dav' }, '*');

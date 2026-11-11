@@ -33,6 +33,8 @@ export type WebviewToHostMessage =
       dsl: string;
       animate: boolean;
       camera: SvgCamera;
+      /** The one step to export (0-based), or `null` for every step. */
+      step: number | null;
     }
   | {
       type: 'formatDocument';

@@ -365,6 +365,47 @@ describe("exportSvg with camera: 'whole'", () => {
   });
 });
 
+describe('exportSvg with step', () => {
+  it('plays only that step, under its number in the diagram', () => {
+    const { document } = parse(STEPPED);
+    const layout = computeLayout(document);
+    const only = schedule(document, layout, 0);
+    const svg = exportSvg(STEPPED, { step: 0 });
+
+    expect(only.steps.map((s) => s.index)).toEqual([0]);
+    expect(only.total).toBe(schedule(document, layout).steps[0]?.end);
+    expect(svg).toContain('Step 1 / 2');
+    expect(svg).not.toContain('Step 2 / 2');
+    expect(svg).toContain('<desc id="dav-desc">1. Order</desc>');
+    expect(new Set(attrs(svg, 'animate').map((a) => a.dur))).toEqual(new Set([`${only.total}ms`]));
+  });
+
+  it('leaves out the step ruler', () => {
+    const one = exportSvg(STEPPED, { step: 0 });
+    // The ruler numbers every step from 01.
+    expect(exportSvg(STEPPED)).toMatch(/class="dav-mono" font-size="10.5"[^>]*>01</);
+    expect(one).not.toMatch(/font-size="10.5"/);
+  });
+
+  it('draws a still step with its state and every flow lit, and nothing animated', () => {
+    const order = exportSvg(STEPPED, { step: 0, animate: false });
+    const failed = exportSvg(STEPPED, { step: 1, animate: false });
+
+    expect(order).not.toContain('<animate');
+    expect(order).toContain('Step 1 / 2');
+    expect(attrs(order, 'path').filter((a) => a.class === 'dav-flow')).toHaveLength(2);
+    // State carries over from earlier steps, as in the preview.
+    expect(failed).toContain('>down</text>');
+    expect(attrs(failed, 'path').filter((a) => a.class === 'dav-flow')).toHaveLength(0);
+  });
+
+  it('rejects a step the diagram does not have', () => {
+    expect(() => exportSvg(STEPPED, { step: 2 })).toThrow(RangeError);
+    expect(() => exportSvg(STEPPED, { step: -1, animate: false })).toThrow(RangeError);
+    expect(() => exportSvg('dav 1\nnode a', { step: 0 })).toThrow(RangeError);
+  });
+});
+
 describe('planCamera', () => {
   it('starts each step where the preview frames it', () => {
     const { document } = parse(STEPPED);

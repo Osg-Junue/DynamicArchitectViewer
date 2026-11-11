@@ -23,12 +23,13 @@ export function formattingEdit(
   return formatted === text ? undefined : { range: toRange(doc, 0, text.length), text: formatted };
 }
 
-function defaultExportUri(doc: vscode.TextDocument, ext: 'html' | 'svg'): vscode.Uri {
+/** Next to the diagram, by the same name; `suffix` tells apart an export of part of it. */
+function defaultExportUri(doc: vscode.TextDocument, ext: 'html' | 'svg', suffix = ''): vscode.Uri {
   if (!doc.isUntitled) {
-    return vscode.Uri.file(`${doc.uri.fsPath.replace(/\.dav$/i, '')}.${ext}`);
+    return vscode.Uri.file(`${doc.uri.fsPath.replace(/\.dav$/i, '')}${suffix}.${ext}`);
   }
   const base = vscode.workspace.workspaceFolders?.[0]?.uri ?? vscode.Uri.file(homedir());
-  return vscode.Uri.joinPath(base, `diagram.${ext}`);
+  return vscode.Uri.joinPath(base, `diagram${suffix}.${ext}`);
 }
 
 export async function exportDocumentToHtml(
@@ -51,12 +52,12 @@ export async function exportDocumentToHtml(
 /**
  * Exports an SVG image for places that run no script, such as a README: animated with the camera
  * following the steps or kept on the whole diagram, or a still picture of the whole diagram. The
- * preview's Export menu has already picked the kind and sends the text it shows; the command asks
- * for the kind.
+ * preview's Export menu has already picked the kind, and maybe the one step it shows, and sends
+ * the text it shows; the command asks for the kind and exports every step.
  */
 export async function exportDocumentToSvg(
   doc: vscode.TextDocument,
-  picked?: { dsl: string; animate: boolean; camera: SvgCamera },
+  picked?: { dsl: string; animate: boolean; camera: SvgCamera; step: number | null },
 ): Promise<void> {
   const { document } = parse(picked?.dsl ?? doc.getText());
   let options = { animate: picked?.animate ?? true, camera: picked?.camera ?? 'follow' };
@@ -90,9 +91,14 @@ export async function exportDocumentToSvg(
     if (!kind) return;
     options = kind.options;
   }
-  const svg = exportSvg(document, { locale: uiLocale(), ...options });
+  const step = picked?.step ?? null;
+  const svg = exportSvg(document, {
+    locale: uiLocale(),
+    ...options,
+    ...(step === null ? {} : { step }),
+  });
   const targetUri = await vscode.window.showSaveDialog({
-    defaultUri: defaultExportUri(doc, 'svg'),
+    defaultUri: defaultExportUri(doc, 'svg', step === null ? '' : `-step${step + 1}`),
     filters: { SVG: ['svg'] },
   });
   if (!targetUri) return;

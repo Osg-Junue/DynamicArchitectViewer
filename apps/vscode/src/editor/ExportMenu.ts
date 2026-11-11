@@ -2,66 +2,85 @@ import type { ExportFormat } from '../protocol/messages';
 import { html, svg } from '../runtime/dom';
 import type { ViewerLocale } from '../runtime/i18n';
 
-interface Item {
-  format: ExportFormat;
-  testId: string;
-  label: string;
-  detail: string;
+/** What the menu needs to know about the diagram each time it opens. */
+export interface ExportContext {
+  hasSteps: boolean;
+  /** The step the preview shows; `null` on the overview. */
+  step: { index: number; title: string; animates: boolean } | null;
 }
+
+type Scope = 'all' | 'step';
 
 const STRINGS = {
   ja: {
     button: '書き出す',
     menu: '書き出す形式',
+    scope: '範囲',
+    allSteps: 'すべてのステップ',
+    thisStep: (n: number, title: string) => `このステップ: ${n}. ${title}`,
     noSteps: 'ステップのない図は静止画になります',
-    items: [
-      ['html', '単一 HTML', '操作できる 1 ファイル。オフラインで動きます'],
-      ['svg-animated', 'アニメーション SVG', 'README 用。カメラが流れを追ってステップを再生します'],
-      [
-        'svg-whole',
-        'アニメーション SVG（全体固定）',
-        '図全体を映したまま、すべてのステップを再生します',
-      ],
-      ['svg-still', '静止画 SVG', '図全体を 1 枚の画像にします'],
-    ],
+    stillStep: '何も動かないステップです',
+    htmlAll: 'HTML にはすべてのステップが入ります',
+    html: ['単一 HTML', '操作できる 1 ファイル。オフラインで動きます'],
+    animated: ['アニメーション SVG', 'README 用。カメラが流れを追います'],
+    whole: ['アニメーション SVG（全体固定）', '図全体を映したまま再生します'],
+    still: ['静止画 SVG', '全体図を 1 枚の画像にします', 'このステップを 1 枚の画像にします'],
   },
   en: {
     button: 'Export',
     menu: 'Export format',
+    scope: 'Range',
+    allSteps: 'All steps',
+    thisStep: (n: number, title: string) => `This step: ${n}. ${title}`,
     noSteps: 'A diagram without steps exports as a still picture',
-    items: [
-      ['html', 'Standalone HTML', 'One interactive file that works offline'],
-      ['svg-animated', 'Animated SVG', 'For READMEs: the camera follows each step'],
-      [
-        'svg-whole',
-        'Animated SVG, whole diagram',
-        'Plays every step with the whole diagram in view',
-      ],
-      ['svg-still', 'Still SVG', 'The whole diagram as one picture'],
-    ],
+    stillStep: 'Nothing moves in this step',
+    htmlAll: 'An HTML file always holds every step',
+    html: ['Standalone HTML', 'One interactive file that works offline'],
+    animated: ['Animated SVG', 'For READMEs: the camera follows the flow'],
+    whole: ['Animated SVG, whole diagram', 'Plays with the whole diagram in view'],
+    still: ['Still SVG', 'The overview as one picture', 'This step as one picture'],
   },
-} as const satisfies Record<
-  ViewerLocale,
-  {
-    button: string;
-    menu: string;
-    noSteps: string;
-    items: ReadonlyArray<readonly [ExportFormat, string, string]>;
-  }
->;
+} as const;
 
-/** The toolbar's Export button and the menu of formats it opens. */
+function menuButton(role: string, testId: string, ...children: Node[]): HTMLButtonElement {
+  const el = html('button', { type: 'button', role, 'data-testid': testId });
+  el.append(...children);
+  el.tabIndex = -1;
+  return el;
+}
+
+function itemContent(label: string, detail: string): [HTMLElement, HTMLElement] {
+  return [
+    html('span', { class: 'export-item-label' }, label),
+    html('span', { class: 'export-item-detail' }, detail),
+  ];
+}
+
+/**
+ * The toolbar's Export button and its menu: a choice between every step and the step the
+ * preview shows, then the formats.
+ */
 export class ExportMenu {
   readonly element: HTMLElement;
+  readonly #strings: (typeof STRINGS)[ViewerLocale];
+  readonly #context: () => ExportContext;
   readonly #button: HTMLButtonElement;
   readonly #list: HTMLElement;
-  readonly #items: HTMLButtonElement[];
-  readonly #animated: HTMLButtonElement[];
-  readonly #noStepsHint: string;
+  readonly #scopeGroup: HTMLElement;
+  readonly #scopes: Record<Scope, HTMLButtonElement>;
+  readonly #formats: Record<ExportFormat, HTMLButtonElement>;
+  readonly #stillDetail: HTMLElement;
+  #scope: Scope = 'all';
+  #shown: ExportContext = { hasSteps: false, step: null };
 
-  constructor(locale: ViewerLocale, onPick: (format: ExportFormat) => void) {
+  constructor(
+    locale: ViewerLocale,
+    context: () => ExportContext,
+    onPick: (format: ExportFormat, step: number | null) => void,
+  ) {
     const s = STRINGS[locale];
-    this.#noStepsHint = s.noSteps;
+    this.#strings = s;
+    this.#context = context;
     this.#button = html(
       'button',
       {
@@ -88,36 +107,59 @@ export class ExportMenu {
       ),
     );
 
-    const items: Item[] = s.items.map(([format, label, detail]) => ({
-      format,
-      testId: `export-${format}`,
-      label,
-      detail,
-    }));
-    this.#items = items.map((item) => {
-      const el = html(
-        'button',
-        { type: 'button', role: 'menuitem', class: 'export-item', 'data-testid': item.testId },
-        html('span', { class: 'export-item-label' }, item.label),
-        html('span', { class: 'export-item-detail' }, item.detail),
-      );
-      el.tabIndex = -1;
+    this.#scopes = {
+      all: menuButton('menuitemradio', 'export-scope-all', document.createTextNode(s.allSteps)),
+      step: menuButton('menuitemradio', 'export-scope-step'),
+    };
+    for (const [scope, el] of Object.entries(this.#scopes) as Array<[Scope, HTMLButtonElement]>) {
+      el.classList.add('export-item', 'export-scope');
+      el.addEventListener('click', () => {
+        this.#scope = scope;
+        this.#refresh();
+        el.focus();
+      });
+    }
+    this.#scopeGroup = html(
+      'div',
+      { class: 'export-scope-group', role: 'group', 'aria-label': s.scope },
+      this.#scopes.all,
+      this.#scopes.step,
+      html('div', { class: 'export-separator', role: 'separator' }),
+    );
+
+    const [stillLabel, stillDetail] = itemContent(s.still[0], s.still[1]);
+    this.#stillDetail = stillDetail;
+    this.#formats = {
+      html: menuButton('menuitem', 'export-html', ...itemContent(s.html[0], s.html[1])),
+      'svg-animated': menuButton(
+        'menuitem',
+        'export-svg-animated',
+        ...itemContent(s.animated[0], s.animated[1]),
+      ),
+      'svg-whole': menuButton(
+        'menuitem',
+        'export-svg-whole',
+        ...itemContent(s.whole[0], s.whole[1]),
+      ),
+      'svg-still': menuButton('menuitem', 'export-svg-still', stillLabel, stillDetail),
+    };
+    for (const [format, el] of Object.entries(this.#formats) as Array<
+      [ExportFormat, HTMLButtonElement]
+    >) {
+      el.classList.add('export-item');
       el.addEventListener('click', () => {
         if (el.disabled) return;
+        const step = this.#scope === 'step' ? (this.#shown.step?.index ?? null) : null;
         this.close(true);
-        onPick(item.format);
+        onPick(format, step);
       });
-      return el;
-    });
-    this.#animated = this.#items.filter((_, i) => {
-      const format = items[i]?.format;
-      return format === 'svg-animated' || format === 'svg-whole';
-    });
+    }
 
     this.#list = html(
       'div',
       { id: 'export-menu-list', class: 'export-menu-list', role: 'menu', 'aria-label': s.menu },
-      ...this.#items,
+      this.#scopeGroup,
+      ...Object.values(this.#formats),
     );
     this.#list.hidden = true;
     this.element = html('div', { class: 'export-menu' }, this.#button, this.#list);
@@ -143,16 +185,11 @@ export class ExportMenu {
     });
   }
 
-  /** An animated SVG needs steps to play; without them only the still picture makes sense. */
-  setHasSteps(hasSteps: boolean): void {
-    for (const item of this.#animated) {
-      item.disabled = !hasSteps;
-      if (hasSteps) item.removeAttribute('title');
-      else item.title = this.#noStepsHint;
-    }
-  }
-
+  /** Opens on the diagram as it is now; the range stays as last chosen while that step shows. */
   open(focus: 'first' | 'last' = 'first'): void {
+    this.#shown = this.#context();
+    if (!this.#shown.step) this.#scope = 'all';
+    this.#refresh();
     this.#list.hidden = false;
     this.#button.setAttribute('aria-expanded', 'true');
     const enabled = this.#enabled();
@@ -165,8 +202,32 @@ export class ExportMenu {
     if (returnFocus) this.#button.focus();
   }
 
+  #refresh(): void {
+    const s = this.#strings;
+    const { hasSteps, step } = this.#shown;
+    this.#scopeGroup.hidden = !step;
+    if (step) this.#scopes.step.textContent = s.thisStep(step.index + 1, step.title);
+    for (const [scope, el] of Object.entries(this.#scopes) as Array<[Scope, HTMLButtonElement]>) {
+      el.setAttribute('aria-checked', String(scope === this.#scope));
+    }
+    const oneStep = this.#scope === 'step';
+    const noMotion = !hasSteps ? s.noSteps : oneStep && !step?.animates ? s.stillStep : null;
+    this.#setEnabled(this.#formats.html, oneStep ? s.htmlAll : null);
+    this.#setEnabled(this.#formats['svg-animated'], noMotion);
+    this.#setEnabled(this.#formats['svg-whole'], noMotion);
+    this.#stillDetail.textContent = oneStep ? s.still[2] : s.still[1];
+  }
+
+  /** Disables an item with the reason as its tooltip, or enables it again with `null`. */
+  #setEnabled(el: HTMLButtonElement, reason: string | null): void {
+    el.disabled = reason !== null;
+    if (reason === null) el.removeAttribute('title');
+    else el.title = reason;
+  }
+
   #enabled(): HTMLButtonElement[] {
-    return this.#items.filter((item) => !item.disabled);
+    const scopes = this.#scopeGroup.hidden ? [] : Object.values(this.#scopes);
+    return [...scopes, ...Object.values(this.#formats)].filter((item) => !item.disabled);
   }
 
   #onKey(e: KeyboardEvent): void {

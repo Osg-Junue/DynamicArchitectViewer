@@ -49,18 +49,34 @@ export function mountApp(container: HTMLElement): void {
     controlIcon(CONTROL_ICONS.docs),
   );
   // The host owns the save dialog and reports the outcome itself.
-  const exportMenu = new ExportMenu(locale, (format) => {
-    vscodeApi.postMessage(
-      format === 'html'
-        ? { type: 'exportHtml', dsl }
-        : {
-            type: 'exportSvg',
-            dsl,
-            animate: format !== 'svg-still',
-            camera: format === 'svg-whole' ? 'whole' : 'follow',
-          },
-    );
-  });
+  const exportMenu = new ExportMenu(
+    locale,
+    () => {
+      const { steps } = lastValid.document;
+      const index = player?.getStepIndex() ?? null;
+      const step = index === null ? undefined : steps[index];
+      return {
+        hasSteps: steps.length > 0,
+        step:
+          index === null || !step
+            ? null
+            : { index, title: step.title, animates: step.animations.length > 0 },
+      };
+    },
+    (format, step) => {
+      vscodeApi.postMessage(
+        format === 'html'
+          ? { type: 'exportHtml', dsl }
+          : {
+              type: 'exportSvg',
+              dsl,
+              animate: format !== 'svg-still',
+              camera: format === 'svg-whole' ? 'whole' : 'follow',
+              step,
+            },
+      );
+    },
+  );
   const playbackSlot = html('div', {
     class: 'toolbar-group toolbar-left',
     'data-testid': 'toolbar-playback-slot',
@@ -149,7 +165,6 @@ export function mountApp(container: HTMLElement): void {
       player = createPlayer();
     }
     renderHighlight();
-    exportMenu.setHasSteps(lastValid.document.steps.length > 0);
     helpModal.update(dsl);
   }
 

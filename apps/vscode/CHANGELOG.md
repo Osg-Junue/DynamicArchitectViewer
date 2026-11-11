@@ -7,6 +7,7 @@ The `dav` language version is separate from the extension version.
 
 - Export SVG Image: an animated SVG that plays every step with the camera following the flow or kept on the whole diagram, or a still one of the whole diagram. It runs no script, so GitHub and GitLab show it in a README
 - The preview's Export button opens a menu: standalone HTML, animated SVG, animated SVG of the whole diagram, or still SVG
+- The Export menu can export only the step the preview shows, animated or as a still picture of that step
 
 ## 0.3.3 (2026-11-10)
 

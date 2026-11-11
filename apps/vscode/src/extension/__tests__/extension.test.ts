@@ -350,16 +350,45 @@ describe('extension commands', () => {
       host.activeTextEditor = { document: stepped };
       await run('dav.openPreview');
 
-      host.receive({ type: 'exportSvg', dsl: stepped.getText(), animate: false, camera: 'follow' });
+      host.receive({
+        type: 'exportSvg',
+        dsl: stepped.getText(),
+        animate: false,
+        camera: 'follow',
+        step: null,
+      });
       await vi.waitFor(() => expect(host.written).toHaveLength(1));
 
       expect(host.quickPick).toEqual([]);
       expect(host.written[0]).not.toContain('<animate');
 
-      host.receive({ type: 'exportSvg', dsl: stepped.getText(), animate: true, camera: 'whole' });
+      host.receive({
+        type: 'exportSvg',
+        dsl: stepped.getText(),
+        animate: true,
+        camera: 'whole',
+        step: null,
+      });
       await vi.waitFor(() => expect(host.written).toHaveLength(2));
       expect(host.written[1]).toContain('<animate');
       expect(host.written[1]).not.toContain('attributeName="viewBox"');
+    });
+
+    it('names the file after the one step the preview picked', async () => {
+      host.activeTextEditor = { document: stepped };
+      await run('dav.openPreview');
+
+      host.receive({
+        type: 'exportSvg',
+        dsl: stepped.getText(),
+        animate: false,
+        camera: 'follow',
+        step: 0,
+      });
+      await vi.waitFor(() => expect(host.written).toHaveLength(1));
+
+      expect(host.saveDefaultUri?.replaceAll('\\', '/')).toMatch(/s-step1\.svg$/);
+      expect(host.written[0]).toContain('Step 1 / 1');
     });
 
     it('reads a stepped document only once when exporting', async () => {
