@@ -1,4 +1,4 @@
-import type { VNode } from '../scene/vnode';
+import type { VElement, VNode } from '../scene/vnode';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -7,7 +7,9 @@ function setSvgAttributes(el: Element, attrs: Record<string, string | number>): 
 }
 
 /** Renders a scene VNode into SVG DOM using only safe DOM APIs (no innerHTML). */
-export function renderSvg(node: VNode): Node {
+export function renderSvg(node: VElement): SVGElement;
+export function renderSvg(node: VNode): SVGElement | Text;
+export function renderSvg(node: VNode): SVGElement | Text {
   if (typeof node === 'string') return document.createTextNode(node);
   const el = document.createElementNS(SVG_NS, node.tag);
   setSvgAttributes(el, node.attrs);

@@ -2,18 +2,13 @@ import type { Layout } from '../layout';
 import type { DavDocument } from '../model/types';
 import {
   buildDefs,
-  buildPacket,
   buildScene,
   calmFrame,
-  computePacketCalloutBox,
   followFrame,
   HOLD_MS,
   type IconShapes,
   type Packet,
-  type PacketCalloutBox,
   PHASE_MS,
-  packetBubblePath,
-  packetPosition,
   packetsOnScreen,
   type ResolvedView,
   resolveView,
@@ -23,11 +18,20 @@ import {
 } from '../scene';
 import { Camera } from './camera';
 import { CONTROL_ICONS } from './controlIcons';
-import { type Controls, createControls, SPEEDS, setButtonPressed, showPlayState } from './controls';
+import {
+  type Controls,
+  createControls,
+  isPlaybackSpeed,
+  SPEEDS,
+  setButtonPressed,
+  showPlayState,
+} from './controls';
+import { StepDock } from './dock';
 import { clear, html, renderSvg, svg } from './dom';
 import { VIEWER_STRINGS, type ViewerLocale, type ViewerStrings } from './i18n';
 import { bindKeyboard, bindPointer } from './input';
 import { Minimap } from './minimap';
+import { PacketLayer } from './packets';
 import {
   collectSceneTargets,
   outlineZones,
@@ -67,12 +71,7 @@ export interface PlayerOptions {
   fixedFrame?: boolean;
 }
 
-interface PacketEntry {
-  packet: Packet;
-  box: PacketCalloutBox | null;
-  dotEl: SVGGElement | null;
-  bubbleEl: SVGPathElement | null;
-}
+const clamp = (v: number, min: number, max: number): number => Math.max(min, Math.min(max, v));
 
 function phasesWhere(phases: readonly Packet[][], pred: (p: Packet) => boolean): number[] {
   return phases.flatMap((pkts, idx) => (pkts.some(pred) ? [idx] : []));
@@ -90,7 +89,7 @@ export class Player {
   #stepIndex: number | null;
   #playMode: 'node' | 'step' | 'all';
   #speed = 1;
-  #view!: ResolvedView;
+  #view: ResolvedView;
 
   #phase = 0;
   /** The reader turned animation off. */
@@ -102,7 +101,6 @@ export class Player {
   #elapsed = 0;
   #lastFrame = 0;
   #frame = 0;
-  #packetEls: PacketEntry[] = [];
   #targets: SceneTargets = { groups: [], flows: [], edgeLabels: [], stops: [] };
 
   readonly #camera: Camera;
@@ -115,16 +113,13 @@ export class Player {
   readonly #zoneHud: HTMLElement;
   readonly #minimap: Minimap;
   readonly #zoneLabels = new ZoneLabels();
+  readonly #packets = new PacketLayer();
+  readonly #dock: StepDock;
   readonly #controls: Controls;
   readonly #svgEl: SVGSVGElement;
   readonly #world: SVGGElement;
   readonly #sceneLayer: SVGGElement;
-  readonly #packetLayer: SVGGElement;
   readonly #titleEl: HTMLElement;
-  readonly #stepTitleEl: HTMLElement;
-  readonly #stepDescEl: HTMLElement;
-  readonly #timelineEl: HTMLElement;
-  #tickFills: HTMLElement[] = [];
   readonly #onPhaseChange: ((view: ResolvedView, phase: number) => void) | undefined;
   readonly #fixedFrame: boolean;
   readonly #cleanups: Array<() => void> = [];
@@ -137,21 +132,23 @@ export class Player {
     this.#reducedMotion =
       typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
     const hasSteps = data.document.steps.length > 0;
-    this.#stepIndex =
+    const initialStep =
       options.initialStep !== undefined
         ? hasSteps && options.initialStep !== null
-          ? Math.max(0, Math.min(options.initialStep, data.document.steps.length - 1))
+          ? clamp(options.initialStep, 0, data.document.steps.length - 1)
           : null
         : hasSteps
           ? 0
           : null;
+    this.#view = resolveView(data.document, data.layout, initialStep);
+    this.#stepIndex = this.#view.stepIndex;
     this.#playMode =
       !hasSteps || !options.autoplay || this.#reducedMotion
         ? 'node'
         : options.autoplay === 'step'
           ? 'step'
           : 'all';
-    if (options.speed !== undefined && SPEEDS.includes(options.speed as (typeof SPEEDS)[number])) {
+    if (options.speed !== undefined && isPlaybackSpeed(options.speed)) {
       this.#speed = options.speed;
     }
 
@@ -159,9 +156,8 @@ export class Player {
     this.#svgEl = svg('svg', { class: 'dav-canvas', role: 'img' });
     this.#world = svg('g', { class: 'dav-world' });
     this.#sceneLayer = svg('g');
-    this.#packetLayer = svg('g', { class: 'dav-layer-packets' });
     this.#svgEl.append(renderSvg(buildDefs()), this.#world);
-    this.#world.append(this.#sceneLayer, this.#zoneLabels.layer, this.#packetLayer);
+    this.#world.append(this.#sceneLayer, this.#zoneLabels.layer, this.#packets.layer);
     this.#camera = new Camera(
       this.#svgEl,
       this.#world,
@@ -171,14 +167,7 @@ export class Player {
     );
 
     this.#titleEl = html('h1', { class: 'dav-title' });
-    this.#stepTitleEl = html('div', { class: 'dav-step-title' });
-    this.#stepDescEl = html('div', { class: 'dav-step-desc' });
-    this.#timelineEl = html('div', {
-      class: 'dav-timeline',
-      role: 'group',
-      'aria-label': s.steps,
-      'data-testid': 'step-timeline',
-    });
+    this.#dock = new StepDock(s, (index) => this.#showStep(index));
     this.#controls = createControls(s, this.#speed, {
       selectStep: (index) => this.#showStep(index),
       togglePlay: () => this.togglePlay(),
@@ -222,17 +211,7 @@ export class Player {
         'header',
         { class: 'dav-topbar' },
         !options.playbackSlot && html('div', { class: 'dav-topbar-main' }, playbackBar),
-        html(
-          'div',
-          { class: 'dav-dock', 'data-testid': 'top-step-dock' },
-          html(
-            'div',
-            { class: 'dav-step-info', 'aria-live': 'polite' },
-            this.#stepTitleEl,
-            this.#stepDescEl,
-          ),
-          this.#timelineEl,
-        ),
+        this.#dock.element,
       ),
       this.#zoneHud,
       viewport,
@@ -267,7 +246,7 @@ export class Player {
     this.#syncZones();
     this.#renderChrome();
     this.#updateMotionButton();
-    this.#showStep(this.#stepIndex);
+    this.#applyView(this.#view);
     this.#frameStep(false);
   }
 
@@ -489,27 +468,7 @@ export class Player {
         html('option', { value: String(i) }, `${i + 1}. ${step.title}`),
       );
     });
-
-    clear(this.#timelineEl);
-    this.#timelineEl.hidden = noSteps;
-    this.#tickFills = doc.steps.map(() =>
-      html('span', { class: 'dav-tick-fill', 'aria-hidden': 'true' }),
-    );
-    doc.steps.forEach((step, i) => {
-      const tick = html(
-        'button',
-        {
-          type: 'button',
-          class: 'dav-tick',
-          title: step.title,
-          'aria-label': `${i + 1}. ${step.title}`,
-        },
-        String(i + 1).padStart(2, '0'),
-        this.#tickFills[i],
-      );
-      tick.addEventListener('click', () => this.#showStep(i));
-      this.#timelineEl.append(tick);
-    });
+    this.#dock.setSteps(doc.steps);
   }
 
   /** Recomputes what depends on the diagram's zones, after a new document arrived. */
@@ -528,8 +487,12 @@ export class Player {
   }
 
   #showStep(index: number | null, opts: { keepPhase?: boolean } = {}): void {
-    this.#view = resolveView(this.#data.document, this.#data.layout, index);
-    this.#stepIndex = this.#view.stepIndex;
+    this.#applyView(resolveView(this.#data.document, this.#data.layout, index), opts);
+  }
+
+  #applyView(view: ResolvedView, opts: { keepPhase?: boolean } = {}): void {
+    this.#view = view;
+    this.#stepIndex = view.stepIndex;
     clear(this.#sceneLayer);
     this.#sceneLayer.append(renderSvg(buildScene(this.#view, this.#data.icons)));
     this.#zoneLabels.collect(this.#sceneLayer, this.#view, this.#data.document.groups);
@@ -549,8 +512,7 @@ export class Player {
   }
 
   #renderPackets(): void {
-    clear(this.#packetLayer);
-    this.#packetEls = [];
+    this.#packets.clear();
     const stopped = this.#isStopped();
     this.#onPhaseChange?.(this.#view, stopped && !this.#pinned ? -1 : this.#phase);
     const phases = this.#view.phases;
@@ -560,15 +522,14 @@ export class Player {
       return;
     }
 
+    const active = phases[this.#phase] ?? [];
     if (!stopped) {
-      for (const packet of phases[this.#phase] ?? []) {
-        this.#addPacket(packet, this.#packetProgress(packet));
-      }
+      this.#packets.render(active, this.#data.icons, (packet) =>
+        Math.min(1, this.#elapsed / packet.durationMs),
+      );
     } else if (this.#pinned) {
       // A picked phase is parked at the middle of its path.
-      for (const packet of phases[this.#phase] ?? []) {
-        this.#addPacket(packet, packet.roundTrip ? 0.25 : 0.5);
-      }
+      this.#packets.render(active, this.#data.icons, (packet) => (packet.roundTrip ? 0.25 : 0.5));
     }
     syncPhaseHighlights(this.#targets, phases, this.#phase, stopped, this.#pinned);
     if (this.#followAnim) this.#focusCurrentPhase(!stopped);
@@ -591,16 +552,6 @@ export class Player {
 
   #phaseMs(index: number): number {
     return this.#view.phaseDurations[index] ?? PHASE_MS;
-  }
-
-  #packetProgress(packet: Packet): number {
-    return Math.min(1, this.#elapsed / packet.durationMs);
-  }
-
-  #placePackets(): void {
-    for (const entry of this.#packetEls) {
-      this.#placePacket(entry, this.#packetProgress(entry.packet));
-    }
   }
 
   /** Says which zones the current phase moves between, and outlines them. */
@@ -637,67 +588,23 @@ export class Player {
     if (frame) this.#camera.frame(frame, smooth);
   }
 
-  #addPacket(packet: Packet, t: number): void {
-    const el = renderSvg(buildPacket(packet, this.#data.icons, t)) as SVGGElement;
-    this.#packetLayer.append(el);
-    const dotEl = el.querySelector('.dav-packet-dot') as SVGGElement | null;
-    const bubbleEl = el.querySelector('.dav-packet-bubble') as SVGPathElement | null;
-    const entry = { packet, box: computePacketCalloutBox(packet), dotEl, bubbleEl };
-    this.#packetEls.push(entry);
-    this.#placePacket(entry, t);
-  }
-
-  #placePacket(entry: PacketEntry, t: number): void {
-    const p = packetPosition(entry.packet, t);
-    entry.dotEl?.setAttribute('transform', `translate(${p.x.toFixed(1)} ${p.y.toFixed(1)})`);
-    if (entry.bubbleEl && entry.box) {
-      entry.bubbleEl.setAttribute('d', packetBubblePath(entry.box, p));
-    }
-  }
-
   #updateDock(): void {
-    const s = this.#strings;
-    const { steps } = this.#data.document;
-    if (this.#view.stepIndex === null) {
-      this.#stepTitleEl.textContent = s.overview;
-      this.#stepDescEl.textContent = s.overviewHint;
-      this.#controls.stepSelect.value = 'overview';
-    } else {
-      clear(this.#stepTitleEl);
-      this.#stepTitleEl.append(
-        html('span', { class: 'dav-step-no' }, s.stepLabel(this.#view.stepIndex + 1, steps.length)),
-        this.#view.stepTitle ?? '',
-      );
-      this.#stepDescEl.textContent = this.#view.description ?? '';
-      this.#controls.stepSelect.value = String(this.#view.stepIndex);
-    }
-
-    const current = this.#view.stepIndex;
-    Array.from(this.#timelineEl.children).forEach((tick, i) => {
-      tick.classList.toggle('is-current', i === current);
-      tick.classList.toggle('is-past', current !== null && i < current);
-      if (i === current) tick.setAttribute('aria-current', 'step');
-      else tick.removeAttribute('aria-current');
-    });
-    this.#tickFills.forEach((fill, i) => {
-      fill.style.transform = current !== null && i < current ? 'scaleX(1)' : 'scaleX(0)';
-    });
+    this.#controls.stepSelect.value =
+      this.#view.stepIndex === null ? 'overview' : String(this.#view.stepIndex);
+    this.#dock.showStep(this.#view, this.#data.document.steps.length);
     this.#updateStepProgress();
-
     this.#updatePlayButton();
   }
 
   /** Fills the current step's ruler graduation in proportion to its animation phases. */
   #updateStepProgress(): void {
-    const fill = this.#stepIndex === null ? undefined : this.#tickFills[this.#stepIndex];
-    if (!fill) return;
-    const durations = this.#view.phaseDurations;
-    const total = durations.reduce((sum, ms) => sum + ms, 0);
-    const done =
-      durations.slice(0, this.#phase).reduce((sum, ms) => sum + ms, 0) +
-      Math.min(this.#elapsed, durations[this.#phase] ?? 0);
-    const progress = total === 0 || this.#isStopped() ? 1 : Math.min(1, done / total);
-    fill.style.transform = `scaleX(${progress.toFixed(3)})`;
+    this.#dock.updateProgress(
+      this.#stepIndex,
+      this.#view.phaseDurations,
+      this.#phase,
+      this.#elapsed,
+      this.#isStopped(),
+    );
   }
 
   #updatePlayButton(): void {
@@ -739,14 +646,14 @@ export class Player {
     const phases = this.#isStopped() ? [] : this.#view.phases;
     if (this.#playMode === 'node') {
       if (phases.length > 0) {
-        this.#placePackets();
+        this.#packets.place(this.#elapsed);
         if (this.#elapsed >= this.#phaseMs(this.#phase) + 400) {
           this.#elapsed = 0;
-          for (const entry of this.#packetEls) this.#placePacket(entry, 0);
+          this.#packets.reset();
         }
       }
     } else if (this.#phase < phases.length) {
-      this.#placePackets();
+      this.#packets.place(this.#elapsed);
       if (this.#elapsed >= this.#phaseMs(this.#phase)) {
         this.#phase++;
         this.#elapsed = 0;

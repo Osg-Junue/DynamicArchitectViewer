@@ -1,10 +1,12 @@
 import { parse } from '../dsl';
 import { computeLayout, type Layout } from '../layout';
-import type { DavDocument, IconName } from '../model/types';
+import type { DavDocument, DavLocale } from '../model/types';
 import { EXPORT_DATA_ELEMENT_ID } from '../runtime/constants';
 import playerStyles from '../runtime/generated/player.css?raw';
 import runtimeScript from '../runtime/generated/player.js?raw';
-import { ICON_SHAPES, type IconShapes } from '../scene/icons';
+import type { IconShapes } from '../scene/icons';
+import { collectUsedIcons } from './icons';
+import { escapeHtml } from './xml';
 
 export const EXPORT_FORMAT = 'dynamic-architect-viewer';
 export const EXPORT_FORMAT_VERSION = 1;
@@ -14,7 +16,7 @@ export { EXPORT_DATA_ELEMENT_ID };
 export interface ExportPayload {
   format: typeof EXPORT_FORMAT;
   version: number;
-  locale: 'ja' | 'en';
+  locale: DavLocale;
   dsl: string;
   document: DavDocument;
   layout: Layout;
@@ -27,7 +29,7 @@ const PLAYER_CSS = playerStyles.replace(/\/\*[\s\S]*?\*\//g, '').trim();
 const PAGE_STYLES = `html,body{margin:0;height:100%;background:var(--dav-bg);overflow:hidden}${PLAYER_CSS}`;
 
 export interface ExportOptions {
-  locale?: 'ja' | 'en';
+  locale?: DavLocale;
 }
 
 /**
@@ -45,7 +47,7 @@ export async function exportHtml(dsl: string, options: ExportOptions = {}): Prom
     dsl,
     document,
     layout: computeLayout(document),
-    icons: usedIcons(document),
+    icons: collectUsedIcons(document),
   };
 
   assertSafeInline(runtimeScript, 'runtime script');
@@ -81,18 +83,6 @@ export async function exportHtml(dsl: string, options: ExportOptions = {}): Prom
   ].join('\n');
 }
 
-function usedIcons(document: DavDocument): IconShapes {
-  const names = new Set<IconName>(document.nodes.map((node) => node.icon));
-  for (const step of document.steps) {
-    for (const animation of step.animations) {
-      if (animation.icon !== undefined) names.add(animation.icon);
-    }
-  }
-  const icons: IconShapes = {};
-  for (const name of names) icons[name] = ICON_SHAPES[name];
-  return icons;
-}
-
 /**
  * Makes JSON safe inside a <script> element: `<`, `>` and `&` can never form
  * `</script>` or `<!--`, and line/paragraph separators are escaped. Still valid JSON.
@@ -104,14 +94,6 @@ export function escapeJsonForHtml(json: string): string {
     .replace(/&/g, '\\u0026')
     .replace(/\u2028/g, '\\u2028')
     .replace(/\u2029/g, '\\u2029');
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
 }
 
 function assertSafeInline(content: string, what: string): void {

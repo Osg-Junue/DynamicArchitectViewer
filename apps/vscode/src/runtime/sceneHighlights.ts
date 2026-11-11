@@ -8,18 +8,18 @@ import {
   zoneColor,
 } from '../scene';
 
-export interface GroupTarget {
+interface GroupTarget {
   id: string;
   el: SVGElement;
   rect: SVGRectElement | null;
 }
 
-export interface EdgeTarget {
+interface EdgeTarget {
   edgeId: string;
   el: SVGElement;
 }
 
-export interface StopTarget {
+interface StopTarget {
   phase: string | null;
   el: SVGElement;
   activeFill: string | null;

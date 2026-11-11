@@ -14,7 +14,7 @@ import {
   wholeDiagramFrame,
 } from '../../scene';
 import { exportSvg, planCamera, schedule } from '../svg';
-import { toXml } from '../xml';
+import { escapeHtml, toXml } from '../xml';
 
 const CANVAS: Size = { width: 960, height: 540 };
 
@@ -690,6 +690,7 @@ describe('toXml', () => {
     expect(toXml(h('text', { 'data-x': '"<&>' }, '</text><script>'))).toBe(
       '<text data-x="&quot;&lt;&amp;&gt;">&lt;/text&gt;&lt;script&gt;</text>',
     );
+    expect(escapeHtml('A & "B" <C>')).toBe('A &amp; &quot;B&quot; &lt;C&gt;');
   });
 
   it('drops characters XML does not allow', () => {

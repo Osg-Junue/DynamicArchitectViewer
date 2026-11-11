@@ -4,6 +4,10 @@ import type { ViewerStrings } from './i18n';
 
 export const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
 
+export function isPlaybackSpeed(value: number): value is (typeof SPEEDS)[number] {
+  return SPEEDS.some((s) => s === value);
+}
+
 const ZOOM_STEP = 1.2;
 
 export interface ControlActions {
