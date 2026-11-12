@@ -1466,6 +1466,16 @@ step "Step 4" {
     const diagBox = diagPkt && computePacketCalloutBox(diagPkt);
     expect(diagBox?.placement).toBe('below');
 
+    // Example 07 Steps 2 & 3: unobstructed Row-0 forward flows stay 'above'
+    const ex07Step2 = resolveView(ex07Doc, ex07Layout, 1);
+    for (const pkt of ex07Step2.phases.flat()) {
+      expect(computePacketCalloutBox(pkt)?.placement).toBe('above');
+    }
+    const ex07Step3 = resolveView(ex07Doc, ex07Layout, 2);
+    for (const pkt of ex07Step3.phases.flat()) {
+      expect(computePacketCalloutBox(pkt)?.placement).toBe('above');
+    }
+
     // Example 05 Step 6 parallel response + event, and Steps 7-8 bottom Async processing
     const ex05Dsl = readFileSync(
       resolve(repoRoot, 'examples/05-sequence-payment-retry.dav'),
@@ -1474,11 +1484,18 @@ step "Step 4" {
     const ex05Doc = parse(ex05Dsl).document;
     const ex05Layout = computeLayout(ex05Doc);
     const ex05Step6 = resolveView(ex05Doc, ex05Layout, 5);
+    const asyncGroup6 = ex05Step6.groups.find((g) => g.id === 'async');
     const [createdPkt, confirmedPkt] = ex05Step6.phases[2] ?? [];
     const createdBox = createdPkt && computePacketCalloutBox(createdPkt);
     const confirmedBox = confirmedPkt && computePacketCalloutBox(confirmedPkt);
     expect(createdBox?.placement).toBe('above');
     expect(confirmedBox?.placement).toBe('below');
+    expect(asyncGroup6 && confirmedBox).toBeTruthy();
+    if (asyncGroup6 && confirmedBox) {
+      // Tucks cleanly into the pocket left of Async processing rather than dropping below it
+      expect(confirmedBox.cx + confirmedBox.halfW).toBeLessThanOrEqual(asyncGroup6.rect.x - 16);
+      expect(confirmedBox.boxTop).toBeLessThan(asyncGroup6.rect.y + asyncGroup6.rect.height);
+    }
 
     const ex05Step7 = resolveView(ex05Doc, ex05Layout, 6);
     const asyncGroup7 = ex05Step7.groups.find((g) => g.id === 'async');
@@ -1595,6 +1612,22 @@ step "UpperShelf" {
     \`\`\`
   }
 }
+step "WorkerDualShelf" {
+  animate worker --> db : "UPDATE status" [desc: "決済完了ステータスへ更新"] {
+    code sql "Confirm Order" \`\`\`
+      UPDATE orders SET status = 'CONFIRMED'
+      WHERE id = 'ord_01JCK9X7';
+    \`\`\`
+  }
+  animate worker --> queue : "OrderConfirmed" [icon: mail, parallel: true, color: purple, desc: "出荷ワーカー向け確定イベントを発行"] {
+    code json "Event Payload" \`\`\`
+      {
+        "event": "order.confirmed",
+        "orderId": "ord_01JCK9X7"
+      }
+    \`\`\`
+  }
+}
 `).document;
     const stressLayout = computeLayout(stressDoc);
 
@@ -1615,13 +1648,15 @@ step "UpperShelf" {
       expect(straddlesLeft).toBe(false);
     }
 
-    const shelfView = resolveView(stressDoc, stressLayout, 1);
-    const [up0, up1] = shelfView.phases[0] ?? [];
-    const upBox0 = up0 && computePacketCalloutBox(up0);
-    const upBox1 = up1 && computePacketCalloutBox(up1);
-    expect(upBox0?.placement).toBe('above');
-    expect(upBox1?.placement).toBe('above');
-    expect(upBox0?.boxBottom).toBe(upBox1?.boxBottom);
+    for (const stepIdx of [1, 2]) {
+      const shelfView = resolveView(stressDoc, stressLayout, stepIdx);
+      const [up0, up1] = shelfView.phases[0] ?? [];
+      const upBox0 = up0 && computePacketCalloutBox(up0);
+      const upBox1 = up1 && computePacketCalloutBox(up1);
+      expect(upBox0?.placement).toBe('above');
+      expect(upBox1?.placement).toBe('above');
+      expect(upBox0?.boxBottom).toBe(upBox1?.boxBottom);
+    }
 
     // 4. Parallel 'below' callouts within PARALLEL_SHELF_TOLERANCE align onto shared maxTop shelf
     const lowLeft: Packet = {

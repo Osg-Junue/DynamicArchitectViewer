@@ -96,8 +96,12 @@ export interface Packet {
   dimmedNodeAreas?: readonly Rect[];
   /** Core rects of all visible nodes for scoring leader-line station/label crossings at midpoint. */
   nodeCores?: readonly Rect[];
+  /** Core rects of the packet's own endpoint nodes (`from` and `to`). */
+  endpointNodeCores?: readonly Rect[];
   /** Core rects of non-endpoint visible nodes for scoring pointer sweep crossings along the rail. */
   otherNodeCores?: readonly Rect[];
+  /** Bounding rects of all groups for penalizing full top-to-bottom leader traversals across zones. */
+  groupRects?: readonly Rect[];
   /** True when the packet rides a lower reverse track or downward-bowed curve. */
   preferBelow?: boolean;
   /** How long this packet travels at 1x. */
@@ -343,6 +347,7 @@ function resolvePhases(
     },
   }));
   const nodeCores: Rect[] = nodeCoreEntries.map((e) => e.core);
+  const groupRects: Rect[] = groups.map((g) => g.rect);
 
   const phases: Packet[][] = [];
   for (const a of ctx.step?.animations ?? []) {
@@ -372,6 +377,9 @@ function resolvePhases(
     const preferBelow =
       (isReturnTrack && toNode.rect.x < fromNode.rect.x) ||
       pointAt(path, 0.5).y > Math.max(path.p0.y, path.p3.y) + 18;
+    const endpointNodeCores = nodeCoreEntries
+      .filter((e) => e.id === a.from || e.id === a.to)
+      .map((e) => e.core);
     const otherNodeCores = nodeCoreEntries
       .filter((e) => e.id !== a.from && e.id !== a.to)
       .map((e) => e.core);
@@ -390,7 +398,9 @@ function resolvePhases(
     };
     if (dimmedNodeAreas.length > 0) packet.dimmedNodeAreas = dimmedNodeAreas;
     if (nodeCores.length > 0) packet.nodeCores = nodeCores;
+    if (endpointNodeCores.length > 0) packet.endpointNodeCores = endpointNodeCores;
     if (otherNodeCores.length > 0) packet.otherNodeCores = otherNodeCores;
+    if (groupRects.length > 0) packet.groupRects = groupRects;
     if (preferBelow) packet.preferBelow = true;
     const fromZone = zoneOf.get(a.from);
     const toZone = zoneOf.get(a.to);

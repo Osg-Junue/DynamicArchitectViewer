@@ -57,13 +57,15 @@ const CALLOUT_SHIFT_SLACK = 1;
 const DIMMED_OBSTACLE_MAX_LIFT = 280;
 const PARALLEL_SHELF_TOLERANCE = 48;
 
-const POCKET_MAX_SHIFT = 155;
+const POCKET_MIN_MAX_SHIFT = 200;
 const SHIFT_COST_WEIGHT = 0.65;
+const OFF_CARD_SHIFT_WEIGHT = 2.5;
 const LEADER_CROSSING_PENALTY = 120;
+const GROUP_TRAVERSAL_PENALTY = 240;
 const DIMMED_OVERLAP_PENALTY = 240;
 const RAIL_OVERLAP_PENALTY = 500;
 const RAIL_CLEARANCE_PAD = 14;
-const DEFAULT_BELOW_BIAS = 22;
+const DEFAULT_BELOW_BIAS = 40;
 const PREFER_BELOW_ABOVE_BIAS = 14;
 const CLASH_PENALTY = 1_000_000;
 const RAIL_SAMPLE_TS = [0, 0.25, 0.5, 0.75, 1] as const;
@@ -573,26 +575,50 @@ function scoreCallout(
 ): number {
   const anchorY = box.placement === 'above' ? box.boxBottom : box.boxTop;
   const verticalDist = Math.abs(anchorY - mid.y);
-  const shiftCost = Math.abs(box.cx - mid.x) * SHIFT_COST_WEIGHT;
+  const horizOffset = Math.abs(box.cx - mid.x);
+  const offCardExcess = Math.max(0, horizOffset - box.halfW);
+  const shiftCost = horizOffset * SHIFT_COST_WEIGHT + offCardExcess * OFF_CARD_SHIFT_WEIGHT;
 
   const anchor: Point = { x: box.cx, y: anchorY };
-  let leaderCrossings = 0;
-  const crossedCores = new Set<Rect>();
-  for (const core of packet.nodeCores ?? []) {
-    if (segmentIntersectsRect(anchor, mid, core)) {
-      crossedCores.add(core);
-      leaderCrossings++;
-    }
-  }
-  if (packet.otherNodeCores && packet.otherNodeCores.length > 0) {
+  let crossingCost = 0;
+  if (packet.otherNodeCores !== undefined || packet.endpointNodeCores !== undefined) {
     const p20 = pointAt(packet.path, 0.2);
     const p80 = pointAt(packet.path, 0.8);
-    for (const core of packet.otherNodeCores) {
-      if (crossedCores.has(core)) continue;
-      if (segmentIntersectsRect(anchor, p20, core) || segmentIntersectsRect(anchor, p80, core)) {
-        crossedCores.add(core);
-        leaderCrossings++;
+    for (const core of packet.otherNodeCores ?? []) {
+      if (
+        segmentIntersectsRect(anchor, mid, core) ||
+        segmentIntersectsRect(anchor, p20, core) ||
+        segmentIntersectsRect(anchor, p80, core)
+      ) {
+        crossingCost += LEADER_CROSSING_PENALTY;
       }
+    }
+  } else {
+    for (const core of packet.nodeCores ?? []) {
+      if (segmentIntersectsRect(anchor, mid, core)) {
+        crossingCost += LEADER_CROSSING_PENALTY;
+      }
+    }
+  }
+
+  let groupTraversals = 0;
+  const minSegY = Math.min(anchorY, mid.y);
+  const maxSegY = Math.max(anchorY, mid.y);
+  for (const g of packet.groupRects ?? []) {
+    const innerTop = g.y + 34;
+    const innerBottom = g.y + g.height - 16;
+    if (innerBottom <= innerTop || minSegY >= innerTop || maxSegY <= innerBottom) continue;
+    const isMultiRowOrDetached =
+      g.height > 220 || Math.max(g.y - minSegY, maxSegY - (g.y + g.height)) > 36;
+    if (!isMultiRowOrDetached) continue;
+    const body: Rect = {
+      x: g.x - 12,
+      y: innerTop,
+      width: g.width + 24,
+      height: innerBottom - innerTop,
+    };
+    if (segmentIntersectsRect(anchor, mid, body)) {
+      groupTraversals++;
     }
   }
 
@@ -611,7 +637,8 @@ function scoreCallout(
   return (
     verticalDist +
     shiftCost +
-    leaderCrossings * LEADER_CROSSING_PENALTY +
+    crossingCost +
+    groupTraversals * GROUP_TRAVERSAL_PENALTY +
     dimmedBodyOverlaps * DIMMED_OVERLAP_PENALTY +
     railOverlaps * RAIL_OVERLAP_PENALTY +
     placementBias
@@ -637,14 +664,15 @@ function bestPocketCandidate(
   mid: Point,
   otherRailSamples: readonly Point[],
 ): SoloCandidate {
+  const maxPocketShift = Math.max(POCKET_MIN_MAX_SHIFT, card.halfW + 24);
   const shifts: number[] = [0];
   for (const area of packet.labelAreas) {
     const overlapsHoriz = mid.x - card.halfW < area.x + area.width && mid.x + card.halfW > area.x;
     if (!overlapsHoriz) continue;
     const leftShift = area.x - CALLOUT_LABEL_CLEARANCE - card.halfW - mid.x;
-    if (Math.abs(leftShift) <= POCKET_MAX_SHIFT) shifts.push(leftShift);
+    if (Math.abs(leftShift) <= maxPocketShift) shifts.push(leftShift);
     const rightShift = area.x + area.width + CALLOUT_LABEL_CLEARANCE + card.halfW - mid.x;
-    if (Math.abs(rightShift) <= POCKET_MAX_SHIFT) shifts.push(rightShift);
+    if (Math.abs(rightShift) <= maxPocketShift) shifts.push(rightShift);
   }
 
   packet.calloutPlacement = placement;
