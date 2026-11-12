@@ -1,9 +1,11 @@
-import type { Rect } from '../layout';
+import { type Rect, rectOverlaps } from '../layout';
 import { isWide, normalizeCodeIndent } from '../model/text';
 import type { CodeBlock } from '../model/types';
 import { clamp, type Point, pointAt } from './geometry';
 import type { Packet } from './resolve';
 import { fitText, type WrapTextOptions, wrapText } from './text';
+
+export type CalloutPlacement = 'above' | 'below';
 
 export interface PacketCalloutCodeBox {
   header: string;
@@ -20,6 +22,7 @@ export interface PacketCalloutBox {
   boxTop: number;
   boxBottom: number;
   padX: number;
+  placement: CalloutPlacement;
   label: string;
   descLines: string[];
   code?: PacketCalloutCodeBox;
@@ -45,7 +48,7 @@ const CALLOUT_CODE_MAX_LINES = 10;
 const CALLOUT_CODE_MAX_TEXT_WIDTH = 404;
 export const CALLOUT_CODE_HEADER_HEIGHT = 28;
 
-/** Keeps a callout above its endpoint nodes, including their badges and crop marks. */
+/** Keeps a callout clear of its endpoint nodes, including their badges, crop marks, and subtitles. */
 const CALLOUT_NODE_CLEARANCE = 16;
 const CALLOUT_LABEL_CLEARANCE = 6;
 export const CALLOUT_GAP = 16;
@@ -53,6 +56,17 @@ export const CALLOUT_GAP = 16;
 const CALLOUT_SHIFT_SLACK = 1;
 const DIMMED_OBSTACLE_MAX_LIFT = 280;
 const PARALLEL_SHELF_TOLERANCE = 48;
+
+const POCKET_MAX_SHIFT = 155;
+const SHIFT_COST_WEIGHT = 0.65;
+const LEADER_CROSSING_PENALTY = 120;
+const DIMMED_OVERLAP_PENALTY = 240;
+const RAIL_OVERLAP_PENALTY = 500;
+const RAIL_CLEARANCE_PAD = 14;
+const DEFAULT_BELOW_BIAS = 22;
+const PREFER_BELOW_ABOVE_BIAS = 14;
+const CLASH_PENALTY = 1_000_000;
+const RAIL_SAMPLE_TS = [0, 0.25, 0.5, 0.75, 1] as const;
 
 type CalloutTextStyle = 'normal' | 'bold' | 'mono';
 
@@ -205,12 +219,17 @@ function balanceCalloutLines(text: string, descMaxW: number, minBalanceW: number
   return best;
 }
 
-/**
- * Computes the stationary speech-bubble box positioned above the packet's edge path.
- * Keeping the bubble body stationary while only its pointer tip tracks the moving dot
- * eliminates eye-tracking fatigue when reading multi-line descriptions and code blocks.
- */
-export function computePacketCalloutBox(packet: Packet): PacketCalloutBox | null {
+interface MeasuredCalloutCard {
+  halfW: number;
+  height: number;
+  padX: number;
+  label: string;
+  descLines: string[];
+  code?: PacketCalloutCodeBox;
+  markerClearance: number;
+}
+
+function measureCalloutCard(packet: Packet): MeasuredCalloutCard | null {
   const codeSpec = packet.code ? prepareCodeSpec(packet.code) : undefined;
   const label = packet.label
     ? fitCalloutText(packet.label, CALLOUT_LABEL_SIZE, CALLOUT_MAX_TEXT_WIDTH, 'bold')
@@ -269,9 +288,16 @@ export function computePacketCalloutBox(packet: Packet): PacketCalloutBox | null
   const width = Math.max(minW, Math.ceil(contentW + padX * 2));
   const halfW = width / 2;
 
-  let code: PacketCalloutCodeBox | undefined;
+  const card: MeasuredCalloutCard = {
+    halfW,
+    height,
+    padX,
+    label,
+    descLines,
+    markerClearance: packet.icon ? 21 : 13,
+  };
   if (codeSpec) {
-    code = {
+    card.code = {
       header: codeSpec.header,
       headerHeight: codeSpec.headerHeight,
       lines: codeSpec.lines,
@@ -280,41 +306,88 @@ export function computePacketCalloutBox(packet: Packet): PacketCalloutBox | null
       height: codeSpec.height,
     };
   }
+  return card;
+}
 
-  const mid = pointAt(packet.path, 0.5);
-  const minY = Math.min(
-    packet.path.p0.y,
-    packet.path.p1.y,
-    packet.path.p2.y,
-    packet.path.p3.y,
-    mid.y,
-  );
+function placeCalloutBox(
+  packet: Packet,
+  card: MeasuredCalloutCard,
+  mid = pointAt(packet.path, 0.5),
+): PacketCalloutBox {
+  const placement: CalloutPlacement = packet.calloutPlacement ?? 'above';
+  const { halfW, height, padX, label, descLines, code, markerClearance } = card;
   const cx = mid.x + (packet.calloutShift ?? 0);
-  const baseBottom = Math.min(mid.y - 36, minY - 26, packet.clearTop - CALLOUT_NODE_CLEARANCE);
-  let boxBottom =
-    packet.calloutBottom !== undefined ? Math.min(baseBottom, packet.calloutBottom) : baseBottom;
 
-  const obstacles = [
-    ...packet.labelAreas.map((area) => ({ area, hard: true })),
-    ...(packet.dimmedNodeAreas ?? []).map((area) => ({ area, hard: false })),
-  ].sort((a, b) => b.area.y - a.area.y);
+  let boxTop: number;
+  let boxBottom: number;
 
-  for (let pass = 0; pass < 8; pass++) {
-    let moved = false;
-    for (const { area, hard } of obstacles) {
-      const overlapsX = cx - halfW < area.x + area.width && cx + halfW > area.x;
-      const overlapsY = boxBottom - height < area.y + area.height && boxBottom > area.y;
-      if (!overlapsX || !overlapsY) continue;
-      const lifted = area.y - CALLOUT_LABEL_CLEARANCE;
-      if (!hard && baseBottom - lifted > DIMMED_OBSTACLE_MAX_LIFT) continue;
-      if (lifted < boxBottom) {
-        boxBottom = lifted;
-        moved = true;
+  if (placement === 'above') {
+    const minY = Math.min(
+      packet.path.p0.y,
+      packet.path.p1.y,
+      packet.path.p2.y,
+      packet.path.p3.y,
+      mid.y,
+    );
+    const baseBottom = Math.min(mid.y - 36, minY - 26, packet.clearTop - CALLOUT_NODE_CLEARANCE);
+    boxBottom =
+      packet.calloutBottom !== undefined ? Math.min(baseBottom, packet.calloutBottom) : baseBottom;
+
+    const obstacles = [
+      ...packet.labelAreas.map((area) => ({ area, hard: true })),
+      ...(packet.dimmedNodeAreas ?? []).map((area) => ({ area, hard: false })),
+    ].sort((a, b) => b.area.y - a.area.y);
+
+    for (let pass = 0; pass < 8; pass++) {
+      let moved = false;
+      for (const { area, hard } of obstacles) {
+        const overlapsX = cx - halfW < area.x + area.width && cx + halfW > area.x;
+        const overlapsY = boxBottom - height < area.y + area.height && boxBottom > area.y;
+        if (!overlapsX || !overlapsY) continue;
+        const lifted = area.y - CALLOUT_LABEL_CLEARANCE;
+        if (!hard && baseBottom - lifted > DIMMED_OBSTACLE_MAX_LIFT) continue;
+        if (lifted < boxBottom) {
+          boxBottom = lifted;
+          moved = true;
+        }
       }
+      if (!moved) break;
     }
-    if (!moved) break;
+    boxTop = boxBottom - height;
+  } else {
+    const maxY = Math.max(
+      packet.path.p0.y,
+      packet.path.p1.y,
+      packet.path.p2.y,
+      packet.path.p3.y,
+      mid.y,
+    );
+    const clearBottom = packet.clearBottom ?? maxY;
+    const baseTop = Math.max(mid.y + 38, maxY + 26, clearBottom + CALLOUT_NODE_CLEARANCE);
+    boxTop = packet.calloutTop !== undefined ? Math.max(baseTop, packet.calloutTop) : baseTop;
+
+    const obstacles = [
+      ...packet.labelAreas.map((area) => ({ area, hard: true })),
+      ...(packet.dimmedNodeAreas ?? []).map((area) => ({ area, hard: false })),
+    ].sort((a, b) => a.area.y + a.area.height - (b.area.y + b.area.height));
+
+    for (let pass = 0; pass < 8; pass++) {
+      let moved = false;
+      for (const { area, hard } of obstacles) {
+        const overlapsX = cx - halfW < area.x + area.width && cx + halfW > area.x;
+        const overlapsY = boxTop < area.y + area.height && boxTop + height > area.y;
+        if (!overlapsX || !overlapsY) continue;
+        const pushed = area.y + area.height + CALLOUT_LABEL_CLEARANCE;
+        if (!hard && pushed - baseTop > DIMMED_OBSTACLE_MAX_LIFT) continue;
+        if (pushed > boxTop) {
+          boxTop = pushed;
+          moved = true;
+        }
+      }
+      if (!moved) break;
+    }
+    boxBottom = boxTop + height;
   }
-  const boxTop = boxBottom - height;
 
   const box: PacketCalloutBox = {
     cx,
@@ -322,12 +395,24 @@ export function computePacketCalloutBox(packet: Packet): PacketCalloutBox | null
     boxTop,
     boxBottom,
     padX,
+    placement,
     label,
     descLines,
-    markerClearance: packet.icon ? 21 : 13,
+    markerClearance,
   };
   if (code) box.code = code;
   return box;
+}
+
+/**
+ * Computes the stationary speech-bubble box positioned above or below the packet's edge path.
+ * Keeping the bubble body stationary while only its pointer tip tracks the moving dot
+ * eliminates eye-tracking fatigue when reading multi-line descriptions and code blocks.
+ */
+export function computePacketCalloutBox(packet: Packet): PacketCalloutBox | null {
+  const card = measureCalloutCard(packet);
+  if (!card) return null;
+  return placeCalloutBox(packet, card);
 }
 
 export const calloutRect = (box: PacketCalloutBox): Rect => ({
@@ -338,18 +423,55 @@ export const calloutRect = (box: PacketCalloutBox): Rect => ({
 });
 
 /**
- * Builds the path of the stationary annotation box and its leader line, whose end
- * dynamically follows `dot` along the edge path.
+ * Builds the path of the stationary annotation box and its leader pointer, whose tip
+ * dynamically follows `dot` along the edge path while keeping a constant 13-command
+ * clockwise path structure for SMIL `<animate attributeName="d">` interpolation.
  */
 export function packetBubblePath(
   box: PacketCalloutBox,
   dot: Point,
   markerClearance = box.markerClearance ?? 13,
 ): string {
-  const { cx, halfW, boxTop, boxBottom } = box;
+  const { cx, halfW, boxTop, boxBottom, placement } = box;
   const left = cx - halfW;
   const right = cx + halfW;
   const r = Math.min(CALLOUT_RADIUS, halfW, (boxBottom - boxTop) / 2);
+  const n = (value: number) => value.toFixed(1);
+
+  if (placement === 'below') {
+    const dy = Math.min(-14, dot.y - boxTop);
+    const rawDist = Math.hypot(dot.x - cx, Math.abs(dy));
+    const tailHalf = Math.min(
+      clamp(300 / Math.max(50, rawDist), 1.8, 5.5),
+      Math.max(0, halfW - r - 6),
+    );
+    const maxOffset = Math.max(0, halfW - r - tailHalf - 8);
+    const baseX = cx + clamp((dot.x - cx) * 0.3, -maxOffset, maxOffset);
+    const baseLeft = baseX - tailHalf;
+    const baseRight = baseX + tailHalf;
+    const dx = dot.x - baseX;
+    const dist = Math.hypot(dx, dy);
+    const pull = Math.min(markerClearance, dist * 0.42);
+    const tipX = dot.x - (dx / dist) * pull;
+    const tipY = Math.min(boxTop - 4, dot.y - (dy / dist) * pull);
+
+    return [
+      `M ${n(left + r)} ${n(boxTop)}`,
+      `H ${n(baseLeft)}`,
+      `L ${n(tipX)} ${n(tipY)}`,
+      `L ${n(baseRight)} ${n(boxTop)}`,
+      `H ${n(right - r)}`,
+      `Q ${n(right)} ${n(boxTop)} ${n(right)} ${n(boxTop + r)}`,
+      `V ${n(boxBottom - r)}`,
+      `Q ${n(right)} ${n(boxBottom)} ${n(right - r)} ${n(boxBottom)}`,
+      `H ${n(left + r)}`,
+      `Q ${n(left)} ${n(boxBottom)} ${n(left)} ${n(boxBottom - r)}`,
+      `V ${n(boxTop + r)}`,
+      `Q ${n(left)} ${n(boxTop)} ${n(left + r)} ${n(boxTop)}`,
+      'Z',
+    ].join(' ');
+  }
+
   const dy = Math.max(14, dot.y - boxBottom);
   const rawDist = Math.hypot(dot.x - cx, dy);
   const tailHalf = Math.min(
@@ -365,7 +487,6 @@ export function packetBubblePath(
   const pull = Math.min(markerClearance, dist * 0.42);
   const tipX = dot.x - (dx / dist) * pull;
   const tipY = Math.max(boxBottom + 4, dot.y - (dy / dist) * pull);
-  const n = (value: number) => value.toFixed(1);
 
   return [
     `M ${n(left + r)} ${n(boxTop)}`,
@@ -384,6 +505,179 @@ export function packetBubblePath(
   ].join(' ');
 }
 
+const expandRect = (r: Rect, pad: number): Rect => ({
+  x: r.x - pad,
+  y: r.y - pad,
+  width: r.width + pad * 2,
+  height: r.height + pad * 2,
+});
+
+const pointInRect = (p: Point, r: Rect): boolean =>
+  p.x >= r.x && p.x <= r.x + r.width && p.y >= r.y && p.y <= r.y + r.height;
+
+function segmentIntersectsRect(a: Point, b: Point, r: Rect): boolean {
+  if (r.width <= 0 || r.height <= 0) return false;
+  let tMin = 0;
+  let tMax = 1;
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+
+  const clip = (p: number, q: number): boolean => {
+    if (Math.abs(p) < 1e-9) return q >= 0;
+    const t = q / p;
+    if (p < 0) {
+      if (t > tMax) return false;
+      if (t > tMin) tMin = t;
+    } else {
+      if (t < tMin) return false;
+      if (t < tMax) tMax = t;
+    }
+    return true;
+  };
+
+  return (
+    clip(-dx, a.x - r.x) &&
+    clip(dx, r.x + r.width - a.x) &&
+    clip(-dy, a.y - r.y) &&
+    clip(dy, r.y + r.height - a.y) &&
+    tMin <= tMax
+  );
+}
+
+function countRailOverlaps(box: PacketCalloutBox, otherRailSamples: readonly Point[]): number {
+  if (otherRailSamples.length === 0) return 0;
+  const padded = expandRect(calloutRect(box), RAIL_CLEARANCE_PAD);
+  let hits = 0;
+  for (const sample of otherRailSamples) {
+    if (pointInRect(sample, padded)) hits++;
+  }
+  return hits;
+}
+
+function countDimmedOverlaps(packet: Packet, box: PacketCalloutBox): number {
+  const areas = packet.dimmedNodeAreas;
+  if (!areas || areas.length === 0) return 0;
+  const rect = calloutRect(box);
+  let hits = 0;
+  for (const area of areas) {
+    if (rectOverlaps(rect, area)) hits++;
+  }
+  return hits;
+}
+
+function scoreCallout(
+  packet: Packet,
+  box: PacketCalloutBox,
+  mid: Point,
+  otherRailSamples: readonly Point[],
+): number {
+  const anchorY = box.placement === 'above' ? box.boxBottom : box.boxTop;
+  const verticalDist = Math.abs(anchorY - mid.y);
+  const shiftCost = Math.abs(box.cx - mid.x) * SHIFT_COST_WEIGHT;
+
+  const anchor: Point = { x: box.cx, y: anchorY };
+  let leaderCrossings = 0;
+  const crossedCores = new Set<Rect>();
+  for (const core of packet.nodeCores ?? []) {
+    if (segmentIntersectsRect(anchor, mid, core)) {
+      crossedCores.add(core);
+      leaderCrossings++;
+    }
+  }
+  if (packet.otherNodeCores && packet.otherNodeCores.length > 0) {
+    const p20 = pointAt(packet.path, 0.2);
+    const p80 = pointAt(packet.path, 0.8);
+    for (const core of packet.otherNodeCores) {
+      if (crossedCores.has(core)) continue;
+      if (segmentIntersectsRect(anchor, p20, core) || segmentIntersectsRect(anchor, p80, core)) {
+        crossedCores.add(core);
+        leaderCrossings++;
+      }
+    }
+  }
+
+  const dimmedBodyOverlaps = countDimmedOverlaps(packet, box);
+  const railOverlaps = countRailOverlaps(box, otherRailSamples);
+
+  const placementBias =
+    box.placement === 'below'
+      ? packet.preferBelow
+        ? 0
+        : DEFAULT_BELOW_BIAS
+      : packet.preferBelow
+        ? PREFER_BELOW_ABOVE_BIAS
+        : 0;
+
+  return (
+    verticalDist +
+    shiftCost +
+    leaderCrossings * LEADER_CROSSING_PENALTY +
+    dimmedBodyOverlaps * DIMMED_OVERLAP_PENALTY +
+    railOverlaps * RAIL_OVERLAP_PENALTY +
+    placementBias
+  );
+}
+
+function setPacketShift(packet: Packet, shift: number): void {
+  if (Math.abs(shift) > 1e-6) packet.calloutShift = shift;
+  else delete packet.calloutShift;
+}
+
+interface SoloCandidate {
+  placement: CalloutPlacement;
+  shift: number;
+  box: PacketCalloutBox;
+  score: number;
+}
+
+function bestPocketCandidate(
+  packet: Packet,
+  card: MeasuredCalloutCard,
+  placement: CalloutPlacement,
+  mid: Point,
+  otherRailSamples: readonly Point[],
+): SoloCandidate {
+  const shifts: number[] = [0];
+  for (const area of packet.labelAreas) {
+    const overlapsHoriz = mid.x - card.halfW < area.x + area.width && mid.x + card.halfW > area.x;
+    if (!overlapsHoriz) continue;
+    const leftShift = area.x - CALLOUT_LABEL_CLEARANCE - card.halfW - mid.x;
+    if (Math.abs(leftShift) <= POCKET_MAX_SHIFT) shifts.push(leftShift);
+    const rightShift = area.x + area.width + CALLOUT_LABEL_CLEARANCE + card.halfW - mid.x;
+    if (Math.abs(rightShift) <= POCKET_MAX_SHIFT) shifts.push(rightShift);
+  }
+
+  packet.calloutPlacement = placement;
+  delete packet.calloutBottom;
+  delete packet.calloutTop;
+
+  let best: SoloCandidate | undefined;
+  for (const shift of shifts) {
+    setPacketShift(packet, shift);
+    const box = placeCalloutBox(packet, card, mid);
+    const score = scoreCallout(packet, box, mid, otherRailSamples);
+    if (
+      !best ||
+      score < best.score - 1e-6 ||
+      (Math.abs(score - best.score) <= 1e-6 && Math.abs(shift) < Math.abs(best.shift))
+    ) {
+      best = { placement, shift, box, score };
+    }
+  }
+
+  delete packet.calloutShift;
+  if (!best) {
+    const fallbackBox = placeCalloutBox(packet, card, mid);
+    return {
+      placement,
+      shift: 0,
+      box: fallbackBox,
+      score: scoreCallout(packet, fallbackBox, mid, otherRailSamples),
+    };
+  }
+  return best;
+}
+
 const verticallyOverlaps = (a: PacketCalloutBox, b: PacketCalloutBox): boolean =>
   a.boxTop < b.boxBottom + CALLOUT_GAP && a.boxBottom + CALLOUT_GAP > b.boxTop;
 
@@ -394,9 +688,15 @@ const calloutsClash = (a: PacketCalloutBox, b: PacketCalloutBox): boolean =>
 
 interface CalloutEntry {
   packet: Packet;
+  card: MeasuredCalloutCard;
   index: number;
+  mid: Point;
   midX: number;
   tieX: number;
+  otherRailSamples: Point[];
+  soloAbove: SoloCandidate;
+  soloBelow?: SoloCandidate;
+  soloShift: number;
   box: PacketCalloutBox;
 }
 
@@ -443,6 +743,16 @@ function buildPavaBlock(members: CalloutEntry[]): PavaBlock {
   if (!first || !last) {
     return { members: [], offsets: [], leftCx: 0, leftEdge: 0, rightEdge: 0 };
   }
+  if (members.length === 1) {
+    const leftCx = first.midX + first.soloShift;
+    return {
+      members,
+      offsets: [0],
+      leftCx,
+      leftEdge: leftCx - first.box.halfW,
+      rightEdge: leftCx + first.box.halfW,
+    };
+  }
   const sep = CALLOUT_GAP + CALLOUT_SHIFT_SLACK;
   const offsets: number[] = [0];
   for (let i = 1; i < members.length; i++) {
@@ -483,76 +793,276 @@ function solvePavaCluster(cluster: readonly CalloutEntry[]): PavaBlock[] {
   return stack;
 }
 
-/**
- * Packets of one phase play together, so their callouts must not cover each other.
- * Sorts callouts left-to-right by rail midpoint so pointers never cross, separates
- * clashing groups symmetrically around their center of mass via isotonic block merging,
- * and aligns close side-by-side parallel callouts onto a shared baseline shelf.
- */
-export function separatePhaseCallouts(phase: readonly Packet[]): void {
-  for (const packet of phase) {
-    delete packet.calloutShift;
-    delete packet.calloutBottom;
+function countClashes(entries: readonly CalloutEntry[]): number {
+  let count = 0;
+  for (let i = 0; i < entries.length; i++) {
+    const a = entries[i];
+    if (!a) continue;
+    for (let j = i + 1; j < entries.length; j++) {
+      const b = entries[j];
+      if (b && calloutsClash(a.box, b.box)) count++;
+    }
   }
+  return count;
+}
 
-  const entries: CalloutEntry[] = [];
-  phase.forEach((packet, index) => {
-    const box = computePacketCalloutBox(packet);
-    if (!box) return;
-    const midX = pointAt(packet.path, 0.5).x;
-    const tieX = packet.path.p0.x + packet.path.p3.x;
-    entries.push({ packet, index, midX, tieX, box });
-  });
-  if (entries.length < 2) return;
-
-  entries.sort((a, b) => a.midX - b.midX || a.tieX - b.tieX || a.index - b.index);
-
+function separateSubsetByPava(subset: readonly CalloutEntry[]): void {
+  if (subset.length < 2) return;
   for (let pass = 0; pass < 3; pass++) {
-    const clusters = partitionVerticalClusters(entries);
+    const clusters = partitionVerticalClusters(subset);
     for (const cluster of clusters) {
       if (cluster.length < 2) continue;
       for (const block of solvePavaCluster(cluster)) {
         block.members.forEach((entry, i) => {
           const shift = block.leftCx + (block.offsets[i] ?? 0) - entry.midX;
-          if (Math.abs(shift) > 1e-6) entry.packet.calloutShift = shift;
-          else delete entry.packet.calloutShift;
+          setPacketShift(entry.packet, shift);
         });
       }
     }
-    for (const entry of entries) {
-      const next = computePacketCalloutBox(entry.packet);
-      if (next) entry.box = next;
+    for (const entry of subset) {
+      entry.box = placeCalloutBox(entry.packet, entry.card, entry.mid);
     }
-    const hasClash = entries.some((a, i) =>
-      entries.slice(i + 1).some((b) => calloutsClash(a.box, b.box)),
-    );
-    if (!hasClash) break;
+    if (countClashes(subset) === 0) break;
   }
+}
 
-  for (const cluster of partitionVerticalClusters(entries)) {
+function enumeratePlacementAssignments(entries: readonly CalloutEntry[]): CalloutPlacement[][] {
+  if (entries.length > 5) {
+    return [
+      entries.map((e) =>
+        e.soloBelow && e.soloBelow.score < e.soloAbove.score ? 'below' : 'above',
+      ),
+    ];
+  }
+  const results: CalloutPlacement[][] = [[]];
+  for (const entry of entries) {
+    const options: readonly CalloutPlacement[] = entry.soloBelow ? ['above', 'below'] : ['above'];
+    const next: CalloutPlacement[][] = [];
+    for (const prefix of results) {
+      for (const opt of options) {
+        next.push([...prefix, opt]);
+      }
+    }
+    results.splice(0, results.length, ...next);
+  }
+  return results;
+}
+
+function alignShelf(allEntries: readonly CalloutEntry[], placement: CalloutPlacement): void {
+  const sideEntries = allEntries.filter((e) => e.box.placement === placement);
+  for (const cluster of partitionVerticalClusters(sideEntries)) {
     if (cluster.length < 2) continue;
-    const minBottom = Math.min(...cluster.map((e) => e.box.boxBottom));
-    const shelfGroup = cluster.filter(
-      (e) => e.box.boxBottom - minBottom <= PARALLEL_SHELF_TOLERANCE,
-    );
-    if (shelfGroup.length < 2 || shelfGroup.every((e) => e.box.boxBottom === minBottom)) {
-      continue;
-    }
-    const prevBoxes = new Map(shelfGroup.map((e) => [e, e.box]));
-    for (const entry of shelfGroup) {
-      entry.packet.calloutBottom = minBottom;
-      const next = computePacketCalloutBox(entry.packet);
-      if (next) entry.box = next;
-    }
-    const hasClash = entries.some((a, i) =>
-      entries.slice(i + 1).some((b) => calloutsClash(a.box, b.box)),
-    );
-    if (hasClash) {
+
+    if (placement === 'above') {
+      const minBottom = Math.min(...cluster.map((e) => e.box.boxBottom));
+      const shelfGroup = cluster.filter(
+        (e) => e.box.boxBottom - minBottom <= PARALLEL_SHELF_TOLERANCE,
+      );
+      if (shelfGroup.length < 2 || shelfGroup.every((e) => e.box.boxBottom === minBottom)) {
+        continue;
+      }
+      const prevRailHits = shelfGroup.reduce(
+        (sum, e) => sum + countRailOverlaps(e.box, e.otherRailSamples),
+        0,
+      );
+      const prevDimmedHits = shelfGroup.reduce(
+        (sum, e) => sum + countDimmedOverlaps(e.packet, e.box),
+        0,
+      );
+      const prevBoxes = new Map(shelfGroup.map((e) => [e, e.box]));
       for (const entry of shelfGroup) {
-        delete entry.packet.calloutBottom;
-        const prev = prevBoxes.get(entry);
-        if (prev) entry.box = prev;
+        entry.packet.calloutBottom = minBottom;
+        entry.box = placeCalloutBox(entry.packet, entry.card, entry.mid);
+      }
+      const nextRailHits = shelfGroup.reduce(
+        (sum, e) => sum + countRailOverlaps(e.box, e.otherRailSamples),
+        0,
+      );
+      const nextDimmedHits = shelfGroup.reduce(
+        (sum, e) => sum + countDimmedOverlaps(e.packet, e.box),
+        0,
+      );
+      if (
+        countClashes(allEntries) > 0 ||
+        nextRailHits > prevRailHits ||
+        nextDimmedHits > prevDimmedHits
+      ) {
+        for (const entry of shelfGroup) {
+          delete entry.packet.calloutBottom;
+          const prev = prevBoxes.get(entry);
+          if (prev) entry.box = prev;
+        }
+      }
+    } else {
+      const maxTop = Math.max(...cluster.map((e) => e.box.boxTop));
+      const shelfGroup = cluster.filter((e) => maxTop - e.box.boxTop <= PARALLEL_SHELF_TOLERANCE);
+      if (shelfGroup.length < 2 || shelfGroup.every((e) => e.box.boxTop === maxTop)) {
+        continue;
+      }
+      const prevRailHits = shelfGroup.reduce(
+        (sum, e) => sum + countRailOverlaps(e.box, e.otherRailSamples),
+        0,
+      );
+      const prevDimmedHits = shelfGroup.reduce(
+        (sum, e) => sum + countDimmedOverlaps(e.packet, e.box),
+        0,
+      );
+      const prevBoxes = new Map(shelfGroup.map((e) => [e, e.box]));
+      for (const entry of shelfGroup) {
+        entry.packet.calloutTop = maxTop;
+        entry.box = placeCalloutBox(entry.packet, entry.card, entry.mid);
+      }
+      const nextRailHits = shelfGroup.reduce(
+        (sum, e) => sum + countRailOverlaps(e.box, e.otherRailSamples),
+        0,
+      );
+      const nextDimmedHits = shelfGroup.reduce(
+        (sum, e) => sum + countDimmedOverlaps(e.packet, e.box),
+        0,
+      );
+      if (
+        countClashes(allEntries) > 0 ||
+        nextRailHits > prevRailHits ||
+        nextDimmedHits > prevDimmedHits
+      ) {
+        for (const entry of shelfGroup) {
+          delete entry.packet.calloutTop;
+          const prev = prevBoxes.get(entry);
+          if (prev) entry.box = prev;
+        }
       }
     }
   }
+}
+
+/**
+ * Optimizes placement (`'above'` vs `'below'`), obstacle-side pocket nudges, symmetric
+ * `mid.x`-ordered PAVA separation, and shared shelf alignment for all callouts in a phase.
+ */
+export function separatePhaseCallouts(phase: readonly Packet[]): void {
+  for (const packet of phase) {
+    delete packet.calloutShift;
+    delete packet.calloutPlacement;
+    delete packet.calloutBottom;
+    delete packet.calloutTop;
+  }
+  if (phase.length === 0) return;
+
+  const railSamplesByIndex = phase.map((packet) =>
+    RAIL_SAMPLE_TS.map((t) => pointAt(packet.path, t)),
+  );
+
+  const entries: CalloutEntry[] = [];
+  phase.forEach((packet, index) => {
+    const card = measureCalloutCard(packet);
+    if (!card) return;
+    const mid = pointAt(packet.path, 0.5);
+    const otherRailSamples = railSamplesByIndex.flatMap((samples, j) =>
+      j === index ? [] : samples,
+    );
+    const soloAbove = bestPocketCandidate(packet, card, 'above', mid, otherRailSamples);
+    const soloBelow =
+      packet.clearBottom !== undefined
+        ? bestPocketCandidate(packet, card, 'below', mid, otherRailSamples)
+        : undefined;
+    delete packet.calloutPlacement;
+    delete packet.calloutShift;
+    const entry: CalloutEntry = {
+      packet,
+      card,
+      index,
+      mid,
+      midX: mid.x,
+      tieX: packet.path.p0.x + packet.path.p3.x,
+      otherRailSamples,
+      soloAbove,
+      soloShift: soloAbove.shift,
+      box: soloAbove.box,
+    };
+    if (soloBelow) entry.soloBelow = soloBelow;
+    entries.push(entry);
+  });
+
+  if (entries.length === 0) return;
+
+  if (entries.length === 1) {
+    const only = entries[0];
+    if (!only) return;
+    const best =
+      only.soloBelow && only.soloBelow.score < only.soloAbove.score - 1e-6
+        ? only.soloBelow
+        : only.soloAbove;
+    if (only.packet.clearBottom !== undefined || best.placement === 'below') {
+      only.packet.calloutPlacement = best.placement;
+    }
+    setPacketShift(only.packet, best.shift);
+    return;
+  }
+
+  entries.sort((a, b) => a.midX - b.midX || a.tieX - b.tieX || a.index - b.index);
+
+  const assignments = enumeratePlacementAssignments(entries);
+  let bestCost = Number.POSITIVE_INFINITY;
+  let bestState:
+    | ReadonlyArray<{ placement: CalloutPlacement; shift: number; box: PacketCalloutBox }>
+    | undefined;
+
+  for (const assignment of assignments) {
+    entries.forEach((entry, i) => {
+      const placement = assignment[i] ?? 'above';
+      const solo =
+        placement === 'below' && entry.soloBelow !== undefined ? entry.soloBelow : entry.soloAbove;
+      entry.packet.calloutPlacement = placement;
+      delete entry.packet.calloutBottom;
+      delete entry.packet.calloutTop;
+      entry.soloShift = solo.shift;
+      setPacketShift(entry.packet, solo.shift);
+      entry.box = solo.box;
+    });
+
+    const aboveSubset = entries.filter((e) => e.packet.calloutPlacement === 'above');
+    const belowSubset = entries.filter((e) => e.packet.calloutPlacement === 'below');
+    separateSubsetByPava(aboveSubset);
+    separateSubsetByPava(belowSubset);
+
+    if (countClashes(entries) > 0) {
+      for (const entry of entries) {
+        entry.soloShift = entry.packet.calloutShift ?? 0;
+      }
+      separateSubsetByPava(entries);
+    }
+
+    const totalScore = entries.reduce(
+      (sum, e) => sum + scoreCallout(e.packet, e.box, e.mid, e.otherRailSamples),
+      0,
+    );
+    const cost = totalScore + countClashes(entries) * CLASH_PENALTY;
+    if (cost < bestCost - 1e-6) {
+      bestCost = cost;
+      bestState = entries.map((e) => ({
+        placement: e.packet.calloutPlacement ?? 'above',
+        shift: e.packet.calloutShift ?? 0,
+        box: e.box,
+      }));
+    }
+  }
+
+  if (bestState) {
+    entries.forEach((entry, i) => {
+      const saved = bestState[i];
+      if (!saved) return;
+      if (entry.packet.clearBottom !== undefined || saved.placement === 'below') {
+        entry.packet.calloutPlacement = saved.placement;
+      } else {
+        delete entry.packet.calloutPlacement;
+      }
+      delete entry.packet.calloutBottom;
+      delete entry.packet.calloutTop;
+      setPacketShift(entry.packet, saved.shift);
+      entry.box = saved.box;
+    });
+  }
+
+  alignShelf(entries, 'above');
+  alignShelf(entries, 'below');
 }

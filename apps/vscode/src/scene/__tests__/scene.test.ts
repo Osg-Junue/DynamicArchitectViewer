@@ -1431,4 +1431,426 @@ step "Step 4" {
       expect(line0El?.attrs.y).toBe(Number((codeY + htmlBox.code.headerHeight + 20.5).toFixed(2)));
     }
   });
+
+  it('selects below placement for bottom-row flows under upper obstacles (examples 05 & 07)', () => {
+    const repoRoot = resolve(__dirname, '../../../../..');
+    const ex07Dsl = readFileSync(
+      resolve(repoRoot, 'examples/07-dynamic-architect-viewer.dav'),
+      'utf8',
+    );
+    const ex07Doc = parse(ex07Dsl).document;
+    const ex07Layout = computeLayout(ex07Doc);
+
+    // Example 07 Step 5: exporter --> html_out sits on Row 1 under Preview Webview (Row 0)
+    const ex07Step5 = resolveView(ex07Doc, ex07Layout, 4);
+    const outputsGroup = ex07Step5.groups.find((g) => g.id === 'outputs');
+    const exportPkt = ex07Step5.phases[1]?.[0];
+    const exportBox = exportPkt && computePacketCalloutBox(exportPkt);
+    expect(outputsGroup && exportPkt && exportBox).toBeTruthy();
+    if (outputsGroup && exportPkt && exportBox) {
+      expect(exportBox.placement).toBe('below');
+      expect(exportBox.boxTop).toBeGreaterThanOrEqual(
+        outputsGroup.rect.y + outputsGroup.rect.height + 16,
+      );
+      const midDot = packetPosition(exportPkt, 0.5);
+      const d = packetBubblePath(exportBox, midDot);
+      const tipMatch = /L (-?\d+\.\d+) (-?\d+\.\d+) L/.exec(d);
+      const tipY = Number(tipMatch?.[2] ?? 0);
+      expect(tipY).toBeLessThan(exportBox.boxTop);
+      expect(tipY).toBeGreaterThan(midDot.y);
+    }
+
+    // Example 07 Step 1 phase 4: dsl --> ext return rail places callout below
+    const ex07Step1 = resolveView(ex07Doc, ex07Layout, 0);
+    const diagPkt = ex07Step1.phases[3]?.[0];
+    const diagBox = diagPkt && computePacketCalloutBox(diagPkt);
+    expect(diagBox?.placement).toBe('below');
+
+    // Example 05 Step 6 parallel response + event, and Steps 7-8 bottom Async processing
+    const ex05Dsl = readFileSync(
+      resolve(repoRoot, 'examples/05-sequence-payment-retry.dav'),
+      'utf8',
+    );
+    const ex05Doc = parse(ex05Dsl).document;
+    const ex05Layout = computeLayout(ex05Doc);
+    const ex05Step6 = resolveView(ex05Doc, ex05Layout, 5);
+    const [createdPkt, confirmedPkt] = ex05Step6.phases[2] ?? [];
+    const createdBox = createdPkt && computePacketCalloutBox(createdPkt);
+    const confirmedBox = confirmedPkt && computePacketCalloutBox(confirmedPkt);
+    expect(createdBox?.placement).toBe('above');
+    expect(confirmedBox?.placement).toBe('below');
+
+    const ex05Step7 = resolveView(ex05Doc, ex05Layout, 6);
+    const asyncGroup7 = ex05Step7.groups.find((g) => g.id === 'async');
+    const deliverPkt = ex05Step7.phases[0]?.[0];
+    const deliverBox = deliverPkt && computePacketCalloutBox(deliverPkt);
+    expect(asyncGroup7 && deliverBox).toBeTruthy();
+    if (asyncGroup7 && deliverBox) {
+      expect(deliverBox.placement).toBe('below');
+      expect(deliverBox.boxTop).toBeGreaterThanOrEqual(
+        asyncGroup7.rect.y + asyncGroup7.rect.height + 16,
+      );
+    }
+
+    const ex05Step8 = resolveView(ex05Doc, ex05Layout, 7);
+    const asyncGroup8 = ex05Step8.groups.find((g) => g.id === 'async');
+    const quarantinePkt = ex05Step8.phases[0]?.[0];
+    const quarantineBox = quarantinePkt && computePacketCalloutBox(quarantinePkt);
+    expect(asyncGroup8 && quarantineBox).toBeTruthy();
+    if (asyncGroup8 && quarantineBox) {
+      expect(quarantineBox.placement).toBe('below');
+      expect(quarantineBox.boxTop).toBeGreaterThanOrEqual(
+        asyncGroup8.rect.y + asyncGroup8.rect.height + 16,
+      );
+    }
+  });
+
+  it('optimizes parallel flows cleanly across bidirectional, mixed fan-out, and shelf alignment patterns', () => {
+    // 1a. Dual-edge bidirectional parallel (a --> b + b --> a [parallel: true]) splits into above + below
+    const bidiDoc = parse(`dav 1
+node a "Client" [icon: browser]
+node b "Order API" [icon: api]
+a --> b : "POST /orders"
+b --> a : "201 Created"
+step "Bidi" {
+  animate a --> b : "POST /orders" [desc: "Submit order payload"]
+  animate b --> a : "201 Created" [parallel: true, desc: "Return created order receipt"]
+}
+`).document;
+    const bidiView = resolveView(bidiDoc, computeLayout(bidiDoc), 0);
+    const [fwdPkt, revPkt] = bidiView.phases[0] ?? [];
+    const fwdBox = fwdPkt && computePacketCalloutBox(fwdPkt);
+    const revBox = revPkt && computePacketCalloutBox(revPkt);
+    expect(fwdBox?.placement).toBe('above');
+    expect(revBox?.placement).toBe('below');
+    expect(Math.abs(fwdPkt?.calloutShift ?? 0)).toBeLessThanOrEqual(1);
+    expect(Math.abs(revPkt?.calloutShift ?? 0)).toBeLessThanOrEqual(1);
+
+    // 1b. Single <-> edge parallel request + response with code blocks also splits into above + below
+    const sharedBidiDoc = parse(`dav 1
+node client "Client" [icon: browser]
+node api "Order API" [icon: api]
+client <-> api : "HTTP/2"
+step "BidiCode" {
+  animate client --> api : "POST /orders" [desc: "Send order payload"] {
+    code json "Request" \`\`\`
+      { "sku": "dav-pro", "qty": 1 }
+    \`\`\`
+  }
+  animate api --> client : "201 Created" [parallel: true, desc: "Return created order"] {
+    code json "Response" \`\`\`
+      { "orderId": "ord_01", "ok": true }
+    \`\`\`
+  }
+}
+`).document;
+    const sharedBidiView = resolveView(sharedBidiDoc, computeLayout(sharedBidiDoc), 0);
+    const [reqPkt, resPkt] = sharedBidiView.phases[0] ?? [];
+    expect(reqPkt && computePacketCalloutBox(reqPkt)?.placement).toBe('above');
+    expect(resPkt && computePacketCalloutBox(resPkt)?.placement).toBe('below');
+
+    // 2 & 3. Mixed upper+lower fan-out (Step 1) and side-by-side upper flows blocked below (Step 2)
+    const stressDoc = parse(`dav 1
+node browser "Browser" [icon: browser]
+group edge "Edge" [color: teal] {
+  node gw "Edge Gateway" [icon: router]
+}
+group app "Application" [color: blue] {
+  node api "Order API" [icon: api]
+  node worker "Payment Worker" [icon: function]
+}
+group data "Data & Events" [color: purple] {
+  node db "Primary DB" [icon: database]
+  node queue "Event Queue" [icon: queue]
+  node cache "Redis Cache" [icon: cache]
+}
+browser --> gw : "HTTPS"
+gw --> api : "HTTP/2"
+api --> db : "SQL Write"
+api --> cache : "Cache Op"
+api --> worker : "Authorize"
+worker --> queue : "Publish"
+step "Fanout" {
+  animate api --> db : "INSERT orders" [desc: "注文レコードをトランザクション書込"] {
+    code sql "Primary Write" \`\`\`
+      INSERT INTO orders (id, amount, status)
+      VALUES ('ord_01JCK9X7', 14800, 'PENDING');
+    \`\`\`
+  }
+  animate api --> cache : "DEL cart:901" [parallel: true, desc: "カートキャッシュを即時無効化して二重注文を防止"]
+}
+step "UpperShelf" {
+  animate api --> db : "UPDATE status" [desc: "決済完了ステータスへ更新"] {
+    code sql "Confirm Order" \`\`\`
+      UPDATE orders SET status = 'CONFIRMED'
+      WHERE id = 'ord_01JCK9X7';
+    \`\`\`
+  }
+  animate worker --> queue : "OrderConfirmed" [icon: mail, parallel: true, color: purple, desc: "出荷ワーカー向け確定イベントを発行"] {
+    code json "Event Payload" \`\`\`
+      {
+        "event": "order.confirmed",
+        "orderId": "ord_01JCK9X7"
+      }
+    \`\`\`
+  }
+}
+`).document;
+    const stressLayout = computeLayout(stressDoc);
+
+    const fanoutView = resolveView(stressDoc, stressLayout, 0);
+    const [dbPkt, cachePkt] = fanoutView.phases[0] ?? [];
+    const dbBox = dbPkt && computePacketCalloutBox(dbPkt);
+    const cacheBox = cachePkt && computePacketCalloutBox(cachePkt);
+    expect(dbBox?.placement).toBe('above');
+    expect(cacheBox?.placement).toBe('below');
+    const dataGroup = fanoutView.groups.find((g) => g.id === 'data');
+    if (cacheBox && dataGroup) {
+      const r = calloutRect(cacheBox);
+      const straddlesLeft =
+        r.x < dataGroup.rect.x &&
+        r.x + r.width > dataGroup.rect.x &&
+        r.y < dataGroup.rect.y + dataGroup.rect.height &&
+        r.y + r.height > dataGroup.rect.y;
+      expect(straddlesLeft).toBe(false);
+    }
+
+    const shelfView = resolveView(stressDoc, stressLayout, 1);
+    const [up0, up1] = shelfView.phases[0] ?? [];
+    const upBox0 = up0 && computePacketCalloutBox(up0);
+    const upBox1 = up1 && computePacketCalloutBox(up1);
+    expect(upBox0?.placement).toBe('above');
+    expect(upBox1?.placement).toBe('above');
+    expect(upBox0?.boxBottom).toBe(upBox1?.boxBottom);
+
+    // 4. Parallel 'below' callouts within PARALLEL_SHELF_TOLERANCE align onto shared maxTop shelf
+    const lowLeft: Packet = {
+      from: 'b',
+      to: 'a',
+      fromLabel: 'B',
+      toLabel: 'A',
+      label: 'Ack 1',
+      description: 'First lower return acknowledgment',
+      color: DEFAULT_FLOW_COLOR,
+      path: {
+        p0: { x: 420, y: 200 },
+        p1: { x: 340, y: 200 },
+        p2: { x: 200, y: 200 },
+        p3: { x: 120, y: 200 },
+      },
+      roundTrip: false,
+      clearTop: 100,
+      clearBottom: 230,
+      preferBelow: true,
+      labelAreas: [{ x: 80, y: -200, width: 800, height: 300 }],
+      durationMs: 2000,
+    };
+    const lowRight: Packet = {
+      ...lowLeft,
+      from: 'c',
+      to: 'b',
+      label: 'Ack 2',
+      description: 'Second lower return acknowledgment\nwith an extra wrapped detail line',
+      path: {
+        p0: { x: 760, y: 224 },
+        p1: { x: 680, y: 224 },
+        p2: { x: 540, y: 224 },
+        p3: { x: 460, y: 224 },
+      },
+      clearBottom: 254,
+    };
+    separatePhaseCallouts([lowLeft, lowRight]);
+    const lowBox0 = computePacketCalloutBox(lowLeft);
+    const lowBox1 = computePacketCalloutBox(lowRight);
+    expect(lowBox0?.placement).toBe('below');
+    expect(lowBox1?.placement).toBe('below');
+    expect(lowBox0?.boxTop).toBe(lowBox1?.boxTop);
+  });
+
+  it('builds SMIL-invariant 13-command upward pointers for below placement with marker clearance', () => {
+    const p0 = { x: 120, y: 200 };
+    const p3 = { x: 420, y: 200 };
+    const plainPkt: Packet = {
+      from: 'a',
+      to: 'b',
+      fromLabel: 'A',
+      toLabel: 'B',
+      label: '200 OK',
+      description: 'Below rail response',
+      color: DEFAULT_FLOW_COLOR,
+      calloutPlacement: 'below',
+      path: { p0, p1: { x: 200, y: 200 }, p2: { x: 340, y: 200 }, p3 },
+      roundTrip: false,
+      clearTop: 160,
+      clearBottom: 248,
+      labelAreas: [],
+      durationMs: 2000,
+    };
+    const iconPkt: Packet = { ...plainPkt, icon: 'key' };
+
+    const plainBox = computePacketCalloutBox(plainPkt);
+    const iconBox = computePacketCalloutBox(iconPkt);
+    expect(plainBox?.placement).toBe('below');
+    expect(iconBox?.placement).toBe('below');
+    if (!plainBox || !iconBox) return;
+
+    const rendered = buildPacket(plainPkt, 0.5);
+    const calloutGroup = findAll(
+      rendered,
+      (e) => e.tag === 'g' && e.attrs.class === 'dav-packet-callout',
+    )[0];
+    expect(calloutGroup?.attrs['data-placement']).toBe('below');
+
+    const commandsOf = (d: string) => (d.match(/[A-Z]/g) ?? []).join(' ');
+    for (const t of [0, 0.5, 1]) {
+      const dot = packetPosition(plainPkt, t);
+      const dPlain = packetBubblePath(plainBox, dot);
+      const dIcon = packetBubblePath(iconBox, dot);
+      expect(commandsOf(dPlain)).toBe('M H L L H Q V Q H Q V Q Z');
+      expect(commandsOf(dIcon)).toBe('M H L L H Q V Q H Q V Q Z');
+      const tipMatch = /L (-?\d+\.\d+) (-?\d+\.\d+) L/.exec(dPlain);
+      expect(Number(tipMatch?.[2] ?? 0)).toBeLessThan(plainBox.boxTop);
+    }
+
+    const midDot = packetPosition(plainPkt, 0.5);
+    const tipOf = (d: string) => {
+      const m = /L (-?\d+\.\d+) (-?\d+\.\d+) L/.exec(d);
+      return { x: Number(m?.[1] ?? 0), y: Number(m?.[2] ?? 0) };
+    };
+    const plainTip = tipOf(packetBubblePath(plainBox, midDot));
+    const iconTip = tipOf(packetBubblePath(iconBox, midDot));
+    expect(Math.hypot(midDot.x - plainTip.x, midDot.y - plainTip.y)).toBeCloseTo(13, 0);
+    expect(Math.hypot(midDot.x - iconTip.x, midDot.y - iconTip.y)).toBeCloseTo(21, 0);
+  });
+
+  it('never straddles any group border, overlaps focused nodes, or inverts pointers across all examples & templates', () => {
+    const repoRoot = resolve(__dirname, '../../../../..');
+    const exampleFiles = [
+      '01-infra-ha-failover.dav',
+      '02-screen-flow-checkout.dav',
+      '03-event-driven-async.dav',
+      '04-enterprise-zero-trust-payment.dav',
+      '05-sequence-payment-retry.dav',
+      '06-lan-office-network.dav',
+      '07-dynamic-architect-viewer.dav',
+    ];
+    const giantContainerDsl = `dav 1
+node ext "External Client" [icon: browser]
+group cloud "Enterprise VPC" [color: blue] {
+  node gw "Ingress" [icon: router]
+  node r0 "Service A" [icon: api]
+  node r1 "Service B" [icon: server]
+  node r2 "Service C" [icon: function]
+  node r3 "Service D" [icon: database]
+  node sink "Audit Sink" [icon: storage]
+}
+ext --> gw : "HTTPS"
+gw --> r0
+gw --> r1
+gw --> r2 : "Hop"
+gw --> r3
+r2 --> sink
+step "Giant" {
+  animate ext --> gw : "Ingress Call" [desc: "Crosses outer container border cleanly"]
+  animate gw --> r2 : "Hop"
+}
+`;
+    const dsls = [
+      ...exampleFiles.map((file) => readFileSync(resolve(repoRoot, 'examples', file), 'utf8')),
+      ...SAMPLE_TEMPLATES.map((tpl) => tpl.dsl),
+      giantContainerDsl,
+    ];
+
+    const giantDoc = parse(giantContainerDsl).document;
+    const giantLayout = computeLayout(giantDoc);
+    const cloudRect = giantLayout.groups.cloud;
+    expect(cloudRect?.height).toBeGreaterThan(468);
+    const giantView = resolveView(giantDoc, giantLayout, 0);
+    const internalPkt = giantView.phases[1]?.[0];
+    const internalBox = internalPkt && computePacketCalloutBox(internalPkt);
+    if (cloudRect && internalBox) {
+      const ir = calloutRect(internalBox);
+      expect(ir.x).toBeGreaterThanOrEqual(cloudRect.x + 15.9);
+      expect(ir.x + ir.width).toBeLessThanOrEqual(cloudRect.x + cloudRect.width - 15.9);
+      expect(ir.y).toBeGreaterThanOrEqual(cloudRect.y + 39.9);
+      expect(ir.y + ir.height).toBeLessThanOrEqual(cloudRect.y + cloudRect.height - 15.9);
+    }
+
+    for (const dsl of dsls) {
+      const { document: doc } = parse(dsl);
+      const l = computeLayout(doc);
+      doc.steps.forEach((_step, sIdx) => {
+        const v = resolveView(doc, l, sIdx);
+        for (const phase of v.phases) {
+          const boxes = phase
+            .map((pkt) => ({ pkt, box: computePacketCalloutBox(pkt) }))
+            .filter((entry): entry is { pkt: Packet; box: NonNullable<typeof entry.box> } =>
+              Boolean(entry.box),
+            );
+
+          // Zero parallel callout overlap
+          for (let i = 0; i < boxes.length; i++) {
+            for (let j = i + 1; j < boxes.length; j++) {
+              const a = boxes[i];
+              const b = boxes[j];
+              if (!a || !b) continue;
+              const ra = calloutRect(a.box);
+              const rb = calloutRect(b.box);
+              const overlaps =
+                ra.x < rb.x + rb.width + CALLOUT_GAP - 0.1 &&
+                ra.x + ra.width + CALLOUT_GAP - 0.1 > rb.x &&
+                ra.y < rb.y + rb.height + CALLOUT_GAP - 0.1 &&
+                ra.y + ra.height + CALLOUT_GAP - 0.1 > rb.y;
+              expect(overlaps).toBe(false);
+            }
+          }
+
+          for (const { pkt, box } of boxes) {
+            const r = calloutRect(box);
+            // Zero group-border straddling across ALL groups (both normal 1-3 row and giant > 468 containers)
+            for (const g of v.groups) {
+              const gr = g.rect;
+              const strictlyOutside =
+                r.x + r.width <= gr.x - 15.9 ||
+                r.x >= gr.x + gr.width + 15.9 ||
+                r.y + r.height <= gr.y - 15.9 ||
+                r.y >= gr.y + gr.height + 15.9;
+              const strictlyEnclosed =
+                gr.height > 468 &&
+                r.x >= gr.x + 15.9 &&
+                r.x + r.width <= gr.x + gr.width - 15.9 &&
+                r.y >= gr.y + 39.9 &&
+                r.y + r.height <= gr.y + gr.height - 15.9;
+              expect(strictlyOutside || strictlyEnclosed).toBe(true);
+            }
+
+            // Zero focused-node overlap
+            for (const n of v.nodes) {
+              if (!n.focused) continue;
+              const nr = n.rect;
+              const hitsNode =
+                r.x < nr.x + nr.width &&
+                r.x + r.width > nr.x &&
+                r.y < nr.y + nr.height &&
+                r.y + r.height > nr.y;
+              expect(hitsNode).toBe(false);
+            }
+
+            // Non-inverted pointer across the full [0, 1] trajectory
+            for (const t of [0, 0.25, 0.5, 0.75, 1]) {
+              const dot = packetPosition(pkt, t);
+              const d = packetBubblePath(box, dot);
+              const tipMatch = /L (-?\d+\.\d+) (-?\d+\.\d+) L/.exec(d);
+              const tipY = Number(tipMatch?.[2] ?? 0);
+              if (box.placement === 'below') {
+                expect(tipY).toBeLessThan(box.boxTop);
+              } else {
+                expect(tipY).toBeGreaterThan(box.boxBottom);
+              }
+            }
+          }
+        }
+      });
+    }
+  });
 });

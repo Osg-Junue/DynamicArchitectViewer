@@ -49,11 +49,11 @@ export function buildPacket(packet: Packet, icons: IconShapes, t = 0): VElement 
   let callout: VElement | null = null;
 
   if (box) {
-    const { cx, halfW, boxTop, padX, label, descLines, code } = box;
+    const { cx, halfW, boxTop, padX, placement, label, descLines, code } = box;
     const alignLeft = descLines.length > 0 || code !== undefined;
     callout = h(
       'g',
-      { class: 'dav-packet-callout' },
+      { class: 'dav-packet-callout', 'data-placement': placement },
       h('path', {
         d: packetBubblePath(box, dot, packet.icon ? 21 : 13),
         fill: THEME_COLOR.panel,

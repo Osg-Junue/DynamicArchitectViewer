@@ -12,8 +12,8 @@ import {
   type LineStyle,
 } from '../model/types';
 import { ancestorIds, parentMap, zoneOfNodes } from '../model/zones';
-import { separatePhaseCallouts } from './callout';
-import { type Bezier, reverse } from './geometry';
+import { type CalloutPlacement, separatePhaseCallouts } from './callout';
+import { type Bezier, pointAt, reverse } from './geometry';
 import { THEME_COLOR } from './paint';
 import { RailRouter } from './rails';
 import { PHASE_MS, pacePhase } from './timing';
@@ -75,19 +75,31 @@ export interface Packet {
   color: string;
   /** What the packet carries; a plain dot when absent. */
   icon?: IconName;
-  /** Sideways move of the callout, set when it would cover another one of its phase. */
+  /** Sideways move of the callout, set when nudged around an obstacle or separated from a sibling. */
   calloutShift?: number;
-  /** Shared baseline bottom y when aligned with parallel sibling callouts. */
+  /** Which side of its rail the callout sits on; defaults to `'above'`. */
+  calloutPlacement?: CalloutPlacement;
+  /** Shared baseline bottom y when aligned with parallel `'above'` sibling callouts. */
   calloutBottom?: number;
+  /** Shared top-edge shelf y when aligned with parallel `'below'` sibling callouts. */
+  calloutTop?: number;
   path: Bezier;
   /** Written as `<->` in the `animate`: the packet goes to the end and comes back. */
   roundTrip: boolean;
-  /** Top edge of the two endpoint nodes; the callout stays above it to keep them visible. */
+  /** Top edge of the two endpoint nodes; `'above'` callouts stay above it to keep them visible. */
   clearTop: number;
-  /** Zone headers, borders, and focused stations on the canvas, which the callout must not cover. */
+  /** Bottom clearance of the endpoint nodes for `'below'` callouts. */
+  clearBottom?: number;
+  /** Zone areas and focused stations on the canvas, which the callout must not cover. */
   labelAreas: readonly Rect[];
-  /** Dimmed visible stations avoided when within reasonable upward lift distance. */
+  /** Dimmed visible stations avoided when within reasonable lift/push distance. */
   dimmedNodeAreas?: readonly Rect[];
+  /** Core rects of all visible nodes for scoring leader-line station/label crossings at midpoint. */
+  nodeCores?: readonly Rect[];
+  /** Core rects of non-endpoint visible nodes for scoring pointer sweep crossings along the rail. */
+  otherNodeCores?: readonly Rect[];
+  /** True when the packet rides a lower reverse track or downward-bowed curve. */
+  preferBelow?: boolean;
   /** How long this packet travels at 1x. */
   durationMs: number;
   /** The top-level group each endpoint belongs to, if any. */
@@ -110,21 +122,46 @@ export interface ResolvedView {
   phaseDurations: number[];
 }
 
-/** Full-width top-border + header band and bottom-border guard band for a zone. */
+/** Max height of a normal 1–3 row zone treated as a solid obstacle on all four sides. */
+const MAX_SOLID_GROUP_HEIGHT = 468;
+
+/** Solid full-zone obstacle for 1–3 row zones, or top/bottom border bands for giant outer containers. */
 function groupObstacleBands(group: ResolvedGroup): Rect[] {
   const { x, y, width, height } = group.rect;
+  if (height <= MAX_SOLID_GROUP_HEIGHT) {
+    return [
+      {
+        x: x - 10,
+        y: y - 10,
+        width: width + 20,
+        height: height + 20,
+      },
+    ];
+  }
   return [
     {
-      x: x - 6,
+      x: x - 10,
       y: y - 10,
-      width: width + 12,
+      width: width + 20,
       height: GROUP_PADDING + GROUP_HEADER + 10,
     },
     {
-      x: x - 6,
-      y: y + height - 8,
-      width: width + 12,
-      height: 16,
+      x: x - 10,
+      y: y + height - 10,
+      width: width + 20,
+      height: 20,
+    },
+    {
+      x: x - 10,
+      y: y - 10,
+      width: 20,
+      height: height + 20,
+    },
+    {
+      x: x + width - 10,
+      y: y - 10,
+      width: 20,
+      height: height + 20,
     },
   ];
 }
@@ -287,7 +324,7 @@ function resolvePhases(
       x: n.rect.x - 4,
       y: top,
       width: n.rect.width + 8,
-      height: n.rect.y + n.rect.height - top,
+      height: n.rect.y + n.rect.height + 10 - top,
     };
   };
   const visibleNodes = nodes.filter((n) => n.visible);
@@ -296,6 +333,16 @@ function resolvePhases(
     ...visibleNodes.filter((n) => !n.dimmed).map(nodeObstacle),
   ];
   const dimmedNodeAreas: Rect[] = visibleNodes.filter((n) => n.dimmed).map(nodeObstacle);
+  const nodeCoreEntries = visibleNodes.map((n) => ({
+    id: n.id,
+    core: {
+      x: n.rect.x + 16,
+      y: n.rect.y + 10,
+      width: Math.max(0, n.rect.width - 32),
+      height: Math.max(0, n.rect.height - 14),
+    },
+  }));
+  const nodeCores: Rect[] = nodeCoreEntries.map((e) => e.core);
 
   const phases: Packet[][] = [];
   for (const a of ctx.step?.animations ?? []) {
@@ -313,6 +360,21 @@ function resolvePhases(
         path = edge.from === a.from ? edgePath : reverse(edgePath);
       }
     }
+    const fromBottom = fromNode.rect.y + fromNode.rect.height;
+    const toBottom = toNode.rect.y + toNode.rect.height;
+    const clearBottom =
+      Math.abs(fromNode.rect.y - toNode.rect.y) < 40
+        ? Math.max(fromBottom, toBottom)
+        : Math.min(fromBottom, toBottom);
+    const isReturnTrack =
+      rails.hasReverseTrack(a.from, a.to) ||
+      (edge?.direction === 'bidirectional' && a.direction !== 'bidirectional');
+    const preferBelow =
+      (isReturnTrack && toNode.rect.x < fromNode.rect.x) ||
+      pointAt(path, 0.5).y > Math.max(path.p0.y, path.p3.y) + 18;
+    const otherNodeCores = nodeCoreEntries
+      .filter((e) => e.id !== a.from && e.id !== a.to)
+      .map((e) => e.core);
     const packet: Packet = {
       from: a.from,
       to: a.to,
@@ -322,10 +384,14 @@ function resolvePhases(
       path,
       roundTrip: a.direction === 'bidirectional',
       clearTop: Math.min(topOf(fromNode), topOf(toNode)),
+      clearBottom,
       labelAreas,
       durationMs: PHASE_MS,
     };
     if (dimmedNodeAreas.length > 0) packet.dimmedNodeAreas = dimmedNodeAreas;
+    if (nodeCores.length > 0) packet.nodeCores = nodeCores;
+    if (otherNodeCores.length > 0) packet.otherNodeCores = otherNodeCores;
+    if (preferBelow) packet.preferBelow = true;
     const fromZone = zoneOf.get(a.from);
     const toZone = zoneOf.get(a.to);
     if (fromZone !== undefined) packet.fromZone = fromZone;

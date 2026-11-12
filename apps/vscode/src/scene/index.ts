@@ -8,6 +8,7 @@ export {
   sceneBounds,
 } from './build';
 export {
+  type CalloutPlacement,
   calloutRect,
   computePacketCalloutBox,
   estimateCalloutTextWidth,
