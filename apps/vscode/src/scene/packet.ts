@@ -169,7 +169,7 @@ function packetCodeElement(
           'text',
           {
             x: n(x + CALLOUT_CODE_PAD_X),
-            y: n(y + 17),
+            y: n(y + 19),
             'font-size': CALLOUT_CODE_HEAD_SIZE,
             fill: THEME_COLOR.muted,
             'xml:space': 'preserve',
@@ -186,7 +186,7 @@ function packetCodeElement(
             'text',
             {
               x: n(x + CALLOUT_CODE_PAD_X),
-              y: n(bodyTop + 19 + i * CALLOUT_CODE_LINE_HEIGHT),
+              y: n(bodyTop + 20.5 + i * CALLOUT_CODE_LINE_HEIGHT),
               'font-size': CALLOUT_CODE_SIZE,
               fill: THEME_COLOR.fg,
               'xml:space': 'preserve',

@@ -42,8 +42,8 @@ export const CALLOUT_CODE_HEAD_SIZE = 11;
 export const CALLOUT_CODE_LINE_HEIGHT = 17.5;
 export const CALLOUT_CODE_PAD_X = 13;
 const CALLOUT_CODE_MAX_LINES = 10;
-const CALLOUT_CODE_MAX_TEXT_WIDTH = 384;
-export const CALLOUT_CODE_HEADER_HEIGHT = 26;
+const CALLOUT_CODE_MAX_TEXT_WIDTH = 404;
+export const CALLOUT_CODE_HEADER_HEIGHT = 28;
 
 /** Keeps a callout above its endpoint nodes, including their badges and crop marks. */
 const CALLOUT_NODE_CLEARANCE = 16;
@@ -79,7 +79,7 @@ function charEm(ch: string, style: CalloutTextStyle): number {
     return style === 'normal' ? 1.05 : 1.08;
   }
   if (style === 'mono') {
-    return 0.63;
+    return 0.605;
   }
   if (ch === 'W' || ch === 'M' || ch === '@' || ch === '%') {
     return style === 'bold' ? 0.92 : 0.88;

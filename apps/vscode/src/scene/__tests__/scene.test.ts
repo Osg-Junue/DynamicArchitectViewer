@@ -825,7 +825,7 @@ describe('packet code callouts and overflow prevention', () => {
       CALLOUT_CODE_SIZE: 11.5,
       CALLOUT_CODE_LINE_HEIGHT: 17.5,
       CALLOUT_CODE_PAD_X: 13,
-      CALLOUT_CODE_HEADER_HEIGHT: 26,
+      CALLOUT_CODE_HEADER_HEIGHT: 28,
     });
 
     const labelOnly = computePacketCalloutBox(makePacket({ label: '201 Created' }));
@@ -874,7 +874,7 @@ describe('packet code callouts and overflow prevention', () => {
     );
     expect(langAndTitle?.code).toMatchObject({
       header: 'json · Order Request',
-      headerHeight: 26,
+      headerHeight: 28,
       lines: ['{"amount": 14800}'],
       offsetY: 37,
     });
@@ -884,13 +884,13 @@ describe('packet code callouts and overflow prevention', () => {
       makePacket({ code: { lang: 'sql', body: 'SELECT 1;' } }),
     );
     expect(langOnly?.code?.header).toBe('sql');
-    expect(langOnly?.code?.headerHeight).toBe(26);
+    expect(langOnly?.code?.headerHeight).toBe(28);
 
     const titleOnly = computePacketCalloutBox(
       makePacket({ code: { title: 'Payload', body: 'ok' } }),
     );
     expect(titleOnly?.code?.header).toBe('Payload');
-    expect(titleOnly?.code?.headerHeight).toBe(26);
+    expect(titleOnly?.code?.headerHeight).toBe(28);
   });
 
   it('normalizes CRLF/tabs, caps code at 10 lines, and truncates overlong code lines', () => {
@@ -904,13 +904,13 @@ describe('packet code callouts and overflow prevention', () => {
     expect(box?.code?.lines).toHaveLength(10);
     expect(box?.code?.lines[1]).toBe('  "k0": 0');
     expect(box?.code?.lines[9]).toBe('…');
-    expect(box?.code?.height).toBe(26 + 10 * CALLOUT_CODE_LINE_HEIGHT + 14);
+    expect(box?.code?.height).toBe(28 + 10 * CALLOUT_CODE_LINE_HEIGHT + 14);
 
     const wide = computePacketCalloutBox(makePacket({ code: { body: longLine } }));
     const fittedLine = wide?.code?.lines[0] ?? '';
     expect(fittedLine.endsWith('…')).toBe(true);
     expect(estimateCalloutTextWidth(fittedLine, CALLOUT_CODE_SIZE, 'mono')).toBeLessThanOrEqual(
-      384,
+      404,
     );
   });
 
@@ -1404,6 +1404,31 @@ step "Step 4" {
           }
         }
       });
+    }
+
+    // Example 07 Step 5 canonical 56-58 char HTML lines stay 100% intact with zero '…' truncation
+    const ex07 = parse(scenarios[1][1]).document;
+    const ex07View4 = resolveView(ex07, computeLayout(ex07), 4);
+    const htmlPkt = ex07View4.phases[1]?.[0];
+    const htmlBox = htmlPkt && computePacketCalloutBox(htmlPkt);
+    expect(htmlBox?.code?.lines).toEqual([
+      '<meta http-equiv="Content-Security-Policy"',
+      "  content=\"default-src 'none'; script-src 'sha256-...'\">",
+      '<script type="application/json" id="dav-data">...</script>',
+    ]);
+    if (htmlPkt && htmlBox?.code) {
+      const rendered = buildPacket(htmlPkt, 0.5);
+      const headEl = findAll(
+        rendered,
+        (e) => e.tag === 'text' && String(e.attrs.class).includes('dav-packet-code-head'),
+      )[0];
+      const line0El = findAll(
+        rendered,
+        (e) => e.tag === 'text' && String(e.attrs.class).includes('dav-packet-code-line'),
+      )[0];
+      const codeY = htmlBox.boxTop + htmlBox.code.offsetY;
+      expect(headEl?.attrs.y).toBe(Number((codeY + 19).toFixed(2)));
+      expect(line0El?.attrs.y).toBe(Number((codeY + htmlBox.code.headerHeight + 20.5).toFixed(2)));
     }
   });
 });
