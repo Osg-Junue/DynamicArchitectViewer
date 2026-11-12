@@ -95,3 +95,16 @@ export function pushToMap<K, V>(map: Map<K, V[]>, key: K, value: V): void {
     map.set(key, [value]);
   }
 }
+
+/**
+ * Makes JSON safe inside a <script> element: `<`, `>` and `&` can never form
+ * `</script>` or `<!--`, and line/paragraph separators are escaped. Still valid JSON.
+ */
+export function escapeJsonForHtml(json: string): string {
+  return json
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+}

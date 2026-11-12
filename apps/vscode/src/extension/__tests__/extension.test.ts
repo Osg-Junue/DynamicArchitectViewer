@@ -187,8 +187,8 @@ vi.mock('vscode', () => {
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { escapeJsonForHtml } from '../../model/text';
 import {
-  escapeJsonForHtml,
   INITIAL_DOC_ELEMENT_ID,
   isHostToWebviewMessage,
   isInitialDocPayload,
@@ -670,7 +670,7 @@ describe('extension commands', () => {
   });
 
   describe('preview cold-start bootstrap and inline assets', () => {
-    it('inlines CSS/JS, escapes </script> in initial doc JSON, maps HelpModal, and caches assets', async () => {
+    it('inlines the CSS, links the script, escapes </script> in initial doc JSON, and caches the CSS', async () => {
       const extDir = mkdtempSync(join(tmpdir(), 'dav-ext-inline-'));
       try {
         const assetsDir = join(extDir, 'dist', 'webview', 'assets');
@@ -691,7 +691,6 @@ describe('extension commands', () => {
 
         const html = host.webviewHtml;
         expect(html).not.toContain('<link rel="stylesheet"');
-        expect(html).not.toMatch(/<script[^>]+src=/);
         expect(html).not.toContain('</script><script>');
         expect(html).not.toContain('<!--');
 
@@ -699,17 +698,14 @@ describe('extension commands', () => {
         expect(nonceMatch?.[1]).toBeDefined();
         const nonce = nonceMatch?.[1] ?? '';
         expect(html).toContain(`<style nonce="${nonce}">body{margin:0;color:red}</style>`);
-        expect(html).toContain(
-          `<script nonce="${nonce}" type="module">window.__davBooted=true;</script>`,
-        );
-
-        const importMapRaw = new RegExp(
-          `<script nonce="${nonce}" type="importmap">([\\s\\S]*?)</script>`,
-        ).exec(html)?.[1];
-        expect(importMapRaw).toBeDefined();
-        const importMap = JSON.parse(importMapRaw ?? '{}') as { imports?: Record<string, string> };
-        expect(importMap.imports?.['./HelpModal.js']).toMatch(
-          /dist\/webview\/assets\/HelpModal\.js$/,
+        // The script is a file of its own: the lazy documentation chunk imports from it, and
+        // an inline copy would be loaded and run a second time.
+        expect(html).not.toContain('window.__davBooted');
+        expect(html).not.toContain('type="importmap"');
+        expect(html).toMatch(
+          new RegExp(
+            `<script nonce="${nonce}" type="module" src="[^"]*dist/webview/assets/webview\\.js"></script>`,
+          ),
         );
 
         const initialDocRaw = new RegExp(
@@ -726,26 +722,26 @@ describe('extension commands', () => {
         host.disposePanel();
         rmSync(assetsDir, { recursive: true, force: true });
         await run('dav.openPreview');
-        expect(host.webviewHtml).toContain('window.__davBooted=true;');
+        expect(host.webviewHtml).toContain('body{margin:0;color:red}');
 
         host.disposePanel();
         clearWebviewAssetCache();
         await run('dav.openPreview');
         expect(host.webviewHtml).toContain('<link rel="stylesheet"');
-        expect(host.webviewHtml).toMatch(/<script[^>]+src=/);
+        expect(host.webviewHtml).not.toContain('<style');
       } finally {
         clearWebviewAssetCache();
         rmSync(extDir, { recursive: true, force: true });
       }
     });
 
-    it('falls back to external URIs if an asset contains unsafe inline sequences', async () => {
+    it('links the stylesheet if it contains a sequence that is unsafe to inline', async () => {
       const extDir = mkdtempSync(join(tmpdir(), 'dav-ext-unsafe-'));
       try {
         const assetsDir = join(extDir, 'dist', 'webview', 'assets');
         mkdirSync(assetsDir, { recursive: true });
-        writeFileSync(join(assetsDir, 'webview.css'), 'body{margin:0}', 'utf8');
-        writeFileSync(join(assetsDir, 'webview.js'), 'const bad = "</script>";', 'utf8');
+        writeFileSync(join(assetsDir, 'webview.css'), 'body::after{content:"</style>"}', 'utf8');
+        writeFileSync(join(assetsDir, 'webview.js'), 'window.__davBooted=true;', 'utf8');
         clearWebviewAssetCache();
 
         Object.assign(host, freshHostState());
@@ -755,7 +751,7 @@ describe('extension commands', () => {
         await run('dav.openPreview');
 
         expect(host.webviewHtml).toContain('<link rel="stylesheet"');
-        expect(host.webviewHtml).toMatch(/<script[^>]+src=/);
+        expect(host.webviewHtml).not.toContain('<style');
       } finally {
         clearWebviewAssetCache();
         rmSync(extDir, { recursive: true, force: true });

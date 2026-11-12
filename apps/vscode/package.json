@@ -44,14 +44,7 @@
     "Linters"
   ],
   "activationEvents": [
-    "onLanguage:dav",
-    "onCommand:dav.openPreview",
-    "onCommand:dav.exportHtml",
-    "onCommand:dav.exportSvg",
-    "onCommand:dav.importHtml",
-    "onCommand:dav.newFromTemplate",
-    "onCommand:dav.copyAiPrompt",
-    "onCommand:dav.installAgentSkill"
+    "onLanguage:dav"
   ],
   "main": "./dist/extension.cjs",
   "contributes": {

@@ -1,3 +1,5 @@
+import { escapeJsonForHtml } from '../model/text';
+
 export const INITIAL_DOC_ELEMENT_ID = 'dav-initial-doc';
 
 export interface InitialDocPayload {
@@ -60,19 +62,6 @@ function isOptionalFiniteNumber(v: unknown): v is number | undefined {
 export function isInitialDocPayload(v: unknown): v is InitialDocPayload {
   if (!isRecord(v)) return false;
   return typeof v.dsl === 'string' && isOptionalString(v.uri) && isOptionalFiniteNumber(v.version);
-}
-
-/**
- * Escapes `<`, `>`, `&`, U+2028, and U+2029 in a JSON string so `</script>` or `<!--`
- * can never break out of an inline `<script>` tag while remaining valid JSON.
- */
-export function escapeJsonForHtml(json: string): string {
-  return json
-    .replace(/</g, '\\u003c')
-    .replace(/>/g, '\\u003e')
-    .replace(/&/g, '\\u0026')
-    .replace(/\u2028/g, '\\u2028')
-    .replace(/\u2029/g, '\\u2029');
 }
 
 export function serializeInitialDoc(payload: InitialDocPayload): string {

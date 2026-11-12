@@ -28,7 +28,7 @@ const RULES: Record<string, { allowedLayers: string[]; forbiddenPackages: RegExp
     forbiddenPackages: /^(react|react-dom|vscode)/,
   },
   protocol: {
-    allowedLayers: ['protocol'],
+    allowedLayers: ['protocol', 'model'],
     forbiddenPackages: /^(react|react-dom|vscode|@lezer\/)/,
   },
   samples: {

@@ -7,7 +7,6 @@ import { createServer } from 'vite';
 import type { SvgExportOptions } from '../src/exporter';
 import { ICON_NAMES } from '../src/model/types';
 import {
-  escapeJsonForHtml,
   INITIAL_DOC_ELEMENT_ID,
   serializeInitialDoc,
   type WebviewToHostMessage,
@@ -434,7 +433,7 @@ test.describe('webview preview', () => {
 
     // Animation pages show the phases of the running step.
     await page.getByTestId('doc-nav-animate').click();
-    await expect(page.getByTestId('doc-figure')).toHaveCount(6);
+    await expect(page.getByTestId('doc-figure')).toHaveCount(7);
     await expect(page.getByTestId('doc-phase-strip').first().locator('.doc-phase')).toHaveCount(3);
     await expect(page.locator('.doc-phase.is-active').first()).toBeVisible();
 
@@ -767,16 +766,12 @@ test.describe('webview preview', () => {
     expect(errors).toEqual([]);
   });
 
-  test('boots inline webview HTML on first frame with zero asset fetches, skips duplicate ready render, and lazy-loads HelpModal', async ({
+  test('boots from inline CSS and document with one script fetch, skips duplicate ready render, and lazy-loads HelpModal without loading the script twice', async ({
     page,
   }) => {
     const errors = watchErrors(page);
     const webviewCss = await readFile(
       new URL('../dist/webview/assets/webview.css', import.meta.url),
-      'utf8',
-    );
-    const webviewJs = await readFile(
-      new URL('../dist/webview/assets/webview.js', import.meta.url),
       'utf8',
     );
     const initialDsl = [
@@ -802,9 +797,6 @@ test.describe('webview preview', () => {
       dsl: initialDsl,
       version: 7,
     });
-    const importMapJson = escapeJsonForHtml(
-      JSON.stringify({ imports: { './HelpModal.js': '/assets/HelpModal.js' } }),
-    );
     const inlineHtml = [
       '<!DOCTYPE html>',
       '<html lang="en">',
@@ -818,8 +810,7 @@ test.describe('webview preview', () => {
       '<body>',
       '<div id="root"></div>',
       `<script id="${INITIAL_DOC_ELEMENT_ID}" type="application/json">${initialJson}</script>`,
-      `<script nonce="${nonce}" type="importmap">${importMapJson}</script>`,
-      `<script nonce="${nonce}" type="module">${webviewJs}</script>`,
+      `<script nonce="${nonce}" type="module" src="/assets/webview.js"></script>`,
       '</body>',
       '</html>',
     ].join('\n');
@@ -855,8 +846,8 @@ test.describe('webview preview', () => {
     await expect(page.locator('.dav-title')).toHaveText('Cold </script> Boot');
     await expect(page.locator('.dav-step-title')).toContainText('Step 1 / 1');
 
-    // Cold boot made zero external CSS/JS network requests and posted versioned ready.
-    expect(requestedPaths).toEqual(['/inline-cold-start']);
+    // Cold boot fetched only the script (no stylesheet) and posted versioned ready.
+    expect(requestedPaths).toEqual(['/inline-cold-start', '/assets/webview.js']);
     expect(await postedMessages(page)).toEqual([
       { type: 'ready', uri: 'file:///cold.dav', version: 7 },
     ]);
@@ -883,11 +874,15 @@ test.describe('webview preview', () => {
     }, nextDsl);
     await expect(page.locator('.dav-title')).toHaveText('Warm Update');
 
-    // Clicking Help lazy-loads HelpModal.js via importmap without re-mounting #root.
+    // Clicking Help lazy-loads HelpModal.js, which shares the script already loaded.
     await page.getByTestId('btn-open-help').click();
     const dialog = page.getByTestId('help-dialog');
     await expect(dialog).toBeVisible();
-    expect(requestedPaths).toContain('/assets/HelpModal.js');
+    expect(requestedPaths).toEqual([
+      '/inline-cold-start',
+      '/assets/webview.js',
+      '/assets/HelpModal.js',
+    ]);
     await expect(page.locator('#root > .shell')).toHaveCount(1);
 
     await page.getByTestId('doc-nav-prompt').click();

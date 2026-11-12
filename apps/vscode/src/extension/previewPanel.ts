@@ -3,7 +3,6 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
 import {
-  escapeJsonForHtml,
   type HostToWebviewMessage,
   INITIAL_DOC_ELEMENT_ID,
   isWebviewToHostMessage,
@@ -16,36 +15,32 @@ import { t, uiLocale } from './locale';
 const previewTitle = (doc: vscode.TextDocument): string =>
   `${t('プレビュー', 'Preview')}: ${fileBasename(doc.uri.fsPath)}`;
 
-interface InlineWebviewAssets {
-  css: string;
-  js: string;
-}
-
-const inlineAssetCache = new Map<string, InlineWebviewAssets>();
+const inlineCssCache = new Map<string, string>();
 
 export function clearWebviewAssetCache(): void {
-  inlineAssetCache.clear();
+  inlineCssCache.clear();
 }
 
-function isSafeInlineAsset(content: string): boolean {
-  return !/<\/(script|style)/i.test(content) && !content.includes('<!--');
+function isSafeInlineStyle(content: string): boolean {
+  return !/<\/style/i.test(content) && !content.includes('<!--');
 }
 
 /**
- * Reads `webview.css` and `webview.js` once per extension root so cold Webview startup
- * needs zero `vscode-resource` Service Worker network requests. Falls back to external
- * URIs if assets are unavailable on disk (e.g. in unit-test mocks) or fail inline checks.
+ * Reads `webview.css` once per extension root, to put it in the page: the toolbar is styled
+ * before the script arrives, with one request fewer. `null` when the file cannot be read (as
+ * in unit-test mocks) or is not safe to inline, and the page links to it instead.
+ *
+ * The script stays a file of its own. The lazy documentation chunk imports from it, and an
+ * inline copy would have no URL to import from, so the browser would load and run it twice.
  */
-function readInlineWebviewAssets(webviewRootFsPath: string): InlineWebviewAssets | null {
-  const cached = inlineAssetCache.get(webviewRootFsPath);
-  if (cached) return cached;
+function readInlineWebviewCss(webviewRootFsPath: string): string | null {
+  const cached = inlineCssCache.get(webviewRootFsPath);
+  if (cached !== undefined) return cached;
   try {
     const css = readFileSync(join(webviewRootFsPath, 'assets', 'webview.css'), 'utf8');
-    const js = readFileSync(join(webviewRootFsPath, 'assets', 'webview.js'), 'utf8');
-    if (!isSafeInlineAsset(css) || !isSafeInlineAsset(js)) return null;
-    const assets: InlineWebviewAssets = { css, js };
-    inlineAssetCache.set(webviewRootFsPath, assets);
-    return assets;
+    if (!isSafeInlineStyle(css)) return null;
+    inlineCssCache.set(webviewRootFsPath, css);
+    return css;
   } catch {
     return null;
   }
@@ -184,10 +179,9 @@ export class CanvasPanelManager {
     document: vscode.TextDocument,
   ): string {
     const nonce = randomNonce();
-    const inlineAssets = readInlineWebviewAssets(webviewRoot.fsPath);
-    const helpScriptUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(webviewRoot, 'assets', 'HelpModal.js'),
-    );
+    const inlineCss = readInlineWebviewCss(webviewRoot.fsPath);
+    const assetUri = (name: string): string =>
+      webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, 'assets', name)).toString();
     const initialDocJson = serializeInitialDoc({
       uri: document.uri.toString(),
       dsl: document.getText(),
@@ -201,18 +195,11 @@ export class CanvasPanelManager {
       `script-src 'nonce-${nonce}' ${webview.cspSource}`,
     ].join('; ');
 
-    const styleTag = inlineAssets
-      ? `<style nonce="${nonce}">${inlineAssets.css}</style>`
-      : `<link rel="stylesheet" href="${webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, 'assets', 'webview.css')).toString()}">`;
-
-    // Maps the lazy HelpModal chunk URL without setting <base href> (which breaks SVG url(#id) markers).
-    const importMapTag = inlineAssets
-      ? `<script nonce="${nonce}" type="importmap">${escapeJsonForHtml(JSON.stringify({ imports: { './HelpModal.js': helpScriptUri.toString() } }))}</script>`
-      : '';
-
-    const scriptTag = inlineAssets
-      ? `<script nonce="${nonce}" type="module">${inlineAssets.js}</script>`
-      : `<script nonce="${nonce}" type="module" src="${webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, 'assets', 'webview.js')).toString()}"></script>`;
+    const styleTag =
+      inlineCss !== null
+        ? `<style nonce="${nonce}">${inlineCss}</style>`
+        : `<link rel="stylesheet" href="${assetUri('webview.css')}">`;
+    const scriptTag = `<script nonce="${nonce}" type="module" src="${assetUri('webview.js')}"></script>`;
 
     return [
       '<!DOCTYPE html>',
@@ -227,7 +214,6 @@ export class CanvasPanelManager {
       '<body>',
       '<div id="root"></div>',
       `<script id="${INITIAL_DOC_ELEMENT_ID}" type="application/json">${initialDocJson}</script>`,
-      ...(importMapTag ? [importMapTag] : []),
       scriptTag,
       '</body>',
       '</html>',

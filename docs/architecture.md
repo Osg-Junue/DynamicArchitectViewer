@@ -59,7 +59,7 @@ All paths are under `apps/vscode/src`.
 | `exporter/` | Standalone HTML and SVG export, HTML import | `dsl`, `layout`, `model`, `scene`, `runtime` |
 | `prompt/` | Prompt template that teaches the language to AI agents | `model` |
 | `skill/` | The `dav-check` command bundled with the agent skill | `dsl`, `model` |
-| `protocol/` | Types of the messages between extension and webview | Nothing |
+| `protocol/` | Types of the messages between extension and webview | `model` |
 | `samples/` | Sample diagrams for the New Diagram command | Nothing |
 | `editor/` | The preview webview UI and its documentation | Most of the above |
 | `extension/` | The VS Code extension host | `protocol`, `prompt`, `dsl`, `exporter`, `samples`, `model`, `layout` |

@@ -1,11 +1,12 @@
 import { gzipSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
+import { escapeJsonForHtml } from '../../model/text';
 import runtimeScript from '../../runtime/generated/player.js?raw';
 import { SAMPLE_TEMPLATES } from '../../samples';
 import { ICON_SHAPES } from '../../scene/icons';
 import { collectUsedIcons } from '../icons';
-import { EXPORT_DATA_ELEMENT_ID, escapeJsonForHtml, exportHtml, importContent } from '../index';
+import { EXPORT_DATA_ELEMENT_ID, exportHtml, importContent } from '../index';
 
 const SAMPLE = SAMPLE_TEMPLATES[0]?.dsl ?? '';
 

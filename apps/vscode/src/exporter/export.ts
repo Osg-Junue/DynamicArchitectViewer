@@ -1,5 +1,6 @@
 import { parse } from '../dsl';
 import { computeLayout, type Layout } from '../layout';
+import { escapeJsonForHtml } from '../model/text';
 import type { DavDocument, DavLocale } from '../model/types';
 import { EXPORT_DATA_ELEMENT_ID } from '../runtime/constants';
 import playerStyles from '../runtime/generated/player.css?raw';
@@ -81,19 +82,6 @@ export async function exportHtml(dsl: string, options: ExportOptions = {}): Prom
     '</html>',
     '',
   ].join('\n');
-}
-
-/**
- * Makes JSON safe inside a <script> element: `<`, `>` and `&` can never form
- * `</script>` or `<!--`, and line/paragraph separators are escaped. Still valid JSON.
- */
-export function escapeJsonForHtml(json: string): string {
-  return json
-    .replace(/</g, '\\u003c')
-    .replace(/>/g, '\\u003e')
-    .replace(/&/g, '\\u0026')
-    .replace(/\u2028/g, '\\u2028')
-    .replace(/\u2029/g, '\\u2029');
 }
 
 function assertSafeInline(content: string, what: string): void {
