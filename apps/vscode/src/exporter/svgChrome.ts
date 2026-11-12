@@ -6,6 +6,7 @@ import {
   fitText,
   h,
   MAX_ZONE_MOVES,
+  MINIMAP_OUTSIDE_FILL,
   MINIMAP_ZONE_ATTRS,
   type MinimapZone,
   minimapZones,
@@ -283,16 +284,22 @@ export function zoneStrip(
 
 interface MinimapFrame {
   zones: MinimapZone[];
+  outside: Rect[];
   bounds: Rect;
   size: Size;
 }
 
 /** The top-level zones and the size they get in the minimap; `null` without zones. */
 export function minimapFrame(doc: DavDocument, layout: Layout): MinimapFrame | null {
-  const { zones, bounds } = minimapZones(doc, layout);
+  const { zones, outside, bounds } = minimapZones(doc, layout);
   if (zones.length === 0) return null;
   const scale = Math.min(MINIMAP_MAX.width / bounds.width, MINIMAP_MAX.height / bounds.height);
-  return { zones, bounds, size: { width: bounds.width * scale, height: bounds.height * scale } };
+  return {
+    zones,
+    outside,
+    bounds,
+    size: { width: bounds.width * scale, height: bounds.height * scale },
+  };
 }
 
 /**
@@ -300,7 +307,7 @@ export function minimapFrame(doc: DavDocument, layout: Layout): MinimapFrame | n
  * rather than over the canvas, where it would hide part of the diagram.
  */
 export function minimap(
-  { zones, bounds, size }: MinimapFrame,
+  { zones, outside, bounds, size }: MinimapFrame,
   steps: readonly StepSlot[],
   at: { x: number; y: number },
   camera: Array<[number, Rect]>,
@@ -327,6 +334,11 @@ export function minimap(
         }),
         shown,
       ),
+    );
+  }
+  for (const rect of outside) {
+    inner.children.push(
+      h('rect', { ...roundRect(rect), rx: MINIMAP_ZONE_ATTRS.rx, fill: MINIMAP_OUTSIDE_FILL }),
     );
   }
   const first = camera[0]?.[1];

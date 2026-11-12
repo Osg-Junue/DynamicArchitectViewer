@@ -38,6 +38,8 @@ export const CONTROL_ICONS = {
     ['rect', { x: 3, y: 4, width: 18, height: 16, rx: 2 }],
     ['rect', { x: 11, y: 11, width: 7, height: 6, rx: 1 }],
   ),
+  zoomOut: line(['path', { d: 'M5 12h14' }]),
+  zoomIn: line(['path', { d: 'M5 12h14' }], ['path', { d: 'M12 5v14' }]),
   pause: solid(
     ['rect', { x: 6, y: 5, width: 4, height: 14, rx: 1 }],
     ['rect', { x: 14, y: 5, width: 4, height: 14, rx: 1 }],

@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { exportDocumentToHtml, exportDocumentToSvg, LANGUAGE_ID } from './documents';
 import { registerLanguageFeatures } from './languageFeatures';
 import { t, uiLocale } from './locale';
-import { CanvasPanelManager } from './previewPanel';
+import { CanvasPanelManager, PREVIEW_VIEW_TYPE } from './previewPanel';
 
 const openDavFirst = (): string =>
   t('先に .dav ファイルを開いてください。', 'Open a .dav file first.');
@@ -38,6 +38,10 @@ export function activate(context: vscode.ExtensionContext): void {
   };
 
   context.subscriptions.push(
+    // Brings the preview back after the window reloads.
+    vscode.window.registerWebviewPanelSerializer(PREVIEW_VIEW_TYPE, {
+      deserializeWebviewPanel: (panel, state) => panelManager.restore(panel, state),
+    }),
     vscode.commands.registerCommand('dav.openPreview', () => {
       const doc = vscode.window.activeTextEditor?.document;
       if (!doc || (doc.languageId !== LANGUAGE_ID && !doc.uri.fsPath.endsWith('.dav'))) {
@@ -79,7 +83,11 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dav.newFromTemplate', async () => {
       const { SAMPLE_TEMPLATES } = await import('../samples');
       const picked = await vscode.window.showQuickPick(
-        SAMPLE_TEMPLATES.map((s) => ({ label: s.name, detail: s.id, dsl: s.dsl })),
+        SAMPLE_TEMPLATES.map((s) => ({
+          label: t(...s.name),
+          detail: t(...s.description),
+          dsl: s.dsl,
+        })),
         { placeHolder: t('サンプルのテンプレートを選択', 'Select a sample diagram template') },
       );
       if (!picked) return;

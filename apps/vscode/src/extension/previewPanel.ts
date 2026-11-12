@@ -46,6 +46,8 @@ function readInlineWebviewCss(webviewRootFsPath: string): string | null {
   }
 }
 
+export const PREVIEW_VIEW_TYPE = 'dav.canvasPreview';
+
 /** The one preview panel, which shows the most recent `.dav` document. */
 export class CanvasPanelManager {
   private panel: vscode.WebviewPanel | null = null;
@@ -60,20 +62,51 @@ export class CanvasPanelManager {
       return;
     }
 
-    this.activeDocument = document;
-    const webviewRoot = vscode.Uri.joinPath(this.extensionUri, 'dist', 'webview');
+    // The editor keeps the focus, so that typing goes on while the preview opens.
     const panel = vscode.window.createWebviewPanel(
-      'dav.canvasPreview',
+      PREVIEW_VIEW_TYPE,
       previewTitle(document),
-      vscode.ViewColumn.Beside,
-      {
-        enableScripts: true,
-        retainContextWhenHidden: true,
-        localResourceRoots: [webviewRoot],
-      },
+      { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
+      { ...this.webviewOptions(), retainContextWhenHidden: true },
     );
+    this.attach(panel, document);
+  }
+
+  /**
+   * Takes over a panel that VS Code kept across a window reload. `state` is what the webview
+   * last saved: the URI of its document. A panel whose document is gone is closed.
+   */
+  async restore(panel: vscode.WebviewPanel, state: unknown): Promise<void> {
+    const uri =
+      typeof state === 'object' && state !== null && 'uri' in state ? state.uri : undefined;
+    if (this.panel || typeof uri !== 'string') {
+      panel.dispose();
+      return;
+    }
+    let document: vscode.TextDocument;
+    try {
+      document = await vscode.workspace.openTextDocument(vscode.Uri.parse(uri));
+    } catch {
+      panel.dispose();
+      return;
+    }
+    panel.webview.options = this.webviewOptions();
+    panel.title = previewTitle(document);
+    this.attach(panel, document);
+  }
+
+  private get webviewRoot(): vscode.Uri {
+    return vscode.Uri.joinPath(this.extensionUri, 'dist', 'webview');
+  }
+
+  private webviewOptions(): vscode.WebviewOptions {
+    return { enableScripts: true, localResourceRoots: [this.webviewRoot] };
+  }
+
+  private attach(panel: vscode.WebviewPanel, document: vscode.TextDocument): void {
+    this.activeDocument = document;
     this.panel = panel;
-    panel.webview.html = this.buildWebviewHtml(panel.webview, webviewRoot, document);
+    panel.webview.html = this.buildWebviewHtml(panel.webview, this.webviewRoot, document);
 
     this.disposables.push(
       panel.onDidDispose(() => {
@@ -112,7 +145,7 @@ export class CanvasPanelManager {
     this.activeDocument = doc;
     if (!this.panel) return;
     this.panel.title = previewTitle(doc);
-    if (reveal) this.panel.reveal(vscode.ViewColumn.Beside);
+    if (reveal) this.panel.reveal(this.panel.viewColumn ?? vscode.ViewColumn.Beside, true);
     this.postDocument(doc);
   }
 

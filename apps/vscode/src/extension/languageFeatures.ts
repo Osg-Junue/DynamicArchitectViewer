@@ -52,9 +52,14 @@ function provideQuickFixes(
 function provideCompletions(
   doc: vscode.TextDocument,
   position: vscode.Position,
+  _token: vscode.CancellationToken,
+  context: vscode.CompletionContext,
 ): vscode.CompletionItem[] | undefined {
   const text = doc.getText();
-  const result = computeCompletions(text, doc.offsetAt(position), true, uiLocale());
+  // A trigger character offers what the statement expects there; the full list of statements
+  // on an empty spot waits until the reader asks for it, or it would open after every space.
+  const explicit = context.triggerKind === vscode.CompletionTriggerKind.Invoke;
+  const result = computeCompletions(text, doc.offsetAt(position), explicit, uiLocale());
   if (!result) return undefined;
   const replaceRange = toRange(doc, result.from, result.to, text.length);
   return result.items.map((item) => {
@@ -89,10 +94,21 @@ function provideDocumentSymbols(doc: vscode.TextDocument): vscode.DocumentSymbol
       : range;
     return [new vscode.DocumentSymbol(id, label, kind, range, selRange)];
   };
-  const symbols = [
-    ...model.groups.flatMap((g) => declared(g, vscode.SymbolKind.Namespace)),
-    ...model.nodes.flatMap((n) => declared(n, vscode.SymbolKind.Object)),
-  ];
+  // Groups hold their nodes and nested groups, as they do in the diagram.
+  const symbols: vscode.DocumentSymbol[] = [];
+  const groupSymbols = new Map<string, vscode.DocumentSymbol>();
+  const place = (parentId: string | undefined, symbol: vscode.DocumentSymbol | undefined) => {
+    if (!symbol) return;
+    const parent = parentId === undefined ? undefined : groupSymbols.get(parentId);
+    (parent ? parent.children : symbols).push(symbol);
+  };
+  // Parents always precede their children in `model.groups`.
+  for (const g of model.groups) {
+    const [symbol] = declared(g, vscode.SymbolKind.Namespace);
+    if (symbol) groupSymbols.set(g.id, symbol);
+    place(g.parentId, symbol);
+  }
+  for (const n of model.nodes) place(n.parentId, declared(n, vscode.SymbolKind.Object)[0]);
   model.steps.forEach((s, idx) => {
     const src = sourceMap.steps[idx];
     if (!src) return;

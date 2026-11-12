@@ -1,6 +1,11 @@
 import type { Layout, Rect } from '../layout';
 import type { DavDocument } from '../model/types';
-import { MINIMAP_ZONE_ATTRS, minimapZones, type ResolvedView } from '../scene';
+import {
+  MINIMAP_OUTSIDE_FILL,
+  MINIMAP_ZONE_ATTRS,
+  minimapZones,
+  type ResolvedView,
+} from '../scene';
 import { clear, svg } from './dom';
 
 /** A small picture of the top-level zones and of what the camera shows. */
@@ -45,7 +50,7 @@ export class Minimap {
     this.#syncHidden();
     if (!this.#hasZones) return;
 
-    const { zones, bounds: b } = minimapZones(doc, layout);
+    const { zones, outside, bounds: b } = minimapZones(doc, layout);
     this.element.setAttribute('viewBox', `${b.x} ${b.y} ${b.width} ${b.height}`);
     for (const zone of zones) {
       const { x, y, width, height } = zone.rect;
@@ -60,6 +65,11 @@ export class Minimap {
       });
       this.#zones.set(zone.id, rect);
       this.element.append(rect);
+    }
+    for (const { x, y, width, height } of outside) {
+      this.element.append(
+        svg('rect', { x, y, width, height, rx: MINIMAP_ZONE_ATTRS.rx, fill: MINIMAP_OUTSIDE_FILL }),
+      );
     }
     this.#camera = svg('rect', { class: 'dav-minimap-view' });
     this.element.append(this.#camera);

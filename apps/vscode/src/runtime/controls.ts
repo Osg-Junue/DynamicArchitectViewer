@@ -144,9 +144,11 @@ export function createControls(s: ViewerStrings, speed: number, on: ControlActio
       'aria-label': s.zoomControls,
       'data-testid': 'canvas-zoom-controls',
     },
-    textButton('−', s.zoomOut, () => on.zoomBy(1 / ZOOM_STEP)),
+    iconButton(CONTROL_ICONS.zoomOut, labelled(s.zoomOut, 'btn-zoom-out'), () =>
+      on.zoomBy(1 / ZOOM_STEP),
+    ),
     zoomLabel,
-    textButton('+', s.zoomIn, () => on.zoomBy(ZOOM_STEP)),
+    iconButton(CONTROL_ICONS.zoomIn, labelled(s.zoomIn, 'btn-zoom-in'), () => on.zoomBy(ZOOM_STEP)),
     separator(),
     iconButton(CONTROL_ICONS.fit, labelled(s.fit, 'btn-zoom-fit'), on.fit),
     followBtn,

@@ -49,6 +49,7 @@ export { HOLD_MS, MIN_PACKET_MS, PHASE_MS, packetPosition } from './timing';
 export { h, type VElement, type VNode } from './vnode';
 export {
   MAX_ZONE_MOVES,
+  MINIMAP_OUTSIDE_FILL,
   MINIMAP_ZONE_ATTRS,
   type MinimapZone,
   minimapZones,

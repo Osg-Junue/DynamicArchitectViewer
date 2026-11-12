@@ -44,7 +44,8 @@
     "Linters"
   ],
   "activationEvents": [
-    "onLanguage:dav"
+    "onLanguage:dav",
+    "onWebviewPanel:dav.canvasPreview"
   ],
   "main": "./dist/extension.cjs",
   "contributes": {

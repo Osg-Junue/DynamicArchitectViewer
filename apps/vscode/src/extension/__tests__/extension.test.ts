@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { freshHostState, host } = vi.hoisted(() => {
+const { freshHostState, host, makePanel } = vi.hoisted(() => {
   const freshHostState = () => ({
     commands: new Map<string, () => Promise<void> | void>(),
     codeActionProvider: null as null | {
@@ -25,10 +25,55 @@ const { freshHostState, host } = vi.hoisted(() => {
     saveDefaultUri: undefined as string | undefined,
     saveUri: { fsPath: 'out.html' } as { fsPath: string } | undefined,
     webviewHtml: '',
+    panelOptions: [] as unknown[],
+    openable: new Map<string, unknown>(),
+    restorePanel: null as null | ((panel: unknown, state: unknown) => Promise<void> | void),
     webviewPosted: [] as unknown[],
     receive: (_msg: unknown): void => {},
   });
-  return { freshHostState, host: freshHostState() };
+  const host = freshHostState();
+  // A panel as VS Code hands it out, for `createWebviewPanel` and for restored panels.
+  const makePanel = () => {
+    const noop = { dispose() {} };
+    const webview = {
+      options: undefined as unknown,
+      get html() {
+        return host.webviewHtml;
+      },
+      set html(value: string) {
+        host.webviewHtml = value;
+      },
+      cspSource: 'https://csp.example',
+      asWebviewUri: (uri: { fsPath: string }) => ({
+        fsPath: uri.fsPath,
+        toString: () =>
+          `https://csp.example/${uri.fsPath.replaceAll('\\', '/').replace(/^\/+/, '')}`,
+      }),
+      postMessage: async (msg: unknown) => {
+        host.webviewPosted.push(msg);
+        return true;
+      },
+      onDidReceiveMessage: (listener: (msg: unknown) => void) => {
+        host.receive = listener;
+        return noop;
+      },
+    };
+    return {
+      title: '',
+      disposed: false,
+      viewColumn: 2,
+      reveal() {},
+      dispose() {
+        this.disposed = true;
+      },
+      onDidDispose: (listener: () => void) => {
+        host.disposePanel = listener;
+        return noop;
+      },
+      webview,
+    };
+  };
+  return { freshHostState, host, makePanel };
 });
 
 vi.mock('vscode', () => {
@@ -72,6 +117,7 @@ vi.mock('vscode', () => {
     ViewColumn: { One: 1, Beside: -2 },
     Uri: {
       file: (fsPath: string) => ({ fsPath }),
+      parse: (value: string) => ({ fsPath: value, toString: () => value }),
       joinPath: (base: { fsPath: string }, ...parts: string[]) => ({
         fsPath: [base.fsPath, ...parts].join('/'),
       }),
@@ -88,6 +134,11 @@ vi.mock('vscode', () => {
     },
     workspace: {
       textDocuments: [],
+      openTextDocument: async (uri: { toString(): string }) => {
+        const doc = host.openable.get(uri.toString());
+        if (!doc) throw new Error('cannot open');
+        return doc;
+      },
       get workspaceFolders() {
         return host.workspaceFolders;
       },
@@ -147,38 +198,16 @@ vi.mock('vscode', () => {
         host.saveDefaultUri = options?.defaultUri?.fsPath;
         return host.saveUri;
       },
-      createWebviewPanel: () => {
-        const webview = {
-          get html() {
-            return host.webviewHtml;
-          },
-          set html(value: string) {
-            host.webviewHtml = value;
-          },
-          cspSource: 'https://csp.example',
-          asWebviewUri: (uri: { fsPath: string }) => ({
-            fsPath: uri.fsPath,
-            toString: () =>
-              `https://csp.example/${uri.fsPath.replaceAll('\\', '/').replace(/^\/+/, '')}`,
-          }),
-          postMessage: async (msg: unknown) => {
-            host.webviewPosted.push(msg);
-            return true;
-          },
-          onDidReceiveMessage: (listener: (msg: unknown) => void) => {
-            host.receive = listener;
-            return noop;
-          },
-        };
-        return {
-          title: '',
-          reveal() {},
-          onDidDispose: (listener: () => void) => {
-            host.disposePanel = listener;
-            return noop;
-          },
-          webview,
-        };
+      registerWebviewPanelSerializer: (
+        _viewType: string,
+        serializer: { deserializeWebviewPanel: NonNullable<typeof host.restorePanel> },
+      ) => {
+        host.restorePanel = (panel, state) => serializer.deserializeWebviewPanel(panel, state);
+        return noop;
+      },
+      createWebviewPanel: (...args: unknown[]) => {
+        host.panelOptions = args;
+        return makePanel();
       },
     },
   };
@@ -667,6 +696,50 @@ describe('extension commands', () => {
 
     expect(actions?.map((a) => a.title)).toEqual(["Change to 'server'"]);
     expect(actions?.[0]?.edit.newText).toBe('server');
+  });
+
+  it('opens the preview beside the editor without taking the focus', async () => {
+    host.activeTextEditor = { document: docA };
+    await run('dav.openPreview');
+    expect(host.panelOptions[2]).toEqual({ viewColumn: -2, preserveFocus: true });
+  });
+
+  describe('restoring the preview after a window reload', () => {
+    it('shows the document the webview remembered', async () => {
+      host.openable.set('file:///a.dav', docA);
+      const panel = makePanel();
+      await host.restorePanel?.(panel, { uri: 'file:///a.dav' });
+
+      expect(panel.disposed).toBe(false);
+      expect(panel.title).toBe('Preview: a.dav');
+      expect(host.webviewHtml).toContain('Doc A');
+    });
+
+    it.each([
+      ['no state', undefined],
+      ['a state without a URI', { uri: 42 }],
+      ['a document that is gone', { uri: 'file:///gone.dav' }],
+    ])('closes a panel restored with %s', async (_name, state) => {
+      const panel = makePanel();
+      await host.restorePanel?.(panel, state);
+
+      expect(panel.disposed).toBe(true);
+      expect(host.webviewHtml).toBe('');
+    });
+  });
+
+  it('describes each sample in the display language', async () => {
+    host.pickIndex = null;
+    await run('dav.newFromTemplate');
+    expect(host.quickPick[0]).toMatchObject({
+      label: 'Infrastructure: redundant web stack and database failover',
+      detail: expect.stringContaining('CDN, load balancer'),
+    });
+
+    host.language = 'ja';
+    await run('dav.newFromTemplate');
+    expect(host.quickPick[0]?.label).toContain('インフラ');
+    expect(host.quickPick[0]?.detail).toContain('フェイルオーバー');
   });
 
   describe('preview cold-start bootstrap and inline assets', () => {

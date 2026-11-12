@@ -11,6 +11,12 @@ The `dav` language version is separate from the extension version.
 - `animate` takes a `code` block: a monospace snippet with an optional language and title, shown inside the packet's callout in the preview and in exported HTML and SVG
 - A callout is placed above or below its rail, whichever keeps it clear of other rails and nodes
 - The preview opens faster: its styles and the document are part of the page, and the documentation loads when first opened
+- Opening the preview leaves the focus in the editor, and the preview comes back after the window reloads
+- New Diagram from Sample Template describes each sample, in Japanese when that is the display language
+- The outline nests nodes and groups inside their group
+- Completions no longer open after every space on an empty line; `Ctrl+Space` still lists the statements
+- The minimap covers nodes outside any zone, so the camera frame stays inside it
+- Edge labels sit a little further from their rail, clear of the numbered stops
 - Nothing is exported while the text has a syntax error and nothing to draw: the preview's Export button is disabled, and the export commands say why
 
 ## 0.3.3 (2026-11-10)

@@ -178,7 +178,8 @@ function edgeLabelElement(e: ResolvedEdge): VElement | null {
       'text',
       {
         x: mid.x,
-        y: e.labelBelow ? mid.y + 25 : mid.y - 17,
+        // Clear of the numbered stop at the rail's middle, also while it is the larger current one.
+        y: e.labelBelow ? mid.y + 28 : mid.y - 20,
         'text-anchor': 'middle',
         'font-size': EDGE_LABEL_FONT_SIZE,
         fill: THEME_COLOR.fg,

@@ -18,6 +18,8 @@ import type { HelpModal } from './HelpModal';
 
 interface VsCodeApi {
   postMessage(message: WebviewToHostMessage): void;
+  /** Kept by VS Code across a window reload, and handed back to the extension to restore. */
+  setState?(state: { uri: string }): void;
 }
 
 declare global {
@@ -261,9 +263,14 @@ export function mountApp(container: HTMLElement): void {
     );
   });
 
+  const rememberDocument = (uri: string | undefined): void => {
+    if (uri !== undefined) vscodeApi.setState?.({ uri });
+  };
+
   const initialDoc = readInitialDoc();
   if (initialDoc) {
     documentUri = initialDoc.uri;
+    rememberDocument(documentUri);
     documentVersion = initialDoc.version;
     applyDsl(initialDoc.dsl);
   }
@@ -283,6 +290,7 @@ export function mountApp(container: HTMLElement): void {
       if (msg.uri !== documentUri) {
         // Nothing of the previous document may survive into another one.
         documentUri = msg.uri;
+        rememberDocument(documentUri);
         lastValid = null;
         cursorTargetId = null;
         lastStepIndex = null;

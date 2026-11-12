@@ -89,22 +89,29 @@ export function zoneColor(color: string | undefined): string {
   return color ? paint(color) : THEME_COLOR.borderStrong;
 }
 
-/** Top-level zones with a layout rectangle and their minimap bounds. */
+/** Fill of a node outside any zone, which the minimap shows as a plain block. */
+export const MINIMAP_OUTSIDE_FILL = THEME_COLOR.borderStrong;
+
+/**
+ * Top-level zones with a layout rectangle, the nodes outside any zone, and the minimap bounds.
+ * The bounds cover everything the diagram draws, so that the camera's frame never leaves them.
+ */
 export function minimapZones(
-  doc: Pick<DavDocument, 'groups'>,
+  doc: Pick<DavDocument, 'groups' | 'nodes'>,
   layout: Layout,
-): { zones: MinimapZone[]; bounds: Rect } {
+): { zones: MinimapZone[]; outside: Rect[]; bounds: Rect } {
   const zones = topLevelGroups(doc.groups).flatMap((zone): MinimapZone[] => {
     const rect = layout.groups[zone.id];
     return rect ? [{ id: zone.id, rect, fill: zoneColor(zone.color) }] : [];
   });
+  const outside = doc.nodes.flatMap((node): Rect[] => {
+    const rect = node.parentId === undefined ? layout.nodes[node.id] : undefined;
+    return rect ? [rect] : [];
+  });
   return {
     zones,
-    bounds: boundsOf(
-      zones.map((z) => z.rect),
-      MINIMAP_PAD,
-      0,
-    ),
+    outside,
+    bounds: boundsOf([...zones.map((z) => z.rect), ...outside], MINIMAP_PAD, 0),
   };
 }
 
