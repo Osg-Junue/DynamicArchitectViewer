@@ -367,7 +367,8 @@ StateStmt     ::= "state" Identifier AttrBlock
 AnimateStmt   ::= "animate" Identifier AnimateArrow Identifier (":" String)?
                   AttrBlock? AnimateBody?
 AnimateBody   ::= "{" (DescStmt | CodeStmt)* "}"
-CodeStmt      ::= "code" Identifier? (String CodeFence | CodeFence | String)
+CodeStmt      ::= "code" CodeLang? (String CodeFence | CodeFence | String)
+CodeLang      ::= Identifier | "dav"
 AnimateArrow  ::= "-->" | "<->"
 
 AttrBlock     ::= "[" (Attr ("," Attr)* ","?)? "]"

@@ -40,9 +40,23 @@ step "Editing a .dav file and running language diagnostics" {
   state editor [badge: "EDITING", color: teal]
   state dsl [badge: "PARSE", color: blue]
   animate editor --> ext : "onDidChangeTextDocument" [icon: file, desc: "The editor notifies the extension host that the document text changed"]
-  animate ext --> dsl : "parse(text)" [icon: file, desc: "The extension host passes the .dav source to the DSL module"]
+  animate ext --> dsl : "parse(text)" [icon: file, desc: "The extension host passes the .dav source to the DSL module"] {
+    code dav ".dav Source" ```
+      node api "Order API" [icon: api]
+      animate client --> api : "POST /orders"
+    ```
+  }
   animate dsl --> dsl : "analyze (AST)" [color: blue, desc: "The Lezer grammar builds the syntax tree and produces DavDocument, Diagnostics and SourceMap"]
-  animate dsl --> ext : "Diagnostics / Completions" [color: teal, desc: "Diagnostics, Quick Fix suggestions and completion items are returned"]
+  animate dsl --> ext : "Diagnostics / Completions" [color: teal, desc: "Diagnostics, Quick Fix suggestions and completion items are returned"] {
+    code json "Diagnostic" ```
+      {
+        "code": "undefined-reference",
+        "severity": "error",
+        "from": 42,
+        "to": 48
+      }
+    ```
+  }
   animate ext --> editor : "set(uri, diagnostics)" [color: teal, desc: "Squiggles, Quick Fixes and document symbols are updated in the editor"]
 }
 
@@ -51,7 +65,15 @@ step "Computing the layout and reducing edge crossings" {
   state editor [badge: "", color: none]
   state dsl [badge: "VALID", color: green]
   state layout [badge: "RANK & ORDER", color: blue]
-  animate dsl --> layout : "DavDocument" [icon: sheet, desc: "The validated nodes, groups and edges are passed to the layout engine"]
+  animate dsl --> layout : "DavDocument" [icon: sheet, desc: "The validated nodes, groups and edges are passed to the layout engine"] {
+    code json "DavDocument" ```
+      {
+        "version": 1,
+        "nodes": [{ "id": "api", "icon": "api" }],
+        "edges": [{ "from": "client", "to": "api" }]
+      }
+    ```
+  }
   animate layout --> layout : "Barycenter (up to 16x)" [color: blue, desc: "Columns come from longest paths, then rows are reordered to reduce edge crossings"]
 }
 
@@ -62,8 +84,23 @@ step "Resolving the step scene and rendering the live preview" {
   state scene [badge: "RESOLVED", color: purple]
   state player [badge: "MOUNTED", color: purple]
   state webview [badge: "LIVE PREVIEW", color: green]
-  animate layout --> scene : "Layout (Rect)" [icon: sheet, desc: "Deterministic node and group rectangles are passed to the scene module"]
-  animate scene --> player : "resolveView → buildScene" [icon: function, color: purple, desc: "Cumulative state, rail geometry and callouts become a virtual SVG tree (VElement)"]
+  animate layout --> scene : "Layout (Rect)" [icon: sheet, desc: "Deterministic node and group rectangles are passed to the scene module"] {
+    code json "Layout" ```
+      {
+        "nodes": {
+          "api": { "x": 320, "y": 140, "width": 176, "height": 118 }
+        }
+      }
+    ```
+  }
+  animate scene --> player : "resolveView → buildScene" [icon: function, color: purple, desc: "Cumulative state, rail geometry and callouts become a virtual SVG tree (VElement)"] {
+    code json "VElement" ```
+      {
+        "tag": "g",
+        "attrs": { "class": "dav-node", "data-id": "api" }
+      }
+    ```
+  }
   animate player --> webview : "createElementNS (SVG)" [icon: monitor, color: green, desc: "Player renders the SVG into the preview webview via DOM APIs without innerHTML"]
 }
 
@@ -74,7 +111,15 @@ step "Playing step animations and syncing the cursor" {
   state webview [badge: "SYNCED", color: teal]
   animate webview <-> player : "play() / goTo(step)" [color: green, desc: "Moving the editor cursor jumps to the matching step and highlights the active element"]
   animate player --> player : "Phase / Parallel" [color: purple, desc: "Animations run in phase order, with parallel: true joining the preceding phase"]
-  animate player --> webview : "dblclick [data-id]" [icon: search, color: teal, desc: "Double-clicking a node looks up its SourceMap span and posts revealRange to the editor"]
+  animate player --> webview : "dblclick [data-id]" [icon: search, color: teal, desc: "Double-clicking a node looks up its SourceMap span and posts revealRange to the editor"] {
+    code json "WebviewToHostMessage" ```
+      {
+        "type": "revealRange",
+        "from": 128,
+        "to": 162
+      }
+    ```
+  }
 }
 
 step "Exporting a standalone HTML file" {
@@ -85,7 +130,13 @@ step "Exporting a standalone HTML file" {
   state html_out [visible: true, badge: "EXPORTED", color: green]
   state e_export [visible: true]
   animate player --> exporter : "player.js / CSS" [icon: file, desc: "The prebuilt player runtime and stylesheet are supplied for inlining"]
-  animate exporter --> html_out : "exportHtml(dsl)" [icon: key, color: green, desc: "Writes a self-contained HTML file with escaped #dav-data JSON and SHA-256 CSP hashes"]
+  animate exporter --> html_out : "exportHtml(dsl)" [icon: key, color: green, desc: "Writes a self-contained HTML file with escaped #dav-data JSON and SHA-256 CSP hashes"] {
+    code html "Standalone HTML" ```
+      <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'sha256-...'">
+      <script type="application/json" id="dav-data">...</script>
+    ```
+  }
 }
 
 step "Re-importing the .dav source from exported HTML" {
@@ -93,5 +144,13 @@ step "Re-importing the .dav source from exported HTML" {
   state html_out [badge: "READ", color: teal]
   state exporter [badge: "EXTRACTED", color: teal]
   state e_import [visible: true]
-  animate html_out --> exporter : "importContent(html)" [icon: file, color: teal, desc: "Extracts payload.dsl from the embedded #dav-data script element without evaluating scripts"]
+  animate html_out --> exporter : "importContent(html)" [icon: file, color: teal, desc: "Extracts payload.dsl from the embedded #dav-data script element without evaluating scripts"] {
+    code json "ExportPayload (#dav-data)" ```
+      {
+        "format": "dynamic-architect-viewer",
+        "version": 1,
+        "dsl": "dav 1\ntitle \"...\""
+      }
+    ```
+  }
 }

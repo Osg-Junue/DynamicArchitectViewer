@@ -30,7 +30,8 @@ Focus { kw<"focus"> Identifier ("," Identifier)* }
 State { kw<"state"> Identifier Attributes }
 Animate { kw<"animate"> Identifier Arrow Identifier EdgeLabel? Attributes? AnimateBody? }
 AnimateBody { "{" (Desc | Code)* "}" }
-Code { ckw<"code"> Identifier? (String CodeFence | CodeFence | String) }
+Code { ckw<"code"> CodeLang? (String CodeFence | CodeFence | String) }
+CodeLang { Identifier | kw<"dav"> }
 
 Attributes { "[" (Attribute ("," Attribute)* ","?)? "]" }
 Attribute { AttrName ":" value }

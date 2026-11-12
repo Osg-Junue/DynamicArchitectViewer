@@ -97,7 +97,9 @@ const specArb: fc.Arbitrary<GenSpec> = fc.record({
       animFrom: fc.nat(20),
       animTo: fc.nat(20),
       codeKind: fc.constantFrom('none', 'attr', 'string', 'fence'),
-      codeLang: fc.option(fc.constantFrom('json', 'sql', 'http', 'code'), { nil: undefined }),
+      codeLang: fc.option(fc.constantFrom('json', 'sql', 'http', 'code', 'dav'), {
+        nil: undefined,
+      }),
       codeTitle: fc.option(labelArb, { nil: undefined }),
       codeBody: codeBodyArb,
     }),

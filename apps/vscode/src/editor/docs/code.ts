@@ -29,6 +29,9 @@ function tokenize(dsl: string, tree: SyntaxTree): Token[] {
         tokens.push({ from, to, kind: 'attr' });
         return false;
       }
+      if (name === 'CodeLang') {
+        return false;
+      }
       if (KEYWORDS.has(name) || name === 'code') {
         tokens.push({ from, to, kind: 'keyword' });
         return false;

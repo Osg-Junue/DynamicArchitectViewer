@@ -48,7 +48,8 @@ FocusStmt     ::= "focus" Identifier ("," Identifier)*
 StateStmt     ::= "state" Identifier AttrBlock
 AnimateStmt   ::= "animate" Identifier AnimateArrow Identifier (":" String)? AttrBlock? AnimateBody?
 AnimateBody   ::= "{" (DescStmt | CodeStmt)* "}"
-CodeStmt      ::= "code" Identifier? (String CodeFence | CodeFence | String)
+CodeStmt      ::= "code" CodeLang? (String CodeFence | CodeFence | String)
+CodeLang      ::= Identifier | "dav"
 
 AttrBlock     ::= "[" (Attr ("," Attr)* ","?)? "]"
 Attr          ::= (Identifier | "desc") ":" (String | Number | Color | Identifier | Boolean)
@@ -172,7 +173,7 @@ animate cdn --> api : "POST /orders" [desc: "Order API validates idempotencyKey"
 }
 ````
 
-Inside `{ ... }`, `code` takes an optional language identifier (`json`, `sql`, `http`, etc.), an optional title string (`"Order Request"`), and a ```` ``` ... ``` ```` fence — or a one-line string (`code json "{ \"ok\": true }"` or `code "{ \"ok\": true }"`):
+Inside `{ ... }`, `code` takes an optional language identifier (`json`, `sql`, `http`, `dav`, etc.), an optional title string (`"Order Request"`), and a ```` ``` ... ``` ```` fence — or a one-line string (`code json "{ \"ok\": true }"` or `code "{ \"ok\": true }"`):
 
 - ```` code json "Title" ``` ... ``` ````
 - ```` code json ``` ... ``` ````

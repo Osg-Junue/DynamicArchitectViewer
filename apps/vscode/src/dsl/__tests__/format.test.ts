@@ -129,6 +129,11 @@ step "S" {
   animate a --> b {
     code   "plain"
   }
+  animate a --> b {
+    code   dav   ".dav Source"   \`\`\`
+      node api "Order API" [icon: api]
+    \`\`\`
+  }
 }
 `;
     const expected = `dav 1
@@ -165,6 +170,11 @@ step "S" {
   }
   animate a --> b {
     code "plain"
+  }
+  animate a --> b {
+    code dav ".dav Source" \`\`\`
+      node api "Order API" [icon: api]
+    \`\`\`
   }
 }
 `;

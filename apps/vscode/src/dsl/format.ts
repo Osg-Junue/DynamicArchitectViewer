@@ -159,7 +159,7 @@ class Printer {
   }
 
   private code(node: SyntaxNode, indent: string): void {
-    const langNode = node.getChild('Identifier');
+    const langNode = node.getChild('CodeLang');
     const strNode = node.getChild('String');
     const fenceNode = node.getChild('CodeFence');
 

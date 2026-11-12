@@ -448,4 +448,38 @@ step "Run" {
     expect(document.steps[0]?.animations[1]?.to).toBe('code');
     expect(document.steps[0]?.animations[1]?.code).toEqual({ lang: 'code', body: 'pong' });
   });
+
+  it('accepts dav as a CodeLang while keeping dav reserved for element IDs', () => {
+    expect(codes('dav 1\nnode dav')).toEqual(['syntax-error']);
+    const dsl = `dav 1
+node ext
+node dsl
+ext --> dsl
+
+step "Parse" {
+  animate ext --> dsl {
+    code dav ".dav Source" \`\`\`
+      node api "Order API" [icon: api]
+      animate client --> api : "POST /orders"
+    \`\`\`
+  }
+  animate dsl --> ext {
+    code dav "dav 1"
+  }
+}
+`;
+    const { document, diagnostics } = parse(dsl);
+    expect(diagnostics).toEqual([]);
+    expect(document.steps[0]?.animations.map((a) => a.code)).toEqual([
+      {
+        lang: 'dav',
+        title: '.dav Source',
+        body: 'node api "Order API" [icon: api]\nanimate client --> api : "POST /orders"',
+      },
+      {
+        lang: 'dav',
+        body: 'dav 1',
+      },
+    ]);
+  });
 });
