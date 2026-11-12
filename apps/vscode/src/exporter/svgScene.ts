@@ -209,7 +209,7 @@ export function animatedPacket(
         'd',
         times.map((ms, i) => [
           phase.start + ms,
-          packetBubblePath(box, points[i] ?? { x: 0, y: 0 }, packet.icon ? 21 : 13),
+          packetBubblePath(box, points[i] ?? { x: 0, y: 0 }),
         ]),
       ),
     );

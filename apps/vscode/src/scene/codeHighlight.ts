@@ -1,10 +1,7 @@
 import { THEME_COLOR } from './paint';
 import { h, type VNode } from './vnode';
 
-const CODE_TOKEN_RE =
-  /(\/\/.*$|(?<=^\s*|\s)#(?:\s.*|$))|("(?:\\.|[^"\\])*(?:"|…))|('(?:\\.|[^'\\])*(?:'|…))|\b(true|false|null|undefined|GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS|HTTP\/\d(?:\.\d)?|SELECT|INSERT|UPDATE|FROM|WHERE|INTO|VALUES|RETURNING|SET|AND|OR|LIMIT|BEGIN|COMMIT|ROLLBACK|OK|ERR)\b|((?<![\w.-])-?\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b)|([{}[\](),:;]+)/g;
-
-const CODE_KEYWORDS = new Set([
+const KEYWORD_WORDS = [
   'true',
   'false',
   'null',
@@ -33,7 +30,21 @@ const CODE_KEYWORDS = new Set([
   'ROLLBACK',
   'OK',
   'ERR',
-]);
+] as const;
+
+const CODE_KEYWORDS = new Set<string>(KEYWORD_WORDS);
+
+const CODE_TOKEN_RE = new RegExp(
+  [
+    String.raw`(\/\/.*$|(?<=^\s*|\s)#(?:\s.*|$))`,
+    String.raw`("(?:\\.|[^"\\])*(?:"|…))`,
+    String.raw`('(?:\\.|[^'\\])*(?:'|…))`,
+    String.raw`\b(${KEYWORD_WORDS.join('|')}|HTTP\/\d(?:\.\d)?)\b`,
+    String.raw`((?<![\w.-])-?\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b)`,
+    String.raw`([{}[\](),:;]+)`,
+  ].join('|'),
+  'g',
+);
 
 /** Tokenizes a single code line into themed `<tspan>` runs and plain text strings. */
 export function highlightCodeLine(line: string): VNode[] {

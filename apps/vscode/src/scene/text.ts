@@ -18,31 +18,31 @@ const KINSOKU_TRAILING_OPEN_RE = /^(.+?)([([{（「『【〈《〔]+)$/;
 const KINSOKU_CLOSE_RE =
   /^[)\]}）」』】〉》〕。、，．・：；！？…‥ーぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮ]+/;
 
+const isWhitespaceToken = (tok: string): boolean => tok === ' ' || tok === '\n';
+
+/**
+ * Enforces CJK/ASCII kinsoku line-breaking rules in three passes:
+ * 1. Detach trailing opening brackets from a word (e.g. `WAF(` before `検証`) so they stay with what follows.
+ * 2. Attach leading closing punctuation/small kana to the preceding non-whitespace token.
+ * 3. Attach opening brackets forward to the next non-whitespace token.
+ */
 function coalesceKinsokuTokens(raw: readonly string[]): string[] {
-  const splitOpen: string[] = [];
-  for (let i = 0; i < raw.length; i++) {
-    const tok = raw[i] ?? '';
+  const splitOpen = raw.flatMap((tok, i) => {
     const next = raw[i + 1];
-    const match =
-      next !== undefined && next !== ' ' && next !== '\n' && !KINSOKU_OPEN_RE.test(tok)
-        ? KINSOKU_TRAILING_OPEN_RE.exec(tok)
-        : null;
-    if (match?.[1] && match[2]) {
-      splitOpen.push(match[1], match[2]);
-    } else {
-      splitOpen.push(tok);
+    if (next !== undefined && !isWhitespaceToken(next) && !KINSOKU_OPEN_RE.test(tok)) {
+      const match = KINSOKU_TRAILING_OPEN_RE.exec(tok);
+      if (match?.[1] && match[2]) return [match[1], match[2]];
     }
-  }
+    return [tok];
+  });
 
   const afterClose: string[] = [];
   for (const tok of splitOpen) {
     const prev = afterClose[afterClose.length - 1];
     if (
       prev !== undefined &&
-      prev !== ' ' &&
-      prev !== '\n' &&
-      tok !== ' ' &&
-      tok !== '\n' &&
+      !isWhitespaceToken(prev) &&
+      !isWhitespaceToken(tok) &&
       KINSOKU_CLOSE_RE.test(tok)
     ) {
       afterClose[afterClose.length - 1] = prev + tok;
@@ -56,12 +56,11 @@ function coalesceKinsokuTokens(raw: readonly string[]): string[] {
   for (const tok of afterClose) {
     if (KINSOKU_OPEN_RE.test(tok)) {
       pendingOpen += tok;
-    } else if (pendingOpen) {
-      if (tok === ' ' || tok === '\n') {
-        out.push(pendingOpen, tok);
-      } else {
-        out.push(pendingOpen + tok);
-      }
+      continue;
+    }
+    if (pendingOpen) {
+      if (isWhitespaceToken(tok)) out.push(pendingOpen, tok);
+      else out.push(pendingOpen + tok);
       pendingOpen = '';
     } else {
       out.push(tok);

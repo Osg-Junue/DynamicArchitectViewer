@@ -97,9 +97,7 @@ const CROSSING_SAMPLES = 32;
 
 function crosses(b: Bezier, area: Rect): boolean {
   for (let i = 1; i < CROSSING_SAMPLES; i++) {
-    const p = pointAt(b, i / CROSSING_SAMPLES);
-    const insideX = p.x >= area.x && p.x <= area.x + area.width;
-    if (insideX && p.y >= area.y && p.y <= area.y + area.height) return true;
+    if (pointInRect(pointAt(b, i / CROSSING_SAMPLES), area)) return true;
   }
   return false;
 }
@@ -181,4 +179,47 @@ export function clamp(v: number, min: number, max: number): number {
 
 export function round(v: number): number {
   return Math.round(v * 10) / 10;
+}
+
+export function expandRect(r: Rect, pad: number): Rect {
+  return {
+    x: r.x - pad,
+    y: r.y - pad,
+    width: r.width + pad * 2,
+    height: r.height + pad * 2,
+  };
+}
+
+export function pointInRect(p: Point, r: Rect): boolean {
+  return p.x >= r.x && p.x <= r.x + r.width && p.y >= r.y && p.y <= r.y + r.height;
+}
+
+/** Liang–Barsky segment-rectangle intersection test. */
+export function segmentIntersectsRect(a: Point, b: Point, r: Rect): boolean {
+  if (r.width <= 0 || r.height <= 0) return false;
+  let tMin = 0;
+  let tMax = 1;
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+
+  const clip = (p: number, q: number): boolean => {
+    if (Math.abs(p) < 1e-9) return q >= 0;
+    const t = q / p;
+    if (p < 0) {
+      if (t > tMax) return false;
+      if (t > tMin) tMin = t;
+    } else {
+      if (t < tMin) return false;
+      if (t < tMax) tMax = t;
+    }
+    return true;
+  };
+
+  return (
+    clip(-dx, a.x - r.x) &&
+    clip(dx, r.x + r.width - a.x) &&
+    clip(-dy, a.y - r.y) &&
+    clip(dy, r.y + r.height - a.y) &&
+    tMin <= tMax
+  );
 }

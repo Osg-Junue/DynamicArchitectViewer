@@ -55,7 +55,7 @@ export function buildPacket(packet: Packet, icons: IconShapes, t = 0): VElement 
       'g',
       { class: 'dav-packet-callout', 'data-placement': placement },
       h('path', {
-        d: packetBubblePath(box, dot, packet.icon ? 21 : 13),
+        d: packetBubblePath(box, dot),
         fill: THEME_COLOR.panel,
         stroke: THEME_COLOR.borderStrong,
         'stroke-width': 1.5,

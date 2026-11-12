@@ -92,16 +92,17 @@ function calloutsOf(packets: readonly Packet[]): Rect[] {
   return packets.flatMap((packet) => computePacketCalloutBox(packet) ?? []).map(calloutRect);
 }
 
+/** Expands `base` to also include any packet callouts (padded by `calloutPad`). */
+function withCalloutBounds(base: Rect, packets: readonly Packet[], calloutPad: number): Rect {
+  const callouts = calloutsOf(packets);
+  return callouts.length > 0 ? boundsOf([base, boundsOf(callouts, calloutPad, 0)], 0, 0) : base;
+}
+
 /** Everything the diagram draws, including packet callouts that reach past its edge. */
 export function wholeDiagramFrame(layout: Layout, view: ResolvedView): Frame {
   const base = boundsOf([...Object.values(layout.nodes), ...Object.values(layout.groups)]);
-  const callouts = calloutsOf(view.phases.flat());
-  if (callouts.length === 0) {
-    return { rect: base, maxZoom: MAX_FIT_ZOOM };
-  }
-  const extra = boundsOf(callouts, CALLOUT_FRAME_PAD, 0);
   return {
-    rect: boundsOf([base, extra], 0, 0),
+    rect: withCalloutBounds(base, view.phases.flat(), CALLOUT_FRAME_PAD),
     maxZoom: MAX_FIT_ZOOM,
   };
 }
@@ -117,15 +118,11 @@ function spotsOf(layout: Layout, packets: readonly Packet[]): Rect[] {
 export function packetsOnScreen(layout: Layout, packets: readonly Packet[], world: Rect): boolean {
   const spots = spotsOf(layout, packets);
   if (spots.length === 0) return true;
-  const callouts = calloutsOf(packets);
-  const needed =
-    callouts.length > 0
-      ? boundsOf(
-          [boundsOf(spots, CALM_EDGE_MARGIN, 0), boundsOf(callouts, CALLOUT_EDGE_MARGIN, 0)],
-          0,
-          0,
-        )
-      : boundsOf(spots, CALM_EDGE_MARGIN, 0);
+  const needed = withCalloutBounds(
+    boundsOf(spots, CALM_EDGE_MARGIN, 0),
+    packets,
+    CALLOUT_EDGE_MARGIN,
+  );
   return rectContains(world, needed);
 }
 
@@ -142,12 +139,10 @@ export function calmFrame(canvas: Size, layout: Layout, packets: readonly Packet
   const zones = boundsOf(zoneRects.length > 0 ? zoneRects : spots, CALM_FRAME_PAD, 0);
   const baseRect =
     fitZoom(canvas, zones) >= MIN_ZONE_FRAME_ZOOM ? zones : boundsOf(spots, CALM_FRAME_PAD, 0);
-  const callouts = calloutsOf(packets);
-  const rect =
-    callouts.length > 0
-      ? boundsOf([baseRect, boundsOf(callouts, CALLOUT_FRAME_PAD, 0)], 0, 0)
-      : baseRect;
-  return { rect, maxZoom: MAX_CALM_ZOOM };
+  return {
+    rect: withCalloutBounds(baseRect, packets, CALLOUT_FRAME_PAD),
+    maxZoom: MAX_CALM_ZOOM,
+  };
 }
 
 /**
@@ -163,10 +158,7 @@ export function stepFrame(
 ): Frame {
   const rects = view.nodes.filter((n) => n.focused).map((n) => n.rect);
   if (rects.length === 0 || options.fixed) return wholeDiagramFrame(layout, view);
-  for (const packet of view.phases.flat()) {
-    const callout = computePacketCalloutBox(packet);
-    if (callout) rects.push(calloutRect(callout));
-  }
+  rects.push(...calloutsOf(view.phases.flat()));
   const bounds = boundsOf(rects);
   if (options.follow && fitZoom(canvas, bounds) < MIN_ZONE_FRAME_ZOOM) {
     const calm = calmFrame(canvas, layout, options.follow);
@@ -184,11 +176,11 @@ export function followFrame(layout: Layout, packets: readonly Packet[]): Frame {
       maxZoom: MAX_CALM_ZOOM,
     };
   }
-  const rects = packets.flatMap((packet) => [
-    ...[nodes[packet.from], nodes[packet.to]].filter((r) => r !== undefined),
-    ...[computePacketCalloutBox(packet)].flatMap((box) => (box ? [calloutRect(box)] : [])),
-    controlBox(packet.path),
-  ]);
+  const rects = [
+    ...spotsOf(layout, packets),
+    ...calloutsOf(packets),
+    ...packets.map((packet) => controlBox(packet.path)),
+  ];
   const b = boundsOf(rects, FOLLOW_PAD, 0);
   return {
     rect: {

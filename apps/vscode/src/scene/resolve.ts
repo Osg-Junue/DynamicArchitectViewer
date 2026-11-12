@@ -13,7 +13,7 @@ import {
 } from '../model/types';
 import { ancestorIds, parentMap, zoneOfNodes } from '../model/zones';
 import { type CalloutPlacement, separatePhaseCallouts } from './callout';
-import { type Bezier, pointAt, reverse } from './geometry';
+import { type Bezier, expandRect, pointAt, reverse } from './geometry';
 import { THEME_COLOR } from './paint';
 import { RailRouter } from './rails';
 import { PHASE_MS, pacePhase } from './timing';
@@ -96,8 +96,6 @@ export interface Packet {
   dimmedNodeAreas?: readonly Rect[];
   /** Core rects of all visible nodes for scoring leader-line station/label crossings at midpoint. */
   nodeCores?: readonly Rect[];
-  /** Core rects of the packet's own endpoint nodes (`from` and `to`). */
-  endpointNodeCores?: readonly Rect[];
   /** Core rects of non-endpoint visible nodes for scoring pointer sweep crossings along the rail. */
   otherNodeCores?: readonly Rect[];
   /** Bounding rects of all groups for penalizing full top-to-bottom leader traversals across zones. */
@@ -131,42 +129,13 @@ const MAX_SOLID_GROUP_HEIGHT = 468;
 
 /** Solid full-zone obstacle for 1–3 row zones, or top/bottom border bands for giant outer containers. */
 function groupObstacleBands(group: ResolvedGroup): Rect[] {
-  const { x, y, width, height } = group.rect;
-  if (height <= MAX_SOLID_GROUP_HEIGHT) {
-    return [
-      {
-        x: x - 10,
-        y: y - 10,
-        width: width + 20,
-        height: height + 20,
-      },
-    ];
-  }
+  const outer = expandRect(group.rect, 10);
+  if (group.rect.height <= MAX_SOLID_GROUP_HEIGHT) return [outer];
   return [
-    {
-      x: x - 10,
-      y: y - 10,
-      width: width + 20,
-      height: GROUP_PADDING + GROUP_HEADER + 10,
-    },
-    {
-      x: x - 10,
-      y: y + height - 10,
-      width: width + 20,
-      height: 20,
-    },
-    {
-      x: x - 10,
-      y: y - 10,
-      width: 20,
-      height: height + 20,
-    },
-    {
-      x: x + width - 10,
-      y: y - 10,
-      width: 20,
-      height: height + 20,
-    },
+    { ...outer, height: GROUP_PADDING + GROUP_HEADER + 10 },
+    { x: outer.x, y: group.rect.y + group.rect.height - 10, width: outer.width, height: 20 },
+    { x: outer.x, y: outer.y, width: 20, height: outer.height },
+    { x: group.rect.x + group.rect.width - 10, y: outer.y, width: 20, height: outer.height },
   ];
 }
 
@@ -305,6 +274,145 @@ function edgeForPacket(ctx: StepContext, from: string, to: string): DavEdge | un
   return candidates.find((e) => ctx.overrides.get(e.id)?.visible ?? e.visible) ?? candidates[0];
 }
 
+const NODE_CORE_INSET_X = 16;
+const NODE_CORE_INSET_TOP = 10;
+const NODE_CORE_INSET_BOTTOM = 4;
+
+function nodeCoreRect(rect: Rect): Rect {
+  return {
+    x: rect.x + NODE_CORE_INSET_X,
+    y: rect.y + NODE_CORE_INSET_TOP,
+    width: Math.max(0, rect.width - NODE_CORE_INSET_X * 2),
+    height: Math.max(0, rect.height - (NODE_CORE_INSET_TOP + NODE_CORE_INSET_BOTTOM)),
+  };
+}
+
+/** Whether a flow from `from` to `to` travels right-to-left along a lower return track. */
+function isReturnTrack(
+  rails: RailRouter,
+  from: ResolvedNode,
+  to: ResolvedNode,
+  oneWayOnBidirectionalEdge = false,
+): boolean {
+  return (
+    to.rect.x < from.rect.x && (rails.hasReverseTrack(from.id, to.id) || oneWayOnBidirectionalEdge)
+  );
+}
+
+interface CalloutSceneContext {
+  zoneOf: ReadonlyMap<string, string | undefined>;
+  topOf: (node: ResolvedNode) => number;
+  labelAreas: Rect[];
+  dimmedNodeAreas: Rect[];
+  nodeCoreEntries: ReadonlyArray<{ id: string; core: Rect }>;
+  nodeCores: Rect[];
+  groupRects: Rect[];
+}
+
+function buildCalloutSceneContext(
+  doc: DavDocument,
+  groups: readonly ResolvedGroup[],
+  nodes: readonly ResolvedNode[],
+): CalloutSceneContext {
+  const loopRoom = selfLoopRoom(doc);
+  const topOf = (n: ResolvedNode): number => n.rect.y - (loopRoom.get(n.id) ?? 0);
+  const nodeObstacle = (n: ResolvedNode): Rect => {
+    const top = topOf(n) - 10;
+    return {
+      x: n.rect.x - 4,
+      y: top,
+      width: n.rect.width + 8,
+      height: n.rect.y + n.rect.height + 10 - top,
+    };
+  };
+  const visibleNodes = nodes.filter((n) => n.visible);
+  const nodeCoreEntries = visibleNodes.map((n) => ({ id: n.id, core: nodeCoreRect(n.rect) }));
+  return {
+    zoneOf: zoneOfNodes(doc),
+    topOf,
+    labelAreas: [
+      ...groups.flatMap(groupObstacleBands),
+      ...visibleNodes.filter((n) => !n.dimmed).map(nodeObstacle),
+    ],
+    dimmedNodeAreas: visibleNodes.filter((n) => n.dimmed).map(nodeObstacle),
+    nodeCoreEntries,
+    nodeCores: nodeCoreEntries.map((e) => e.core),
+    groupRects: groups.map((g) => g.rect),
+  };
+}
+
+function createPhasePackets(
+  ctx: StepContext,
+  nodeById: ReadonlyMap<string, ResolvedNode>,
+  rails: RailRouter,
+  scene: CalloutSceneContext,
+): Packet[][] {
+  const phases: Packet[][] = [];
+  for (const a of ctx.step?.animations ?? []) {
+    const fromNode = nodeById.get(a.from);
+    const toNode = nodeById.get(a.to);
+    if (!fromNode || !toNode) continue;
+
+    const edge = edgeForPacket(ctx, a.from, a.to);
+    let path = rails.between(fromNode, toNode);
+    if (edge) {
+      const edgeFrom = nodeById.get(edge.from);
+      const edgeTo = nodeById.get(edge.to);
+      if (edgeFrom && edgeTo) {
+        const edgePath = rails.ofEdge(edge, edgeFrom, edgeTo);
+        path = edge.from === a.from ? edgePath : reverse(edgePath);
+      }
+    }
+
+    const fromBottom = fromNode.rect.y + fromNode.rect.height;
+    const toBottom = toNode.rect.y + toNode.rect.height;
+    const clearBottom =
+      Math.abs(fromNode.rect.y - toNode.rect.y) < 40
+        ? Math.max(fromBottom, toBottom)
+        : Math.min(fromBottom, toBottom);
+    const oneWayOnBidi = edge?.direction === 'bidirectional' && a.direction !== 'bidirectional';
+    const preferBelow =
+      isReturnTrack(rails, fromNode, toNode, oneWayOnBidi) ||
+      pointAt(path, 0.5).y > Math.max(path.p0.y, path.p3.y) + 18;
+    const otherNodeCores = scene.nodeCoreEntries
+      .filter((e) => e.id !== a.from && e.id !== a.to)
+      .map((e) => e.core);
+
+    const packet: Packet = {
+      from: a.from,
+      to: a.to,
+      fromLabel: fromNode.label,
+      toLabel: toNode.label,
+      color: a.color ?? DEFAULT_FLOW_COLOR,
+      path,
+      roundTrip: a.direction === 'bidirectional',
+      clearTop: Math.min(scene.topOf(fromNode), scene.topOf(toNode)),
+      clearBottom,
+      labelAreas: scene.labelAreas,
+      otherNodeCores,
+      durationMs: PHASE_MS,
+    };
+    if (scene.dimmedNodeAreas.length > 0) packet.dimmedNodeAreas = scene.dimmedNodeAreas;
+    if (scene.nodeCores.length > 0) packet.nodeCores = scene.nodeCores;
+    if (scene.groupRects.length > 0) packet.groupRects = scene.groupRects;
+    if (preferBelow) packet.preferBelow = true;
+    const fromZone = scene.zoneOf.get(a.from);
+    const toZone = scene.zoneOf.get(a.to);
+    if (fromZone !== undefined) packet.fromZone = fromZone;
+    if (toZone !== undefined) packet.toZone = toZone;
+    if (edge) packet.edgeId = edge.id;
+    if (a.label !== undefined) packet.label = a.label;
+    if (a.description !== undefined) packet.description = a.description;
+    if (a.code !== undefined && a.code.body.trim().length > 0) packet.code = a.code;
+    if (a.icon !== undefined) packet.icon = a.icon;
+
+    const current = phases[phases.length - 1];
+    if (a.parallel && current) current.push(packet);
+    else phases.push([packet]);
+  }
+  return phases;
+}
+
 interface ResolvedPhases {
   phases: Packet[][];
   phaseDurations: number[];
@@ -319,104 +427,14 @@ function resolvePhases(
   groups: readonly ResolvedGroup[],
   nodes: readonly ResolvedNode[],
 ): ResolvedPhases {
-  const zoneOf = zoneOfNodes(ctx.doc);
-  const loopRoom = selfLoopRoom(ctx.doc);
-  const topOf = (n: ResolvedNode): number => n.rect.y - (loopRoom.get(n.id) ?? 0);
-  const nodeObstacle = (n: ResolvedNode): Rect => {
-    const top = topOf(n) - 10;
-    return {
-      x: n.rect.x - 4,
-      y: top,
-      width: n.rect.width + 8,
-      height: n.rect.y + n.rect.height + 10 - top,
-    };
-  };
-  const visibleNodes = nodes.filter((n) => n.visible);
-  const labelAreas: Rect[] = [
-    ...groups.flatMap(groupObstacleBands),
-    ...visibleNodes.filter((n) => !n.dimmed).map(nodeObstacle),
-  ];
-  const dimmedNodeAreas: Rect[] = visibleNodes.filter((n) => n.dimmed).map(nodeObstacle);
-  const nodeCoreEntries = visibleNodes.map((n) => ({
-    id: n.id,
-    core: {
-      x: n.rect.x + 16,
-      y: n.rect.y + 10,
-      width: Math.max(0, n.rect.width - 32),
-      height: Math.max(0, n.rect.height - 14),
-    },
-  }));
-  const nodeCores: Rect[] = nodeCoreEntries.map((e) => e.core);
-  const groupRects: Rect[] = groups.map((g) => g.rect);
-
-  const phases: Packet[][] = [];
-  for (const a of ctx.step?.animations ?? []) {
-    const fromNode = nodeById.get(a.from);
-    const toNode = nodeById.get(a.to);
-    if (!fromNode || !toNode) continue;
-    const edge = edgeForPacket(ctx, a.from, a.to);
-    const color = a.color ?? DEFAULT_FLOW_COLOR;
-    let path = rails.between(fromNode, toNode);
-    if (edge) {
-      const edgeFrom = nodeById.get(edge.from);
-      const edgeTo = nodeById.get(edge.to);
-      if (edgeFrom && edgeTo) {
-        const edgePath = rails.ofEdge(edge, edgeFrom, edgeTo);
-        path = edge.from === a.from ? edgePath : reverse(edgePath);
-      }
-    }
-    const fromBottom = fromNode.rect.y + fromNode.rect.height;
-    const toBottom = toNode.rect.y + toNode.rect.height;
-    const clearBottom =
-      Math.abs(fromNode.rect.y - toNode.rect.y) < 40
-        ? Math.max(fromBottom, toBottom)
-        : Math.min(fromBottom, toBottom);
-    const isReturnTrack =
-      rails.hasReverseTrack(a.from, a.to) ||
-      (edge?.direction === 'bidirectional' && a.direction !== 'bidirectional');
-    const preferBelow =
-      (isReturnTrack && toNode.rect.x < fromNode.rect.x) ||
-      pointAt(path, 0.5).y > Math.max(path.p0.y, path.p3.y) + 18;
-    const endpointNodeCores = nodeCoreEntries
-      .filter((e) => e.id === a.from || e.id === a.to)
-      .map((e) => e.core);
-    const otherNodeCores = nodeCoreEntries
-      .filter((e) => e.id !== a.from && e.id !== a.to)
-      .map((e) => e.core);
-    const packet: Packet = {
-      from: a.from,
-      to: a.to,
-      fromLabel: fromNode.label,
-      toLabel: toNode.label,
-      color,
-      path,
-      roundTrip: a.direction === 'bidirectional',
-      clearTop: Math.min(topOf(fromNode), topOf(toNode)),
-      clearBottom,
-      labelAreas,
-      durationMs: PHASE_MS,
-    };
-    if (dimmedNodeAreas.length > 0) packet.dimmedNodeAreas = dimmedNodeAreas;
-    if (nodeCores.length > 0) packet.nodeCores = nodeCores;
-    if (endpointNodeCores.length > 0) packet.endpointNodeCores = endpointNodeCores;
-    if (otherNodeCores.length > 0) packet.otherNodeCores = otherNodeCores;
-    if (groupRects.length > 0) packet.groupRects = groupRects;
-    if (preferBelow) packet.preferBelow = true;
-    const fromZone = zoneOf.get(a.from);
-    const toZone = zoneOf.get(a.to);
-    if (fromZone !== undefined) packet.fromZone = fromZone;
-    if (toZone !== undefined) packet.toZone = toZone;
-    if (edge) packet.edgeId = edge.id;
-    if (a.label !== undefined) packet.label = a.label;
-    if (a.description !== undefined) packet.description = a.description;
-    if (a.code !== undefined && a.code.body.trim().length > 0) packet.code = a.code;
-    if (a.icon !== undefined) packet.icon = a.icon;
-    const current = phases[phases.length - 1];
-    if (a.parallel && current) current.push(packet);
-    else phases.push([packet]);
-  }
+  const scene = buildCalloutSceneContext(ctx.doc, groups, nodes);
+  const phases = createPhasePackets(ctx, nodeById, rails, scene);
   for (const phase of phases) separatePhaseCallouts(phase);
-  return { phases, phaseDurations: phases.map(pacePhase), activeEdges: flowColors(phases.flat()) };
+  return {
+    phases,
+    phaseDurations: phases.map(pacePhase),
+    activeEdges: flowColors(phases.flat()),
+  };
 }
 
 function resolveEdges(
@@ -439,7 +457,7 @@ function resolveEdges(
       id: e.id,
       from: e.from,
       to: e.to,
-      labelBelow: rails.hasReverseTrack(e.from, e.to) && to.rect.x < from.rect.x,
+      labelBelow: isReturnTrack(rails, from, to),
       style: e.style,
       direction: e.direction,
       color: ov.color ?? e.color ?? DEFAULT_EDGE_COLOR,
