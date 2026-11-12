@@ -95,7 +95,7 @@ describe('architecture: layer boundaries', () => {
       for (const file of sourceFiles(join(SRC, layer))) {
         const isTest = file.includes('__tests__');
         const content = readFileSync(file, 'utf8');
-        for (const [, spec] of content.matchAll(/(?:from|import)\s+['"]([^'"]+)['"]/g)) {
+        for (const [, spec] of content.matchAll(/(?:from\s+|import\s*\(?\s*)['"]([^'"]+)['"]/g)) {
           if (!spec) continue;
           if (spec.startsWith('.')) {
             const target = relative(SRC, resolve(join(file, '..'), spec)).split(/[\\/]/)[0] ?? '';

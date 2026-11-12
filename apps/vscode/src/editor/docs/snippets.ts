@@ -285,6 +285,24 @@ step "Label, desc and color" {
   }
 }`;
 
+export const CODE_DSL = `dav 1
+
+node app "App" [icon: container]
+node api "Orders API" [icon: api]
+app --> api
+
+step "Code in a callout" {
+  animate app --> api : "POST /orders" {
+    desc "The request body"
+    code json "Order Request" \`\`\`
+      {
+        "orderId": "ord_01",
+        "amount": 14800
+      }
+    \`\`\`
+  }
+}`;
+
 export const NO_EDGE_DSL = `dav 1
 
 node a "Producer" [icon: function]
@@ -416,6 +434,7 @@ export const ALL_EXAMPLE_DOCUMENTS: readonly string[] = [
   ROUND_TRIP_DSL,
   PACKET_ICON_DSL,
   CALLOUT_DSL,
+  CODE_DSL,
   NO_EDGE_DSL,
   ...COLOR_NAMES.map(colorLabDsl),
   ...NODE_GALLERY.map((code) => NODE_PRELUDE + code),

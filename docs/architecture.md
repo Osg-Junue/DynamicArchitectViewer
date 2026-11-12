@@ -74,7 +74,7 @@ All paths are under `apps/vscode/src`.
 parse(text): { document, diagnostics, sourceMap }
 format(text): string                    // Returns the original text on a syntax error
 formatDiagnostic(diagnostic, 'ja' | 'en'): string
-computeCompletions(text, offset, includeSnippets?): DslCompletionList | null
+computeCompletions(text, offset, explicit?, locale?): DslCompletionList | null
 findAtOffset(sourceMap, offset): { elementId: string | null; stepIndex: number | null }
 ```
 
@@ -91,7 +91,7 @@ findAtOffset(sourceMap, offset): { elementId: string | null; stepIndex: number |
 `runtime/player.ts` draws the scene and plays each step's phases. `runtime/camera.ts` handles zoom and pan.
 
 - `animate` statements play in order, and `parallel: true` joins the preceding phase.
-- Callouts stay still while their pointer follows the packet. Callouts of one phase that would overlap are moved sideways by the smallest distance that clears them (`scene/callout.ts`).
+- Callouts stay still while their pointer follows the packet. A callout sits above or below its rail, whichever scores better against the other rails, dimmed nodes and groups its leader would cross. Callouts of one phase that would still overlap are moved sideways by the smallest distance that clears them (`scene/calloutSolver.ts`).
 - With `prefers-reduced-motion`, animation stays off. Clicking a node shows the packets of a phase, parked on the rail.
 - Drawing uses `createElementNS`, `textContent`, `setAttribute` and CSSOM only: never `innerHTML` or inline `style` attributes.
 
@@ -168,6 +168,7 @@ The extension and webview talk through typed messages in `protocol/messages.ts`:
 
 | Message | Direction | Purpose |
 | :--- | :--- | :--- |
+| `ready` | Webview to extension | The webview has mounted, with the `uri` and `version` of the document it already drew from the page, if any. The extension sends `docChanged` only when they are out of date |
 | `docChanged` | Extension to webview | The text changed, so update the diagram |
 | `cursorMoved` | Extension to webview | Highlight the element at the cursor, and go to its step |
 | `revealRange` | Webview to extension | Double-clicking an element jumps to its declaration |
@@ -198,4 +199,9 @@ The generated files are committed, because the marketplace and the `skills` CLI 
 | `src/layout/__tests__/` | Layout invariants and a crossing budget for each sample |
 | `src/scene/__tests__/` | Step state, rails, callouts and rendering |
 | `src/samples/__tests__/` | Sample templates match `examples/` |
+| `src/model/__tests__/` | Text width estimates, code indentation and other shared helpers |
+| `src/exporter/__tests__/` | Exported HTML and its import, the SVG export and its camera plan |
+| `src/extension/__tests__/` | Commands, language features and the preview panel, against a mocked `vscode` |
+| `src/editor/__tests__/` | Every example in the in-app documentation compiles and plays |
+| `src/prompt/__tests__/` | The AI prompt template |
 | `e2e/` | The preview and exported HTML in a real browser, including that both render the same SVG |

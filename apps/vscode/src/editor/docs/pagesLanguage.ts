@@ -19,6 +19,7 @@ import {
 import {
   BASICS_DSL,
   CALLOUT_DSL,
+  CODE_DSL,
   EDGE_GALLERY,
   EDGE_PRELUDE,
   EDGE_STEPS_DSL,
@@ -435,7 +436,9 @@ export const LANGUAGE_PAGES: readonly DocPage[] = [
     render(ctx) {
       const { t } = ctx;
       return [
-        syntax('animate <from> (--> | <->) <to> (: "label")? [attributes]? { desc "…"* }?'),
+        syntax(
+          'animate <from> (--> | <->) <to> (: "label")? [attributes]? { (desc "…" | code …)* }?',
+        ),
         attrTable(t, [
           [
             '`icon`',
@@ -462,6 +465,14 @@ export const LANGUAGE_PAGES: readonly DocPage[] = [
             ),
           ],
           ['`desc`', attrValues(t).string, t('吹き出しの本文', 'Callout body text')],
+          [
+            '`code`',
+            attrValues(t).string,
+            t(
+              '吹き出しの中に等幅で表示するコード（1つまで）',
+              'Monospace snippet inside the callout (at most one)',
+            ),
+          ],
         ]),
         h2(t('順次再生', 'Sequential')),
         p(
@@ -503,6 +514,14 @@ export const LANGUAGE_PAGES: readonly DocPage[] = [
           ),
         ),
         live(ctx, CALLOUT_DSL, { phases: true }),
+        h2(t('コードを見せる', 'Showing code')),
+        p(
+          t(
+            'ブロック内の `code` は、吹き出しの中にコードを等幅で表示します。言語名とタイトルは省略でき、本文はバッククォート3つで囲むか、1行の文字列で書きます。共通のインデントは取り除かれます。1つの `animate` に書けるのは1つまでです（`duplicate-code`）。',
+            'A `code` statement in the block shows a monospace snippet inside the callout. The language and title are optional, and the body goes between two lines of three backticks, or in a one-line string. Common leading indentation is removed. One `animate` takes at most one (`duplicate-code`).',
+          ),
+        ),
+        live(ctx, CODE_DSL, { phases: true }),
         h2(t('エッジがなくても動く', 'Edges are optional')),
         p(
           t(
