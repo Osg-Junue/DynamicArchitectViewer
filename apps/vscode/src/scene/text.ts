@@ -13,6 +13,64 @@ export interface WrapTextOptions extends FitTextOptions {
 
 const defaultIsBreakable = (ch: string): boolean => ch === ' ' || ch === '\n' || isWide(ch);
 
+const KINSOKU_OPEN_RE = /^[([{（「『【〈《〔]+$/;
+const KINSOKU_TRAILING_OPEN_RE = /^(.+?)([([{（「『【〈《〔]+)$/;
+const KINSOKU_CLOSE_RE =
+  /^[)\]}）」』】〉》〕。、，．・：；！？…‥ーぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮ]+/;
+
+function coalesceKinsokuTokens(raw: readonly string[]): string[] {
+  const splitOpen: string[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const tok = raw[i] ?? '';
+    const next = raw[i + 1];
+    const match =
+      next !== undefined && next !== ' ' && next !== '\n' && !KINSOKU_OPEN_RE.test(tok)
+        ? KINSOKU_TRAILING_OPEN_RE.exec(tok)
+        : null;
+    if (match?.[1] && match[2]) {
+      splitOpen.push(match[1], match[2]);
+    } else {
+      splitOpen.push(tok);
+    }
+  }
+
+  const afterClose: string[] = [];
+  for (const tok of splitOpen) {
+    const prev = afterClose[afterClose.length - 1];
+    if (
+      prev !== undefined &&
+      prev !== ' ' &&
+      prev !== '\n' &&
+      tok !== ' ' &&
+      tok !== '\n' &&
+      KINSOKU_CLOSE_RE.test(tok)
+    ) {
+      afterClose[afterClose.length - 1] = prev + tok;
+    } else {
+      afterClose.push(tok);
+    }
+  }
+
+  const out: string[] = [];
+  let pendingOpen = '';
+  for (const tok of afterClose) {
+    if (KINSOKU_OPEN_RE.test(tok)) {
+      pendingOpen += tok;
+    } else if (pendingOpen) {
+      if (tok === ' ' || tok === '\n') {
+        out.push(pendingOpen, tok);
+      } else {
+        out.push(pendingOpen + tok);
+      }
+      pendingOpen = '';
+    } else {
+      out.push(tok);
+    }
+  }
+  if (pendingOpen) out.push(pendingOpen);
+  return out;
+}
+
 /** Truncates text with an ellipsis so it fits within maxWidth. */
 export function fitText(
   text: string,
@@ -50,20 +108,21 @@ export function wrapText(
   const isBreakable = options.isBreakable ?? defaultIsBreakable;
   const measure = options.measure ?? estimateTextWidth;
 
-  const tokens: string[] = [];
+  const rawTokens: string[] = [];
   let word = '';
   for (const ch of clean) {
     if (isBreakable(ch)) {
       if (word) {
-        tokens.push(word);
+        rawTokens.push(word);
         word = '';
       }
-      tokens.push(ch);
+      rawTokens.push(ch);
     } else {
       word += ch;
     }
   }
-  if (word) tokens.push(word);
+  if (word) rawTokens.push(word);
+  const tokens = coalesceKinsokuTokens(rawTokens);
 
   const lines: string[] = [];
   let current = '';

@@ -38,8 +38,8 @@ const MAX_CALM_ZOOM = 1.25;
 /** How close to the screen's edge a moving packet may get before the camera follows. */
 const CALM_EDGE_MARGIN = 40;
 /** Margin kept around packet callouts when checking visibility or framing. */
-const CALLOUT_EDGE_MARGIN = 16;
-const CALLOUT_FRAME_PAD = 24;
+const CALLOUT_EDGE_MARGIN = 20;
+const CALLOUT_FRAME_PAD = 30;
 /** Room kept around what the camera shows while it follows every phase. */
 const FOLLOW_PAD = 56;
 const FOLLOW_MIN_SIZE = { width: 200, height: 160 };

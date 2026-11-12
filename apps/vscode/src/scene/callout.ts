@@ -23,27 +23,36 @@ export interface PacketCalloutBox {
   label: string;
   descLines: string[];
   code?: PacketCalloutCodeBox;
+  markerClearance?: number;
 }
 
-const CALLOUT_MAX_TEXT_WIDTH = 360;
+const PHI = (1 + Math.sqrt(5)) / 2;
+
+export const CALLOUT_RADIUS = 10;
+export const CALLOUT_CODE_RADIUS = 6;
+
+const CALLOUT_MAX_TEXT_WIDTH = 384;
+const CALLOUT_NO_CODE_DESC_MAX_WIDTH = 340;
 export const CALLOUT_LABEL_SIZE = 14;
 export const CALLOUT_DESC_SIZE = 13;
-export const CALLOUT_LINE_HEIGHT = 18;
+export const CALLOUT_LINE_HEIGHT = 20;
 
 export const CALLOUT_CODE_SIZE = 11.5;
 export const CALLOUT_CODE_HEAD_SIZE = 11;
-export const CALLOUT_CODE_LINE_HEIGHT = 16.5;
-export const CALLOUT_CODE_PAD_X = 10;
+export const CALLOUT_CODE_LINE_HEIGHT = 17.5;
+export const CALLOUT_CODE_PAD_X = 13;
 const CALLOUT_CODE_MAX_LINES = 10;
-const CALLOUT_CODE_MAX_TEXT_WIDTH = 380;
-const CALLOUT_CODE_HEADER_HEIGHT = 22;
+const CALLOUT_CODE_MAX_TEXT_WIDTH = 384;
+export const CALLOUT_CODE_HEADER_HEIGHT = 26;
 
 /** Keeps a callout above its endpoint nodes, including their badges and crop marks. */
 const CALLOUT_NODE_CLEARANCE = 16;
 const CALLOUT_LABEL_CLEARANCE = 6;
-const CALLOUT_GAP = 12;
+export const CALLOUT_GAP = 16;
 /** Past the clash limit, because landing exactly on it would depend on rounding. */
 const CALLOUT_SHIFT_SLACK = 1;
+const DIMMED_OBSTACLE_MAX_LIFT = 280;
+const PARALLEL_SHELF_TOLERANCE = 48;
 
 type CalloutTextStyle = 'normal' | 'bold' | 'mono';
 
@@ -159,9 +168,41 @@ function prepareCodeSpec(code: CodeBlock): PreparedCodeSpec | undefined {
   const monoW = (s: string) => estimateCalloutTextWidth(s, CALLOUT_CODE_SIZE, 'mono');
   const codeTextW = Math.max(header ? monoW(`{ } ${header}`) : 0, ...lines.map(monoW)) + 8;
   const minBoxW = codeTextW + CALLOUT_CODE_PAD_X * 2;
-  const height = headerHeight + lines.length * CALLOUT_CODE_LINE_HEIGHT + 12;
+  const height = headerHeight + lines.length * CALLOUT_CODE_LINE_HEIGHT + 14;
 
   return { header, headerHeight, lines, minBoxW, height };
+}
+
+function countEllipses(text: string): number {
+  let count = 0;
+  for (const ch of text) {
+    if (ch === '…') count++;
+  }
+  return count;
+}
+
+function balanceCalloutLines(text: string, descMaxW: number, minBalanceW: number): string[] {
+  const lines = wrapCalloutText(text, CALLOUT_DESC_SIZE, descMaxW, 4);
+  const k = lines.length;
+  if (text.includes('\n') || k < 2) return lines;
+  const baseEllipses = countEllipses(text);
+  if (countEllipses(lines.join('')) > baseEllipses || minBalanceW >= descMaxW) {
+    return lines;
+  }
+  let best = lines;
+  let lo = minBalanceW;
+  let hi = descMaxW;
+  for (let iter = 0; iter < 8; iter++) {
+    const midW = (lo + hi) / 2;
+    const cand = wrapCalloutText(text, CALLOUT_DESC_SIZE, midW, 4);
+    if (cand.length <= k && countEllipses(cand.join('')) <= baseEllipses) {
+      best = cand;
+      hi = midW;
+    } else {
+      lo = midW;
+    }
+  }
+  return best;
 }
 
 /**
@@ -170,43 +211,66 @@ function prepareCodeSpec(code: CodeBlock): PreparedCodeSpec | undefined {
  * eliminates eye-tracking fatigue when reading multi-line descriptions and code blocks.
  */
 export function computePacketCalloutBox(packet: Packet): PacketCalloutBox | null {
+  const codeSpec = packet.code ? prepareCodeSpec(packet.code) : undefined;
   const label = packet.label
     ? fitCalloutText(packet.label, CALLOUT_LABEL_SIZE, CALLOUT_MAX_TEXT_WIDTH, 'bold')
     : '';
+  const labelW = label ? estimateCalloutTextWidth(label, CALLOUT_LABEL_SIZE, 'bold') : 0;
+
+  let phiInnerW = 0;
+  let descMaxW = CALLOUT_NO_CODE_DESC_MAX_WIDTH;
+  if (codeSpec) {
+    const estH = (packet.label ? 40 : 14) + (packet.description ? 44 : 0) + codeSpec.height + 14;
+    phiInnerW = clamp(Math.round(estH * PHI - 32), 236, 384);
+    descMaxW = clamp(Math.max(phiInnerW, Math.ceil(codeSpec.minBoxW)), 236, 384);
+  }
+
   const descLines = packet.description
-    ? wrapCalloutText(packet.description, CALLOUT_DESC_SIZE, CALLOUT_MAX_TEXT_WIDTH, 4)
+    ? balanceCalloutLines(
+        packet.description,
+        descMaxW,
+        Math.max(
+          188,
+          labelW + 8,
+          codeSpec ? Math.ceil(Math.max(codeSpec.minBoxW, phiInnerW) * 0.82) : 0,
+        ),
+      )
     : [];
-  const codeSpec = packet.code ? prepareCodeSpec(packet.code) : undefined;
   if (!label && descLines.length === 0 && !codeSpec) return null;
 
-  const labelW = label ? estimateCalloutTextWidth(label, CALLOUT_LABEL_SIZE, 'bold') : 0;
   const descW = descLines.reduce(
     (m, line) => Math.max(m, estimateCalloutTextWidth(line, CALLOUT_DESC_SIZE, 'normal')),
     0,
   );
-  const padX = descLines.length > 0 || codeSpec ? 12 : 10;
-  const minW = codeSpec ? 220 : descLines.length > 0 ? 200 : 56;
+  const padX = descLines.length > 0 || codeSpec !== undefined ? 16 : 13;
   const contentW = Math.max(
     label ? labelW + 8 : 0,
     descLines.length > 0 ? descW + 8 : 0,
     codeSpec ? codeSpec.minBoxW : 0,
   );
+
+  let height: number;
+  let offsetY = 0;
+  if (!codeSpec) {
+    height =
+      descLines.length === 0 ? 32 : (label ? 40 : 20) + descLines.length * CALLOUT_LINE_HEIGHT;
+  } else {
+    offsetY =
+      descLines.length > 0
+        ? (label ? 40 : 20) + descLines.length * CALLOUT_LINE_HEIGHT
+        : label
+          ? 37
+          : 14;
+    height = offsetY + codeSpec.height + 14;
+  }
+
+  const phiFloorW = codeSpec ? clamp(Math.round(height * PHI), 220, 368) : 0;
+  const minW = codeSpec ? phiFloorW : descLines.length > 0 ? 196 : 60;
   const width = Math.max(minW, Math.ceil(contentW + padX * 2));
   const halfW = width / 2;
 
-  let height: number;
   let code: PacketCalloutCodeBox | undefined;
-  if (!codeSpec) {
-    height =
-      descLines.length === 0 ? 30 : (label ? 36 : 14) + descLines.length * CALLOUT_LINE_HEIGHT;
-  } else {
-    const offsetY =
-      descLines.length > 0
-        ? (label ? 34 : 12) + descLines.length * CALLOUT_LINE_HEIGHT
-        : label
-          ? 32
-          : 10;
-    height = offsetY + codeSpec.height + 10;
+  if (codeSpec) {
     code = {
       header: codeSpec.header,
       headerHeight: codeSpec.headerHeight,
@@ -226,16 +290,42 @@ export function computePacketCalloutBox(packet: Packet): PacketCalloutBox | null
     mid.y,
   );
   const cx = mid.x + (packet.calloutShift ?? 0);
-  let boxBottom = Math.min(mid.y - 36, minY - 26, packet.clearTop - CALLOUT_NODE_CLEARANCE);
-  // Moves up past each zone name in the way, nearest first.
-  for (const area of [...packet.labelAreas].sort((a, b) => b.y - a.y)) {
-    const overlapsX = cx - halfW < area.x + area.width && cx + halfW > area.x;
-    const overlapsY = boxBottom - height < area.y + area.height && boxBottom > area.y;
-    if (overlapsX && overlapsY) boxBottom = area.y - CALLOUT_LABEL_CLEARANCE;
+  const baseBottom = Math.min(mid.y - 36, minY - 26, packet.clearTop - CALLOUT_NODE_CLEARANCE);
+  let boxBottom =
+    packet.calloutBottom !== undefined ? Math.min(baseBottom, packet.calloutBottom) : baseBottom;
+
+  const obstacles = [
+    ...packet.labelAreas.map((area) => ({ area, hard: true })),
+    ...(packet.dimmedNodeAreas ?? []).map((area) => ({ area, hard: false })),
+  ].sort((a, b) => b.area.y - a.area.y);
+
+  for (let pass = 0; pass < 8; pass++) {
+    let moved = false;
+    for (const { area, hard } of obstacles) {
+      const overlapsX = cx - halfW < area.x + area.width && cx + halfW > area.x;
+      const overlapsY = boxBottom - height < area.y + area.height && boxBottom > area.y;
+      if (!overlapsX || !overlapsY) continue;
+      const lifted = area.y - CALLOUT_LABEL_CLEARANCE;
+      if (!hard && baseBottom - lifted > DIMMED_OBSTACLE_MAX_LIFT) continue;
+      if (lifted < boxBottom) {
+        boxBottom = lifted;
+        moved = true;
+      }
+    }
+    if (!moved) break;
   }
   const boxTop = boxBottom - height;
 
-  const box: PacketCalloutBox = { cx, halfW, boxTop, boxBottom, padX, label, descLines };
+  const box: PacketCalloutBox = {
+    cx,
+    halfW,
+    boxTop,
+    boxBottom,
+    padX,
+    label,
+    descLines,
+    markerClearance: packet.icon ? 21 : 13,
+  };
   if (code) box.code = code;
   return box;
 }
@@ -251,19 +341,30 @@ export const calloutRect = (box: PacketCalloutBox): Rect => ({
  * Builds the path of the stationary annotation box and its leader line, whose end
  * dynamically follows `dot` along the edge path.
  */
-export function packetBubblePath(box: PacketCalloutBox, dot: Point): string {
+export function packetBubblePath(
+  box: PacketCalloutBox,
+  dot: Point,
+  markerClearance = box.markerClearance ?? 13,
+): string {
   const { cx, halfW, boxTop, boxBottom } = box;
   const left = cx - halfW;
   const right = cx + halfW;
-  const r = 6;
-  const maxOffset = Math.max(0, halfW - r - 12);
-  const baseX = cx + clamp((dot.x - cx) * 0.25, -maxOffset, maxOffset);
+  const r = Math.min(CALLOUT_RADIUS, halfW, (boxBottom - boxTop) / 2);
+  const dy = Math.max(14, dot.y - boxBottom);
+  const rawDist = Math.hypot(dot.x - cx, dy);
+  const tailHalf = Math.min(
+    clamp(300 / Math.max(50, rawDist), 1.8, 5.5),
+    Math.max(0, halfW - r - 6),
+  );
+  const maxOffset = Math.max(0, halfW - r - tailHalf - 8);
+  const baseX = cx + clamp((dot.x - cx) * 0.3, -maxOffset, maxOffset);
+  const baseRight = baseX + tailHalf;
+  const baseLeft = baseX - tailHalf;
   const dx = dot.x - baseX;
-  const dy = Math.max(12, dot.y - boxBottom);
   const dist = Math.hypot(dx, dy);
-  const pull = Math.min(7, dist * 0.35);
+  const pull = Math.min(markerClearance, dist * 0.42);
   const tipX = dot.x - (dx / dist) * pull;
-  const tipY = dot.y - (dy / dist) * pull;
+  const tipY = Math.max(boxBottom + 4, dot.y - (dy / dist) * pull);
   const n = (value: number) => value.toFixed(1);
 
   return [
@@ -272,9 +373,9 @@ export function packetBubblePath(box: PacketCalloutBox, dot: Point): string {
     `Q ${n(right)} ${n(boxTop)} ${n(right)} ${n(boxTop + r)}`,
     `V ${n(boxBottom - r)}`,
     `Q ${n(right)} ${n(boxBottom)} ${n(right - r)} ${n(boxBottom)}`,
-    `H ${n(baseX)}`,
+    `H ${n(baseRight)}`,
     `L ${n(tipX)} ${n(tipY)}`,
-    `L ${n(baseX)} ${n(boxBottom)}`,
+    `L ${n(baseLeft)} ${n(boxBottom)}`,
     `H ${n(left + r)}`,
     `Q ${n(left)} ${n(boxBottom)} ${n(left)} ${n(boxBottom - r)}`,
     `V ${n(boxTop + r)}`,
@@ -283,39 +384,175 @@ export function packetBubblePath(box: PacketCalloutBox, dot: Point): string {
   ].join(' ');
 }
 
+const verticallyOverlaps = (a: PacketCalloutBox, b: PacketCalloutBox): boolean =>
+  a.boxTop < b.boxBottom + CALLOUT_GAP && a.boxBottom + CALLOUT_GAP > b.boxTop;
+
 const calloutsClash = (a: PacketCalloutBox, b: PacketCalloutBox): boolean =>
   a.cx - a.halfW < b.cx + b.halfW + CALLOUT_GAP &&
   a.cx + a.halfW + CALLOUT_GAP > b.cx - b.halfW &&
-  a.boxTop < b.boxBottom + CALLOUT_GAP &&
-  a.boxBottom + CALLOUT_GAP > b.boxTop;
+  verticallyOverlaps(a, b);
+
+interface CalloutEntry {
+  packet: Packet;
+  index: number;
+  midX: number;
+  tieX: number;
+  box: PacketCalloutBox;
+}
+
+interface PavaBlock {
+  members: CalloutEntry[];
+  offsets: number[];
+  leftCx: number;
+  leftEdge: number;
+  rightEdge: number;
+}
+
+function partitionVerticalClusters(entries: readonly CalloutEntry[]): CalloutEntry[][] {
+  const visited = new Set<number>();
+  const clusters: CalloutEntry[][] = [];
+  for (let i = 0; i < entries.length; i++) {
+    if (visited.has(i)) continue;
+    const queue = [i];
+    visited.add(i);
+    const indices: number[] = [];
+    while (queue.length > 0) {
+      const cur = queue.shift();
+      if (cur === undefined) continue;
+      indices.push(cur);
+      const curEntry = entries[cur];
+      if (!curEntry) continue;
+      for (let j = 0; j < entries.length; j++) {
+        if (visited.has(j)) continue;
+        const otherEntry = entries[j];
+        if (otherEntry && verticallyOverlaps(curEntry.box, otherEntry.box)) {
+          visited.add(j);
+          queue.push(j);
+        }
+      }
+    }
+    indices.sort((a, b) => a - b);
+    clusters.push(indices.flatMap((idx) => entries[idx] ?? []));
+  }
+  return clusters;
+}
+
+function buildPavaBlock(members: CalloutEntry[]): PavaBlock {
+  const first = members[0];
+  const last = members[members.length - 1];
+  if (!first || !last) {
+    return { members: [], offsets: [], leftCx: 0, leftEdge: 0, rightEdge: 0 };
+  }
+  const sep = CALLOUT_GAP + CALLOUT_SHIFT_SLACK;
+  const offsets: number[] = [0];
+  for (let i = 1; i < members.length; i++) {
+    const prev = members[i - 1];
+    const cur = members[i];
+    const prevOff = offsets[i - 1] ?? 0;
+    offsets.push(prevOff + (prev?.box.halfW ?? 0) + sep + (cur?.box.halfW ?? 0));
+  }
+  let sumDiff = 0;
+  for (let i = 0; i < members.length; i++) {
+    sumDiff += (members[i]?.midX ?? 0) - (offsets[i] ?? 0);
+  }
+  const leftCx = sumDiff / members.length;
+  const lastOffset = offsets[offsets.length - 1] ?? 0;
+  return {
+    members,
+    offsets,
+    leftCx,
+    leftEdge: leftCx - first.box.halfW,
+    rightEdge: leftCx + lastOffset + last.box.halfW,
+  };
+}
+
+function solvePavaCluster(cluster: readonly CalloutEntry[]): PavaBlock[] {
+  const sep = CALLOUT_GAP + CALLOUT_SHIFT_SLACK;
+  const stack: PavaBlock[] = [];
+  for (const entry of cluster) {
+    stack.push(buildPavaBlock([entry]));
+    while (stack.length >= 2) {
+      const right = stack[stack.length - 1];
+      const left = stack[stack.length - 2];
+      if (!left || !right || left.rightEdge + sep <= right.leftEdge) break;
+      stack.pop();
+      stack.pop();
+      stack.push(buildPavaBlock([...left.members, ...right.members]));
+    }
+  }
+  return stack;
+}
 
 /**
  * Packets of one phase play together, so their callouts must not cover each other.
- * Places them in declaration order and moves each one that clashes sideways by the
- * smallest distance that clears the others. Beside the rightmost callout is always free.
+ * Sorts callouts left-to-right by rail midpoint so pointers never cross, separates
+ * clashing groups symmetrically around their center of mass via isotonic block merging,
+ * and aligns close side-by-side parallel callouts onto a shared baseline shelf.
  */
 export function separatePhaseCallouts(phase: readonly Packet[]): void {
-  const placed: PacketCalloutBox[] = [];
   for (const packet of phase) {
+    delete packet.calloutShift;
+    delete packet.calloutBottom;
+  }
+
+  const entries: CalloutEntry[] = [];
+  phase.forEach((packet, index) => {
     const box = computePacketCalloutBox(packet);
-    if (!box) continue;
-    if (!placed.some((other) => calloutsClash(box, other))) {
-      placed.push(box);
+    if (!box) return;
+    const midX = pointAt(packet.path, 0.5).x;
+    const tieX = packet.path.p0.x + packet.path.p3.x;
+    entries.push({ packet, index, midX, tieX, box });
+  });
+  if (entries.length < 2) return;
+
+  entries.sort((a, b) => a.midX - b.midX || a.tieX - b.tieX || a.index - b.index);
+
+  for (let pass = 0; pass < 3; pass++) {
+    const clusters = partitionVerticalClusters(entries);
+    for (const cluster of clusters) {
+      if (cluster.length < 2) continue;
+      for (const block of solvePavaCluster(cluster)) {
+        block.members.forEach((entry, i) => {
+          const shift = block.leftCx + (block.offsets[i] ?? 0) - entry.midX;
+          if (Math.abs(shift) > 1e-6) entry.packet.calloutShift = shift;
+          else delete entry.packet.calloutShift;
+        });
+      }
+    }
+    for (const entry of entries) {
+      const next = computePacketCalloutBox(entry.packet);
+      if (next) entry.box = next;
+    }
+    const hasClash = entries.some((a, i) =>
+      entries.slice(i + 1).some((b) => calloutsClash(a.box, b.box)),
+    );
+    if (!hasClash) break;
+  }
+
+  for (const cluster of partitionVerticalClusters(entries)) {
+    if (cluster.length < 2) continue;
+    const minBottom = Math.min(...cluster.map((e) => e.box.boxBottom));
+    const shelfGroup = cluster.filter(
+      (e) => e.box.boxBottom - minBottom <= PARALLEL_SHELF_TOLERANCE,
+    );
+    if (shelfGroup.length < 2 || shelfGroup.every((e) => e.box.boxBottom === minBottom)) {
       continue;
     }
-    const clear = placed
-      .flatMap((other) => {
-        const reach = other.halfW + CALLOUT_GAP + box.halfW + CALLOUT_SHIFT_SLACK;
-        return [other.cx - reach - box.cx, other.cx + reach - box.cx];
-      })
-      .sort((a, b) => Math.abs(a) - Math.abs(b))
-      .map((calloutShift) => ({
-        calloutShift,
-        moved: computePacketCalloutBox({ ...packet, calloutShift }),
-      }))
-      .find(({ moved }) => moved && !placed.some((other) => calloutsClash(moved, other)));
-    if (!clear?.moved) continue;
-    packet.calloutShift = clear.calloutShift;
-    placed.push(clear.moved);
+    const prevBoxes = new Map(shelfGroup.map((e) => [e, e.box]));
+    for (const entry of shelfGroup) {
+      entry.packet.calloutBottom = minBottom;
+      const next = computePacketCalloutBox(entry.packet);
+      if (next) entry.box = next;
+    }
+    const hasClash = entries.some((a, i) =>
+      entries.slice(i + 1).some((b) => calloutsClash(a.box, b.box)),
+    );
+    if (hasClash) {
+      for (const entry of shelfGroup) {
+        delete entry.packet.calloutBottom;
+        const prev = prevBoxes.get(entry);
+        if (prev) entry.box = prev;
+      }
+    }
   }
 }

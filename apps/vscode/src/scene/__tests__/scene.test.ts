@@ -1,13 +1,22 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
 import { computeLayout, type Rect, rectContains, stationRect } from '../../layout';
 import { type CodeBlock, ICON_NAMES } from '../../model/types';
 import { SAMPLE_TEMPLATES } from '../../samples';
 import {
+  CALLOUT_CODE_HEADER_HEIGHT,
   CALLOUT_CODE_LINE_HEIGHT,
+  CALLOUT_CODE_PAD_X,
+  CALLOUT_CODE_RADIUS,
   CALLOUT_CODE_SIZE,
   CALLOUT_DESC_SIZE,
+  CALLOUT_GAP,
+  CALLOUT_LABEL_SIZE,
   CALLOUT_LINE_HEIGHT,
+  CALLOUT_RADIUS,
+  packetBubblePath,
   separatePhaseCallouts,
 } from '../callout';
 import { type Bezier, pointAt } from '../geometry';
@@ -415,19 +424,23 @@ step "S" {
     };
   };
 
-  it('keeps the first callout in place and moves only the ones in its way', () => {
+  it('shifts clashing callouts symmetrically and leaves far ones in place', () => {
     const [first, far, clashing] = [packetAt(0), packetAt(1000), packetAt(0)] as const;
     separatePhaseCallouts([first, far, clashing]);
-    expect(first).not.toHaveProperty('calloutShift');
     expect(far).not.toHaveProperty('calloutShift');
-    expect(clashing.calloutShift).toBeDefined();
+    expect(first.calloutShift).toBeLessThan(0);
+    expect(clashing.calloutShift).toBeGreaterThan(0);
+    expect((first.calloutShift ?? 0) + (clashing.calloutShift ?? 0)).toBeCloseTo(0);
   });
 
-  it('moves a clashing callout by the smallest distance that clears it', () => {
+  it('moves clashing callouts apart by the smallest symmetric distance', () => {
     const [first, second] = [packetAt(100), packetAt(100)] as const;
     separatePhaseCallouts([first, second]);
     const halfW = computePacketCalloutBox(first)?.halfW ?? 0;
-    expect(Math.abs(second.calloutShift ?? 0)).toBeCloseTo(halfW * 2 + 13);
+    const expectedSpan = halfW * 2 + CALLOUT_GAP + 1;
+    expect(first.calloutShift).toBeCloseTo(-expectedSpan / 2);
+    expect(second.calloutShift).toBeCloseTo(expectedSpan / 2);
+    expect((second.calloutShift ?? 0) - (first.calloutShift ?? 0)).toBeCloseTo(expectedSpan);
   });
 
   it('does not move callouts of packets that play one after another', () => {
@@ -793,19 +806,43 @@ describe('packet code callouts and overflow prevention', () => {
   };
 
   it('preserves exact heights and omits .dav-packet-code when code is absent or whitespace-only', () => {
+    expect({
+      CALLOUT_RADIUS,
+      CALLOUT_CODE_RADIUS,
+      CALLOUT_LABEL_SIZE,
+      CALLOUT_DESC_SIZE,
+      CALLOUT_LINE_HEIGHT,
+      CALLOUT_CODE_SIZE,
+      CALLOUT_CODE_LINE_HEIGHT,
+      CALLOUT_CODE_PAD_X,
+      CALLOUT_CODE_HEADER_HEIGHT,
+    }).toEqual({
+      CALLOUT_RADIUS: 10,
+      CALLOUT_CODE_RADIUS: 6,
+      CALLOUT_LABEL_SIZE: 14,
+      CALLOUT_DESC_SIZE: 13,
+      CALLOUT_LINE_HEIGHT: 20,
+      CALLOUT_CODE_SIZE: 11.5,
+      CALLOUT_CODE_LINE_HEIGHT: 17.5,
+      CALLOUT_CODE_PAD_X: 13,
+      CALLOUT_CODE_HEADER_HEIGHT: 26,
+    });
+
     const labelOnly = computePacketCalloutBox(makePacket({ label: '201 Created' }));
     expect(labelOnly).not.toBeNull();
-    expect(labelOnly && labelOnly.boxBottom - labelOnly.boxTop).toBe(30);
+    expect(labelOnly && labelOnly.boxBottom - labelOnly.boxTop).toBe(32);
+    expect(labelOnly?.padX).toBe(13);
     expect(labelOnly?.code).toBeUndefined();
 
     const withDesc = computePacketCalloutBox(
       makePacket({ label: '201 Created', description: 'Line one\nLine two' }),
     );
-    expect(withDesc && withDesc.boxBottom - withDesc.boxTop).toBe(36 + 2 * CALLOUT_LINE_HEIGHT);
+    expect(withDesc && withDesc.boxBottom - withDesc.boxTop).toBe(40 + 2 * CALLOUT_LINE_HEIGHT);
+    expect(withDesc?.padX).toBe(16);
     expect(withDesc?.code).toBeUndefined();
 
     const descOnly = computePacketCalloutBox(makePacket({ description: 'Only description' }));
-    expect(descOnly && descOnly.boxBottom - descOnly.boxTop).toBe(14 + 1 * CALLOUT_LINE_HEIGHT);
+    expect(descOnly && descOnly.boxBottom - descOnly.boxTop).toBe(20 + 1 * CALLOUT_LINE_HEIGHT);
     expect(descOnly?.code).toBeUndefined();
 
     const emptyCodeOnly = computePacketCalloutBox(makePacket({ code: { body: '  \r\n\t  ' } }));
@@ -815,6 +852,8 @@ describe('packet code callouts and overflow prevention', () => {
       makePacket({ label: '201 Created', description: 'Created' }),
     );
     expect(findAll(renderedNoCode, (e) => e.attrs.class === 'dav-packet-code')).toEqual([]);
+    const descEl = findAll(renderedNoCode, (e) => e.attrs.class === 'dav-packet-desc')[0];
+    expect(descEl?.attrs['fill-opacity']).toBe(0.86);
   });
 
   it('renders a callout for a code-only packet and handles header combinations', () => {
@@ -824,7 +863,7 @@ describe('packet code callouts and overflow prevention', () => {
       header: '',
       headerHeight: 0,
       lines: ['{', '  "ok": true', '}'],
-      offsetY: 10,
+      offsetY: 14,
     });
 
     const langAndTitle = computePacketCalloutBox(
@@ -835,22 +874,23 @@ describe('packet code callouts and overflow prevention', () => {
     );
     expect(langAndTitle?.code).toMatchObject({
       header: 'json · Order Request',
-      headerHeight: 22,
+      headerHeight: 26,
       lines: ['{"amount": 14800}'],
+      offsetY: 37,
     });
-    expect(langAndTitle?.code?.width).toBe((langAndTitle?.halfW ?? 0) * 2 - 24);
+    expect(langAndTitle?.code?.width).toBe((langAndTitle?.halfW ?? 0) * 2 - 32);
 
     const langOnly = computePacketCalloutBox(
       makePacket({ code: { lang: 'sql', body: 'SELECT 1;' } }),
     );
     expect(langOnly?.code?.header).toBe('sql');
-    expect(langOnly?.code?.headerHeight).toBe(22);
+    expect(langOnly?.code?.headerHeight).toBe(26);
 
     const titleOnly = computePacketCalloutBox(
       makePacket({ code: { title: 'Payload', body: 'ok' } }),
     );
     expect(titleOnly?.code?.header).toBe('Payload');
-    expect(titleOnly?.code?.headerHeight).toBe(22);
+    expect(titleOnly?.code?.headerHeight).toBe(26);
   });
 
   it('normalizes CRLF/tabs, caps code at 10 lines, and truncates overlong code lines', () => {
@@ -864,13 +904,13 @@ describe('packet code callouts and overflow prevention', () => {
     expect(box?.code?.lines).toHaveLength(10);
     expect(box?.code?.lines[1]).toBe('  "k0": 0');
     expect(box?.code?.lines[9]).toBe('…');
-    expect(box?.code?.height).toBe(22 + 10 * CALLOUT_CODE_LINE_HEIGHT + 12);
+    expect(box?.code?.height).toBe(26 + 10 * CALLOUT_CODE_LINE_HEIGHT + 14);
 
     const wide = computePacketCalloutBox(makePacket({ code: { body: longLine } }));
     const fittedLine = wide?.code?.lines[0] ?? '';
     expect(fittedLine.endsWith('…')).toBe(true);
     expect(estimateCalloutTextWidth(fittedLine, CALLOUT_CODE_SIZE, 'mono')).toBeLessThanOrEqual(
-      380,
+      384,
     );
   });
 
@@ -895,10 +935,10 @@ describe('packet code callouts and overflow prevention', () => {
     if (!box) return;
     const innerW = box.halfW * 2 - box.padX * 2;
     for (const line of box.descLines) {
-      expect(estimateCalloutTextWidth(line, CALLOUT_DESC_SIZE, 'normal')).toBeLessThanOrEqual(360);
+      expect(estimateCalloutTextWidth(line, CALLOUT_DESC_SIZE, 'normal')).toBeLessThanOrEqual(384);
       expect(estimateCalloutTextWidth(line, CALLOUT_DESC_SIZE, 'normal')).toBeLessThan(innerW);
     }
-    expect(box.boxTop + (box.code?.offsetY ?? 0) + (box.code?.height ?? 0) + 10).toBe(
+    expect(box.boxTop + (box.code?.offsetY ?? 0) + (box.code?.height ?? 0) + 14).toBe(
       box.boxBottom,
     );
   });
@@ -917,7 +957,7 @@ describe('packet code callouts and overflow prevention', () => {
     const codeGroup = codeGroups[0];
     expect(codeGroup?.children[0]).toMatchObject({
       tag: 'rect',
-      attrs: { rx: 5, class: 'dav-packet-code-box', fill: 'var(--dav-code-bg)' },
+      attrs: { rx: 6, class: 'dav-packet-code-box', fill: 'var(--dav-code-bg)' },
     });
 
     const headText = findAll(
@@ -1017,6 +1057,353 @@ describe('packet code callouts and overflow prevention', () => {
     const whole = wholeDiagramFrame(l, v);
     for (const rect of callouts) {
       expect(rectContains(whole.rect, rect)).toBe(true);
+    }
+  });
+
+  it('enforces kinsoku line wrapping rules and eliminates 2-3 char trailing orphans', () => {
+    const fixedMeasure = (s: string) => [...s].length * 10;
+    // Opening brackets attach forward (no dangling '（' or '(' at line end)
+    const openWrapped = wrapText('注文処理（税込計算）を実行', 10, 55, 4, {
+      measure: fixedMeasure,
+      trimBeforeEllipsis: true,
+    });
+    for (const line of openWrapped) {
+      expect(line).not.toMatch(/[([{（「『【〈《〔]$/);
+      expect(line).not.toMatch(/^[)\]}）」』】〉》〕。、，．・：；！？…‥ーっッ]/);
+    }
+
+    // ASCII '(' after Latin identifier before CJK also avoids dangling '(' at line end
+    const asciiOpenWrapped = wrapText('WAF(検証)を実行。次の処理…開始！', 10, 50, 5, {
+      measure: fixedMeasure,
+      trimBeforeEllipsis: true,
+    });
+    for (const line of asciiOpenWrapped) {
+      expect(line).not.toMatch(/[([{（「]$/);
+      expect(line).not.toMatch(/^[)\]}）」。…！]/);
+    }
+
+    // Anti-orphan balancing: 27 CJK chars (~368px > 340px) balances into two near-equal lines instead of 24+3
+    const orphanCandidate = '注文確定イベントを発行し非同期ワーカーにて出荷開始処理';
+    const balanced = computePacketCalloutBox(makePacket({ description: orphanCandidate }));
+    expect(balanced?.descLines).toHaveLength(2);
+    expect([...(balanced?.descLines[1] ?? '')].length).toBeGreaterThanOrEqual(8);
+  });
+
+  it('scales tall code cards toward Golden Ratio φ and co-sizes desc with wide code blocks', () => {
+    const phi = (1 + Math.sqrt(5)) / 2;
+    const tallBody = Array.from({ length: 8 }, (_, i) => `  "line_${i}": ${i}`).join(',\n');
+    const tallCard = computePacketCalloutBox(
+      makePacket({
+        label: 'Tall',
+        code: { lang: 'json', body: `{\n${tallBody}\n}` },
+      }),
+    );
+    expect(tallCard).not.toBeNull();
+    if (!tallCard) return;
+    const tallH = tallCard.boxBottom - tallCard.boxTop;
+    const tallW = tallCard.halfW * 2;
+    const expectedPhiFloor = Math.min(368, Math.max(220, Math.round(tallH * phi)));
+    expect(tallW).toBeGreaterThanOrEqual(expectedPhiFloor);
+
+    // Wide single-line code widens descMaxW so medium description wraps cleanly to match code width
+    const wideCodeDesc = '認証済みペイロードを検証してプライマリデータベースへトランザクション書込';
+    const withoutCode = computePacketCalloutBox(makePacket({ description: wideCodeDesc }));
+    const withWideCode = computePacketCalloutBox(
+      makePacket({
+        description: wideCodeDesc,
+        code: {
+          lang: 'sql',
+          body: 'INSERT INTO customer_orders (order_id, tenant_id, total_jpy) VALUES ($1, $2, 14800);',
+        },
+      }),
+    );
+    expect(withoutCode && withWideCode).toBeTruthy();
+    if (!withoutCode || !withWideCode) return;
+    const maxLineW = (lines: string[]) =>
+      Math.max(...lines.map((l) => estimateCalloutTextWidth(l, CALLOUT_DESC_SIZE, 'normal')));
+    expect(maxLineW(withWideCode.descLines)).toBeGreaterThanOrEqual(
+      maxLineW(withoutCode.descLines),
+    );
+  });
+
+  it('clears full-width group top borders by >=16px and lifts Row-1 callouts above Row-0 stations', () => {
+    const dsl = `dav 1
+node src "Source"
+group g "Z" {
+  node r0 "Top Row Station" [icon: screen, sub: "Preview"]
+  node r1a "Exporter" [icon: storage]
+  node r1b "Output" [icon: browser]
+  node far "Rightmost Station" [icon: server]
+}
+src --> r0
+src --> r1a
+r0 --> far
+r1a --> r1b
+step "RightHalfOverZone" {
+  animate r0 --> far : "Cross" [desc: "Callout positioned over the right half of zone g far past its short title"]
+}
+step "Row1UnderRow0" {
+  animate r1a --> r1b : "exportHtml(dsl)" [icon: key, desc: "Writes standalone HTML"] {
+    code html "Standalone HTML" \`\`\`
+      <meta http-equiv="Content-Security-Policy" content="default-src 'none'">
+      <script type="application/json" id="dav-data">...</script>
+    \`\`\`
+  }
+}
+`;
+    const { document: doc } = parse(dsl);
+    const l = computeLayout(doc);
+    const groupRect = l.groups.g as Rect;
+    const r0Rect = l.nodes.r0 as Rect;
+
+    // Step 0: right-half callout clears group top border by >= 16px (never 0px tangent or slicing)
+    const rightPkt = resolveView(doc, l, 0).phases[0]?.[0];
+    const rightBox = rightPkt && computePacketCalloutBox(rightPkt);
+    expect(rightBox).toBeDefined();
+    if (rightBox) {
+      expect(rightBox.cx).toBeGreaterThan(groupRect.x + 80);
+      expect(rightBox.boxBottom).toBeLessThanOrEqual(groupRect.y - 16);
+    }
+
+    // Step 1: Row-1 code callout lifts past Row-0 node AND enclosing group top border
+    const row1Pkt = resolveView(doc, l, 1).phases[0]?.[0];
+    const row1Box = row1Pkt && computePacketCalloutBox(row1Pkt);
+    expect(row1Box).toBeDefined();
+    if (row1Box) {
+      const overlapsR0 =
+        row1Box.cx - row1Box.halfW < r0Rect.x + r0Rect.width &&
+        row1Box.cx + row1Box.halfW > r0Rect.x &&
+        row1Box.boxTop < r0Rect.y + r0Rect.height &&
+        row1Box.boxBottom > r0Rect.y;
+      expect(overlapsR0).toBe(false);
+      if (
+        row1Box.cx - row1Box.halfW < groupRect.x + groupRect.width &&
+        row1Box.cx + row1Box.halfW > groupRect.x &&
+        row1Box.boxTop < groupRect.y + 34
+      ) {
+        expect(row1Box.boxBottom).toBeLessThanOrEqual(groupRect.y - 16);
+      }
+    }
+  });
+
+  it('keeps parallel callouts uncrossed in mid.x order and aligned on a shared boxBottom shelf', () => {
+    const ptLeft = { x: 260, y: 310 };
+    const ptRight = { x: 300, y: 334 };
+    const pktRightDeclaredFirst: Packet = {
+      from: 'b',
+      to: 'c',
+      fromLabel: 'B',
+      toLabel: 'C',
+      label: 'Right Rail',
+      description: 'Declared first but sits to the right',
+      color: 'purple',
+      path: { p0: ptRight, p1: ptRight, p2: ptRight, p3: ptRight },
+      roundTrip: false,
+      clearTop: 294,
+      labelAreas: [],
+      durationMs: 2000,
+    };
+    const pktLeftDeclaredSecond: Packet = {
+      from: 'a',
+      to: 'b',
+      fromLabel: 'A',
+      toLabel: 'B',
+      label: 'Left Rail',
+      description: 'Declared second but sits to the left',
+      color: 'green',
+      path: { p0: ptLeft, p1: ptLeft, p2: ptLeft, p3: ptLeft },
+      roundTrip: false,
+      clearTop: 270,
+      labelAreas: [],
+      durationMs: 2000,
+    };
+
+    separatePhaseCallouts([pktRightDeclaredFirst, pktLeftDeclaredSecond]);
+    const leftBox = computePacketCalloutBox(pktLeftDeclaredSecond);
+    const rightBox = computePacketCalloutBox(pktRightDeclaredFirst);
+    expect(leftBox && rightBox).toBeTruthy();
+    if (!leftBox || !rightBox) return;
+
+    // Uncrossed left-to-right order (left rail stays left of right rail)
+    expect(leftBox.cx).toBeLessThan(rightBox.cx);
+    // Symmetric opposite shifts around their natural midpoints
+    expect(pktLeftDeclaredSecond.calloutShift).toBeLessThan(0);
+    expect(pktRightDeclaredFirst.calloutShift).toBeGreaterThan(0);
+    expect(
+      (pktLeftDeclaredSecond.calloutShift ?? 0) + (pktRightDeclaredFirst.calloutShift ?? 0),
+    ).toBeCloseTo(0);
+    // Shared horizontal baseline shelf (`boxBottom` difference was 24px <= 48px)
+    expect(leftBox.boxBottom).toBe(rightBox.boxBottom);
+  });
+
+  it('emits identical 13-command SMIL paths across t=0,0.5,1 and pulls back farther for icon chips', () => {
+    const p0 = { x: 120, y: 320 };
+    const p3 = { x: 420, y: 320 };
+    const basePkt: Packet = {
+      from: 'a',
+      to: 'b',
+      fromLabel: 'A',
+      toLabel: 'B',
+      label: 'POST /orders',
+      description: 'Payload check',
+      color: DEFAULT_FLOW_COLOR,
+      path: { p0, p1: { x: 200, y: 320 }, p2: { x: 340, y: 320 }, p3 },
+      roundTrip: false,
+      clearTop: 280,
+      labelAreas: [],
+      durationMs: 2000,
+    };
+    const iconPkt: Packet = { ...basePkt, icon: 'file' };
+
+    const plainBox = computePacketCalloutBox(basePkt);
+    const iconBox = computePacketCalloutBox(iconPkt);
+    expect(plainBox && iconBox).toBeTruthy();
+    if (!plainBox || !iconBox) return;
+
+    const commandsOf = (d: string) => (d.match(/[A-Z]/g) ?? []).join(' ');
+    for (const t of [0, 0.5, 1]) {
+      const dot = packetPosition(basePkt, t);
+      const dPlain = packetBubblePath(plainBox, dot, 13);
+      const dIcon = packetBubblePath(iconBox, dot, 21);
+      expect(commandsOf(dPlain)).toBe('M H Q V Q H L L H Q V Q Z');
+      expect(commandsOf(dIcon)).toBe('M H Q V Q H L L H Q V Q Z');
+    }
+
+    // Compare pointer tip distance from dot at t=0.5: icon chip (21px) pulls back farther than plain dot (13px)
+    const midDot = packetPosition(basePkt, 0.5);
+    const tipOf = (d: string) => {
+      const m = /L (-?\d+\.\d+) (-?\d+\.\d+) L/.exec(d);
+      return { x: Number(m?.[1] ?? 0), y: Number(m?.[2] ?? 0) };
+    };
+    const plainTip = tipOf(packetBubblePath(plainBox, midDot));
+    const iconTip = tipOf(packetBubblePath(iconBox, midDot));
+    const plainClearance = Math.hypot(midDot.x - plainTip.x, midDot.y - plainTip.y);
+    const iconClearance = Math.hypot(midDot.x - iconTip.x, midDot.y - iconTip.y);
+    expect(plainClearance).toBeCloseTo(13, 0);
+    expect(iconClearance).toBeCloseTo(21, 0);
+    expect(iconClearance).toBeGreaterThan(plainClearance + 7);
+  });
+
+  it('maintains >=16px zone top-border clearance and zero station/callout collisions across example 05, example 07, and JP/JSON/SQL stress steps', () => {
+    const stressDsl = `dav 1
+title "Order Pipeline Stress"
+node browser "Browser" [icon: browser]
+group edge "Edge" [color: teal] {
+  node gw "Edge Gateway" [icon: router]
+}
+group app "Application" [color: blue] {
+  node api "Order API" [icon: api]
+  node worker "Payment Worker" [icon: function]
+}
+group data "Data & Events" [color: purple] {
+  node db "Primary DB" [icon: database]
+  node queue "Event Queue" [icon: queue]
+  node cache "Redis Cache" [icon: cache]
+}
+browser --> gw
+gw --> api
+api --> db
+api --> cache
+api --> worker
+worker --> db
+worker --> queue
+step "Step 1" {
+  animate browser --> gw : "HTTPS" [desc: "TLS終端およびレート制限（100 req/s）を検証"]
+}
+step "Step 2" {
+  animate gw --> api : "POST /orders" [icon: file, desc: "エッジWAFでmTLS検証（税込 ¥14,800）を実施し注文APIへ転送。冪等キーを確認…処理開始"] {
+    code json "Order Request" \`\`\`
+      {
+        "orderId": "ord_01JCK9X7",
+        "amount": 14800,
+        "currency": "JPY"
+      }
+    \`\`\`
+  }
+}
+step "Step 3" {
+  animate api --> db : "INSERT orders" [desc: "注文レコードをトランザクション書込"] {
+    code sql "Primary Write" \`\`\`
+      INSERT INTO orders (id, amount, status)
+      VALUES ('ord_01JCK9X7', 14800, 'PENDING');
+    \`\`\`
+  }
+  animate api --> cache : "DEL cart:901" [parallel: true, desc: "カートキャッシュを即時無効化して二重注文を防止"]
+}
+step "Step 4" {
+  animate worker --> db : "UPDATE status" [desc: "決済完了ステータスへ更新"] {
+    code sql "Confirm Order" \`\`\`
+      UPDATE orders SET status = 'CONFIRMED'
+      WHERE id = 'ord_01JCK9X7';
+    \`\`\`
+  }
+  animate worker --> queue : "OrderConfirmed" [icon: mail, parallel: true, color: purple, desc: "出荷ワーカー向け確定イベントを発行"] {
+    code json "Event Payload" \`\`\`
+      {
+        "event": "order.confirmed",
+        "orderId": "ord_01JCK9X7"
+      }
+    \`\`\`
+  }
+}
+`;
+    const repoRoot = resolve(__dirname, '../../../../..');
+    const scenarios = [
+      [
+        'example-05',
+        readFileSync(resolve(repoRoot, 'examples/05-sequence-payment-retry.dav'), 'utf8'),
+      ],
+      [
+        'example-07',
+        readFileSync(resolve(repoRoot, 'examples/07-dynamic-architect-viewer.dav'), 'utf8'),
+      ],
+      ['stress-jp', stressDsl],
+    ] as const;
+
+    for (const [, dsl] of scenarios) {
+      const { document: doc, diagnostics } = parse(dsl);
+      expect(diagnostics).toEqual([]);
+      const l = computeLayout(doc);
+      doc.steps.forEach((_step, sIdx) => {
+        const v = resolveView(doc, l, sIdx);
+        for (const phase of v.phases) {
+          const boxes = phase.flatMap((p) => computePacketCalloutBox(p) ?? []);
+          // Zero parallel callout overlap
+          boxes.forEach((a, i) => {
+            for (const b of boxes.slice(i + 1)) {
+              const clash =
+                a.cx - a.halfW < b.cx + b.halfW &&
+                a.cx + a.halfW > b.cx - b.halfW &&
+                a.boxTop < b.boxBottom &&
+                a.boxBottom > b.boxTop;
+              expect(clash).toBe(false);
+            }
+          });
+          for (const box of boxes) {
+            // Zero zone top-border collision or < 15px proximity
+            for (const g of v.groups) {
+              const overlapsX =
+                box.cx - box.halfW < g.rect.x + g.rect.width && box.cx + box.halfW > g.rect.x;
+              if (!overlapsX) continue;
+              const slicesTop = box.boxTop < g.rect.y && box.boxBottom > g.rect.y;
+              expect(slicesTop).toBe(false);
+              if (box.boxBottom <= g.rect.y + 34) {
+                expect(box.boxBottom).toBeLessThanOrEqual(g.rect.y - 16);
+              }
+            }
+            // Zero focused visible node occlusion
+            for (const n of v.nodes) {
+              if (!n.focused) continue;
+              const overlapsNode =
+                box.cx - box.halfW < n.rect.x + n.rect.width &&
+                box.cx + box.halfW > n.rect.x &&
+                box.boxTop < n.rect.y + n.rect.height &&
+                box.boxBottom > n.rect.y;
+              expect(overlapsNode).toBe(false);
+            }
+          }
+        }
+      });
     }
   });
 });

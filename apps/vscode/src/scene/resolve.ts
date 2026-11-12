@@ -1,5 +1,5 @@
 import type { Layout, Rect } from '../layout';
-import { estimateTextWidth } from '../model/text';
+import { GROUP_HEADER, GROUP_PADDING, selfLoopRoom } from '../layout/metrics';
 import {
   COLOR_RESET,
   type CodeBlock,
@@ -17,7 +17,6 @@ import { type Bezier, reverse } from './geometry';
 import { THEME_COLOR } from './paint';
 import { RailRouter } from './rails';
 import { PHASE_MS, pacePhase } from './timing';
-import { ZONE_LABEL, zoneLabelRoom } from './zones';
 
 export const DEFAULT_FLOW_COLOR = THEME_COLOR.accent;
 const DEFAULT_EDGE_COLOR = THEME_COLOR.edge;
@@ -78,13 +77,17 @@ export interface Packet {
   icon?: IconName;
   /** Sideways move of the callout, set when it would cover another one of its phase. */
   calloutShift?: number;
+  /** Shared baseline bottom y when aligned with parallel sibling callouts. */
+  calloutBottom?: number;
   path: Bezier;
   /** Written as `<->` in the `animate`: the packet goes to the end and comes back. */
   roundTrip: boolean;
   /** Top edge of the two endpoint nodes; the callout stays above it to keep them visible. */
   clearTop: number;
-  /** Zone names on the canvas, which the callout must not cover. */
+  /** Zone headers, borders, and focused stations on the canvas, which the callout must not cover. */
   labelAreas: readonly Rect[];
+  /** Dimmed visible stations avoided when within reasonable upward lift distance. */
+  dimmedNodeAreas?: readonly Rect[];
   /** How long this packet travels at 1x. */
   durationMs: number;
   /** The top-level group each endpoint belongs to, if any. */
@@ -107,15 +110,23 @@ export interface ResolvedView {
   phaseDurations: number[];
 }
 
-/** Where a zone's name is drawn (see groupLabelElement). */
-function zoneLabelArea(group: ResolvedGroup): Rect {
-  const { x, y, width } = group.rect;
-  return {
-    x: x + ZONE_LABEL.inset,
-    y: y + 6,
-    width: Math.min(estimateTextWidth(group.label, ZONE_LABEL.size), zoneLabelRoom(width)),
-    height: ZONE_LABEL.height,
-  };
+/** Full-width top-border + header band and bottom-border guard band for a zone. */
+function groupObstacleBands(group: ResolvedGroup): Rect[] {
+  const { x, y, width, height } = group.rect;
+  return [
+    {
+      x: x - 6,
+      y: y - 10,
+      width: width + 12,
+      height: GROUP_PADDING + GROUP_HEADER + 10,
+    },
+    {
+      x: x - 6,
+      y: y + height - 8,
+      width: width + 12,
+      height: 16,
+    },
+  ];
 }
 
 /** The flow color of each edge the packets ride; the first packet on an edge decides. */
@@ -264,9 +275,28 @@ function resolvePhases(
   ctx: StepContext,
   nodeById: ReadonlyMap<string, ResolvedNode>,
   rails: RailRouter,
-  labelAreas: readonly Rect[],
+  groups: readonly ResolvedGroup[],
+  nodes: readonly ResolvedNode[],
 ): ResolvedPhases {
   const zoneOf = zoneOfNodes(ctx.doc);
+  const loopRoom = selfLoopRoom(ctx.doc);
+  const topOf = (n: ResolvedNode): number => n.rect.y - (loopRoom.get(n.id) ?? 0);
+  const nodeObstacle = (n: ResolvedNode): Rect => {
+    const top = topOf(n) - 10;
+    return {
+      x: n.rect.x - 4,
+      y: top,
+      width: n.rect.width + 8,
+      height: n.rect.y + n.rect.height - top,
+    };
+  };
+  const visibleNodes = nodes.filter((n) => n.visible);
+  const labelAreas: Rect[] = [
+    ...groups.flatMap(groupObstacleBands),
+    ...visibleNodes.filter((n) => !n.dimmed).map(nodeObstacle),
+  ];
+  const dimmedNodeAreas: Rect[] = visibleNodes.filter((n) => n.dimmed).map(nodeObstacle);
+
   const phases: Packet[][] = [];
   for (const a of ctx.step?.animations ?? []) {
     const fromNode = nodeById.get(a.from);
@@ -291,10 +321,11 @@ function resolvePhases(
       color,
       path,
       roundTrip: a.direction === 'bidirectional',
-      clearTop: Math.min(fromNode.rect.y, toNode.rect.y),
+      clearTop: Math.min(topOf(fromNode), topOf(toNode)),
       labelAreas,
       durationMs: PHASE_MS,
     };
+    if (dimmedNodeAreas.length > 0) packet.dimmedNodeAreas = dimmedNodeAreas;
     const fromZone = zoneOf.get(a.from);
     const toZone = zoneOf.get(a.to);
     if (fromZone !== undefined) packet.fromZone = fromZone;
@@ -381,7 +412,8 @@ export function resolveView(
     ctx,
     nodeById,
     rails,
-    groups.map(zoneLabelArea),
+    groups,
+    nodes,
   );
 
   const view: ResolvedView = {

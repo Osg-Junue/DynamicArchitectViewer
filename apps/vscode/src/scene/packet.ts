@@ -3,6 +3,7 @@ import {
   CALLOUT_CODE_HEAD_SIZE,
   CALLOUT_CODE_LINE_HEIGHT,
   CALLOUT_CODE_PAD_X,
+  CALLOUT_CODE_RADIUS,
   CALLOUT_CODE_SIZE,
   CALLOUT_DESC_SIZE,
   CALLOUT_LABEL_SIZE,
@@ -54,7 +55,7 @@ export function buildPacket(packet: Packet, icons: IconShapes, t = 0): VElement 
       'g',
       { class: 'dav-packet-callout' },
       h('path', {
-        d: packetBubblePath(box, dot),
+        d: packetBubblePath(box, dot, packet.icon ? 21 : 13),
         fill: THEME_COLOR.panel,
         stroke: THEME_COLOR.borderStrong,
         'stroke-width': 1.5,
@@ -66,7 +67,7 @@ export function buildPacket(packet: Packet, icons: IconShapes, t = 0): VElement 
             'text',
             {
               x: alignLeft ? cx - halfW + padX : cx,
-              y: boxTop + (alignLeft ? 21 : 20),
+              y: boxTop + (alignLeft ? 24 : 21),
               ...(alignLeft ? {} : { 'text-anchor': 'middle' }),
               'font-size': CALLOUT_LABEL_SIZE,
               fill: THEME_COLOR.fg,
@@ -80,9 +81,10 @@ export function buildPacket(packet: Packet, icons: IconShapes, t = 0): VElement 
           'text',
           {
             x: cx - halfW + padX,
-            y: boxTop + (label ? 40 : 19) + i * CALLOUT_LINE_HEIGHT,
+            y: boxTop + (label ? 44 : 24) + i * CALLOUT_LINE_HEIGHT,
             'font-size': CALLOUT_DESC_SIZE,
             fill: THEME_COLOR.fg,
+            'fill-opacity': 0.86,
             class: 'dav-packet-desc',
           },
           line,
@@ -119,7 +121,7 @@ function packetCodeElement(
   const hx = x + 0.5;
   const hy = y + 0.5;
   const hw = width - 1;
-  const hr = 4.5;
+  const hr = CALLOUT_CODE_RADIUS - 0.5;
   const n = (value: number) => Number(value.toFixed(2));
 
   return h(
@@ -130,7 +132,7 @@ function packetCodeElement(
       y: n(y),
       width: n(width),
       height: n(height),
-      rx: 5,
+      rx: CALLOUT_CODE_RADIUS,
       fill: THEME_COLOR.codeBg,
       stroke: THEME_COLOR.border,
       'stroke-width': 1,
@@ -167,7 +169,7 @@ function packetCodeElement(
           'text',
           {
             x: n(x + CALLOUT_CODE_PAD_X),
-            y: n(y + 15),
+            y: n(y + 17),
             'font-size': CALLOUT_CODE_HEAD_SIZE,
             fill: THEME_COLOR.muted,
             'xml:space': 'preserve',
@@ -184,7 +186,7 @@ function packetCodeElement(
             'text',
             {
               x: n(x + CALLOUT_CODE_PAD_X),
-              y: n(bodyTop + 18 + i * CALLOUT_CODE_LINE_HEIGHT),
+              y: n(bodyTop + 19 + i * CALLOUT_CODE_LINE_HEIGHT),
               'font-size': CALLOUT_CODE_SIZE,
               fill: THEME_COLOR.fg,
               'xml:space': 'preserve',
