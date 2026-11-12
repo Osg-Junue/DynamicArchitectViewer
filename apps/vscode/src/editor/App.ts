@@ -1,14 +1,20 @@
 import { findAtOffset, hasFatalError, parse, type SourceMap } from '../dsl';
 import { computeLayout, type Layout } from '../layout';
 import type { DavDocument } from '../model/types';
-import { isHostToWebviewMessage, type WebviewToHostMessage } from '../protocol/messages';
+import {
+  INITIAL_DOC_ELEMENT_ID,
+  type InitialDocPayload,
+  isHostToWebviewMessage,
+  isInitialDocPayload,
+  type WebviewToHostMessage,
+} from '../protocol/messages';
 import { controlIcon, DOCS_ICON } from '../runtime/controlIcons';
 import { clear, html, svg } from '../runtime/dom';
 import { detectLocale } from '../runtime/i18n';
 import { Player } from '../runtime/player';
 import { ICON_SHAPES } from '../scene/icons';
 import { ExportMenu } from './ExportMenu';
-import { HelpModal } from './HelpModal';
+import type { HelpModal } from './HelpModal';
 
 interface VsCodeApi {
   postMessage(message: WebviewToHostMessage): void;
@@ -20,6 +26,25 @@ declare global {
   }
 }
 
+interface ValidState {
+  dsl: string;
+  document: DavDocument;
+  layout: Layout;
+  sourceMap: SourceMap;
+}
+
+function readInitialDoc(): InitialDocPayload | null {
+  const el = document.getElementById(INITIAL_DOC_ELEMENT_ID);
+  const raw = el?.textContent;
+  if (!raw) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return isInitialDocPayload(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 export function mountApp(container: HTMLElement): void {
   if (!window.acquireVsCodeApi) throw new Error('This page only runs inside a VS Code webview');
   const vscodeApi = window.acquireVsCodeApi();
@@ -27,17 +52,30 @@ export function mountApp(container: HTMLElement): void {
   const helpTitle = locale === 'ja' ? 'ドキュメントを開く' : 'Open documentation';
 
   let documentUri: string | undefined;
+  let documentVersion: number | undefined;
   let cursorTargetId: string | null = null;
   let lastStepIndex: number | null = null;
+  let currentDsl = '';
 
-  const empty = parse('');
-  const emptyState: { dsl: string; document: DavDocument; layout: Layout; sourceMap: SourceMap } = {
-    dsl: '',
-    document: empty.document,
-    layout: computeLayout(empty.document),
-    sourceMap: empty.sourceMap,
+  let cachedEmptyState: ValidState | null = null;
+  const getEmptyState = (): ValidState => {
+    if (!cachedEmptyState) {
+      const empty = parse('');
+      cachedEmptyState = {
+        dsl: '',
+        document: empty.document,
+        layout: computeLayout(empty.document),
+        sourceMap: empty.sourceMap,
+      };
+    }
+    return cachedEmptyState;
   };
-  let lastValid = emptyState;
+
+  let lastValid: ValidState | null = null;
+  const currentValid = (): ValidState => {
+    lastValid ??= getEmptyState();
+    return lastValid;
+  };
 
   const helpBtn = html(
     'button',
@@ -54,7 +92,7 @@ export function mountApp(container: HTMLElement): void {
   const exportMenu = new ExportMenu(
     locale,
     () => {
-      const { steps } = lastValid.document;
+      const { steps } = currentValid().document;
       const index = player?.getStepIndex() ?? null;
       const step = index === null ? undefined : steps[index];
       return {
@@ -70,7 +108,7 @@ export function mountApp(container: HTMLElement): void {
       };
     },
     (format, step) => {
-      const exportDsl = lastValid.dsl;
+      const exportDsl = currentValid().dsl;
       vscodeApi.postMessage(
         format === 'html'
           ? { type: 'exportHtml', dsl: exportDsl }
@@ -94,31 +132,30 @@ export function mountApp(container: HTMLElement): void {
     class: 'editor-cursor-layer',
     'pointer-events': 'none',
   });
-  const helpModal = new HelpModal(locale);
-
-  clear(container);
-  container.append(
+  const shell = html(
+    'div',
+    { class: 'shell' },
     html(
-      'div',
-      { class: 'shell' },
-      html(
-        'header',
-        { class: 'toolbar' },
-        playbackSlot,
-        html('div', { class: 'toolbar-group toolbar-right' }, exportMenu.element, helpBtn),
-      ),
-      html('section', { class: 'preview-pane' }, playerHost),
-      helpModal.element,
+      'header',
+      { class: 'toolbar' },
+      playbackSlot,
+      html('div', { class: 'toolbar-group toolbar-right' }, exportMenu.element, helpBtn),
     ),
+    html('section', { class: 'preview-pane' }, playerHost),
   );
 
+  clear(container);
+  container.append(shell);
+
   let player: Player | null = null;
+  let helpModal: HelpModal | null = null;
+  let helpModalLoading: Promise<HelpModal> | null = null;
 
   function renderHighlight(): void {
     clear(highlightLayer);
     if (!cursorTargetId) return;
-    const rect =
-      lastValid.layout.nodes[cursorTargetId] ?? lastValid.layout.groups[cursorTargetId] ?? null;
+    const valid = currentValid();
+    const rect = valid.layout.nodes[cursorTargetId] ?? valid.layout.groups[cursorTargetId] ?? null;
     if (!rect) return;
     highlightLayer.append(
       svg('rect', {
@@ -132,13 +169,13 @@ export function mountApp(container: HTMLElement): void {
     );
   }
 
-  function createPlayer(): Player {
+  function createPlayer(valid: ValidState): Player {
     const created = new Player(
       playerHost,
-      { document: lastValid.document, layout: lastValid.layout, icons: ICON_SHAPES },
+      { document: valid.document, layout: valid.layout, icons: ICON_SHAPES },
       {
         locale,
-        initialStep: lastValid.document.steps.length > 0 ? 0 : null,
+        initialStep: valid.document.steps.length > 0 ? 0 : null,
         globalKeyboard: true,
         playbackSlot,
         onPhaseChange: (view) => {
@@ -155,13 +192,14 @@ export function mountApp(container: HTMLElement): void {
         e.target instanceof Element
           ? e.target.closest('[data-id]')?.getAttribute('data-id')
           : undefined;
-      const span = id ? lastValid.sourceMap.elements.get(id) : undefined;
+      const span = id ? currentValid().sourceMap.elements.get(id) : undefined;
       if (span) vscodeApi.postMessage({ type: 'revealRange', from: span.from, to: span.to });
     });
     return created;
   }
 
   function applyDsl(dsl: string): void {
+    currentDsl = dsl;
     const parsed = parse(dsl);
     const fatal = hasFatalError(parsed);
     exportMenu.setBlocked(fatal);
@@ -173,19 +211,20 @@ export function mountApp(container: HTMLElement): void {
         sourceMap: parsed.sourceMap,
       };
     }
+    const valid = currentValid();
     if (player) {
-      player.update({ document: lastValid.document, layout: lastValid.layout, icons: ICON_SHAPES });
+      player.update({ document: valid.document, layout: valid.layout, icons: ICON_SHAPES });
     } else {
-      player = createPlayer();
+      player = createPlayer(valid);
     }
     lastStepIndex = player.getStepIndex();
     exportMenu.sync();
     renderHighlight();
-    helpModal.update(dsl);
+    helpModal?.update(dsl);
   }
 
   function syncCursorOffset(offset: number): void {
-    const hit = findAtOffset(lastValid.sourceMap, offset);
+    const hit = findAtOffset(currentValid().sourceMap, offset);
     cursorTargetId = hit.elementId;
     renderHighlight();
     // Only a move into another step navigates; otherwise playback would restart on every keystroke.
@@ -200,27 +239,67 @@ export function mountApp(container: HTMLElement): void {
   }
 
   helpBtn.addEventListener('click', () => {
-    helpModal.open();
+    if (helpModal) {
+      helpModal.open();
+      return;
+    }
+    helpModalLoading ??= import('./HelpModal')
+      .then(({ HelpModal: Modal }) => {
+        const instance = new Modal(locale);
+        instance.update(currentDsl);
+        shell.append(instance.element);
+        helpModal = instance;
+        return instance;
+      })
+      .catch((err: unknown) => {
+        helpModalLoading = null;
+        throw err;
+      });
+    void helpModalLoading.then(
+      (modal) => modal.open(),
+      () => {},
+    );
   });
+
+  const initialDoc = readInitialDoc();
+  if (initialDoc) {
+    documentUri = initialDoc.uri;
+    documentVersion = initialDoc.version;
+    applyDsl(initialDoc.dsl);
+  }
 
   window.addEventListener('message', (event: MessageEvent<unknown>) => {
     const msg = event.data;
     if (!isHostToWebviewMessage(msg)) return;
     if (msg.type === 'docChanged') {
+      if (
+        msg.uri !== undefined &&
+        msg.uri === documentUri &&
+        msg.version !== undefined &&
+        msg.version === documentVersion
+      ) {
+        return;
+      }
       if (msg.uri !== documentUri) {
         // Nothing of the previous document may survive into another one.
         documentUri = msg.uri;
-        lastValid = emptyState;
+        lastValid = null;
         cursorTargetId = null;
         lastStepIndex = null;
         exportMenu.reset();
         player?.destroy();
         player = null;
       }
+      documentVersion = msg.version;
       applyDsl(msg.dsl);
     } else if (msg.type === 'cursorMoved') {
       syncCursorOffset(msg.offset);
     }
   });
-  vscodeApi.postMessage({ type: 'ready' });
+
+  vscodeApi.postMessage({
+    type: 'ready',
+    ...(documentUri !== undefined ? { uri: documentUri } : {}),
+    ...(documentVersion !== undefined ? { version: documentVersion } : {}),
+  });
 }

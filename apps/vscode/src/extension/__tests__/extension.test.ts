@@ -24,6 +24,8 @@ const { freshHostState, host } = vi.hoisted(() => {
     warningAnswer: undefined as string | undefined,
     saveDefaultUri: undefined as string | undefined,
     saveUri: { fsPath: 'out.html' } as { fsPath: string } | undefined,
+    webviewHtml: '',
+    webviewPosted: [] as unknown[],
     receive: (_msg: unknown): void => {},
   });
   return { freshHostState, host: freshHostState() };
@@ -145,37 +147,69 @@ vi.mock('vscode', () => {
         host.saveDefaultUri = options?.defaultUri?.fsPath;
         return host.saveUri;
       },
-      createWebviewPanel: () => ({
-        title: '',
-        reveal() {},
-        onDidDispose: (listener: () => void) => {
-          host.disposePanel = listener;
-          return noop;
-        },
-        webview: {
-          html: '',
-          cspSource: 'csp',
-          asWebviewUri: (uri: unknown) => uri,
-          postMessage: async () => true,
+      createWebviewPanel: () => {
+        const webview = {
+          get html() {
+            return host.webviewHtml;
+          },
+          set html(value: string) {
+            host.webviewHtml = value;
+          },
+          cspSource: 'https://csp.example',
+          asWebviewUri: (uri: { fsPath: string }) => ({
+            fsPath: uri.fsPath,
+            toString: () =>
+              `https://csp.example/${uri.fsPath.replaceAll('\\', '/').replace(/^\/+/, '')}`,
+          }),
+          postMessage: async (msg: unknown) => {
+            host.webviewPosted.push(msg);
+            return true;
+          },
           onDidReceiveMessage: (listener: (msg: unknown) => void) => {
             host.receive = listener;
             return noop;
           },
-        },
-      }),
+        };
+        return {
+          title: '',
+          reveal() {},
+          onDidDispose: (listener: () => void) => {
+            host.disposePanel = listener;
+            return noop;
+          },
+          webview,
+        };
+      },
     },
   };
 });
 
-import { homedir } from 'node:os';
-import { isHostToWebviewMessage, isWebviewToHostMessage } from '../../protocol/messages';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { join } from 'node:path';
+import {
+  escapeJsonForHtml,
+  INITIAL_DOC_ELEMENT_ID,
+  isHostToWebviewMessage,
+  isInitialDocPayload,
+  isWebviewToHostMessage,
+  serializeInitialDoc,
+} from '../../protocol/messages';
 import { activate } from '../extension';
+import { clearWebviewAssetCache } from '../previewPanel';
 
-function fakeDocument(text: string, name: string, languageId = 'dav', isUntitled = false) {
+function fakeDocument(
+  text: string,
+  name: string,
+  languageId = 'dav',
+  isUntitled = false,
+  version = 1,
+) {
   return {
     languageId,
     isClosed: false,
     isUntitled,
+    version,
     uri: {
       fsPath: name,
       toString: () => (isUntitled ? `untitled:${name}` : `file:///${name}`),
@@ -634,18 +668,191 @@ describe('extension commands', () => {
     expect(actions?.map((a) => a.title)).toEqual(["Change to 'server'"]);
     expect(actions?.[0]?.edit.newText).toBe('server');
   });
+
+  describe('preview cold-start bootstrap and inline assets', () => {
+    it('inlines CSS/JS, escapes </script> in initial doc JSON, maps HelpModal, and caches assets', async () => {
+      const extDir = mkdtempSync(join(tmpdir(), 'dav-ext-inline-'));
+      try {
+        const assetsDir = join(extDir, 'dist', 'webview', 'assets');
+        mkdirSync(assetsDir, { recursive: true });
+        writeFileSync(join(assetsDir, 'webview.css'), 'body{margin:0;color:red}', 'utf8');
+        writeFileSync(join(assetsDir, 'webview.js'), 'window.__davBooted=true;', 'utf8');
+        clearWebviewAssetCache();
+
+        Object.assign(host, freshHostState());
+        activate({ subscriptions: [], extensionUri: { fsPath: extDir } } as never);
+
+        const trickyDsl =
+          'dav 1\ntitle "Break </script><script>alert(1)</script> <!-- </style> & \u2028\u2029"\nnode a';
+        const doc = fakeDocument(trickyDsl, 'tricky.dav', 'dav', false, 3);
+        host.activeTextEditor = { document: doc };
+
+        await run('dav.openPreview');
+
+        const html = host.webviewHtml;
+        expect(html).not.toContain('<link rel="stylesheet"');
+        expect(html).not.toMatch(/<script[^>]+src=/);
+        expect(html).not.toContain('</script><script>');
+        expect(html).not.toContain('<!--');
+
+        const nonceMatch = /style-src 'nonce-([0-9a-f]+)'/.exec(html);
+        expect(nonceMatch?.[1]).toBeDefined();
+        const nonce = nonceMatch?.[1] ?? '';
+        expect(html).toContain(`<style nonce="${nonce}">body{margin:0;color:red}</style>`);
+        expect(html).toContain(
+          `<script nonce="${nonce}" type="module">window.__davBooted=true;</script>`,
+        );
+
+        const importMapRaw = new RegExp(
+          `<script nonce="${nonce}" type="importmap">([\\s\\S]*?)</script>`,
+        ).exec(html)?.[1];
+        expect(importMapRaw).toBeDefined();
+        const importMap = JSON.parse(importMapRaw ?? '{}') as { imports?: Record<string, string> };
+        expect(importMap.imports?.['./HelpModal.js']).toMatch(
+          /dist\/webview\/assets\/HelpModal\.js$/,
+        );
+
+        const initialDocRaw = new RegExp(
+          `<script id="${INITIAL_DOC_ELEMENT_ID}" type="application/json">([\\s\\S]*?)</script>`,
+        ).exec(html)?.[1];
+        expect(initialDocRaw).toBeDefined();
+        expect(JSON.parse(initialDocRaw ?? '{}')).toEqual({
+          uri: 'file:///tricky.dav',
+          dsl: trickyDsl,
+          version: 3,
+        });
+
+        // Re-opening after removing files from disk uses the in-memory asset cache until cleared.
+        host.disposePanel();
+        rmSync(assetsDir, { recursive: true, force: true });
+        await run('dav.openPreview');
+        expect(host.webviewHtml).toContain('window.__davBooted=true;');
+
+        host.disposePanel();
+        clearWebviewAssetCache();
+        await run('dav.openPreview');
+        expect(host.webviewHtml).toContain('<link rel="stylesheet"');
+        expect(host.webviewHtml).toMatch(/<script[^>]+src=/);
+      } finally {
+        clearWebviewAssetCache();
+        rmSync(extDir, { recursive: true, force: true });
+      }
+    });
+
+    it('falls back to external URIs if an asset contains unsafe inline sequences', async () => {
+      const extDir = mkdtempSync(join(tmpdir(), 'dav-ext-unsafe-'));
+      try {
+        const assetsDir = join(extDir, 'dist', 'webview', 'assets');
+        mkdirSync(assetsDir, { recursive: true });
+        writeFileSync(join(assetsDir, 'webview.css'), 'body{margin:0}', 'utf8');
+        writeFileSync(join(assetsDir, 'webview.js'), 'const bad = "</script>";', 'utf8');
+        clearWebviewAssetCache();
+
+        Object.assign(host, freshHostState());
+        activate({ subscriptions: [], extensionUri: { fsPath: extDir } } as never);
+        host.activeTextEditor = { document: docA };
+
+        await run('dav.openPreview');
+
+        expect(host.webviewHtml).toContain('<link rel="stylesheet"');
+        expect(host.webviewHtml).toMatch(/<script[^>]+src=/);
+      } finally {
+        clearWebviewAssetCache();
+        rmSync(extDir, { recursive: true, force: true });
+      }
+    });
+
+    it('skips redundant docChanged on ready when (uri, version) matches and posts when stale', async () => {
+      const mutableDoc = fakeDocument('dav 1\nnode a', 'sync.dav', 'dav', false, 5);
+      host.activeTextEditor = { document: mutableDoc };
+      await run('dav.openPreview');
+      expect(host.webviewPosted).toEqual([]);
+
+      // Matching URI + version: host skips posting duplicate docChanged.
+      host.receive({ type: 'ready', uri: 'file:///sync.dav', version: 5 });
+      await new Promise((r) => setTimeout(r, 0));
+      expect(host.webviewPosted).toEqual([]);
+
+      // Document edited before ready arrived: version mismatch triggers docChanged.
+      mutableDoc.version = 6;
+      host.receive({ type: 'ready', uri: 'file:///sync.dav', version: 5 });
+      await vi.waitFor(() => expect(host.webviewPosted).toHaveLength(1));
+      expect(host.webviewPosted[0]).toEqual({
+        type: 'docChanged',
+        dsl: 'dav 1\nnode a',
+        uri: 'file:///sync.dav',
+        version: 6,
+      });
+
+      // Legacy ready without version still receives docChanged for devHost compatibility.
+      host.receive({ type: 'ready' });
+      await vi.waitFor(() => expect(host.webviewPosted).toHaveLength(2));
+    });
+
+    it('defers initial workspace diagnostic parsing off the synchronous activate() call', async () => {
+      const getText = vi.fn(() => 'dav 1\nnode a');
+      const doc = { ...fakeDocument('dav 1\nnode a', 'deferred.dav'), getText };
+      const { workspace } = await import('vscode');
+      (workspace.textDocuments as unknown[]).push(doc);
+      const subscriptions: Array<{ dispose(): void }> = [];
+      try {
+        activate({ subscriptions, extensionUri: { fsPath: '/ext' } } as never);
+        expect(getText).not.toHaveBeenCalled();
+
+        await vi.waitFor(() => expect(getText).toHaveBeenCalledTimes(1));
+      } finally {
+        (workspace.textDocuments as unknown[]).length = 0;
+        for (const sub of subscriptions) sub.dispose();
+      }
+    });
+  });
 });
 
 describe('protocol message guards', () => {
-  it('validates HostToWebviewMessage including optional string uri and finite offset', () => {
+  it('validates InitialDocPayload and escapes HTML-breaking JSON characters', () => {
+    expect(isInitialDocPayload({ dsl: 'dav 1' })).toBe(true);
+    expect(isInitialDocPayload({ dsl: 'dav 1', uri: 'file:///a.dav', version: 1 })).toBe(true);
+    expect(isInitialDocPayload(null)).toBe(false);
+    expect(isInitialDocPayload({ uri: 'file:///a.dav' })).toBe(false);
+    expect(isInitialDocPayload({ dsl: 'dav 1', version: Number.NaN })).toBe(false);
+    expect(isInitialDocPayload({ dsl: 'dav 1', uri: 42 })).toBe(false);
+
+    const payload = {
+      uri: 'file:///x.dav',
+      dsl: '</script><!-- & \u2028\u2029 >',
+      version: 2,
+    };
+    const serialized = serializeInitialDoc(payload);
+    expect(serialized).not.toContain('<');
+    expect(serialized).not.toContain('>');
+    expect(serialized).not.toContain('&');
+    expect(serialized).not.toContain('\u2028');
+    expect(serialized).not.toContain('\u2029');
+    expect(JSON.parse(serialized)).toEqual(payload);
+    expect(escapeJsonForHtml('a<b>c&d')).toBe('a\\u003cb\\u003ec\\u0026d');
+  });
+
+  it('validates HostToWebviewMessage including optional string uri, version, and finite offset', () => {
     expect(isHostToWebviewMessage({ type: 'docChanged', dsl: 'dav 1' })).toBe(true);
     expect(isHostToWebviewMessage({ type: 'docChanged', dsl: 'dav 1', uri: 'file:///a.dav' })).toBe(
       true,
     );
+    expect(
+      isHostToWebviewMessage({
+        type: 'docChanged',
+        dsl: 'dav 1',
+        uri: 'file:///a.dav',
+        version: 2,
+      }),
+    ).toBe(true);
     expect(isHostToWebviewMessage({ type: 'cursorMoved', offset: 0 })).toBe(true);
 
     expect(isHostToWebviewMessage(null)).toBe(false);
     expect(isHostToWebviewMessage({ type: 'docChanged', dsl: 'dav 1', uri: 123 })).toBe(false);
+    expect(isHostToWebviewMessage({ type: 'docChanged', dsl: 'dav 1', version: Number.NaN })).toBe(
+      false,
+    );
+    expect(isHostToWebviewMessage({ type: 'docChanged', dsl: 'dav 1', version: '2' })).toBe(false);
     expect(isHostToWebviewMessage({ type: 'cursorMoved', offset: Number.NaN })).toBe(false);
     expect(isHostToWebviewMessage({ type: 'cursorMoved', offset: Number.POSITIVE_INFINITY })).toBe(
       false,
@@ -655,6 +862,11 @@ describe('protocol message guards', () => {
 
   it('validates every WebviewToHostMessage variant and rejects malformed payloads', () => {
     expect(isWebviewToHostMessage({ type: 'ready' })).toBe(true);
+    expect(isWebviewToHostMessage({ type: 'ready', uri: 'file:///a.dav', version: 1 })).toBe(true);
+    expect(isWebviewToHostMessage({ type: 'ready', uri: 123 })).toBe(false);
+    expect(isWebviewToHostMessage({ type: 'ready', version: Number.POSITIVE_INFINITY })).toBe(
+      false,
+    );
     expect(isWebviewToHostMessage({ type: 'revealRange', from: 0, to: 10 })).toBe(true);
     expect(isWebviewToHostMessage({ type: 'exportHtml', dsl: 'dav 1' })).toBe(true);
     expect(

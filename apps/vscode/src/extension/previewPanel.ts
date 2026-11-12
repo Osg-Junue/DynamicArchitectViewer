@@ -1,8 +1,13 @@
 import { randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import * as vscode from 'vscode';
 import {
+  escapeJsonForHtml,
   type HostToWebviewMessage,
+  INITIAL_DOC_ELEMENT_ID,
   isWebviewToHostMessage,
+  serializeInitialDoc,
   type WebviewToHostMessage,
 } from '../protocol/messages';
 import { exportDocumentToHtml, exportDocumentToSvg, LANGUAGE_ID, toRange } from './documents';
@@ -10,6 +15,41 @@ import { t, uiLocale } from './locale';
 
 const previewTitle = (doc: vscode.TextDocument): string =>
   `${t('プレビュー', 'Preview')}: ${fileBasename(doc.uri.fsPath)}`;
+
+interface InlineWebviewAssets {
+  css: string;
+  js: string;
+}
+
+const inlineAssetCache = new Map<string, InlineWebviewAssets>();
+
+export function clearWebviewAssetCache(): void {
+  inlineAssetCache.clear();
+}
+
+function isSafeInlineAsset(content: string): boolean {
+  return !/<\/(script|style)/i.test(content) && !content.includes('<!--');
+}
+
+/**
+ * Reads `webview.css` and `webview.js` once per extension root so cold Webview startup
+ * needs zero `vscode-resource` Service Worker network requests. Falls back to external
+ * URIs if assets are unavailable on disk (e.g. in unit-test mocks) or fail inline checks.
+ */
+function readInlineWebviewAssets(webviewRootFsPath: string): InlineWebviewAssets | null {
+  const cached = inlineAssetCache.get(webviewRootFsPath);
+  if (cached) return cached;
+  try {
+    const css = readFileSync(join(webviewRootFsPath, 'assets', 'webview.css'), 'utf8');
+    const js = readFileSync(join(webviewRootFsPath, 'assets', 'webview.js'), 'utf8');
+    if (!isSafeInlineAsset(css) || !isSafeInlineAsset(js)) return null;
+    const assets: InlineWebviewAssets = { css, js };
+    inlineAssetCache.set(webviewRootFsPath, assets);
+    return assets;
+  } catch {
+    return null;
+  }
+}
 
 /** The one preview panel, which shows the most recent `.dav` document. */
 export class CanvasPanelManager {
@@ -38,7 +78,7 @@ export class CanvasPanelManager {
       },
     );
     this.panel = panel;
-    panel.webview.html = this.buildWebviewHtml(panel.webview, webviewRoot);
+    panel.webview.html = this.buildWebviewHtml(panel.webview, webviewRoot, document);
 
     this.disposables.push(
       panel.onDidDispose(() => {
@@ -86,7 +126,12 @@ export class CanvasPanelManager {
   }
 
   private postDocument(doc: vscode.TextDocument): void {
-    this.postToWebview({ type: 'docChanged', dsl: doc.getText(), uri: doc.uri.toString() });
+    this.postToWebview({
+      type: 'docChanged',
+      dsl: doc.getText(),
+      uri: doc.uri.toString(),
+      ...(typeof doc.version === 'number' ? { version: doc.version } : {}),
+    });
   }
 
   private postToWebview(msg: HostToWebviewMessage): void {
@@ -98,9 +143,17 @@ export class CanvasPanelManager {
     if (!doc) return;
 
     switch (msg.type) {
-      case 'ready':
-        this.postDocument(doc);
+      case 'ready': {
+        const upToDate =
+          msg.uri !== undefined &&
+          msg.uri === doc.uri.toString() &&
+          typeof msg.version === 'number' &&
+          msg.version === doc.version;
+        if (!upToDate) {
+          this.postDocument(doc);
+        }
         break;
+      }
 
       case 'revealRange': {
         const editor = await vscode.window.showTextDocument(doc, vscode.ViewColumn.One, false);
@@ -125,20 +178,41 @@ export class CanvasPanelManager {
     }
   }
 
-  private buildWebviewHtml(webview: vscode.Webview, webviewRoot: vscode.Uri): string {
-    const scriptUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(webviewRoot, 'assets', 'webview.js'),
-    );
-    const styleUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(webviewRoot, 'assets', 'webview.css'),
-    );
+  private buildWebviewHtml(
+    webview: vscode.Webview,
+    webviewRoot: vscode.Uri,
+    document: vscode.TextDocument,
+  ): string {
     const nonce = randomNonce();
+    const inlineAssets = readInlineWebviewAssets(webviewRoot.fsPath);
+    const helpScriptUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(webviewRoot, 'assets', 'HelpModal.js'),
+    );
+    const initialDocJson = serializeInitialDoc({
+      uri: document.uri.toString(),
+      dsl: document.getText(),
+      ...(typeof document.version === 'number' ? { version: document.version } : {}),
+    });
+
     const csp = [
       "default-src 'none'",
       `img-src ${webview.cspSource} data:`,
-      `style-src ${webview.cspSource}`,
-      `script-src 'nonce-${nonce}'`,
+      `style-src 'nonce-${nonce}' ${webview.cspSource}`,
+      `script-src 'nonce-${nonce}' ${webview.cspSource}`,
     ].join('; ');
+
+    const styleTag = inlineAssets
+      ? `<style nonce="${nonce}">${inlineAssets.css}</style>`
+      : `<link rel="stylesheet" href="${webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, 'assets', 'webview.css')).toString()}">`;
+
+    // Maps the lazy HelpModal chunk URL without setting <base href> (which breaks SVG url(#id) markers).
+    const importMapTag = inlineAssets
+      ? `<script nonce="${nonce}" type="importmap">${escapeJsonForHtml(JSON.stringify({ imports: { './HelpModal.js': helpScriptUri.toString() } }))}</script>`
+      : '';
+
+    const scriptTag = inlineAssets
+      ? `<script nonce="${nonce}" type="module">${inlineAssets.js}</script>`
+      : `<script nonce="${nonce}" type="module" src="${webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, 'assets', 'webview.js')).toString()}"></script>`;
 
     return [
       '<!DOCTYPE html>',
@@ -147,12 +221,14 @@ export class CanvasPanelManager {
       '<meta charset="UTF-8">',
       `<meta http-equiv="Content-Security-Policy" content="${csp}">`,
       '<meta name="viewport" content="width=device-width, initial-scale=1.0">',
-      `<link rel="stylesheet" href="${styleUri.toString()}">`,
+      styleTag,
       '<title>DynamicArchitectViewer</title>',
       '</head>',
       '<body>',
       '<div id="root"></div>',
-      `<script nonce="${nonce}" type="module" src="${scriptUri.toString()}"></script>`,
+      `<script id="${INITIAL_DOC_ELEMENT_ID}" type="application/json">${initialDocJson}</script>`,
+      ...(importMapTag ? [importMapTag] : []),
+      scriptTag,
       '</body>',
       '</html>',
     ].join('\n');

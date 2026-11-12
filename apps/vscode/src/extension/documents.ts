@@ -1,7 +1,6 @@
 import { homedir } from 'node:os';
 import * as vscode from 'vscode';
 import { hasFatalError, type ParseResult, parse } from '../dsl';
-import { exportHtml, exportSvg } from '../exporter';
 import type { SvgCamera } from '../protocol/messages';
 import { t, uiLocale } from './locale';
 
@@ -73,6 +72,7 @@ export async function exportDocumentToHtml(
 ): Promise<void> {
   const dsl = overrideDsl ?? doc.getText();
   if (refuseFatal(parse(dsl))) return;
+  const { exportHtml } = await import('../exporter');
   const html = await exportHtml(dsl, { locale: uiLocale() });
   await saveExportedFile(
     defaultExportUri(doc, 'html'),
@@ -144,6 +144,7 @@ export async function exportDocumentToSvg(
     );
     return;
   }
+  const { exportSvg } = await import('../exporter');
   const svg = exportSvg(document, {
     locale: uiLocale(),
     ...options,

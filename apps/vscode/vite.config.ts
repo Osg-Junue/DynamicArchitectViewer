@@ -6,6 +6,8 @@ export default defineConfig({
   build: {
     outDir: 'dist/webview',
     emptyOutDir: true,
+    // Keeps styles in one stylesheet so lazy JS chunks never inject root-relative CSS <link>s.
+    cssCodeSplit: false,
     // Keeps light-dark() native: lowered, it resolves on :root and ignores nested color-scheme,
     // such as VS Code's theme classes on <body>.
     cssTarget: 'chrome123',

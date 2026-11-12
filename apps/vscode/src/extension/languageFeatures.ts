@@ -115,8 +115,8 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
   const diagnostics = vscode.languages.createDiagnosticCollection(LANGUAGE_ID);
   const latestDiagnostics = new Map<string, DavDiagnostic[]>();
 
-  const refreshDiagnostics = (doc: vscode.TextDocument): void => {
-    if (doc.languageId !== LANGUAGE_ID) return;
+  const refreshDiagnostics = (doc: vscode.TextDocument): DavDiagnostic[] => {
+    if (doc.languageId !== LANGUAGE_ID) return [];
     const text = doc.getText();
     const { diagnostics: parsed } = parse(text);
     latestDiagnostics.set(doc.uri.toString(), parsed);
@@ -124,16 +124,33 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
       doc.uri,
       parsed.map((d) => toVsDiagnostic(doc, d, text.length)),
     );
+    return parsed;
   };
 
-  for (const doc of vscode.workspace.textDocuments) {
-    refreshDiagnostics(doc);
+  // Defer initial workspace-wide diagnostics so cold command activation (e.g. dav.openPreview)
+  // registers and runs without synchronous parsing stalls.
+  const initialDocs = vscode.workspace.textDocuments.filter(
+    (doc) => doc.languageId === LANGUAGE_ID,
+  );
+  if (initialDocs.length > 0) {
+    const timer = setTimeout(() => {
+      for (const doc of initialDocs) {
+        if (!doc.isClosed && !latestDiagnostics.has(doc.uri.toString())) {
+          refreshDiagnostics(doc);
+        }
+      }
+    }, 0);
+    context.subscriptions.push({ dispose: () => clearTimeout(timer) });
   }
 
   context.subscriptions.push(
     diagnostics,
-    vscode.workspace.onDidOpenTextDocument(refreshDiagnostics),
-    vscode.workspace.onDidChangeTextDocument((e) => refreshDiagnostics(e.document)),
+    vscode.workspace.onDidOpenTextDocument((doc) => {
+      refreshDiagnostics(doc);
+    }),
+    vscode.workspace.onDidChangeTextDocument((e) => {
+      refreshDiagnostics(e.document);
+    }),
     vscode.workspace.onDidCloseTextDocument((doc) => {
       diagnostics.delete(doc.uri);
       latestDiagnostics.delete(doc.uri.toString());
@@ -143,7 +160,8 @@ export function registerLanguageFeatures(context: vscode.ExtensionContext): void
       LANGUAGE_ID,
       {
         provideCodeActions(doc, range) {
-          return provideQuickFixes(doc, range, latestDiagnostics.get(doc.uri.toString()) ?? []);
+          const list = latestDiagnostics.get(doc.uri.toString()) ?? refreshDiagnostics(doc);
+          return provideQuickFixes(doc, range, list);
         },
       },
       { providedCodeActionKinds: [vscode.CodeActionKind.QuickFix] },

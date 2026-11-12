@@ -1,12 +1,8 @@
 import * as vscode from 'vscode';
-import { importContent } from '../exporter';
-import { buildAiPrompt } from '../prompt';
-import { SAMPLE_TEMPLATES } from '../samples';
 import { exportDocumentToHtml, exportDocumentToSvg, LANGUAGE_ID } from './documents';
 import { registerLanguageFeatures } from './languageFeatures';
 import { t, uiLocale } from './locale';
 import { CanvasPanelManager } from './previewPanel';
-import { installAgentSkill } from './skillInstall';
 
 const openDavFirst = (): string =>
   t('先に .dav ファイルを開いてください。', 'Open a .dav file first.');
@@ -67,6 +63,7 @@ export function activate(context: vscode.ExtensionContext): void {
       if (!uri) return;
       const bytes = await vscode.workspace.fs.readFile(uri);
       const content = new TextDecoder('utf-8').decode(bytes);
+      const { importContent } = await import('../exporter');
       const res = importContent(content);
       if (!res.ok) {
         void vscode.window.showErrorMessage(
@@ -80,6 +77,7 @@ export function activate(context: vscode.ExtensionContext): void {
       await openNewDocument(res.dsl);
     }),
     vscode.commands.registerCommand('dav.newFromTemplate', async () => {
+      const { SAMPLE_TEMPLATES } = await import('../samples');
       const picked = await vscode.window.showQuickPick(
         SAMPLE_TEMPLATES.map((s) => ({ label: s.name, detail: s.id, dsl: s.dsl })),
         { placeHolder: t('サンプルのテンプレートを選択', 'Select a sample diagram template') },
@@ -88,6 +86,7 @@ export function activate(context: vscode.ExtensionContext): void {
       await openNewDocument(picked.dsl);
     }),
     vscode.commands.registerCommand('dav.copyAiPrompt', async () => {
+      const { buildAiPrompt } = await import('../prompt');
       const currentDsl = commandTargetDocument()?.getText();
       const prompt = buildAiPrompt({
         locale: uiLocale(),
@@ -101,9 +100,10 @@ export function activate(context: vscode.ExtensionContext): void {
         ),
       );
     }),
-    vscode.commands.registerCommand('dav.installAgentSkill', () =>
-      installAgentSkill(context.extensionUri),
-    ),
+    vscode.commands.registerCommand('dav.installAgentSkill', async () => {
+      const { installAgentSkill } = await import('./skillInstall');
+      await installAgentSkill(context.extensionUri);
+    }),
   );
 }
 

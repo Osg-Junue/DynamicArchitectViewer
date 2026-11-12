@@ -6,7 +6,12 @@ import { expect, type Page, test } from '@playwright/test';
 import { createServer } from 'vite';
 import type { SvgExportOptions } from '../src/exporter';
 import { ICON_NAMES } from '../src/model/types';
-import type { WebviewToHostMessage } from '../src/protocol/messages';
+import {
+  escapeJsonForHtml,
+  INITIAL_DOC_ELEMENT_ID,
+  serializeInitialDoc,
+  type WebviewToHostMessage,
+} from '../src/protocol/messages';
 
 const DEFAULT_DSL = readFileSync(
   new URL('../../../examples/01-infra-ha-failover.dav', import.meta.url),
@@ -758,6 +763,136 @@ test.describe('webview preview', () => {
     await exportBtn.click();
     await expect(separator).toBeHidden();
     await page.keyboard.press('Escape');
+
+    expect(errors).toEqual([]);
+  });
+
+  test('boots inline webview HTML on first frame with zero asset fetches, skips duplicate ready render, and lazy-loads HelpModal', async ({
+    page,
+  }) => {
+    const errors = watchErrors(page);
+    const webviewCss = await readFile(
+      new URL('../dist/webview/assets/webview.css', import.meta.url),
+      'utf8',
+    );
+    const webviewJs = await readFile(
+      new URL('../dist/webview/assets/webview.js', import.meta.url),
+      'utf8',
+    );
+    const initialDsl = [
+      'dav 1',
+      'title "Cold </script> Boot"',
+      'node api "API </script>"',
+      'node db "DB"',
+      'api --> db : "SQL"',
+      'step "Run" {',
+      '  animate api --> db : "Query"',
+      '}',
+      '',
+    ].join('\n');
+    const nonce = '0123456789abcdef0123456789abcdef';
+    const csp = [
+      "default-src 'none'",
+      "img-src 'self' data:",
+      `style-src 'nonce-${nonce}' 'self'`,
+      `script-src 'nonce-${nonce}' 'self'`,
+    ].join('; ');
+    const initialJson = serializeInitialDoc({
+      uri: 'file:///cold.dav',
+      dsl: initialDsl,
+      version: 7,
+    });
+    const importMapJson = escapeJsonForHtml(
+      JSON.stringify({ imports: { './HelpModal.js': '/assets/HelpModal.js' } }),
+    );
+    const inlineHtml = [
+      '<!DOCTYPE html>',
+      '<html lang="en">',
+      '<head>',
+      '<meta charset="UTF-8">',
+      `<meta http-equiv="Content-Security-Policy" content="${csp}">`,
+      '<meta name="viewport" content="width=device-width, initial-scale=1.0">',
+      `<style nonce="${nonce}">${webviewCss}</style>`,
+      '<title>DynamicArchitectViewer</title>',
+      '</head>',
+      '<body>',
+      '<div id="root"></div>',
+      `<script id="${INITIAL_DOC_ELEMENT_ID}" type="application/json">${initialJson}</script>`,
+      `<script nonce="${nonce}" type="importmap">${importMapJson}</script>`,
+      `<script nonce="${nonce}" type="module">${webviewJs}</script>`,
+      '</body>',
+      '</html>',
+    ].join('\n');
+
+    const requestedPaths: string[] = [];
+    page.on('request', (req) => {
+      const url = new URL(req.url());
+      if (url.pathname !== '/favicon.ico') requestedPaths.push(url.pathname);
+    });
+
+    await page.route('**/inline-cold-start', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/html; charset=utf-8',
+        headers: { 'content-security-policy': csp },
+        body: inlineHtml,
+      });
+    });
+
+    // Host does NOT reply to `ready` with `docChanged` when initial doc is up to date.
+    await page.addInitScript(() => {
+      const posted: WebviewToHostMessage[] = [];
+      (window as unknown as { __posted: WebviewToHostMessage[] }).__posted = posted;
+      window.acquireVsCodeApi = () => ({
+        postMessage(message) {
+          posted.push(message);
+        },
+      });
+    });
+
+    await page.goto('/inline-cold-start');
+    await expect(page.locator('.dav-node')).toHaveCount(2);
+    await expect(page.locator('.dav-title')).toHaveText('Cold </script> Boot');
+    await expect(page.locator('.dav-step-title')).toContainText('Step 1 / 1');
+
+    // Cold boot made zero external CSS/JS network requests and posted versioned ready.
+    expect(requestedPaths).toEqual(['/inline-cold-start']);
+    expect(await postedMessages(page)).toEqual([
+      { type: 'ready', uri: 'file:///cold.dav', version: 7 },
+    ]);
+
+    // SVG url(#dav-arrow) fragment marker resolves without <base href> breakage.
+    await expect(page.locator('defs marker#dav-arrow')).toHaveCount(1);
+    await expect(page.locator('.dav-edge path[marker-end="url(#dav-arrow)"]')).toHaveCount(1);
+
+    // Duplicate (uri, version) docChanged does not re-render; newer version updates cleanly.
+    await page.locator('.dav-node[data-id="api"]').evaluate((el) => {
+      el.setAttribute('data-boot-marker', 'kept');
+    });
+    await page.evaluate((dsl) => {
+      window.postMessage({ type: 'docChanged', dsl, uri: 'file:///cold.dav', version: 7 }, '*');
+    }, initialDsl);
+    await expect(page.locator('.dav-node[data-id="api"]')).toHaveAttribute(
+      'data-boot-marker',
+      'kept',
+    );
+
+    const nextDsl = initialDsl.replace('Cold </script> Boot', 'Warm Update');
+    await page.evaluate((dsl) => {
+      window.postMessage({ type: 'docChanged', dsl, uri: 'file:///cold.dav', version: 8 }, '*');
+    }, nextDsl);
+    await expect(page.locator('.dav-title')).toHaveText('Warm Update');
+
+    // Clicking Help lazy-loads HelpModal.js via importmap without re-mounting #root.
+    await page.getByTestId('btn-open-help').click();
+    const dialog = page.getByTestId('help-dialog');
+    await expect(dialog).toBeVisible();
+    expect(requestedPaths).toContain('/assets/HelpModal.js');
+    await expect(page.locator('#root > .shell')).toHaveCount(1);
+
+    await page.getByTestId('doc-nav-prompt').click();
+    await page.getByTestId('chk-include-current-dsl').check();
+    await expect(page.getByTestId('ai-prompt-textarea')).toHaveValue(/Warm Update/);
 
     expect(errors).toEqual([]);
   });
