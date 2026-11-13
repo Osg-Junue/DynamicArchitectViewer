@@ -180,24 +180,24 @@ describe('packet code callouts and overflow prevention', () => {
       CALLOUT_CODE_LINE_HEIGHT: 19,
       CALLOUT_CODE_PAD_X: 13,
       CALLOUT_CODE_HEADER_HEIGHT: 30,
-      CALLOUT_NUMBER_ROOM: 24,
+      CALLOUT_NUMBER_ROOM: 28,
     });
 
     const labelOnly = computePacketCalloutBox(makePacket({ label: '201 Created' }));
     expect(labelOnly).not.toBeNull();
-    expect(labelOnly && labelOnly.boxBottom - labelOnly.boxTop).toBe(34);
-    expect(labelOnly?.padX).toBe(13);
+    expect(labelOnly && labelOnly.boxBottom - labelOnly.boxTop).toBe(36);
+    expect(labelOnly?.padX).toBe(14);
     expect(labelOnly?.code).toBeUndefined();
 
     const withDesc = computePacketCalloutBox(
       makePacket({ label: '201 Created', description: 'Line one\nLine two' }),
     );
-    expect(withDesc && withDesc.boxBottom - withDesc.boxTop).toBe(42 + 2 * CALLOUT_LINE_HEIGHT);
+    expect(withDesc && withDesc.boxBottom - withDesc.boxTop).toBe(50 + 2 * CALLOUT_LINE_HEIGHT);
     expect(withDesc?.padX).toBe(16);
     expect(withDesc?.code).toBeUndefined();
 
     const descOnly = computePacketCalloutBox(makePacket({ description: 'Only description' }));
-    expect(descOnly && descOnly.boxBottom - descOnly.boxTop).toBe(21 + 1 * CALLOUT_LINE_HEIGHT);
+    expect(descOnly && descOnly.boxBottom - descOnly.boxTop).toBe(22 + 1 * CALLOUT_LINE_HEIGHT);
     expect(descOnly?.code).toBeUndefined();
 
     const emptyCodeOnly = computePacketCalloutBox(makePacket({ code: { body: '  \r\n\t  ' } }));
@@ -218,7 +218,7 @@ describe('packet code callouts and overflow prevention', () => {
       header: '',
       headerHeight: 0,
       lines: ['{', '  "ok": true', '}'],
-      offsetY: 14,
+      offsetY: 16,
     });
 
     const langAndTitle = computePacketCalloutBox(
@@ -231,7 +231,7 @@ describe('packet code callouts and overflow prevention', () => {
       header: 'json · Order Request',
       headerHeight: 30,
       lines: ['{"amount": 14800}'],
-      offsetY: 39,
+      offsetY: 42,
     });
     expect(langAndTitle?.code?.width).toBe((langAndTitle?.halfW ?? 0) * 2 - 32);
 
@@ -259,7 +259,7 @@ describe('packet code callouts and overflow prevention', () => {
     expect(box?.code?.lines).toHaveLength(10);
     expect(box?.code?.lines[1]).toBe('  "k0": 0');
     expect(box?.code?.lines[9]).toBe('…');
-    expect(box?.code?.height).toBe(30 + 10 * CALLOUT_CODE_LINE_HEIGHT + 14);
+    expect(box?.code?.height).toBe(30 + 10 * CALLOUT_CODE_LINE_HEIGHT + 17);
 
     const wide = computePacketCalloutBox(makePacket({ code: { body: longLine } }));
     const fittedLine = wide?.code?.lines[0] ?? '';
@@ -291,7 +291,7 @@ describe('packet code callouts and overflow prevention', () => {
       expect(textWidth(line, CALLOUT_DESC_SIZE, 'normal')).toBeLessThanOrEqual(414);
       expect(textWidth(line, CALLOUT_DESC_SIZE, 'normal')).toBeLessThan(innerW);
     }
-    expect(box.boxTop + (box.code?.offsetY ?? 0) + (box.code?.height ?? 0) + 14).toBe(
+    expect(box.boxTop + (box.code?.offsetY ?? 0) + (box.code?.height ?? 0) + 16).toBe(
       box.boxBottom,
     );
   });
@@ -748,7 +748,7 @@ step "Step 4" {
       )[0];
       const codeY = htmlBox.boxTop + htmlBox.code.offsetY;
       expect(headEl?.attrs.y).toBe(Number((codeY + 20).toFixed(2)));
-      expect(line0El?.attrs.y).toBe(Number((codeY + htmlBox.code.headerHeight + 22).toFixed(2)));
+      expect(line0El?.attrs.y).toBe(Number((codeY + htmlBox.code.headerHeight + 21).toFixed(2)));
     }
   });
 

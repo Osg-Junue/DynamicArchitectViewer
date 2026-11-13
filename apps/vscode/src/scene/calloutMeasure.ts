@@ -9,8 +9,21 @@ const PHI = (1 + Math.sqrt(5)) / 2;
 
 export const CALLOUT_RADIUS = 10;
 export const CALLOUT_CODE_RADIUS = 6;
+/**
+ * The spacing of a callout, top to bottom:
+ *
+ * - 16 around everything it holds: beside the text and the number, above the heading's
+ *   capitals, below the last line and below a code box. A callout of one line is tighter.
+ * - The number sits inside that padding, 10 from the text, level with the heading.
+ * - The description starts further below the heading than its own lines are apart, so that
+ *   the heading reads as a heading.
+ * - The code box follows the text at the same distance, so that the three parts are evenly
+ *   apart, and inside it the code has as much room above as below.
+ */
 export const CALLOUT_OUTER_PAD_X = 16;
-const CALLOUT_COMPACT_PAD_X = 13;
+const CALLOUT_COMPACT_PAD_X = 14;
+/** Below a code box, and above one that is all the callout holds. */
+const CALLOUT_CODE_OUTER_PAD = 16;
 
 // The widths grow with the type, so that a callout holds as many characters at any size.
 const CALLOUT_MAX_TEXT_WIDTH = 414;
@@ -22,10 +35,16 @@ export const CALLOUT_DESC_SIZE = 14;
 export const CALLOUT_LINE_HEIGHT = 22;
 /** A description is cut after this many lines. */
 const DESC_MAX_LINES = 4;
-/** From the top of a callout to where its description starts, with and without a heading. */
-export const CALLOUT_HEAD = { withLabel: 42, bare: 21 } as const;
+/** From the top of a callout to the baseline of its heading. */
+export const CALLOUT_LABEL_BASELINE = 27;
+/** From the top of a callout to the baseline of its description's first line. */
+export const CALLOUT_DESC_BASELINE = { withLabel: 54, bare: 26 } as const;
+/** From the baseline of the last line of text to the bottom of the callout. */
+const CALLOUT_TEXT_BOTTOM = 18;
+/** From the baseline of the last line of text to the code box below it. */
+const CALLOUT_CODE_GAP = 15;
 /** The height of a callout that is one heading and nothing else. */
-export const CALLOUT_ONE_LINE_HEIGHT = 34;
+export const CALLOUT_ONE_LINE_HEIGHT = 36;
 
 export const CALLOUT_CODE_SIZE = 12.5;
 export const CALLOUT_CODE_HEAD_SIZE = 12;
@@ -34,9 +53,14 @@ export const CALLOUT_CODE_PAD_X = 13;
 export const CALLOUT_CODE_MAX_LINES = 10;
 const CALLOUT_CODE_MAX_TEXT_WIDTH = 440;
 export const CALLOUT_CODE_HEADER_HEIGHT = 30;
+/** From the top of the code, below any header, to the baseline of its first line. */
+export const CALLOUT_CODE_FIRST_BASELINE = 21;
+/** From the baseline of the last line of code to the bottom of its box. */
+const CALLOUT_CODE_BOTTOM = 15;
 
-/** Room on the left of a callout for the number it shares with its stop on the rail. */
-export const CALLOUT_NUMBER_ROOM = 24;
+export const CALLOUT_NUMBER_RADIUS = 9;
+/** Room on the left of a callout for the number it shares with its stop on the rail, and the gap after it. */
+export const CALLOUT_NUMBER_ROOM = CALLOUT_NUMBER_RADIUS * 2 + 10;
 
 export const CALLOUT_GAP = 16;
 
@@ -72,7 +96,11 @@ function prepareCodeSpec(code: CodeBlock): PreparedCodeSpec | undefined {
   const monoW = (s: string) => textWidth(s, CALLOUT_CODE_SIZE, 'mono');
   const codeTextW = Math.max(header ? monoW(`{ } ${header}`) : 0, ...lines.map(monoW)) + 8;
   const minBoxW = codeTextW + CALLOUT_CODE_PAD_X * 2;
-  const height = headerHeight + lines.length * CALLOUT_CODE_LINE_HEIGHT + 14;
+  const height =
+    headerHeight +
+    CALLOUT_CODE_FIRST_BASELINE +
+    (lines.length - 1) * CALLOUT_CODE_LINE_HEIGHT +
+    CALLOUT_CODE_BOTTOM;
 
   return { header, headerHeight, lines, minBoxW, height };
 }
@@ -164,10 +192,10 @@ export function measureCalloutCard(packet: CalloutText): MeasuredCalloutCard | n
   if (codeSpec) {
     const { min, max } = CALLOUT_CODE_TEXT_WIDTH;
     const estH =
-      (packet.label ? CALLOUT_HEAD.withLabel : 14) +
+      (packet.label ? CALLOUT_LABEL_BASELINE + CALLOUT_CODE_GAP : CALLOUT_CODE_OUTER_PAD) +
       (packet.description ? 2 * CALLOUT_LINE_HEIGHT : 0) +
       codeSpec.height +
-      14;
+      CALLOUT_CODE_OUTER_PAD;
     phiInnerW = clamp(Math.round(estH * PHI - 32), min, max);
     descMaxW = clamp(Math.max(phiInnerW, Math.ceil(codeSpec.minBoxW)), min, max);
   }
@@ -197,18 +225,22 @@ export function measureCalloutCard(packet: CalloutText): MeasuredCalloutCard | n
     codeSpec ? codeSpec.minBoxW : 0,
   );
 
-  const head = label ? CALLOUT_HEAD.withLabel : CALLOUT_HEAD.bare;
+  // The baseline of the last line of text: of the description, or else of the heading.
+  const lastBaseline =
+    descLines.length > 0
+      ? (label ? CALLOUT_DESC_BASELINE.withLabel : CALLOUT_DESC_BASELINE.bare) +
+        (descLines.length - 1) * CALLOUT_LINE_HEIGHT
+      : label
+        ? CALLOUT_LABEL_BASELINE
+        : undefined;
   let height: number;
   let offsetY = 0;
   if (!codeSpec) {
     height =
-      descLines.length === 0
-        ? CALLOUT_ONE_LINE_HEIGHT
-        : head + descLines.length * CALLOUT_LINE_HEIGHT;
+      descLines.length === 0 ? CALLOUT_ONE_LINE_HEIGHT : (lastBaseline ?? 0) + CALLOUT_TEXT_BOTTOM;
   } else {
-    offsetY =
-      descLines.length > 0 ? head + descLines.length * CALLOUT_LINE_HEIGHT : label ? 39 : 14;
-    height = offsetY + codeSpec.height + 14;
+    offsetY = lastBaseline === undefined ? CALLOUT_CODE_OUTER_PAD : lastBaseline + CALLOUT_CODE_GAP;
+    height = offsetY + codeSpec.height + CALLOUT_CODE_OUTER_PAD;
   }
 
   const phiFloorW = codeSpec ? clamp(Math.round(height * PHI), 236, 396) : 0;

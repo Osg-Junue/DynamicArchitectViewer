@@ -1,14 +1,17 @@
 import type { IconName } from '../model/types';
 import {
+  CALLOUT_CODE_FIRST_BASELINE,
   CALLOUT_CODE_HEAD_SIZE,
   CALLOUT_CODE_LINE_HEIGHT,
   CALLOUT_CODE_PAD_X,
   CALLOUT_CODE_RADIUS,
   CALLOUT_CODE_SIZE,
+  CALLOUT_DESC_BASELINE,
   CALLOUT_DESC_SIZE,
-  CALLOUT_HEAD,
+  CALLOUT_LABEL_BASELINE,
   CALLOUT_LABEL_SIZE,
   CALLOUT_LINE_HEIGHT,
+  CALLOUT_NUMBER_RADIUS,
   CALLOUT_ONE_LINE_HEIGHT,
   calloutOutline,
   computePacketCalloutBox,
@@ -52,7 +55,9 @@ export function buildPacket(packet: Packet, icons: IconShapes, t = 0): VElement 
 
   if (box) {
     const { cx, halfW, boxTop, padX, label, descLines, code, numberRoom } = box;
-    const alignLeft = descLines.length > 0 || code !== undefined;
+    const oneLine = descLines.length === 0 && code === undefined;
+    // A heading alone is centered, unless a number stands before it.
+    const alignLeft = !oneLine || numberRoom > 0;
     // The content keeps its own width; the number sits in the room added on its left.
     const contentLeft = cx - halfW + numberRoom;
     callout = h(
@@ -71,7 +76,8 @@ export function buildPacket(packet: Packet, icons: IconShapes, t = 0): VElement 
             'text',
             {
               x: alignLeft ? contentLeft + padX : cx + numberRoom / 2,
-              y: boxTop + (alignLeft ? 25 : 22),
+              // Alone, the heading sits in the middle of its callout.
+              y: boxTop + (oneLine ? CALLOUT_ONE_LINE_HEIGHT / 2 + 5 : CALLOUT_LABEL_BASELINE),
               ...(alignLeft ? {} : { 'text-anchor': 'middle' }),
               'font-size': CALLOUT_LABEL_SIZE,
               fill: THEME_COLOR.fg,
@@ -87,8 +93,7 @@ export function buildPacket(packet: Packet, icons: IconShapes, t = 0): VElement 
             x: contentLeft + padX,
             y:
               boxTop +
-              (label ? CALLOUT_HEAD.withLabel : CALLOUT_HEAD.bare) +
-              4 +
+              (label ? CALLOUT_DESC_BASELINE.withLabel : CALLOUT_DESC_BASELINE.bare) +
               i * CALLOUT_LINE_HEIGHT,
             'font-size': CALLOUT_DESC_SIZE,
             fill: THEME_COLOR.fg,
@@ -118,20 +123,26 @@ export function buildPacket(packet: Packet, icons: IconShapes, t = 0): VElement 
   );
 }
 
-const CALLOUT_NUMBER_RADIUS = 9;
-
 /**
  * The number a callout shares with its packet's stop on the rail, in the packet's color: it
  * says which rail the callout describes, without a line between them.
  */
 function calloutNumber(packet: Packet, box: PacketCalloutBox): VElement | null {
   if (box.number === undefined) return null;
-  const x = box.cx - box.halfW + 17;
-  // On the heading's line; in a callout of one line, in its middle.
+  // Inside the callout's padding, as far from the edge as the text is on the other side.
+  const x = box.cx - box.halfW + box.padX + CALLOUT_NUMBER_RADIUS;
+  // Level with the first line of the callout: its heading, its description, or its code.
+  const textFirst = box.label !== '' || box.descLines.length > 0;
   const y =
     box.boxBottom - box.boxTop <= CALLOUT_ONE_LINE_HEIGHT + 2
       ? (box.boxTop + box.boxBottom) / 2
-      : box.boxTop + 20;
+      : textFirst || !box.code
+        ? box.boxTop + CALLOUT_LABEL_BASELINE - 5.5
+        : box.boxTop +
+          box.code.offsetY +
+          (box.code.headerHeight > 0
+            ? box.code.headerHeight / 2
+            : CALLOUT_CODE_FIRST_BASELINE - 4.5);
   return h(
     'g',
     { class: 'dav-packet-number' },
@@ -233,7 +244,7 @@ function packetCodeElement(
             'text',
             {
               x: n(x + CALLOUT_CODE_PAD_X),
-              y: n(bodyTop + 22 + i * CALLOUT_CODE_LINE_HEIGHT),
+              y: n(bodyTop + CALLOUT_CODE_FIRST_BASELINE + i * CALLOUT_CODE_LINE_HEIGHT),
               'font-size': CALLOUT_CODE_SIZE,
               fill: THEME_COLOR.fg,
               'xml:space': 'preserve',
