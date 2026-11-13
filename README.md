@@ -81,7 +81,7 @@ npx dynamic-architect-viewer-cli export docs/checkout.dav
 `dav export --check` writes nothing and fails when a file is missing or is not what its diagram exports now. In CI, this keeps the SVG in a README up to date:
 
 ```yaml
-- run: npx dynamic-architect-viewer-cli@1.0.0 export --check docs/*.dav
+- run: npx dynamic-architect-viewer-cli@1.1.0 export --check docs/*.dav
 ```
 
 ## AI agent skills

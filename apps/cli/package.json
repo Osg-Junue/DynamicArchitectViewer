@@ -1,6 +1,6 @@
 {
   "name": "dynamic-architect-viewer-cli",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Command line for DynamicArchitectViewer: export .dav diagrams as animated SVG or standalone HTML, and check, format and outline them.",
   "license": "MIT",
   "keywords": [

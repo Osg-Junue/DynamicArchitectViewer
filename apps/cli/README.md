@@ -40,7 +40,7 @@ A diagram with an error is not exported; the errors are printed with their line 
 `--check` writes nothing. It fails when a file is missing or is not what its diagram exports now:
 
 ```yaml
-- run: npx dynamic-architect-viewer-cli@1.0.0 export --check docs/*.dav
+- run: npx dynamic-architect-viewer-cli@1.1.0 export --check docs/*.dav
 ```
 
 Give the version in full. An export depends only on the text and the options, but a later version may lay out a diagram differently, and then the check fails until the files are exported again.
