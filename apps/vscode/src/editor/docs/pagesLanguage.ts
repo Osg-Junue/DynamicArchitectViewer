@@ -326,8 +326,8 @@ export const LANGUAGE_PAGES: readonly DocPage[] = [
     group: 'language',
     title: ['focus', 'focus'],
     lead: [
-      '注目させたい要素を指定し、それ以外を減光します。そのステップ限りで、次のステップには残りません。',
-      'Highlights elements by dimming everything else. It applies to one step only.',
+      '注目させたい要素を指定し、それ以外を減光します。エッジは、注目しているノードどうしを結ぶものだけが描かれます。そのステップ限りで、次のステップには残りません。',
+      'Highlights elements by dimming everything else. Only the edges between highlighted nodes are drawn. It applies to one step only.',
     ],
     render(ctx) {
       const { t } = ctx;

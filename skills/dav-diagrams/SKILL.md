@@ -144,7 +144,7 @@ Without `icon`, a node uses `server`.
 | `animate` | This step | Move a packet between two nodes |
 
 - **Clean up `state`.** Badges and colors carry over. To end one, write `badge: ""` or `color: none`, or a badge from step 2 will still be showing in step 8.
-- **Let `animate` and `state` set the emphasis.** Their targets are emphasized automatically, so add `focus` only for nodes that have neither. Any of the three dims the rest of the diagram.
+- **Let `animate` and `state` set the emphasis.** Their targets are emphasized automatically, so add `focus` only for nodes that have neither. Any of the three dims the other nodes and hides the edges that do not join two emphasized nodes, so `focus` on both ends of an edge is also how to keep that edge on screen.
 - **Reveal things that appear later.** Declare them with `visible: false`, then use `state` with `visible: true`. To target an edge from `state`, the edge needs `[id: name]`.
 - **Run packets along declared edges.** A packet can travel without an edge, but the diagram reads better when the rail exists. For replies, use a `<->` edge or a separate reverse edge. Two edges in opposite directions do not need an `id`, but a second edge in the same direction does.
 - **Order phases deliberately.** Each `animate` is one phase, played in order. `[parallel: true]` joins the preceding one, for work that really is concurrent.

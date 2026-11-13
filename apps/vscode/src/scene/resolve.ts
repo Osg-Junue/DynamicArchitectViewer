@@ -59,7 +59,6 @@ export interface ResolvedEdge {
   path: Bezier;
   /** Packets flow along this edge in the current step. */
   active: boolean;
-  dimmed: boolean;
 }
 
 export interface Packet {
@@ -451,8 +450,12 @@ function resolveEdges(
     const activeColor = activeEdges.get(e.id);
     const visible = activeColor !== undefined || (ov.visible ?? e.visible);
     if (!visible || !from.visible || !to.visible) return [];
+    // A step that focuses on something draws only the edges it is about: the ones it runs
+    // packets on or sets the state of, and those between two focused nodes. The rest would
+    // only be a tangle behind them.
     const focused =
       activeColor !== undefined || ctx.focus.has(e.id) || (from.focused && to.focused);
+    if (ctx.filtering && !focused) return [];
     const edge: ResolvedEdge = {
       id: e.id,
       from: e.from,
@@ -463,7 +466,6 @@ function resolveEdges(
       color: ov.color ?? e.color ?? DEFAULT_EDGE_COLOR,
       path: rails.ofEdge(e, from, to),
       active: activeColor !== undefined,
-      dimmed: ctx.filtering && !focused,
     };
     if (activeColor !== undefined) edge.flowColor = activeColor;
     if (e.label) edge.label = e.label;

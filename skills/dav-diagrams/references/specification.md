@@ -152,6 +152,8 @@ A step has effects that **accumulate** and effects that **last for that step onl
 
 **`focus` and `animate` last for one step.** `focus` accepts nodes and groups, not edges. The targets of `state` and the endpoints of `animate` are emphasized even when `focus` does not list them. There are two refinements: a `state` with `visible: false` does not count, and a `state` on an edge also emphasizes both of its nodes.
 
+While a step emphasizes something, the other nodes and groups are dimmed, and only the edges the step is about are drawn: those an `animate` runs on, those a `state` targets, and those between two emphasized nodes. A step that emphasizes nothing, like the overview, draws every edge.
+
 **`animate` moves a packet between two nodes.**
 
 | Attribute | Value | Default | Effect |

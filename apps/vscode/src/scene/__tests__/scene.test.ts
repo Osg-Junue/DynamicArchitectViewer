@@ -118,10 +118,21 @@ describe('resolveView', () => {
     expect(view(2).groups.find((g) => g.id === 'vpc')?.dimmed).toBe(false);
   });
 
-  it('dims edges that are not part of the focus', () => {
-    expect(edge(0, 'client->api')?.dimmed).toBe(false);
-    expect(edge(2, 'client->api')?.dimmed).toBe(true);
-    expect(edge(2, 'api->db')?.dimmed).toBe(false);
+  it('draws only the edges that are part of the focus', () => {
+    expect(edge(0, 'client->api')).toBeDefined();
+    expect(edge(2, 'client->api')).toBeUndefined();
+    // Nothing runs on it in this step, but both of its nodes are in the focused group.
+    expect(edge(2, 'api->db')).toBeDefined();
+    expect(edge(2, 'api->db')?.active).toBe(false);
+  });
+
+  it('draws every edge on the overview and in a step that focuses on nothing', () => {
+    const dsl =
+      'dav 1\nnode a\nnode b\nnode c\na --> b\nb --> c\nstep "S" {\n  desc "Nothing"\n}\n';
+    const { document } = parse(dsl);
+    const layout = computeLayout(document);
+    expect(resolveView(document, layout, 0).edges.map((e) => e.id)).toEqual(['a->b', 'b->c']);
+    expect(resolveView(document, layout, null).edges).toHaveLength(2);
   });
 
   it('is deterministic regardless of navigation order', () => {
@@ -730,7 +741,7 @@ describe('focus from state', () => {
       ['b', false],
       ['c', true],
     ]);
-    expect(view.edges[0]?.dimmed).toBe(false);
+    expect(view.edges.map((e) => e.id)).toEqual(['e']);
   });
 
   it('still focuses an ordinary state target', () => {

@@ -136,7 +136,7 @@ function arrowStart(e: ResolvedEdge): string | undefined {
 function edgeElement(e: ResolvedEdge): VElement {
   return h(
     'g',
-    { class: dimClass('dav-edge', e.dimmed), 'data-id': e.id },
+    { class: 'dav-edge', 'data-id': e.id },
     h('path', {
       d: svgPath(e.path),
       fill: 'none',
@@ -173,7 +173,7 @@ function edgeLabelElement(e: ResolvedEdge): VElement | null {
   const mid = pointAt(e.path, 0.5);
   return h(
     'g',
-    { class: dimClass('dav-edge-label', e.dimmed) },
+    { class: 'dav-edge-label' },
     h(
       'text',
       {
