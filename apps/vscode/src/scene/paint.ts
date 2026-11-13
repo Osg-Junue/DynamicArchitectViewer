@@ -9,6 +9,7 @@ export const THEME_COLOR = {
   borderStrong: 'var(--dav-border-strong)',
   accent: 'var(--dav-accent)',
   accentText: 'var(--dav-accent-text)',
+  onAccent: 'var(--dav-on-accent)',
   nodeBg: 'var(--dav-node-bg)',
   edge: 'var(--dav-edge)',
   codeBg: 'var(--dav-code-bg)',

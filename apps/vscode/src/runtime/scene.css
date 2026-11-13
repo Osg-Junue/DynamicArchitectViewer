@@ -45,22 +45,35 @@
 
   /* Canvas */
   --dav-node-bg: var(--vscode-editorWidget-background, var(--raw-node));
-  --dav-edge: color-mix(in srgb, var(--dav-fg) 38%, var(--dav-bg));
+  /*
+   * A rail is the text color thinned with the background. The shares are the least that bring
+   * it to a contrast of 3 against every zone tint of the built-in themes; a dark theme needs
+   * less.
+   */
+  --dav-edge: light-dark(
+    color-mix(in srgb, var(--dav-fg) 60%, var(--dav-bg)),
+    color-mix(in srgb, var(--dav-fg) 50%, var(--dav-bg))
+  );
 
   /*
    * The diagram palette: the single definition of every diagram color, as
    * light-dark(<light theme>, <dark theme>), resolved through color-scheme.
+   *
+   * Badges and numbered stops write small text in the background color on these colors, and
+   * in `--dav-on-accent` on the accent. Each pair has a contrast of 4.5 or more against the
+   * built-in backgrounds; keep it so when changing a value.
    */
   --dav-accent: light-dark(#c8500a, #eb6101);
   --dav-accent-text: light-dark(#b8460f, #ff8a4c);
-  --dav-c-red: light-dark(#a8142e, #e23a52);
+  --dav-on-accent: light-dark(#ffffff, #14171b);
+  --dav-c-red: light-dark(#a8142e, #ec5a6e);
   --dav-c-orange: light-dark(#c24a00, #ff7a2f);
-  --dav-c-yellow: light-dark(#9a6f00, #ffc21f);
+  --dav-c-yellow: light-dark(#876100, #ffc21f);
   --dav-c-green: light-dark(#0e7f4f, #1fbf7a);
   --dav-c-teal: light-dark(#007a85, #00b8c4);
   --dav-c-blue: light-dark(#0f62c4, #2e90ff);
-  --dav-c-purple: light-dark(#6330c8, #9b5cff);
-  --dav-c-pink: light-dark(#c8578f, #f4a6c8);
+  --dav-c-purple: light-dark(#6330c8, #a773ff);
+  --dav-c-pink: light-dark(#b0447d, #f4a6c8);
   --dav-c-gray: light-dark(#6e7074, #b4b6ba);
   --dav-code-bg: light-dark(#f4f3ec, #14171b);
   --dav-code-head-bg: light-dark(#e8e6dc, #1b1f26);

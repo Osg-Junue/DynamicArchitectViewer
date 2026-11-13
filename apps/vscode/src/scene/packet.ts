@@ -144,7 +144,7 @@ function calloutNumber(packet: Packet, box: PacketCalloutBox): VElement | null {
 
 /** Text color on a stop or a callout number filled with a packet's color. */
 export function stopTextFill(color: string): string {
-  return color === DEFAULT_FLOW_COLOR ? '#ffffff' : THEME_COLOR.bg;
+  return color === DEFAULT_FLOW_COLOR ? THEME_COLOR.onAccent : THEME_COLOR.bg;
 }
 
 function packetCodeElement(

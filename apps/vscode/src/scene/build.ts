@@ -103,6 +103,11 @@ function groupElement(g: ResolvedGroup): VElement {
       rx: 14,
       fill: g.color ? paint(g.color) : THEME_COLOR.fg,
       'fill-opacity': g.color ? 0.14 : 0.07,
+      // A hairline in the zone's own color: the tint alone barely differs from the background.
+      stroke: g.color ? paint(g.color) : THEME_COLOR.fg,
+      'stroke-opacity': g.color ? 0.55 : 0.28,
+      'stroke-width': 1,
+      'vector-effect': 'non-scaling-stroke',
     }),
   );
 }

@@ -19,6 +19,8 @@ The `dav` language version is separate from the extension version.
 - The minimap covers nodes outside any zone, so the camera frame stays inside it
 - Rails are drawn as level and upright stretches with rounded corners instead of curves. A rail no longer runs through another node or over a zone's name, goes round the zones it has nothing to do with, and runs beside the rails that share its way instead of on top of them
 - Edge labels are written beside a free stretch of their rail, clear of nodes, zone names, other labels and other rails
+- Rails are darker against the background, so that they stand out inside a colored zone too; a zone has a thin outline in its own color
+- Small text on a colored badge or numbered stop reads better: yellow and pink in light themes and red and purple in dark themes moved a little, and the number on an orange stop is dark in a dark theme
 - Stations stay level across zones: a node outside a zone lines up with the nodes inside the zone next to it, and a self-loop no longer lowers only its own zone, so the rails between them run straight
 - A long chain of zones is no longer laid out as one very wide strip: its zones are placed freely even when that costs a crossing, as long as it shortens the links by more than the crossing is worth
 - Zones that are placed freely sit closer to the zones they are linked to: the links between them are about 5% shorter, and no zone is left further from its neighbors than it has to be

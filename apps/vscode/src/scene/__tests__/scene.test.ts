@@ -533,7 +533,10 @@ step "S" {
       'var(--dav-accent)',
       'var(--dav-c-red)',
     ]);
-    expect(stops.map((s) => s.attrs['data-active-text'])).toEqual(['#ffffff', 'var(--dav-bg)']);
+    expect(stops.map((s) => s.attrs['data-active-text'])).toEqual([
+      'var(--dav-on-accent)',
+      'var(--dav-bg)',
+    ]);
   });
 
   it('starts two rails of one station at different points', () => {
