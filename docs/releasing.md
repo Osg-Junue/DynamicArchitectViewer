@@ -52,6 +52,12 @@ This creates `apps/vscode/dist/dynamic-architect-viewer.vsix`, which is a ZIP fi
 
 If `src/`, `e2e/`, `node_modules/` or source maps appear, fix `.vscodeignore`.
 
+Note the SHA-256 of the file (`Get-FileHash` in PowerShell). `npm run package` writes other bytes every time, and the GitHub release attaches the file that was published:
+
+```bash
+sha256sum apps/vscode/dist/dynamic-architect-viewer.vsix
+```
+
 ## Publish
 
 From `apps/vscode`, publish the package you inspected:
@@ -60,7 +66,14 @@ From `apps/vscode`, publish the package you inspected:
 npx vsce publish --packagePath dist/dynamic-architect-viewer.vsix
 ```
 
-Then check that README images appear on the Marketplace page, and tag the commit `v<version>`.
+The Marketplace lists the new version a few minutes later. A version can be published once: a second `vsce publish` answers that it already exists.
+
+Then check that README images appear on the Marketplace page, and tag the merge commit of the release:
+
+```bash
+git tag -a v<version> -m "DynamicArchitectViewer <version>" <commit>
+git push origin v<version>
+```
 
 ## Publish the command line
 
@@ -76,4 +89,30 @@ It should list only `package.json`, `README.md`, `LICENSE` and `dist/dav.mjs`. `
 npm publish
 ```
 
+The registry serves the new version a few minutes later. Then try it from a folder outside this repository, where `npx` does not take the copy in the workspace:
+
+```bash
+npx dynamic-architect-viewer-cli@<version> --version
+```
+
 The READMEs give the version in the line for CI (`dynamic-architect-viewer-cli@<version>`). Update it in `README.md` and `apps/cli/README.md`.
+
+## GitHub release
+
+After the tag is pushed, create the release from it, with the file that was published attached as `dynamic-architect-viewer-<version>.vsix`:
+
+```bash
+gh release create v<version> dynamic-architect-viewer-<version>.vsix --verify-tag --title "DynamicArchitectViewer <version>" --notes-file notes.md
+```
+
+The notes follow the release before:
+
+- A sentence on what the release brings, where to install the extension and the command line, and whether the language stays `dav 1`.
+- Under "New since \<previous version\>", the changes that matter to a reader, grouped by subject. The changelog has the full list.
+- Links that point at the tag (`blob/v<version>/...`), so that they keep showing this release.
+
+The attached file is the one that was published. If `dist/dynamic-architect-viewer.vsix` was built again since, download the published file from the Marketplace and compare it with the SHA-256 you noted:
+
+```bash
+curl -L --compressed -o dynamic-architect-viewer-<version>.vsix https://marketplace.visualstudio.com/_apis/public/gallery/publishers/osg-junue/vsextensions/dynamic-architect-viewer/<version>/vspackage
+```
