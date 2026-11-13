@@ -14,9 +14,9 @@ import {
 import { ancestorIds, parentMap, zoneOfNodes } from '../model/zones';
 import { type CalloutPlacement, separatePhaseCallouts } from './callout';
 import { refinePhaseCallouts } from './calloutRefine';
-import { type Bezier, expandRect, type Point, pointAt, reverse } from './geometry';
+import { expandRect, type Point, pointAt, type Rail, railEnds, reverse } from './geometry';
 import { THEME_COLOR } from './paint';
-import { RailRouter, stationArea } from './rails';
+import { type EdgeLabelSpot, RailRouter, stationArea } from './rails';
 import { PHASE_MS, pacePhase } from './timing';
 
 export const DEFAULT_FLOW_COLOR = THEME_COLOR.accent;
@@ -57,7 +57,9 @@ export interface ResolvedEdge {
   color: string;
   /** Color of the flow overlay; present when `active`. */
   flowColor?: string;
-  path: Bezier;
+  path: Rail;
+  /** Where the label is written; absent for a loop, whose label goes by the middle of its curve. */
+  labelAt?: EdgeLabelSpot;
   /** Packets flow along this edge in the current step. */
   active: boolean;
 }
@@ -90,7 +92,7 @@ export interface Packet {
   calloutBottom?: number;
   /** Shared top-edge shelf y when aligned with parallel `'below'` sibling callouts. */
   calloutTop?: number;
-  path: Bezier;
+  path: Rail;
   /** Written as `<->` in the `animate`: the packet goes to the end and comes back. */
   roundTrip: boolean;
   /** Top edge of the two endpoint nodes; `'above'` callouts stay above it to keep them visible. */
@@ -365,15 +367,16 @@ function createPhasePackets(
     if (!fromNode || !toNode) continue;
 
     const edge = edgeForPacket(ctx, a.from, a.to);
-    let path = rails.between(fromNode, toNode);
-    if (edge) {
-      const edgeFrom = nodeById.get(edge.from);
-      const edgeTo = nodeById.get(edge.to);
-      if (edgeFrom && edgeTo) {
-        const edgePath = rails.ofEdge(edge, edgeFrom, edgeTo);
-        path = edge.from === a.from ? edgePath : reverse(edgePath);
-      }
+    const edgeFrom = edge && nodeById.get(edge.from);
+    const edgeTo = edge && nodeById.get(edge.to);
+    let path: Rail;
+    if (edge && edgeFrom && edgeTo) {
+      const edgePath = rails.ofEdge(edge, edgeFrom, edgeTo);
+      path = edge.from === a.from ? edgePath : reverse(edgePath);
+    } else {
+      path = rails.between(fromNode, toNode);
     }
+    const ends = railEnds(path);
 
     const fromBottom = fromNode.rect.y + fromNode.rect.height;
     const toBottom = toNode.rect.y + toNode.rect.height;
@@ -384,7 +387,7 @@ function createPhasePackets(
     const oneWayOnBidi = edge?.direction === 'bidirectional' && a.direction !== 'bidirectional';
     const preferBelow =
       isReturnTrack(rails, fromNode, toNode, oneWayOnBidi) ||
-      pointAt(path, 0.5).y > Math.max(path.p0.y, path.p3.y) + 18;
+      pointAt(path, 0.5).y > Math.max(ends.start.y, ends.end.y) + 18;
     const otherNodeCores = scene.nodeCoreEntries
       .filter((e) => e.id !== a.from && e.id !== a.to)
       .map((e) => e.core);
@@ -488,6 +491,8 @@ function resolveEdges(
     };
     if (activeColor !== undefined) edge.flowColor = activeColor;
     if (e.label) edge.label = e.label;
+    const labelAt = rails.labelOf(e);
+    if (labelAt) edge.labelAt = labelAt;
     return [edge];
   });
 }
@@ -501,7 +506,7 @@ const routers = new WeakMap<Layout, { doc: DavDocument; rails: RailRouter }>();
 function railsOf(doc: DavDocument, layout: Layout, nodes: readonly ResolvedNode[]): RailRouter {
   const cached = routers.get(layout);
   if (cached?.doc === doc) return cached.rails;
-  const rails = new RailRouter(doc, nodes);
+  const rails = new RailRouter(doc, layout, nodes);
   routers.set(layout, { doc, rails });
   return rails;
 }

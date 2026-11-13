@@ -1,7 +1,7 @@
 import { type Rect, stationRect } from '../layout';
-import { EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH, pushToMap } from '../model/text';
+import { EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH } from '../model/text';
 import { BUBBLE_HEADROOM, boundsOf } from './bounds';
-import { type Bezier, curveLength, type Point, pointAt, svgPath } from './geometry';
+import { type Point, pointAt, type Rail, railEnds, railLength, svgPath } from './geometry';
 import type { IconShapes } from './icons';
 import { buildPacket, iconGlyph, stopTextFill } from './packet';
 import { activeLabelFill, paint, THEME_COLOR } from './paint';
@@ -171,16 +171,22 @@ function flowElement(e: ResolvedEdge): VElement | null {
 function edgeLabelElement(e: ResolvedEdge): VElement | null {
   if (!e.label) return null;
   const mid = pointAt(e.path, 0.5);
+  // A loop's label goes by the middle of its curve, clear of the numbered stop there, also
+  // while that is the larger current one.
+  const at = e.labelAt ?? {
+    x: mid.x,
+    y: e.labelBelow ? mid.y + 28 : mid.y - 20,
+    anchor: 'middle',
+  };
   return h(
     'g',
     { class: 'dav-edge-label' },
     h(
       'text',
       {
-        x: mid.x,
-        // Clear of the numbered stop at the rail's middle, also while it is the larger current one.
-        y: e.labelBelow ? mid.y + 28 : mid.y - 20,
-        'text-anchor': 'middle',
+        x: at.x,
+        y: at.y,
+        'text-anchor': at.anchor,
         'font-size': EDGE_LABEL_FONT_SIZE,
         fill: THEME_COLOR.fg,
         // Read by syncPhaseHighlights to emphasize the running phase's label.
@@ -191,36 +197,50 @@ function edgeLabelElement(e: ResolvedEdge): VElement | null {
   );
 }
 
+/** Wider than a stop's diameter, because a chord across a tight loop is shorter than its arc. */
+const STOP_SPACING = 32;
+/** Stops whose rails pass this close at their middles would overlap; they are set out in a row. */
+const STOP_REACH = 24;
+
 /** Numbered stops showing the order of a step's animation phases. */
 function stopElements(view: ResolvedView): VElement[] {
   if (view.phases.length < 2) return [];
-  // Phases that share a rail would stack their numbers at its middle, in either direction.
-  const byPlace = new Map<string, Array<{ packet: Packet; phase: number }>>();
+  // Phases that share a rail, or ride rails that run side by side, would stack their numbers
+  // at the middle, in either direction.
+  const places: Array<{ at: Point; stops: Array<{ packet: Packet; phase: number }> }> = [];
   view.phases.forEach((packets, phase) => {
     for (const packet of packets) {
       const mid = pointAt(packet.path, 0.5);
-      const place = `${Math.round(mid.x)},${Math.round(mid.y)}`;
-      pushToMap(byPlace, place, { packet, phase });
+      let place = places.find((p) => Math.hypot(p.at.x - mid.x, p.at.y - mid.y) < STOP_REACH);
+      if (!place) {
+        place = { at: mid, stops: [] };
+        places.push(place);
+      }
+      place.stops.push({ packet, phase });
     }
   });
-  return [...byPlace.values()].flatMap((stops) => {
+  return places.flatMap(({ stops }) => {
     const [first] = stops;
     if (!first) return [];
-    const points = stopPoints(first.packet.path, stops.length);
+    const lead = railEnds(first.packet.path).start;
+    const shares = stopShares(first.packet.path, stops.length);
     return stops.flatMap(({ packet, phase }, i) => {
-      const point = points[i];
-      return point ? [stopElement(packet, phase, point)] : [];
+      const share = shares[i];
+      if (share === undefined) return [];
+      // Each number on its own rail, counted from the end where the first rail starts.
+      const { start, end } = railEnds(packet.path);
+      const sameWay =
+        Math.hypot(start.x - lead.x, start.y - lead.y) <=
+        Math.hypot(end.x - lead.x, end.y - lead.y);
+      return [stopElement(packet, phase, pointAt(packet.path, sameWay ? share : 1 - share))];
     });
   });
 }
 
-/** Wider than a stop's diameter, because a chord across a tight loop is shorter than its arc. */
-const STOP_SPACING = 32;
-
-/** Evenly spaced positions around the middle of a rail. */
-function stopPoints(path: Bezier, count: number): Point[] {
-  const step = count > 1 ? Math.min(STOP_SPACING / curveLength(path), 0.8 / (count - 1)) : 0;
-  return Array.from({ length: count }, (_, i) => pointAt(path, 0.5 + (i - (count - 1) / 2) * step));
+/** Evenly spaced shares of a rail's length, around its middle. */
+function stopShares(path: Rail, count: number): number[] {
+  const step = count > 1 ? Math.min(STOP_SPACING / railLength(path), 0.8 / (count - 1)) : 0;
+  return Array.from({ length: count }, (_, i) => 0.5 + (i - (count - 1) / 2) * step);
 }
 
 function stopElement(packet: Packet, phase: number, { x, y }: Point): VElement {

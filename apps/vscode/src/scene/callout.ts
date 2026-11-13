@@ -6,7 +6,7 @@ import {
   type MeasuredCalloutCard,
   measureCalloutCard,
 } from './calloutMeasure';
-import { pointAt } from './geometry';
+import { pointAt, railBox } from './geometry';
 import type { Packet } from './resolve';
 
 export {
@@ -66,7 +66,8 @@ export function placeCalloutBox(
   const { halfW, height, padX, label, descLines, code, numberRoom } = card;
   const cx = mid.x + (packet.calloutShift ?? 0);
 
-  const ys = [packet.path.p0.y, packet.path.p1.y, packet.path.p2.y, packet.path.p3.y, mid.y];
+  const reach = railBox(packet.path);
+  const ys = [reach.y, reach.y + reach.height, mid.y];
   let baseAnchor: number;
   let anchor: number;
   if (isAbove) {

@@ -11,7 +11,14 @@ import {
   type MeasuredCalloutCard,
   measureCalloutCard,
 } from './calloutMeasure';
-import { expandRect, type Point, pointAt, pointInRect, segmentIntersectsRect } from './geometry';
+import {
+  expandRect,
+  type Point,
+  pointAt,
+  pointInRect,
+  railEnds,
+  segmentIntersectsRect,
+} from './geometry';
 import type { Packet } from './resolve';
 
 /** Past the clash limit, because landing exactly on it would depend on rounding. */
@@ -463,7 +470,7 @@ export function separatePhaseCallouts(phase: readonly Packet[]): void {
       index,
       mid,
       midX: mid.x,
-      tieX: packet.path.p0.x + packet.path.p3.x,
+      tieX: railEnds(packet.path).start.x + railEnds(packet.path).end.x,
       otherRailSamples,
       soloAbove,
       soloShift: soloAbove.shift,

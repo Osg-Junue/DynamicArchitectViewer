@@ -1,6 +1,6 @@
 import { type Rect, rectOverlaps } from '../layout';
 import { calloutRect, computePacketCalloutBox } from './callout';
-import { type Bezier, expandRect, type Point, pointAt, pointInRect } from './geometry';
+import { expandRect, type Point, pointAt, pointInRect, type Rail, railLength } from './geometry';
 import type { Packet } from './resolve';
 
 /**
@@ -23,7 +23,7 @@ export interface CalloutSurroundings {
   /** Every group. A callout lies wholly inside or wholly outside each of them. */
   zones: readonly Rect[];
   /** Every rail drawn in the step: its edges, and the paths of its packets. */
-  rails: readonly Bezier[];
+  rails: readonly Rail[];
 }
 
 /** A callout stays where it is unless another spot is at least this much closer. */
@@ -41,8 +41,11 @@ const ZONE_HEADER = 40;
 /** How much nearer its own rail than any other packet's a callout must be. */
 const OWN_RAIL_MARGIN = 24;
 const RAIL_SAMPLES = 24;
+/** The most two samples of a rail lie apart: a callout is not to slip between them. */
+const RAIL_SAMPLE_SPACING = 20;
 
-function samples(path: Bezier, count = RAIL_SAMPLES): Point[] {
+function samples(path: Rail): Point[] {
+  const count = Math.max(RAIL_SAMPLES, Math.ceil(railLength(path) / RAIL_SAMPLE_SPACING));
   return Array.from({ length: count + 1 }, (_, i) => pointAt(path, i / count));
 }
 
@@ -115,8 +118,8 @@ export function refinePhaseCallouts(phase: readonly Packet[], around: CalloutSur
         rect,
         anchor,
         reach: reach(rect, anchor),
-        own: samples(packet.path, 32),
-        rivals: phase.filter((p) => p !== packet).map((p) => samples(p.path, 32)),
+        own: samples(packet.path),
+        rivals: phase.filter((p) => p !== packet).map((p) => samples(p.path)),
       },
     ];
   });
@@ -131,7 +134,9 @@ export function refinePhaseCallouts(phase: readonly Packet[], around: CalloutSur
       return rivals.some((points) => nearest(r, points) < mine + OWN_RAIL_MARGIN);
     };
     const hidesRail = railPoints.some((points) => points.some((p) => pointInRect(p, rect)));
-    const mustMove = hidesRail || ambiguous(rect);
+    // Nor does it stay across the border of a zone, or closer to one than a callout may come.
+    const crowdsZone = around.zones.some((zone) => !respectsZone(rect, zone));
+    const mustMove = hidesRail || crowdsZone || ambiguous(rect);
     const limit = mustMove ? Number.POSITIVE_INFINITY : current - MIN_GAIN;
 
     let moved: Rect | undefined;

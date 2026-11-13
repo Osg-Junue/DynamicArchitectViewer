@@ -5,6 +5,7 @@ import { idPair } from '../model/zones';
 import {
   activeLabelFill,
   buildPacket,
+  cornerShares,
   dimClass,
   estimateTextWidth,
   fitText,
@@ -13,6 +14,7 @@ import {
   type IconShapes,
   type Packet,
   packetPosition,
+  packetShare,
   paint,
   placeZoneLabels,
   type ResolvedView,
@@ -169,9 +171,39 @@ export function stillHighlights(scene: VElement, view: ResolvedView): void {
   }
 }
 
-function packetTimes(durationMs: number): number[] {
+/**
+ * The times at which a packet's position is written down: at even intervals, and whenever it
+ * starts, is half way round or leaves a corner of its rail. Between two times the packet moves
+ * in a straight line, so without the corners it would cut across them.
+ */
+function packetTimes(packet: Packet): number[] {
+  const { durationMs } = packet;
   const count = Math.max(2, Math.ceil(durationMs / SAMPLE_MS));
-  return Array.from({ length: count + 1 }, (_, i) => (durationMs * i) / count);
+  const corners = cornerShares(packet.path);
+  const times: number[] = [];
+  for (let i = 0; i <= count; i++) {
+    const from = i / count;
+    times.push(durationMs * from);
+    if (i === count || corners.length === 0) continue;
+    const to = (i + 1) / count;
+    const a = packetShare(packet, from);
+    const b = packetShare(packet, to);
+    const passed = corners
+      .filter((share) => share > Math.min(a, b) && share < Math.max(a, b))
+      .sort((p, q) => (a < b ? p - q : q - p));
+    for (const share of passed) {
+      // The packet only goes one way within an interval: close in on the moment it is there.
+      let low = from;
+      let high = to;
+      for (let k = 0; k < 20; k++) {
+        const mid = (low + high) / 2;
+        if (packetShare(packet, mid) < share === a < b) low = mid;
+        else high = mid;
+      }
+      times.push(durationMs * ((low + high) / 2));
+    }
+  }
+  return times;
 }
 
 /** A packet riding its rail during its phase; it waits at the end once it arrives. */
@@ -182,7 +214,7 @@ export function animatedPacket(
   icons: IconShapes,
 ): VElement {
   const el = buildPacket(packet, icons, 0);
-  const times = packetTimes(packet.durationMs);
+  const times = packetTimes(packet);
   const points = times.map((ms) => packetPosition(packet, ms / packet.durationMs));
   const dot = childWithClass(el, 'dav-packet-dot');
   if (dot) {

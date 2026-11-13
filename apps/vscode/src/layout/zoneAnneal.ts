@@ -1,7 +1,8 @@
 import type { DavDocument } from '../model/types';
 import { countCrossings, properlyCross, type Segment, shareStation } from './links';
-import { STATION_CENTER } from './metrics';
+import { type Rect, STATION_CENTER } from './metrics';
 import {
+  type Block,
   buildBlocks,
   type ColumnLayout,
   flippedY,
@@ -26,6 +27,12 @@ interface BlockLink extends Segment {
   targetY: readonly [number, number];
   /** A round trip covers the rail twice in its time, so its length counts double. */
   weight: number;
+  /**
+   * The ways a straight rail could join the two stations, for each flip of the source and of
+   * the target (`source.flip * 2 + target.flip`): bits for a target to the right, to the left,
+   * below and above. A way is open when no node of either zone stands on it.
+   */
+  open: readonly [number, number, number, number];
   minX: number;
   maxX: number;
   minY: number;
@@ -57,6 +64,12 @@ const CANVAS_ASPECT = 1.6;
 const TIGHTEN_STEPS = [128, 64, 32, 16, 8, 4];
 const ALIGN_REACH = 140;
 const ALIGN_TOLERANCE = 30;
+/** The most a link costs for being off a straight line, which is also what one that cannot be straight costs. */
+const OFF_STRAIGHT_CAP = 160;
+const OFF_STRAIGHT_WEIGHT = 2;
+/** How far a zone moves to make a link straight, and how much cost one straight link is worth. */
+const STRAIGHTEN_REACH = 120;
+const STRAIGHT_WORTH = 120;
 
 /** Small seeded generator: the same diagram must always get the same layout. */
 function seededRandom(start: number): () => number {
@@ -96,13 +109,31 @@ function updateSegment(l: BlockLink): void {
   l.maxY = Math.max(l.ay, l.by);
 }
 
+/**
+ * How far the link is from a straight line: the sideways distance between its stations, along a
+ * way that is open between them. It gives the search a slope towards arrangements where the
+ * stations of a link face each other, which `straighten` then makes exact.
+ */
+function offStraight(l: BlockLink): number {
+  const open = l.open[l.source.flip * 2 + l.target.flip] as number;
+  const dx = l.bx - l.ax;
+  const dy = l.by - l.ay;
+  let off = OFF_STRAIGHT_CAP;
+  if ((open & 1 && dx > 0) || (open & 2 && dx < 0)) off = Math.min(off, Math.abs(dy));
+  if ((open & 4 && dy > 0) || (open & 8 && dy < 0)) off = Math.min(off, Math.abs(dx));
+  return off;
+}
+
 function shapeCost(l: BlockLink): number {
   const dx = l.bx - l.ax;
   const length = Math.hypot(dx, l.by - l.ay);
   return (
+    offStraight(l) * OFF_STRAIGHT_WEIGHT +
     // Every unit of a link counts, and counts again past a comfortable length. Counting only
     // the part past that length left the search with no reason to bring zones together.
-    length * l.weight + Math.max(0, length * l.weight - LONG_LINK) + (dx < -60 ? 260 - dx * 0.3 : 0)
+    length * l.weight +
+    Math.max(0, length * l.weight - LONG_LINK) +
+    (dx < -60 ? 260 - dx * 0.3 : 0)
   );
 }
 
@@ -460,6 +491,127 @@ function tighten(links: readonly BlockLink[], placed: readonly Placed[]): void {
   }
 }
 
+/**
+ * The stations at the ends of the link are level, or one is straight above the other, and
+ * nothing stands between them: a rail can join them in one straight line.
+ */
+function isStraight(l: BlockLink, placed: readonly Placed[]): boolean {
+  if (Math.abs(l.ay - l.by) >= 0.5 && Math.abs(l.ax - l.bx) >= 0.5) return false;
+  for (const p of placed) {
+    if (p !== l.source && p !== l.target) {
+      if (runsThrough(l, p)) return false;
+      continue;
+    }
+    for (const [id, r] of p.block.nodes) {
+      if (id === l.from || id === l.to) continue;
+      const x = p.x + r.x;
+      const y = p.y + (p.flip ? flippedY(p.block, r) : r.y);
+      if (l.maxX > x && l.minX < x + r.width && l.maxY > y && l.minY < y + r.height) return false;
+    }
+  }
+  return true;
+}
+
+function straightLinks(links: readonly BlockLink[], placed: readonly Placed[], a?: Placed): number {
+  let count = 0;
+  for (const l of links) {
+    if ((!a || l.source === a || l.target === a) && isStraight(l, placed)) count++;
+  }
+  return count;
+}
+
+/**
+ * Moves zones the little it takes to put the two stations of a link level, or one straight above
+ * the other. The search and the sliding leave them a few units apart, which a rail has to make
+ * up with a bend. A zone takes the move that straightens the most of its links, as long as the
+ * rest of the cost rises by less than those links are worth.
+ */
+function straighten(links: readonly BlockLink[], placed: readonly Placed[]): void {
+  for (const l of links) updateSegment(l);
+  for (let round = 0; round < 4; round++) {
+    let moved = false;
+    for (const a of placed) {
+      const homeX = a.x;
+      const homeY = a.y;
+      const before = straightLinks(links, placed, a);
+      const moves: Array<{ x: number; y: number }> = [];
+      for (const l of links) {
+        if (l.source !== a && l.target !== a) continue;
+        const towards = l.source === a ? 1 : -1;
+        const dx = (l.bx - l.ax) * towards;
+        const dy = (l.by - l.ay) * towards;
+        if (dy !== 0 && Math.abs(dy) <= STRAIGHTEN_REACH) moves.push({ x: homeX, y: homeY + dy });
+        if (dx !== 0 && Math.abs(dx) <= STRAIGHTEN_REACH) moves.push({ x: homeX + dx, y: homeY });
+      }
+      let best: { x: number; y: number; gain: number; reach: number } | undefined;
+      for (const to of moves) {
+        const change = evaluateMove(links, placed, a, to.x, to.y, a.flip);
+        if (Number.isNaN(change)) continue;
+        const gain = straightLinks(links, placed, a) - before;
+        const reach = Math.abs(to.x - homeX) + Math.abs(to.y - homeY);
+        if (
+          gain > 0 &&
+          change <= gain * STRAIGHT_WORTH &&
+          (!best || gain > best.gain || (gain === best.gain && reach < best.reach))
+        ) {
+          best = { ...to, gain, reach };
+        }
+        a.x = homeX;
+        a.y = homeY;
+        refreshTouchingSegments(links, a, undefined);
+      }
+      if (best) {
+        a.x = best.x;
+        a.y = best.y;
+        refreshTouchingSegments(links, a, undefined);
+        moved = true;
+      }
+    }
+    if (!moved) break;
+  }
+}
+
+/** No other node of the zone stands beside the node on that side: 0 right, 1 left, 2 below, 3 above. */
+function isFreeSide(block: Block, id: string, side: number, flip: 0 | 1): boolean {
+  const own = block.nodes.get(id);
+  if (!own) return false;
+  const top = (r: Rect) => (flip ? flippedY(block, r) : r.y);
+  const x = own.x + own.width / 2;
+  const y = top(own) + STATION_CENTER;
+  for (const [other, r] of block.nodes) {
+    if (other === id) continue;
+    const inRow = y > top(r) && y < top(r) + r.height;
+    const inColumn = x > r.x && x < r.x + r.width;
+    if (side === 0 && inRow && r.x > own.x) return false;
+    if (side === 1 && inRow && r.x < own.x) return false;
+    if (side === 2 && inColumn && top(r) > top(own)) return false;
+    if (side === 3 && inColumn && top(r) < top(own)) return false;
+  }
+  return true;
+}
+
+function openWays(source: Block, from: string, target: Block, to: string): BlockLink['open'] {
+  const ways = (sourceFlip: 0 | 1, targetFlip: 0 | 1) => {
+    let bits = 0;
+    // A target to the right is met on its left side, and so on.
+    for (const [side, facing] of [
+      [0, 1],
+      [1, 0],
+      [2, 3],
+      [3, 2],
+    ] as const) {
+      if (
+        isFreeSide(source, from, side, sourceFlip) &&
+        isFreeSide(target, to, facing, targetFlip)
+      ) {
+        bits |= 1 << side;
+      }
+    }
+    return bits;
+  };
+  return [ways(0, 0), ways(0, 1), ways(1, 0), ways(1, 1)];
+}
+
 function snapshot(placed: readonly Placed[]): ZonePlacement {
   return new Map(placed.map((p) => [p.block.id, { x: p.x, y: p.y, flip: p.flip }]));
 }
@@ -499,6 +651,7 @@ export function searchZonePlacement(doc: DavDocument, columnLayout: ColumnLayout
         from: e.from,
         to: e.to,
         weight: trips.has(pairKey(e.from, e.to)) ? 2 : 1,
+        open: openWays(a.p.block, e.from, b.p.block, e.to),
         ax: 0,
         ay: 0,
         bx: 0,
@@ -525,7 +678,12 @@ export function searchZonePlacement(doc: DavDocument, columnLayout: ColumnLayout
     alignEdges(links, placed);
     // Lining up edges moves zones a little; close what that opened.
     tighten(links, placed);
-    const score = linkCost(links, placed) + countCrossings(doc, toLayout(placed)) * 150;
+    // Last, since sliding would undo it.
+    straighten(links, placed);
+    const score =
+      linkCost(links, placed) +
+      countCrossings(doc, toLayout(placed)) * 150 -
+      straightLinks(links, placed) * STRAIGHT_WORTH;
     if (score < bestScore) {
       bestScore = score;
       bestPlacement = snapshot(placed);

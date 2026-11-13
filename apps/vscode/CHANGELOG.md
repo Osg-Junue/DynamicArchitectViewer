@@ -17,12 +17,13 @@ The `dav` language version is separate from the extension version.
 - The outline nests nodes and groups inside their group
 - Completions no longer open after every space on an empty line; `Ctrl+Space` still lists the statements
 - The minimap covers nodes outside any zone, so the camera frame stays inside it
-- Rails find their way round nodes more often: they try wider bows and S-shaped bends, and no longer miss a node they only clip. Where several bends are possible, a rail takes the one that crosses the fewest other rails
-- Rails that would leave a node from the same point, such as several going straight down, are set side by side instead of running on top of each other
+- Rails are drawn as level and upright stretches with rounded corners instead of curves. A rail no longer runs through another node or over a zone's name, goes round the zones it has nothing to do with, and runs beside the rails that share its way instead of on top of them
+- Edge labels are written beside a free stretch of their rail, clear of nodes, zone names, other labels and other rails
+- Stations stay level across zones: a node outside a zone lines up with the nodes inside the zone next to it, and a self-loop no longer lowers only its own zone, so the rails between them run straight
 - A long chain of zones is no longer laid out as one very wide strip: its zones are placed freely even when that costs a crossing, as long as it shortens the links by more than the crossing is worth
 - Zones that are placed freely sit closer to the zones they are linked to: the links between them are about 5% shorter, and no zone is left further from its neighbors than it has to be
+- Zones that are placed freely line up the stations they link: about three times as many links between zones run level or straight down, where they used to be a few units off
 - Zones that are placed freely fill the canvas better instead of stretching sideways, so a large diagram is shown larger when it is fitted to the preview
-- Edge labels sit a little further from their rail, clear of the numbered stops
 - A step that emphasizes something draws only the edges it is about: those it runs packets on or sets the state of, and those between two emphasized nodes. The others used to stay as faint lines behind them
 - Nothing is exported while the text has a syntax error and nothing to draw: the preview's Export button is disabled, and the export commands say why
 

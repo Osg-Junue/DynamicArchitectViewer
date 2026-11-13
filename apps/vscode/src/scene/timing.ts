@@ -1,4 +1,4 @@
-import { curveLength, type Point, pointAt } from './geometry';
+import { type Point, pointAt, railLength } from './geometry';
 import type { Packet } from './resolve';
 
 /** Pause after a step's last phase at 1x. */
@@ -27,7 +27,7 @@ const MAX_TURN_SHARE = 0.3;
 export function pacePhase(phase: Packet[]): number {
   const speed = MAX_SPEED / (1 + PARALLEL_SLOWDOWN * (phase.length - 1));
   for (const packet of phase) {
-    const length = curveLength(packet.path);
+    const length = railLength(packet.path);
     packet.durationMs = Math.round(
       packet.roundTrip
         ? Math.max(
@@ -52,6 +52,11 @@ function travelProgress(t: number, roundTrip: boolean, durationMs: number): numb
   return easeSine((1 - t) / leg);
 }
 
+/** How far along its rail a packet is at `t` of its time, as a share of the rail's length. */
+export function packetShare(packet: Packet, t: number): number {
+  return travelProgress(t, packet.roundTrip, packet.durationMs);
+}
+
 export function packetPosition(packet: Packet, t: number): Point {
-  return pointAt(packet.path, travelProgress(t, packet.roundTrip, packet.durationMs));
+  return pointAt(packet.path, packetShare(packet, t));
 }

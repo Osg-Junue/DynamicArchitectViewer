@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
 import { computeLayout } from '../../layout';
+import { railEnds } from '../geometry';
 import { packetPosition, resolveView, zoneMoves } from '../index';
 import type { Packet } from '../resolve';
 import { pacePhase } from '../timing';
@@ -68,10 +69,11 @@ describe('packet timing', () => {
   it('rests a round trip at the far end and brings it back', () => {
     const packet = view.phases[1]?.[0];
     if (!packet) throw new Error('missing packet');
-    expect(packetPosition(packet, 0)).toEqual(packet.path.p0);
-    expect(packetPosition(packet, 0.5)).toEqual(packet.path.p3);
-    expect(packetPosition(packet, 0.52)).toEqual(packet.path.p3);
-    expect(packetPosition(packet, 1)).toEqual(packet.path.p0);
+    const { start, end } = railEnds(packet.path);
+    expect(packetPosition(packet, 0)).toEqual(start);
+    expect(packetPosition(packet, 0.5)).toEqual(end);
+    expect(packetPosition(packet, 0.52)).toEqual(end);
+    expect(packetPosition(packet, 1)).toEqual(start);
   });
 });
 

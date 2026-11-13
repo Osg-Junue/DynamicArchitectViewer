@@ -1,7 +1,7 @@
 import { type Layout, type Rect, rectContains } from '../layout';
 import { boundsOf } from './bounds';
 import { calloutRect, computePacketCalloutBox } from './callout';
-import { type Bezier, clamp } from './geometry';
+import { clamp, railBox } from './geometry';
 import type { Packet, ResolvedView } from './resolve';
 
 /**
@@ -76,15 +76,6 @@ export function visibleWorld(canvas: Size, pose: Pose): Rect {
     width: canvas.width / pose.zoom,
     height: canvas.height / pose.zoom,
   };
-}
-
-/** The box around a curve's control points. */
-function controlBox({ p0, p1, p2, p3 }: Bezier): Rect {
-  const xs = [p0.x, p1.x, p2.x, p3.x];
-  const ys = [p0.y, p1.y, p2.y, p3.y];
-  const x = Math.min(...xs);
-  const y = Math.min(...ys);
-  return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
 }
 
 /** The rectangles of the callouts attached to some packets. */
@@ -179,7 +170,7 @@ export function followFrame(layout: Layout, packets: readonly Packet[]): Frame {
   const rects = [
     ...spotsOf(layout, packets),
     ...calloutsOf(packets),
-    ...packets.map((packet) => controlBox(packet.path)),
+    ...packets.map((packet) => railBox(packet.path)),
   ];
   const b = boundsOf(rects, FOLLOW_PAD, 0);
   return {

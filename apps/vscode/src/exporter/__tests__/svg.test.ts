@@ -5,9 +5,13 @@ import { SAMPLE_TEMPLATES } from '../../samples';
 import {
   calloutRect,
   computePacketCalloutBox,
+  cornerShares,
   framePose,
   HOLD_MS,
   h,
+  pointAt,
+  resolveView,
+  round,
   type Size,
   stepFrame,
   visibleWorld,
@@ -47,6 +51,22 @@ function sampleDsl(id: string): string {
 }
 
 describe('exportSvg', () => {
+  it('takes a packet round the corner of its rail instead of cutting across it', () => {
+    const dsl =
+      'dav 1\nnode a\nnode b\nnode c\na --> b\na --> c\nstep "S" {\n  animate a --> c\n}\n';
+    const doc = parse(dsl).document;
+    const packet = resolveView(doc, computeLayout(doc), 0).phases[0]?.[0];
+    if (!packet) throw new Error('missing packet');
+    const corners = cornerShares(packet.path);
+    expect(corners.length).toBeGreaterThan(0);
+    const svg = exportSvg(dsl);
+    // The packet's recorded positions include the start, the middle and the end of each corner.
+    for (const share of corners) {
+      const { x, y } = pointAt(packet.path, share);
+      expect(svg).toContain(`${round(x)},${round(y)}`);
+    }
+  });
+
   it('draws a still picture of the whole diagram without steps', () => {
     const svg = exportSvg('dav 1\ntitle "Plain"\nnode a\nnode b\na --> b');
 
@@ -268,10 +288,10 @@ describe('exportSvg', () => {
     expect(zoneLayer).not.toContain('class="dav-group dav-dimmed" data-id="inner"');
     // Branches whose visible span has a constant coordinate emit no <animate attributeName="y">.
     expect(zoneLayer).toContain(
-      '<g class="dav-group" data-id="mid"><text x="319.3" y="212.1" class="dav-group-label" font-size="16" fill="var(--dav-fg)">Middle Zone</text>',
+      '<g class="dav-group" data-id="mid"><text x="319.3" y="246.1" class="dav-group-label" font-size="16" fill="var(--dav-fg)">Middle Zone</text>',
     );
     expect(zoneLayer).toContain(
-      '<g class="dav-group dav-dimmed" data-id="lower"><text x="324.7" y="538" class="dav-group-label" font-size="16" fill="var(--dav-fg)">Lower Zone</text>',
+      '<g class="dav-group dav-dimmed" data-id="lower"><text x="324.7" y="572" class="dav-group-label" font-size="16" fill="var(--dav-fg)">Lower Zone</text>',
     );
   });
 

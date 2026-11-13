@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
 import { computeLayout, countCrossings, type Rect, rectContains, rectOverlaps } from '../index';
+import { STATION_CENTER } from '../metrics';
 
 /** Zones of `size` chained nodes in a row, with links from the first zone to all the others. */
 function bigDiagram(size = 6, zones = 8): string {
@@ -76,6 +77,25 @@ describe('zoned placement', () => {
       expect(nearest).toBeLessThanOrEqual(70);
       expect(nearest).toBeGreaterThanOrEqual(34);
     }
+  });
+
+  it('puts the stations of linked zones level or straight above each other where it can', () => {
+    const station = (id: string) => {
+      const r = layout.nodes[id] as Rect;
+      return { x: r.x + r.width / 2, y: r.y + STATION_CENTER };
+    };
+    const zoneOf = new Map(document.nodes.map((n) => [n.id, n.parentId]));
+    const between = document.edges.filter((e) => zoneOf.get(e.from) !== zoneOf.get(e.to));
+    const straight = between.filter((e) => {
+      const a = station(e.from);
+      const b = station(e.to);
+      return Math.abs(a.x - b.x) < 0.5 || Math.abs(a.y - b.y) < 0.5;
+    });
+    // Zones are rigid and most have several links, so only some of the 13 can be straight:
+    // 5 are. Without the search's pull towards facing stations and the final move, 1 is;
+    // with the final move alone, 3.
+    expect(between).toHaveLength(13);
+    expect(straight.length).toBeGreaterThanOrEqual(4);
   });
 
   it('keeps shared columns when no link is too long', () => {

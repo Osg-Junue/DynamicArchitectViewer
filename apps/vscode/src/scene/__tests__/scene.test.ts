@@ -4,7 +4,7 @@ import { computeLayout, type Rect, stationRect } from '../../layout';
 import { ICON_NAMES } from '../../model/types';
 import { SAMPLE_TEMPLATES } from '../../samples';
 import { CALLOUT_GAP, separatePhaseCallouts } from '../callout';
-import { type Bezier, pointAt } from '../geometry';
+import { type Bezier, pointAt, type Rail, type Route, railEnds } from '../geometry';
 import { ICON_SHAPES } from '../icons';
 import {
   activeLabelFill,
@@ -102,7 +102,7 @@ describe('resolveView', () => {
   it('reverses the path when a packet travels against a bidirectional edge', () => {
     const packet = view(0).phases[1]?.[0];
     const e = edge(0, 'client->db');
-    expect(packet && e && packet.path.p0).toEqual(e?.path.p3);
+    expect(packet && railEnds(packet.path).start).toEqual(e && railEnds(e.path).end);
     expect(e?.active).toBe(true);
   });
 
@@ -328,13 +328,13 @@ describe('buildScene', () => {
     };
 
     const roundTrip = packetFor('<->');
-    expect(packetPosition(roundTrip, 0)).toEqual(roundTrip.path.p0);
-    expect(packetPosition(roundTrip, 0.5)).toEqual(roundTrip.path.p3);
-    expect(packetPosition(roundTrip, 1)).toEqual(roundTrip.path.p0);
+    expect(packetPosition(roundTrip, 0)).toEqual(railEnds(roundTrip.path).start);
+    expect(packetPosition(roundTrip, 0.5)).toEqual(railEnds(roundTrip.path).end);
+    expect(packetPosition(roundTrip, 1)).toEqual(railEnds(roundTrip.path).start);
 
     const oneWay = packetFor('-->');
-    expect(packetPosition(oneWay, 0.5)).not.toEqual(oneWay.path.p3);
-    expect(packetPosition(oneWay, 1)).toEqual(oneWay.path.p3);
+    expect(packetPosition(oneWay, 0.5)).not.toEqual(railEnds(oneWay.path).end);
+    expect(packetPosition(oneWay, 1)).toEqual(railEnds(oneWay.path).end);
   });
 
   it.each(SAMPLE_TEMPLATES.map((s) => [s.id, s.dsl] as const))(
@@ -535,11 +535,11 @@ step "S" {
     expect(stops.map((s) => s.attrs['data-active-text'])).toEqual(['#ffffff', 'var(--dav-bg)']);
   });
 
-  it('leaves stations along the direction of travel', () => {
+  it('starts two rails of one station at different points', () => {
     const doc = parse('dav 1\nnode a\nnode b\nnode c\na --> b\na --> c\n').document;
     const v = resolveView(doc, computeLayout(doc), null);
     const [first, second] = v.edges;
-    expect(first?.path.p0).not.toEqual(second?.path.p0);
+    expect(first && railEnds(first.path).start).not.toEqual(second && railEnds(second.path).start);
   });
 
   it('runs opposite directions on parallel tracks', () => {
@@ -547,9 +547,14 @@ step "S" {
       'dav 1\nnode a\nnode b\na --> b\nb --> a\nstep "S" {\n  animate a --> b\n  animate b --> a\n}\n',
     ).document;
     const v = resolveView(doc, computeLayout(doc), 0);
-    const y = (id: string) => v.edges.find((e) => e.id === id)?.path.p0.y ?? 0;
+    const y = (id: string) => {
+      const edge = v.edges.find((e) => e.id === id);
+      return edge ? railEnds(edge.path).start.y : 0;
+    };
+    // Each keeps to the left of its own direction: left to right above, the way back below.
     expect(y('a->b')).toBeLessThan(y('b->a'));
-    expect(v.phases[1]?.[0]?.path.p0.y).toBe(y('b->a'));
+    const back = v.phases[1]?.[0];
+    expect(back && railEnds(back.path).start.y).toBe(y('b->a'));
   });
 
   it('numbers the phases of a multi-phase step', () => {
@@ -622,7 +627,8 @@ describe('self-loops', () => {
     const view = resolveView(document, layout, 0);
     const [first, second] = view.edges;
     expect(view.phases[0]?.[0]?.path).toEqual(first?.path);
-    expect(second?.path.p1.y).toBeLessThan(first?.path.p1.y as number);
+    if (!first || !second) throw new Error('missing loop');
+    expect((second.path as Bezier).p1.y).toBeLessThan((first.path as Bezier).p1.y);
   });
 
   it('reserves room above the node, and keeps rows level and groups around the loop', () => {
@@ -666,7 +672,7 @@ describe('numbered stops on a shared rail', () => {
     );
     const view = resolveView(document, computeLayout(document), 0);
     const circle = findAll(buildScene(view), (e) => e.attrs.class === 'dav-stop')[0]?.children[0];
-    const mid = pointAt(view.phases[0]?.[0]?.path as Bezier, 0.5);
+    const mid = pointAt(view.phases[0]?.[0]?.path as Rail, 0.5);
     expect((circle as VElement).attrs.cx).toBe(mid.x);
     expect((circle as VElement).attrs.cy).toBe(mid.y);
   });
@@ -692,9 +698,10 @@ describe('edges between the same stations', () => {
     ['a bidirectional edge last', 'b --> a [id: x]\na <-> b'],
   ])('keeps them apart with %s', (_name, edges) => {
     const [first, second] = build(`dav 1\nnode a\nnode b\n${edges}\n`).edges;
-    const a = pointAt(first?.path as Bezier, 0.5);
-    const b = pointAt(second?.path as Bezier, 0.5);
-    expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeGreaterThan(20);
+    const a = pointAt(first?.path as Rail, 0.5);
+    const b = pointAt(second?.path as Rail, 0.5);
+    // Side by side, a line's width and more apart.
+    expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeGreaterThanOrEqual(6);
   });
 
   it('runs a packet along the edge it belongs to', () => {
@@ -705,18 +712,20 @@ describe('edges between the same stations', () => {
     expect(view.phases[0]?.[0]?.path).toEqual(view.edges.find((e) => e.id === 'y')?.path);
   });
 
-  it('starts a steep rail at the side of its station on a fan-out', () => {
+  it('leaves a station level or upright, and meets the next one the same way', () => {
     const { document } = parse(
       'dav 1\nnode a\nnode x\nnode y\nnode z\na --> x\na --> y\na --> z\n',
     );
-    const layout = computeLayout(document);
-    const view = resolveView(document, layout, null);
-    const station = stationRect(layout.nodes.a as Rect, 'server');
-    const rail = view.edges.find((e) => e.to === 'z')?.path as Bezier;
-    const cx = station.x + station.width / 2;
-    const cy = station.y + station.height / 2;
-    const fromCenter = Math.hypot(rail.p0.x - cx, rail.p0.y - cy);
-    expect(rail.p0.x === cx || Math.abs(fromCenter - station.width / 2) < 0.01).toBe(true);
+    const view = resolveView(document, computeLayout(document), null);
+    expect(view.edges).toHaveLength(3);
+    for (const edge of view.edges) {
+      const { points } = edge.path as Route;
+      for (let i = 0; i + 1 < points.length; i++) {
+        const p = points[i];
+        const q = points[i + 1];
+        expect(p && q && (p.x === q.x || p.y === q.y)).toBe(true);
+      }
+    }
   });
 });
 

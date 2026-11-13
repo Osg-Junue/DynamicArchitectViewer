@@ -112,15 +112,17 @@ lb --> db
 
 **`animate` does not affect layout.** Nodes joined only by `animate` are placed as if unconnected. Add an edge if the position matters.
 
-**A self-loop adds room above its row.** Every node directly in the same group moves down with it, which keeps their rails straight.
+**A self-loop adds room above every row.** Each node gets the room the tallest loop of the diagram needs, so stations stay level from one zone to the next and the rails between them stay straight.
+
+**A node outside a zone stands lower than the zone's top.** The first row of a group starts as far down as the first row of the deepest group nested in it. A zone's frame pushes its stations down by its header and by the room for loops, and without this a rail from a station outside a zone to one inside it would have to step down.
 
 **There is no syntax to pin a node.** This is deliberate. See [Design decisions](design-decisions.md).
 
-**Lines avoid nodes, but may cross a group.** Crossings between rails are reduced automatically. A rail bends round the nodes in its way, as a bow or as an S, to the side where it crosses the fewest other rails; a long rail with several nodes in its way may still run through one. A rail can also pass through the area of an unrelated group. Rails that would leave a node from one point are set side by side.
+**Lines run level and upright, and keep clear of nodes.** A rail is made of straight stretches with rounded corners. It never runs through another node or over the name of a zone, and it goes round a zone it has nothing to do with unless the way round is much longer. Rails that share a line run side by side, so several rails can enter a node next to each other. Two stations that are 12 units or less off level are joined by one straight line that meets them a little off their middle.
 
 ## Exact rules
 
-This section is for changing the layout code in [`layout/index.ts`](../apps/vscode/src/layout/index.ts). Rail routing, such as curving around nodes and separating parallel lines, is not part of this stage. It lives in `scene/rails.ts` and `scene/geometry.ts`.
+This section is for changing the layout code in [`layout/index.ts`](../apps/vscode/src/layout/index.ts). Rail routing is not part of this stage. It lives in `scene/route.ts` and `scene/rails.ts`, and is described under [Routing rails](#routing-rails).
 
 ### Inputs and outputs
 
@@ -165,7 +167,7 @@ Each group, and the top level, places two kinds of block: the nodes directly in 
 | Accepted when | There are fewer crossings, or as many crossings and a shorter total vertical rail length |
 | Skipped when | There are no edges other than self-loops, or more than 500, since it runs on every edit and crossing counts are quadratic in edges |
 
-Crossings are counted on straight lines between station centers (`countCrossings`), and edges sharing a station do not count. Drawn rails curve around nodes, so the drawn count can differ.
+Crossings are counted on straight lines between station centers (`countCrossings`), and edges sharing a station do not count. Drawn rails take right-angled routes, so the drawn count can differ.
 
 ### Placing zones freely
 
@@ -173,15 +175,43 @@ When the column layout leaves a link longer than 700 units (a link used for a ro
 
 1. Each top-level zone is laid out on its own, with the rules above.
 2. The zones start in the columns of a graph that has one node per zone.
-3. Simulated annealing moves zones, swaps them and flips them vertically, scoring link length, crossings, links through other zones, right-to-left links and overall size. Every unit of a link's length counts, and counts again past 700. The size counts as the longer side of a 16:10 canvas the zones fit in, so they fill such a canvas rather than stretch into a strip. A link used for a round trip counts double, since it is traversed twice in its time.
+3. Simulated annealing moves zones, swaps them and flips them vertically, scoring link length, crossings, links through other zones, right-to-left links, how far links are from straight, and overall size. Every unit of a link's length counts, and counts again past 700. The size counts as the longer side of a 16:10 canvas the zones fit in, so they fill such a canvas rather than stretch into a strip. A link used for a round trip counts double, since it is traversed twice in its time. A link is off straight by the sideways distance between its two stations, up to 160, counted twice; this applies where no node of either zone stands between them on that side, and a link that cannot be straight counts the full 160.
 4. Each zone slides towards the zones it is linked to, as far as its clearance allows, so that linked neighbors end up one clearance apart.
-5. Zone edges are aligned where that costs almost nothing, and the zones slide together once more. The best of six seeded runs is kept.
+5. Zone edges are aligned where that costs almost nothing, and the zones slide together once more.
+6. A zone moves up to 120 units to put the two stations of a link level, or one straight above the other, with nothing between them. It takes the move that straightens the most of its links, as long as the rest of the score rises by less than 120 per link. The best of six seeded runs is kept, counting each straight link as 120 in its favor.
 
 The result is deterministic. Zones no longer share columns, so a column does not line up across the diagram. The search takes about a second at 300 nodes, so the last result is reused until the nodes, groups, edges or round trips change. Edge labels are left out of the search, so typing one never rearranges the zones. A long label can still widen its zone, and the zones to its right then move aside.
 
+### Routing rails
+
+Rails are routed after layout, in `scene/route.ts`, once for an arrangement: a rail keeps its course from step to step. A self-loop is not routed; it stays a curve at its station's upper right.
+
+1. **The grid.** Routes run on the lines through the middle of every station, 8 units beside every node's area (its station and labels), 12 units inside and outside every zone border, and just past every zone name.
+2. **One route at a time, shortest reach first.** A route is the cheapest way over the grid from one station to the other (A*). What it pays for:
+
+   | Cost | Amount |
+   | --- | --- |
+   | Length | 1 per unit |
+   | A turn | 36 |
+   | Crossing a route found earlier | 90 |
+   | Length inside a zone that holds neither end | 4 per unit |
+   | Length on a line that already carries routes | up to 10% more for two, 50% more for each further one |
+   | Leaving a node downwards, or reaching one from below | 30 |
+   | Meeting a station off its middle | 2 per unit |
+
+   Another node's area and a zone's name are closed. A route leaves its own station in a straight line, and enters a node's area only along a line through that station's middle, or through the middle of a linked station that is 12 units or less off it.
+3. **Side by side.** Routes that share a line are set 7 units apart, within 42 units, or 28 where they meet a station. Two routes that run together keep their sides round every corner: the one that turns off to the left at the end of their shared run is the left one all along, so they part without crossing. Routes with nothing to tell them apart, such as the two directions between one pair of stations, each keep to the left of their own direction.
+4. **The ends.** A route stops 2 units outside its station's outline. One that leaves a node downwards starts below the node's labels instead.
+
+A packet that travels where no edge runs gets a route of its own, found together with the edges. If no route is found at all, the rail is a straight line between the two stations.
+
+**Edge labels** are placed once per arrangement too (`placeLabels` in `scene/rails.ts`). A label goes beside the longest stretch of its rail that no other rail runs beside and that is long enough for it: above or below a level stretch, right or left of an upright one, 7 units away. It keeps clear of stations, node labels, zone names, other edge labels, other rails and the middle of its own rail, where a step puts numbered stops. On a rail too short for that, the label goes 20 units above or 28 below the middle. A label with no free place takes the one that covers the least.
+
+Routing takes 30 to 40 ms at 100 nodes and about 220 ms at 300, so the last result is reused until a node's or group's place, an edge, an edge label or an `animate` pair changes.
+
 ### Invariants
 
-Tests are in `layout/__tests__/layout.test.ts` and `scene/__tests__/scene.test.ts`.
+Tests are in `layout/__tests__/layout.test.ts`, `scene/__tests__/scene.test.ts` and, for rails, `scene/__tests__/rails.test.ts`.
 
 | Invariant | Test |
 | :--- | :--- |

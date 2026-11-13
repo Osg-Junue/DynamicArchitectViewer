@@ -51,7 +51,10 @@ export function computeColumnLayout(doc: DavDocument): Layout {
   }
 
   const emptyGroups = findEmptyGroups(doc, groupParent);
-  const loopRoom = selfLoopRoom(doc);
+  // A loop needs room above its station. Every station gets the room of the tallest loop, so
+  // that stations stay level from one zone to the next and a rail between them runs straight.
+  const tallestLoop = Math.max(0, ...selfLoopRoom(doc).values());
+  const loopRoom = new Map(doc.nodes.map((n) => [n.id, tallestLoop]));
   const ranks = computeRanks(
     doc.nodes.map((n) => n.id),
     doc.edges.map((e): readonly [string, string] => [e.from, e.to]),
@@ -301,6 +304,9 @@ function buildColumnPlan(
   return { root, columnX, maxRank, inset };
 }
 
+/** How far a frame pushes its first row of stations down. */
+const FRAME_TOP = GROUP_HEADER + GROUP_PADDING;
+
 function placeAuto(
   plan: ColumnPlan,
   ranks: RankResult,
@@ -336,10 +342,21 @@ function placeAuto(
     | { kind: 'col'; rank: number; ids: string[]; minCol: number; maxCol: number; order: number }
     | { kind: 'group'; child: Cluster; minCol: number; maxCol: number; order: number };
 
+  // The same for every cluster, so that rails between stations in a row stay straight.
+  const room = Math.max(0, ...loopRoom.values());
+  /** How far down each frame pushes the stations inside it. */
+  const level = FRAME_TOP + room;
+
+  /** How many frames deep the groups nested in a cluster go. */
+  const framesBelow = (cluster: Cluster): number =>
+    Math.max(0, ...cluster.children.filter((c) => c.needsLayout).map((c) => 1 + framesBelow(c)));
+
   const layoutCluster = (cluster: Cluster, top: number): number => {
     const hasFrame = cluster.id !== undefined;
-    // Applied to the whole cluster so that rails between stations in a row stay straight.
-    const room = Math.max(0, ...cluster.nodes.map((id) => loopRoom.get(id) ?? 0));
+    // A frame pushes its stations down by its header and the room for loops. The first row of
+    // a cluster starts as far down as the first row of the deepest group nested in it, so that
+    // a rail from a station outside a zone to one inside it runs level.
+    const depth = framesBelow(cluster);
     const startY = top + (hasFrame ? GROUP_HEADER + GROUP_PADDING : 0) + room;
     const colBottom = Array.from({ length: plan.maxRank + 1 }, () => startY);
     let maxBottom = startY;
@@ -374,6 +391,7 @@ function placeAuto(
         const keyed = ids.map((id, i) => ({ id, key: columnKey(id), i }));
         keyed.sort((a, b) => a.key - b.key || previousY(a.id) - previousY(b.id) || a.i - b.i);
         let colY = colBottom[rank] ?? startY;
+        if (colY === startY) colY += depth * level;
         for (const { id } of keyed) {
           out[id] = { x: plan.columnX[rank] ?? ORIGIN.x, y: colY, ...NODE_SIZE };
           colY += NODE_SIZE.height + ROW_GAP + room;
@@ -383,7 +401,9 @@ function placeAuto(
         maxBottom = Math.max(maxBottom, bottom);
       } else {
         const { child, minCol, maxCol } = item;
-        const childTop = Math.max(...colBottom.slice(minCol, maxCol + 1));
+        const below = Math.max(...colBottom.slice(minCol, maxCol + 1));
+        const childTop =
+          below === startY ? below + (depth - 1 - framesBelow(child)) * level : below;
         const childBottom = layoutCluster(child, childTop);
         for (let r = minCol; r <= maxCol; r++) {
           colBottom[r] = childBottom + CLUSTER_GAP + room;
