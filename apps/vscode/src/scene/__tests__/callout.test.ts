@@ -176,31 +176,31 @@ describe('packet code callouts and overflow prevention', () => {
       CALLOUT_RADIUS: 10,
       CALLOUT_CODE_RADIUS: 6,
       CALLOUT_OUTER_PAD_X: 16,
-      CALLOUT_LABEL_SIZE: 14,
-      CALLOUT_DESC_SIZE: 13,
-      CALLOUT_LINE_HEIGHT: 20,
-      CALLOUT_CODE_SIZE: 11.5,
-      CALLOUT_CODE_LINE_HEIGHT: 17.5,
+      CALLOUT_LABEL_SIZE: 15,
+      CALLOUT_DESC_SIZE: 14,
+      CALLOUT_LINE_HEIGHT: 22,
+      CALLOUT_CODE_SIZE: 12.5,
+      CALLOUT_CODE_LINE_HEIGHT: 19,
       CALLOUT_CODE_PAD_X: 13,
-      CALLOUT_CODE_HEADER_HEIGHT: 28,
+      CALLOUT_CODE_HEADER_HEIGHT: 30,
       CALLOUT_NUMBER_ROOM: 24,
     });
 
     const labelOnly = computePacketCalloutBox(makePacket({ label: '201 Created' }));
     expect(labelOnly).not.toBeNull();
-    expect(labelOnly && labelOnly.boxBottom - labelOnly.boxTop).toBe(32);
+    expect(labelOnly && labelOnly.boxBottom - labelOnly.boxTop).toBe(34);
     expect(labelOnly?.padX).toBe(13);
     expect(labelOnly?.code).toBeUndefined();
 
     const withDesc = computePacketCalloutBox(
       makePacket({ label: '201 Created', description: 'Line one\nLine two' }),
     );
-    expect(withDesc && withDesc.boxBottom - withDesc.boxTop).toBe(40 + 2 * CALLOUT_LINE_HEIGHT);
+    expect(withDesc && withDesc.boxBottom - withDesc.boxTop).toBe(42 + 2 * CALLOUT_LINE_HEIGHT);
     expect(withDesc?.padX).toBe(16);
     expect(withDesc?.code).toBeUndefined();
 
     const descOnly = computePacketCalloutBox(makePacket({ description: 'Only description' }));
-    expect(descOnly && descOnly.boxBottom - descOnly.boxTop).toBe(20 + 1 * CALLOUT_LINE_HEIGHT);
+    expect(descOnly && descOnly.boxBottom - descOnly.boxTop).toBe(21 + 1 * CALLOUT_LINE_HEIGHT);
     expect(descOnly?.code).toBeUndefined();
 
     const emptyCodeOnly = computePacketCalloutBox(makePacket({ code: { body: '  \r\n\t  ' } }));
@@ -232,9 +232,9 @@ describe('packet code callouts and overflow prevention', () => {
     );
     expect(langAndTitle?.code).toMatchObject({
       header: 'json · Order Request',
-      headerHeight: 28,
+      headerHeight: 30,
       lines: ['{"amount": 14800}'],
-      offsetY: 37,
+      offsetY: 39,
     });
     expect(langAndTitle?.code?.width).toBe((langAndTitle?.halfW ?? 0) * 2 - 32);
 
@@ -242,13 +242,13 @@ describe('packet code callouts and overflow prevention', () => {
       makePacket({ code: { lang: 'sql', body: 'SELECT 1;' } }),
     );
     expect(langOnly?.code?.header).toBe('sql');
-    expect(langOnly?.code?.headerHeight).toBe(28);
+    expect(langOnly?.code?.headerHeight).toBe(30);
 
     const titleOnly = computePacketCalloutBox(
       makePacket({ code: { title: 'Payload', body: 'ok' } }),
     );
     expect(titleOnly?.code?.header).toBe('Payload');
-    expect(titleOnly?.code?.headerHeight).toBe(28);
+    expect(titleOnly?.code?.headerHeight).toBe(30);
   });
 
   it('normalizes CRLF/tabs, caps code at 10 lines, and truncates overlong code lines', () => {
@@ -262,13 +262,13 @@ describe('packet code callouts and overflow prevention', () => {
     expect(box?.code?.lines).toHaveLength(10);
     expect(box?.code?.lines[1]).toBe('  "k0": 0');
     expect(box?.code?.lines[9]).toBe('…');
-    expect(box?.code?.height).toBe(28 + 10 * CALLOUT_CODE_LINE_HEIGHT + 14);
+    expect(box?.code?.height).toBe(30 + 10 * CALLOUT_CODE_LINE_HEIGHT + 14);
 
     const wide = computePacketCalloutBox(makePacket({ code: { body: longLine } }));
     const fittedLine = wide?.code?.lines[0] ?? '';
     expect(fittedLine.endsWith('…')).toBe(true);
     expect(estimateCalloutTextWidth(fittedLine, CALLOUT_CODE_SIZE, 'mono')).toBeLessThanOrEqual(
-      404,
+      440,
     );
   });
 
@@ -811,8 +811,8 @@ step "Step 4" {
         (e) => e.tag === 'text' && String(e.attrs.class).includes('dav-packet-code-line'),
       )[0];
       const codeY = htmlBox.boxTop + htmlBox.code.offsetY;
-      expect(headEl?.attrs.y).toBe(Number((codeY + 19).toFixed(2)));
-      expect(line0El?.attrs.y).toBe(Number((codeY + htmlBox.code.headerHeight + 20.5).toFixed(2)));
+      expect(headEl?.attrs.y).toBe(Number((codeY + 20).toFixed(2)));
+      expect(line0El?.attrs.y).toBe(Number((codeY + htmlBox.code.headerHeight + 22).toFixed(2)));
     }
   });
 

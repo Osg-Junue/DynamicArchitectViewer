@@ -12,19 +12,26 @@ export const CALLOUT_CODE_RADIUS = 6;
 export const CALLOUT_OUTER_PAD_X = 16;
 const CALLOUT_COMPACT_PAD_X = 13;
 
-const CALLOUT_MAX_TEXT_WIDTH = 384;
-const CALLOUT_NO_CODE_DESC_MAX_WIDTH = 340;
-export const CALLOUT_LABEL_SIZE = 14;
-export const CALLOUT_DESC_SIZE = 13;
-export const CALLOUT_LINE_HEIGHT = 20;
+// The widths grow with the type, so that a callout holds as many characters at any size.
+const CALLOUT_MAX_TEXT_WIDTH = 414;
+const CALLOUT_NO_CODE_DESC_MAX_WIDTH = 366;
+/** The narrowest and widest a callout with code makes its text. */
+const CALLOUT_CODE_TEXT_WIDTH = { min: 254, max: CALLOUT_MAX_TEXT_WIDTH } as const;
+export const CALLOUT_LABEL_SIZE = 15;
+export const CALLOUT_DESC_SIZE = 14;
+export const CALLOUT_LINE_HEIGHT = 22;
+/** From the top of a callout to where its description starts, with and without a heading. */
+export const CALLOUT_HEAD = { withLabel: 42, bare: 21 } as const;
+/** The height of a callout that is one heading and nothing else. */
+export const CALLOUT_ONE_LINE_HEIGHT = 34;
 
-export const CALLOUT_CODE_SIZE = 11.5;
-export const CALLOUT_CODE_HEAD_SIZE = 11;
-export const CALLOUT_CODE_LINE_HEIGHT = 17.5;
+export const CALLOUT_CODE_SIZE = 12.5;
+export const CALLOUT_CODE_HEAD_SIZE = 12;
+export const CALLOUT_CODE_LINE_HEIGHT = 19;
 export const CALLOUT_CODE_PAD_X = 13;
 export const CALLOUT_CODE_MAX_LINES = 10;
-const CALLOUT_CODE_MAX_TEXT_WIDTH = 404;
-export const CALLOUT_CODE_HEADER_HEIGHT = 28;
+const CALLOUT_CODE_MAX_TEXT_WIDTH = 440;
+export const CALLOUT_CODE_HEADER_HEIGHT = 30;
 
 /** Room on the left of a callout for the number it shares with its stop on the rail. */
 export const CALLOUT_NUMBER_ROOM = 24;
@@ -238,9 +245,14 @@ export function measureCalloutCard(packet: CalloutText): MeasuredCalloutCard | n
   let phiInnerW = 0;
   let descMaxW = CALLOUT_NO_CODE_DESC_MAX_WIDTH;
   if (codeSpec) {
-    const estH = (packet.label ? 40 : 14) + (packet.description ? 44 : 0) + codeSpec.height + 14;
-    phiInnerW = clamp(Math.round(estH * PHI - 32), 236, 384);
-    descMaxW = clamp(Math.max(phiInnerW, Math.ceil(codeSpec.minBoxW)), 236, 384);
+    const { min, max } = CALLOUT_CODE_TEXT_WIDTH;
+    const estH =
+      (packet.label ? CALLOUT_HEAD.withLabel : 14) +
+      (packet.description ? 2 * CALLOUT_LINE_HEIGHT : 0) +
+      codeSpec.height +
+      14;
+    phiInnerW = clamp(Math.round(estH * PHI - 32), min, max);
+    descMaxW = clamp(Math.max(phiInnerW, Math.ceil(codeSpec.minBoxW)), min, max);
   }
 
   const descLines = packet.description
@@ -248,7 +260,7 @@ export function measureCalloutCard(packet: CalloutText): MeasuredCalloutCard | n
         packet.description,
         descMaxW,
         Math.max(
-          188,
+          202,
           labelW + 8,
           codeSpec ? Math.ceil(Math.max(codeSpec.minBoxW, phiInnerW) * 0.82) : 0,
         ),
@@ -268,23 +280,22 @@ export function measureCalloutCard(packet: CalloutText): MeasuredCalloutCard | n
     codeSpec ? codeSpec.minBoxW : 0,
   );
 
+  const head = label ? CALLOUT_HEAD.withLabel : CALLOUT_HEAD.bare;
   let height: number;
   let offsetY = 0;
   if (!codeSpec) {
     height =
-      descLines.length === 0 ? 32 : (label ? 40 : 20) + descLines.length * CALLOUT_LINE_HEIGHT;
+      descLines.length === 0
+        ? CALLOUT_ONE_LINE_HEIGHT
+        : head + descLines.length * CALLOUT_LINE_HEIGHT;
   } else {
     offsetY =
-      descLines.length > 0
-        ? (label ? 40 : 20) + descLines.length * CALLOUT_LINE_HEIGHT
-        : label
-          ? 37
-          : 14;
+      descLines.length > 0 ? head + descLines.length * CALLOUT_LINE_HEIGHT : label ? 39 : 14;
     height = offsetY + codeSpec.height + 14;
   }
 
-  const phiFloorW = codeSpec ? clamp(Math.round(height * PHI), 220, 368) : 0;
-  const minW = codeSpec ? phiFloorW : descLines.length > 0 ? 196 : 60;
+  const phiFloorW = codeSpec ? clamp(Math.round(height * PHI), 236, 396) : 0;
+  const minW = codeSpec ? phiFloorW : descLines.length > 0 ? 210 : 60;
   const width = Math.max(minW, Math.ceil(contentW + padX * 2));
   const numberRoom = packet.stopLabel === undefined ? 0 : CALLOUT_NUMBER_ROOM;
   const halfW = (width + numberRoom) / 2;

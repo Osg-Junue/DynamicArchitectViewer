@@ -91,7 +91,7 @@ export function createControls(s: ViewerStrings, speed: number, on: ControlActio
   );
   playAllBtn.dataset.testid = 'btn-play-all';
   const motionBtn = iconButton(
-    CONTROL_ICONS.motion,
+    CONTROL_ICONS.stop,
     { 'data-testid': 'btn-motion' },
     on.toggleMotion,
   );

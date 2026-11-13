@@ -10,6 +10,20 @@ export interface AiPromptOptions {
 
 const RESERVED_WORDS = KEYWORD_NAMES.map((w) => `\`${w}\``).join(', ');
 
+/**
+ * About how many characters of each text are drawn before it is cut off: Latin letters, then
+ * Japanese. The same numbers as the table in the dav-diagrams skill; a test keeps them equal.
+ */
+export const TEXT_BUDGET: ReadonlyArray<readonly [text: string, latin: string, wide: string]> = [
+  ['node label', '18', '11'],
+  ['node `sub`', '22', '13'],
+  ['`badge`', '15', '9'],
+  ['edge label', '25', '15'],
+  ['`animate` label', '38', '23'],
+  ['`animate` `desc`', '150', '85'],
+  ['`code` line, of at most 10 lines', '55', '30'],
+];
+
 export const PROMPT_EXAMPLE_DSL = `dav 1
 title "Order Processing Architecture"
 
@@ -20,7 +34,7 @@ group cloud_vpc "Production VPC" {
   node queue "Event Queue" [icon: queue, sub: "SQS"]
 }
 
-node client "Web Client" [icon: browser]
+node client "Web Client" [icon: browser, sub: "Customer"]
 
 client --> alb : "HTTPS"
 alb --> api : "gRPC"
@@ -32,7 +46,7 @@ step "1. Submit Order" {
   focus client, alb, api, db
   state api [badge: "200 OK"]
   state db [badge: "WRITE"]
-  animate client --> alb : "POST /orders" [desc: "Client sends order payload over HTTPS"] {
+  animate client --> alb : "POST /orders" [icon: file, desc: "Client sends order payload over HTTPS"] {
     code json "Order Request" \`\`\`
       {
         "orderId": "ord_01JCK9X7",
@@ -41,7 +55,7 @@ step "1. Submit Order" {
     \`\`\`
   }
   animate alb --> api : "Forward" [desc: "ALB routes request to healthy API container"]
-  animate api --> db : "INSERT order" [desc: "API commits transaction to primary PostgreSQL"]
+  animate api --> db : "INSERT order" [icon: database, desc: "API commits transaction to primary PostgreSQL"]
 }
 
 step "2. Enqueue Background Job" {
@@ -49,7 +63,7 @@ step "2. Enqueue Background Job" {
   focus api, queue
   state db [badge: ""]
   state queue [badge: "QUEUED"]
-  animate api --> queue : "OrderCreated" [desc: "Publish async event for downstream workers"]
+  animate api --> queue : "OrderCreated" [icon: mail, desc: "Publish async event for downstream workers"]
 }`;
 
 /**
@@ -108,7 +122,19 @@ export function buildAiPrompt(options: AiPromptOptions = {}): string {
           '      - Attribute shorthand for short snippets: `[code: "{ \\"status\\": 201 }"]`.',
           '      - Specify at most one `code` per `animate` (multiple `code` entries emit a `duplicate-code` warning) and keep snippets concise (2–6 key lines/fields) so callouts stay readable.',
           '',
-          '## 4. Reference Example',
+          '## 4. Level of Detail',
+          'A diagram must explain itself to a reader who was not there when it was written.',
+          '- Node: a short label, an `icon` that matches its kind, and a `sub` with its technology or role.',
+          '- Edge: a label that says what travels on it or how the two are related, such as `"HTTPS"` or `"SQL"`.',
+          '- Steps: 3 to 8, the normal flow first, then each failure or alternative as steps of its own. Every step has a `desc` of one or two sentences that says what happens and why.',
+          '- `animate`: a concrete label such as `"POST /orders"`, a `desc` that says what the message does or decides, and an `icon` for what it carries.',
+          '- `code`: on the packets whose content matters (the request, the query, the event, the response). At least one in the diagram; one or two per step is typical. Keep example values the same across steps.',
+          '- Run every `animate` along a declared edge. For a reply, make the edge `<->` or declare the reverse edge, and send the reply back through every node the request came through.',
+          '- Show a status that changes with `state` and a `badge` plus `color`, and clear it once it no longer holds.',
+          '- Do not invent components that the source material does not have.',
+          `- Only \`desc\` wraps. Any other text that is too long is cut off with \`…\`. What fits, in Latin letters (and in Japanese characters): ${TEXT_BUDGET.map(([name, latin, wide]) => `${name} ${latin} (${wide})`).join(', ')}.`,
+          '',
+          '## 5. Reference Example',
         ]
       : [
           '# DynamicArchitectViewer DSL v1 (`dav 1`) 仕様プロンプト',
@@ -154,7 +180,19 @@ export function buildAiPrompt(options: AiPromptOptions = {}): string {
           '      - 短いスニペット向けの属性省略記法: `[code: "{ \\"status\\": 201 }"]`。',
           '      - `code` は1つの `animate` につき最大1つまで（重複は `duplicate-code` 警告）。吹き出しの可読性のため2〜6行程度の要所に絞る。',
           '',
-          '## 4. サンプルコード',
+          '## 4. 詳しさの基準',
+          '書いた場にいなかった人が読んでも、図だけで内容が分かるようにする。',
+          '- ノード: 短い表示名、種類に合う `icon`、技術や役割を示す `sub` を付ける。',
+          '- エッジ: 何が流れるか、両者がどういう関係かをラベルで示す（例: `"HTTPS"`、`"SQL"`）。',
+          '- ステップ: 3〜8個。まず正常な流れ、次に失敗や別経路をそれぞれ独立したステップにする。各ステップに、何が起きるかとその理由を1〜2文で書いた `desc` を付ける。',
+          '- `animate`: `"POST /orders"` のような具体的なラベル、そのメッセージが何をするか・何を決めるかを書いた `desc`、運ぶものを示す `icon` を付ける。',
+          '- `code`: 中身が重要なパケット（リクエスト、クエリ、イベント、レスポンス）に付ける。図全体で最低1つ、1ステップに1〜2個が目安。例に使う値はステップをまたいで揃える。',
+          '- `animate` は必ず宣言済みのエッジの上を走らせる。応答を描くには、エッジを `<->` にするか逆向きのエッジを宣言し、リクエストが通ったノードを順に戻す。',
+          '- 変化する状態は `state` の `badge` と `color` で示し、当てはまらなくなったら消す。',
+          '- 元の資料にない構成要素を作らない。',
+          `- 折り返されるのは \`desc\` だけで、ほかの文字列は長すぎると \`…\` で切られる。収まる目安（半角英数字の文字数、括弧内は日本語の文字数）: ${TEXT_BUDGET.map(([name, latin, wide]) => `${name} ${latin}（${wide}）`).join('、')}。`,
+          '',
+          '## 5. サンプルコード',
         ];
 
   const fenceOf = (dsl: string) => (dsl.includes('```') ? '````' : '```');
@@ -163,8 +201,8 @@ export function buildAiPrompt(options: AiPromptOptions = {}): string {
   if (current) {
     const currentHeading =
       locale === 'en'
-        ? '## 5. Current `.dav` Diagram to Modify'
-        : '## 5. 現在の `.dav` コード（これをベースに編集してください）';
+        ? '## 6. Current `.dav` Diagram to Modify'
+        : '## 6. 現在の `.dav` コード（これをベースに編集してください）';
     const currentFence = fenceOf(current);
     sections.push('', currentHeading, `${currentFence}dav`, current, currentFence);
   }

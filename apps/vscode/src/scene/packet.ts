@@ -6,8 +6,10 @@ import {
   CALLOUT_CODE_RADIUS,
   CALLOUT_CODE_SIZE,
   CALLOUT_DESC_SIZE,
+  CALLOUT_HEAD,
   CALLOUT_LABEL_SIZE,
   CALLOUT_LINE_HEIGHT,
+  CALLOUT_ONE_LINE_HEIGHT,
   calloutOutline,
   computePacketCalloutBox,
   type PacketCalloutBox,
@@ -69,7 +71,7 @@ export function buildPacket(packet: Packet, icons: IconShapes, t = 0): VElement 
             'text',
             {
               x: alignLeft ? contentLeft + padX : cx + numberRoom / 2,
-              y: boxTop + (alignLeft ? 24 : 21),
+              y: boxTop + (alignLeft ? 25 : 22),
               ...(alignLeft ? {} : { 'text-anchor': 'middle' }),
               'font-size': CALLOUT_LABEL_SIZE,
               fill: THEME_COLOR.fg,
@@ -83,7 +85,11 @@ export function buildPacket(packet: Packet, icons: IconShapes, t = 0): VElement 
           'text',
           {
             x: contentLeft + padX,
-            y: boxTop + (label ? 44 : 24) + i * CALLOUT_LINE_HEIGHT,
+            y:
+              boxTop +
+              (label ? CALLOUT_HEAD.withLabel : CALLOUT_HEAD.bare) +
+              4 +
+              i * CALLOUT_LINE_HEIGHT,
             'font-size': CALLOUT_DESC_SIZE,
             fill: THEME_COLOR.fg,
             'fill-opacity': 0.86,
@@ -122,7 +128,10 @@ function calloutNumber(packet: Packet, box: PacketCalloutBox): VElement | null {
   if (box.number === undefined) return null;
   const x = box.cx - box.halfW + 17;
   // On the heading's line; in a callout of one line, in its middle.
-  const y = box.boxBottom - box.boxTop <= 36 ? (box.boxTop + box.boxBottom) / 2 : box.boxTop + 19;
+  const y =
+    box.boxBottom - box.boxTop <= CALLOUT_ONE_LINE_HEIGHT + 2
+      ? (box.boxTop + box.boxBottom) / 2
+      : box.boxTop + 20;
   return h(
     'g',
     { class: 'dav-packet-number' },
@@ -207,7 +216,7 @@ function packetCodeElement(
           'text',
           {
             x: n(x + CALLOUT_CODE_PAD_X),
-            y: n(y + 19),
+            y: n(y + 20),
             'font-size': CALLOUT_CODE_HEAD_SIZE,
             fill: THEME_COLOR.muted,
             'xml:space': 'preserve',
@@ -224,7 +233,7 @@ function packetCodeElement(
             'text',
             {
               x: n(x + CALLOUT_CODE_PAD_X),
-              y: n(bodyTop + 20.5 + i * CALLOUT_CODE_LINE_HEIGHT),
+              y: n(bodyTop + 22 + i * CALLOUT_CODE_LINE_HEIGHT),
               'font-size': CALLOUT_CODE_SIZE,
               fill: THEME_COLOR.fg,
               'xml:space': 'preserve',

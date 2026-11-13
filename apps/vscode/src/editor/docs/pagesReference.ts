@@ -58,10 +58,10 @@ export const REFERENCE_PAGES: readonly DocPage[] = [
               ),
             ],
             [
-              t('アニメーションのオン / オフ', 'Animation on / off'),
+              t('停止（■）', 'Stop (■)'),
               t(
-                'オフにすると動きを止め、そのステップの状態と使う線をまとめて表示します。ステップを移動してもオフのままで、再生すると自動でオンに戻ります。オフの間にノードをクリックすると、そのフェーズのパケットと吹き出しを線の途中に止めて表示します。',
-                'Off stops all motion and shows the step’s state and every rail it uses. It stays off across steps and turns back on when you play. While off, clicking a node parks that phase’s packet and callout on its rail.',
+                '動きを止め、そのステップの状態と使う線をまとめて表示します。ステップを移動しても止まったままで、もう一度押すか再生すると動きが戻ります。止まっている間にノードをクリックすると、そのフェーズのパケットと吹き出しを線の途中に止めて表示します。',
+                'Stops all motion and shows the step’s state and every rail it uses. It stays stopped across steps; press it again, or play, to bring the motion back. While stopped, clicking a node parks that phase’s packet and callout on its rail.',
               ),
             ],
             [

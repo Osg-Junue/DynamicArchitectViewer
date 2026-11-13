@@ -34,10 +34,12 @@ export const TIMELINE_HEIGHT = 20;
 export const ZONE_STRIP_HEIGHT = 36;
 const MINIMAP_MAX = { width: 180, height: 64 } as const;
 
-const TITLE_SIZE = 14;
-const DESC_SIZE = 13;
-const DESC_LINE = 19;
-const STEP_NO_SIZE = 11.5;
+// A README shows the sheet narrower than it is drawn, so its text is set larger than the
+// preview sets the same text above the canvas.
+const TITLE_SIZE = 16;
+const DESC_SIZE = 14.5;
+const DESC_LINE = 21;
+const STEP_NO_SIZE = 12.5;
 
 /** The step's number, title and description; `aside` keeps room on the right for the minimap. */
 export function header(

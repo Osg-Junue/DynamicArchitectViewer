@@ -226,6 +226,8 @@ export class CanvasPanelManager {
       `img-src ${webview.cspSource} data:`,
       `style-src 'nonce-${nonce}' ${webview.cspSource}`,
       `script-src 'nonce-${nonce}' ${webview.cspSource}`,
+      // The search for where the zones go runs in a worker, which the page starts from a blob.
+      'worker-src blob:',
     ].join('; ');
 
     const styleTag =

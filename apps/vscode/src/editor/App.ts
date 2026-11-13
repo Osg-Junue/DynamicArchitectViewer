@@ -15,6 +15,8 @@ import { Player } from '../runtime/player';
 import { ICON_SHAPES } from '../scene/icons';
 import { ExportMenu } from './ExportMenu';
 import type { HelpModal } from './HelpModal';
+import { type SearchWorker, ZonePlanner } from './zonePlanner';
+import ZoneSearchWorker from './zoneSearch.worker?worker&inline';
 
 interface VsCodeApi {
   postMessage(message: WebviewToHostMessage): void;
@@ -58,6 +60,12 @@ export function mountApp(container: HTMLElement): void {
   let cursorTargetId: string | null = null;
   let lastStepIndex: number | null = null;
   let currentDsl = '';
+  // The search for where the zones go can take a second on a large diagram; a worker keeps the
+  // preview moving meanwhile. Inlined, because a webview may only start a worker from a blob.
+  const zonePlanner = new ZonePlanner(() => new ZoneSearchWorker() as SearchWorker);
+  /** A cursor position that arrived for a document whose layout is still being worked out. */
+  let heldCursorOffset: number | null = null;
+  let awaitingLayout = false;
 
   let cachedEmptyState: ValidState | null = null;
   const getEmptyState = (): ValidState => {
@@ -205,14 +213,31 @@ export function mountApp(container: HTMLElement): void {
     const parsed = parse(dsl);
     const fatal = hasFatalError(parsed);
     exportMenu.setBlocked(fatal);
-    if (!fatal) {
+    helpModal?.update(dsl);
+    if (fatal) {
+      showValid();
+      return;
+    }
+    // Until the layout is known, the preview keeps showing the document before this one.
+    awaitingLayout = true;
+    zonePlanner.whenPlanned(parsed.document, () => {
+      awaitingLayout = false;
       lastValid = {
         dsl,
         document: parsed.document,
         layout: computeLayout(parsed.document),
         sourceMap: parsed.sourceMap,
       };
-    }
+      showValid();
+      if (heldCursorOffset !== null) {
+        const offset = heldCursorOffset;
+        heldCursorOffset = null;
+        syncCursorOffset(offset);
+      }
+    });
+  }
+
+  function showValid(): void {
     const valid = currentValid();
     if (player) {
       player.update({ document: valid.document, layout: valid.layout, icons: ICON_SHAPES });
@@ -222,10 +247,14 @@ export function mountApp(container: HTMLElement): void {
     lastStepIndex = player.getStepIndex();
     exportMenu.sync();
     renderHighlight();
-    helpModal?.update(dsl);
   }
 
   function syncCursorOffset(offset: number): void {
+    if (awaitingLayout) {
+      // The offset belongs to text the preview does not show yet.
+      heldCursorOffset = offset;
+      return;
+    }
     const hit = findAtOffset(currentValid().sourceMap, offset);
     cursorTargetId = hit.elementId;
     renderHighlight();
@@ -291,6 +320,9 @@ export function mountApp(container: HTMLElement): void {
         // Nothing of the previous document may survive into another one.
         documentUri = msg.uri;
         rememberDocument(documentUri);
+        zonePlanner.cancel();
+        awaitingLayout = false;
+        heldCursorOffset = null;
         lastValid = null;
         cursorTargetId = null;
         lastStepIndex = null;

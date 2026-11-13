@@ -5,6 +5,10 @@ The `dav` language version is separate from the extension version.
 
 ## Unreleased
 
+- Callouts are easier to read: the heading, the description and the code are each set a size larger, and a callout holds as many characters as before. In an exported SVG the step title and description above the diagram are larger too
+- The button that stops the animation shows a square, the usual sign for stop, instead of a dot on a line
+- The preview stays responsive on large diagrams: the search for where to place the zones, which takes over a second on three hundred nodes, runs in a worker, and the preview shows the diagram it has until the new layout is ready
+- Copy AI Prompt Template asks for the same detail as the agent skill: a `sub` on every node, a label on every edge, a `desc` on every step and packet, `code` where the content matters, packets that follow declared edges, and how long each text can be
 - The agent skill asks for more detail and can check it: `dav-check --detail` reports an edge or packet without a label, a step or packet without a description, a packet that travels where no edge is declared, a diagram without any `code`, and text too long to be shown in full. The skill gives the sizes that fit and shows how to write descriptions and code blocks
 - A second agent skill, `dav-reading`, explains the architecture and the data flows a `.dav` file describes. Its `dav-outline` script prints the file with every reference resolved and the packets of each step in order. Install AI Agent Skill installs both skills
 - The samples show a code block in every diagram, and three labels in the last sample that were cut off are shorter
