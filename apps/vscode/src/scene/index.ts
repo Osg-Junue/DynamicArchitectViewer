@@ -8,11 +8,10 @@ export {
   sceneBounds,
 } from './build';
 export {
-  type CalloutPlacement,
   calloutOutline,
   calloutRect,
   computePacketCalloutBox,
-  estimateCalloutTextWidth,
+  measureCalloutsWith,
   type PacketCalloutBox,
   type PacketCalloutCodeBox,
 } from './callout';
@@ -54,7 +53,7 @@ export {
   type ResolvedView,
   resolveView,
 } from './resolve';
-export { estimateTextWidth, fitText, wrapText } from './text';
+export { fitText, type TextMeasure, type TextStyle, textWidth, wrapText } from './text';
 export { HOLD_MS, MIN_PACKET_MS, PHASE_MS, packetPosition, packetShare } from './timing';
 export { h, type VElement, type VNode } from './vnode';
 export {

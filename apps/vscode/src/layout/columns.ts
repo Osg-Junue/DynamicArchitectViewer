@@ -1,9 +1,4 @@
-import {
-  EDGE_LABEL_FONT_SIZE,
-  EDGE_LABEL_MAX_WIDTH,
-  estimateTextWidth,
-  pushToMap,
-} from '../model/text';
+import { EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH, pushToMap, textWidth } from '../model/text';
 import type { DavDocument } from '../model/types';
 import { ancestorIds, parentMap } from '../model/zones';
 import { crossingsOf, type Link, linksOf, segmentsOf } from './links';
@@ -289,7 +284,7 @@ function buildColumnPlan(
     if (!e.label || !ranks.rank.has(e.from) || !ranks.rank.has(e.to)) continue;
     const left = Math.min(rankOf(e.from), rankOf(e.to));
     if (Math.abs(rankOf(e.from) - rankOf(e.to)) !== 1) continue;
-    const width = Math.min(EDGE_LABEL_MAX_WIDTH, estimateTextWidth(e.label, EDGE_LABEL_FONT_SIZE));
+    const width = Math.min(EDGE_LABEL_MAX_WIDTH, textWidth(e.label, EDGE_LABEL_FONT_SIZE));
     labelGap.set(left, Math.max(labelGap.get(left) ?? 0, width + EDGE_LABEL_MARGIN));
   }
   const columnX: number[] = [];

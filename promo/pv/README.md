@@ -6,7 +6,7 @@ This folder renders the DynamicArchitectViewer promotional video and the animati
 | --- | --- |
 | Main video: Japanese (77.5 s) and English (77.2 s) | `out/pv-ja.mp4`, `out/pv-en.mp4` |
 | Short video for social media, about 26 s | `out/pv-short-ja.mp4`, `out/pv-short-en.mp4` |
-| README animations, as SVG | `docs/media/failover.svg`, `docs/media/screen-flow.svg` |
+| README and examples animations, as SVG | `docs/media/examples/*.svg`, one for each file in `examples/` |
 | Marketplace README animation | `apps/vscode/media/demo.gif` |
 | Docs animations | `docs/media/skill-install.gif`, `docs/media/docs-guide.gif` |
 
@@ -55,7 +55,7 @@ node capture.mjs c04_skill,c06_cursor,c08_docs x --docs
 node assemble.mjs gifs
 ```
 
-Render them again when the look of a diagram changes. `svg.mjs` exports the files listed at its top from `examples/`; with a file, a target and optionally a camera and a step, it exports that one instead, to try an image out.
+Render them again when the look of a diagram changes. `svg.mjs` exports every file in `examples/`; with a file, a target and optionally a camera and a step, it exports that one instead, to try an image out.
 
 `capture.mjs` takes a comma-separated list of cuts from `cuts.mjs`; rendering one cut takes 10 to 60 seconds.
 

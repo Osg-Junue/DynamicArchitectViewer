@@ -1,15 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import {
-  EDGE_LABEL_FONT_SIZE,
-  estimateTextWidth,
-  isWide,
-  lineAtOffset,
-  normalizeCodeIndent,
-  pushToMap,
-} from '../text';
+import { isWide, lineAtOffset, normalizeCodeIndent, pushToMap, textWidth } from '../text';
 import type { DavLocale } from '../types';
 
-describe('isWide and estimateTextWidth', () => {
+describe('isWide and textWidth', () => {
   it('classifies ASCII/Latin as narrow and CJK/Hangul/full-width/emoji as wide', () => {
     expect(isWide('')).toBe(false);
     expect(isWide('A')).toBe(false);
@@ -22,11 +15,58 @@ describe('isWide and estimateTextWidth', () => {
     expect(isWide('🚀')).toBe(true); // Supplementary plane emoji
   });
 
-  it('computes deterministic em-scaled widths across narrow and wide code points', () => {
-    expect(estimateTextWidth('', EDGE_LABEL_FONT_SIZE)).toBe(0);
-    expect(estimateTextWidth('abc', 10)).toBeCloseTo(3 * 0.58 * 10, 6);
-    expect(estimateTextWidth('日本語', 10)).toBeCloseTo(3 * 1 * 10, 6);
-    expect(estimateTextWidth('A漢🚀', 12)).toBeCloseTo((0.58 + 1 + 1) * 12, 6);
+  it('gives each character its own width, by the style the text is set in', () => {
+    expect(textWidth('', 11)).toBe(0);
+    const em = (text: string, style?: 'normal' | 'bold' | 'mono') => textWidth(text, 1, style);
+    // As in a proportional font: i is narrow, m is wide, and a capital W wider still.
+    expect(em('i')).toBeLessThan(em('a'));
+    expect(em('a')).toBeLessThan(em('m'));
+    expect(em('m')).toBeLessThan(em('W'));
+    expect(em('illicit')).toBeLessThan(em('mammoth') * 0.6);
+    // Bold is wider than normal, and code gives every character the same.
+    expect(em('Order API', 'bold')).toBeGreaterThan(em('Order API'));
+    expect(em('iW', 'mono')).toBeCloseTo(2 * 0.605, 6);
+    // A letter outside ASCII counts as a broad small letter.
+    expect(em('é')).toBeCloseTo(0.6, 6);
+    expect(em('é', 'bold')).toBeCloseTo(0.65, 6);
+  });
+
+  it('takes Latin text to be a little wider than Segoe UI draws it, and no more', () => {
+    // Widths measured in a browser, in em: [text, normal, bold].
+    const measured: Array<[string, number, number]> = [
+      ['The extension host passes the .dav source', 18.42, 19.57],
+      ['POST /orders', 5.85, 6.25],
+      ['DOWN', 3.11, 3.29],
+      ['illicit little fit', 5.38, 6.07],
+      ['0123456789', 5.39, 5.75],
+    ];
+    for (const [text, normal, bold] of measured) {
+      for (const [style, real] of [
+        ['normal', normal],
+        ['bold', bold],
+      ] as const) {
+        const ratio = textWidth(text, 1, style) / real;
+        expect(ratio, `${text} in ${style}`).toBeGreaterThan(1.1);
+        expect(ratio, `${text} in ${style}`).toBeLessThan(1.16);
+      }
+    }
+  });
+
+  it('takes a CJK character, and the signs set like one, to be one em in every style', () => {
+    for (const style of ['normal', 'bold', 'mono'] as const) {
+      expect(textWidth('日本語', 10, style)).toBeCloseTo(30, 6);
+      for (const sign of ['—', '…', '→', '●', '①', '¥', '、']) {
+        expect(textWidth(sign, 10, style)).toBeCloseTo(10, 6);
+      }
+      // An emoji is wider than its em.
+      expect(textWidth('🚀', 10, style)).toBeCloseTo(14, 6);
+    }
+  });
+
+  it('does not take a text all in capitals to be as narrow as the same in small letters', () => {
+    // In Segoe UI Bold, DOWN is 3.29 em wide: a flat 0.58 em a letter gave 2.32.
+    expect(textWidth('DOWN', 1, 'bold')).toBeGreaterThan(3.29);
+    expect(textWidth('DOWN', 1, 'bold')).toBeGreaterThan(textWidth('down', 1, 'bold') * 1.15);
   });
 });
 

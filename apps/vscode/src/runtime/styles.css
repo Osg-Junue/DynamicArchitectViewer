@@ -396,9 +396,6 @@
   min-height: 1.5em;
 }
 
-.dav-canvas text {
-  font-family: inherit;
-}
 .dav-node,
 .dav-edge,
 .dav-edge-label,

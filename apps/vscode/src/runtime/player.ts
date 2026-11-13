@@ -4,9 +4,11 @@ import {
   buildDefs,
   buildScene,
   calmFrame,
+  clamp,
   followFrame,
   HOLD_MS,
   type IconShapes,
+  measureCalloutsWith,
   type Packet,
   PHASE_MS,
   packetsOnScreen,
@@ -30,6 +32,7 @@ import { StepDock } from './dock';
 import { clear, html, renderSvg, svg } from './dom';
 import { VIEWER_STRINGS, type ViewerLocale, type ViewerStrings } from './i18n';
 import { bindKeyboard, bindPointer } from './input';
+import { browserTextMeasure } from './measure';
 import { Minimap } from './minimap';
 import { PacketLayer } from './packets';
 import {
@@ -70,8 +73,6 @@ export interface PlayerOptions {
   /** Always frame the whole diagram instead of each step's focus. */
   fixedFrame?: boolean;
 }
-
-const clamp = (v: number, min: number, max: number): number => Math.max(min, Math.min(max, v));
 
 function phasesWhere(phases: readonly Packet[][], pred: (p: Packet) => boolean): number[] {
   return phases.flatMap((pkts, idx) => (pkts.some(pred) ? [idx] : []));
@@ -140,6 +141,8 @@ export class Player {
         : hasSteps
           ? 0
           : null;
+    // In a browser the callouts are sized by the text as it is drawn, not by an estimate.
+    measureCalloutsWith(browserTextMeasure());
     this.#view = resolveView(data.document, data.layout, initialStep);
     this.#stepIndex = this.#view.stepIndex;
     this.#playMode =

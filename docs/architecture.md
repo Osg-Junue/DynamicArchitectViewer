@@ -30,6 +30,10 @@ flowchart LR
 
 `resolveView` works out the state of the diagram at a step. `buildScene` turns that into a tree of virtual SVG elements, and `Player` renders the tree and runs the animation. Everything before `Player` is free of the DOM.
 
+**Text without a DOM.** With no DOM, no text can be measured, and it is drawn in whatever font the reader's system has. Every width therefore comes from one estimate, `textWidth(text, size, style)` in `model/text.ts`, for text set normal, bold or monospaced: the room the layout keeps for an edge label, where a label is cut with an ellipsis (`fitText`), how a description wraps (`wrapText`), and the size of a badge or a callout. A printable ASCII character is given the width it has in Segoe UI at its weight, plus 12%: enough for San Francisco, Roboto, Ubuntu and Noto Sans, while in a font wider than those a full line runs a few units into the padding beside it. A CJK character counts as exactly one em, which it is in every font; kana count the same, because they are as wide as kanji in the fonts of macOS, though narrower in those of Windows. `dav-check --detail` reports a cut with the same estimate.
+
+**Callouts are measured where a browser is there.** An estimate must leave room, and room around the text of a callout shows as empty space. So a callout asks for its widths through a measure that can be replaced (`measureCalloutsWith` in `scene/calloutMeasure.ts`). `Player` hands in `browserTextMeasure` (`runtime/measure.ts`), which measures on a canvas in the fonts the page is styled with, and a callout in the preview or in exported HTML is as wide as its text is drawn, in any font. The scene still has no DOM: without a browser, as in the SVG export, in `dav-check` and in the unit tests, the estimate is the measure. The layout and every label outside a callout always go by the estimate, so that the arrangement of a diagram does not depend on the reader's fonts.
+
 ## Repository layout
 
 ```text
@@ -91,7 +95,7 @@ findAtOffset(sourceMap, offset): { elementId: string | null; stepIndex: number |
 `runtime/player.ts` draws the scene and plays each step's phases. `runtime/camera.ts` handles zoom and pan.
 
 - `animate` statements play in order, and `parallel: true` joins the preceding phase.
-- A callout stays still while its packet moves, and no line joins the two: the callout carries the number of the packet's stop on the rail, in the packet's color. Packets of one phase get a letter each (`5a`, `5b`). A callout is first put above or below its rail (`scene/calloutSolver.ts`). A last pass then gives it the free place nearest its own rail, on any side, a little in favor of the middle of the rail where its numbered stop is (`scene/calloutPlace.ts`); it keeps the first place only when no free one is found within 300 units. A callout comes no closer than 22 units to its own rail and 12 to any other. It never covers a node's station, badge or labels, the label of an edge, a rail, another callout of its phase, or the strip across the top of a zone, which the zone's name moves along with the camera. Two things it does only where that brings it clearly closer: lie across a zone's side or bottom border (worth 30 units), and use the empty part of a node's cell (worth 12). Callouts of one phase that end up nearly level are set level.
+- A callout stays still while its packet moves, and no line joins the two: the callout carries the number of the packet's stop on the rail, in the packet's color. Packets of one phase get a letter each (`5a`, `5b`). A callout takes the free place nearest its own rail, on any side, a little in favor of the middle of the rail where its numbered stop is (`scene/calloutPlace.ts`). It must be nearer its own rail than the rail of any other packet of its phase, unless the two packets share a rail, as a request and its reply do. Only when no free place is found within 600 units does it sit above the middle of its rail regardless. A callout comes no closer than 22 units to its own rail and 12 to any other. It never covers a node's station, badge or labels, the label of an edge, a rail, another callout of its phase, or the strip across the top of a zone, which the zone's name moves along with the camera. Two things it does only where that brings it clearly closer: lie across a zone's side or bottom border (worth 30 units), and use the empty part of a node's cell (worth 12). Callouts of one phase that end up nearly level are set level.
 - With `prefers-reduced-motion`, animation stays off. Clicking a node shows the packets of a phase, parked on the rail.
 - Drawing uses `createElementNS`, `textContent`, `setAttribute` and CSSOM only: never `innerHTML` or inline `style` attributes.
 
@@ -175,6 +179,8 @@ The extension and webview talk through typed messages in `protocol/messages.ts`:
 | `exportHtml` | Webview to extension | Export HTML from the toolbar's Export menu |
 | `exportSvg` | Webview to extension | Export an SVG from the same menu, with `animate`, `camera` and `step` (`null` for every step) |
 
+**Layout off the main thread.** Most of `computeLayout` takes a millisecond or two. The exception is the search for where to place the zones of a diagram with links that are too long: about 150 ms for a hundred nodes and over a second for three hundred, and it runs again whenever the structure changes. The webview hands that search to a worker (`editor/zonePlanner.ts`, `editor/zoneSearch.worker.ts`) and keeps showing the diagram it has until the answer arrives; a cursor position that arrives meanwhile waits for it too. Which document the preview is on, which text was last drawable and what is waiting are kept by `editor/documentSession.ts`, which has no DOM; `editor/App.ts` draws what it says. Only the latest text is searched. The worker is inlined into the bundle and started from a blob, which is the only way a webview may start one, so the page's Content Security Policy has `worker-src blob:`. Where no worker can run, the search runs on the page as before. The exporters and `dav-check` call `computeLayout` directly.
+
 **Language.** The UI is Japanese when `vscode.env.language` is Japanese, and English otherwise. The extension writes this into `<html lang>` for the webview, and command titles come from `package.nls*.json`.
 
 ## The agent skills
@@ -207,9 +213,9 @@ The generated files are committed, because the marketplace and the `skills` CLI 
 | `src/layout/__tests__/` | Layout invariants and a crossing budget for each sample |
 | `src/scene/__tests__/` | Step state, rails, callouts and rendering |
 | `src/samples/__tests__/` | Sample templates match `examples/` |
-| `src/model/__tests__/` | Text width estimates, code indentation and other shared helpers |
+| `src/model/__tests__/` | The text width estimate, code indentation and other shared helpers |
 | `src/exporter/__tests__/` | Exported HTML and its import, the SVG export and its camera plan |
 | `src/extension/__tests__/` | Commands, language features and the preview panel, against a mocked `vscode` |
-| `src/editor/__tests__/` | Every example in the in-app documentation compiles and plays |
-| `src/prompt/__tests__/` | The AI prompt template |
+| `src/editor/__tests__/` | Every example in the in-app documentation compiles and plays; what the preview shows as texts, cursor positions and other documents arrive; and the zone search is handed to a worker and taken back correctly |
+| `src/prompt/__tests__/` | The AI prompt template, and that it asks for the detail and gives the text sizes of the `dav-diagrams` skill |
 | `e2e/` | The preview and exported HTML in a real browser, including that both render the same SVG |

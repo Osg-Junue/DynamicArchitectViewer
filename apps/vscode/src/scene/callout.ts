@@ -1,33 +1,29 @@
 import type { Rect } from '../layout';
-import {
-  CALLOUT_LABEL_CLEARANCE,
-  CALLOUT_NODE_CLEARANCE,
-  CALLOUT_RADIUS,
-  type MeasuredCalloutCard,
-  measureCalloutCard,
-} from './calloutMeasure';
+import { CALLOUT_RADIUS, measureCalloutCard } from './calloutMeasure';
 import { pointAt, railBox } from './geometry';
 import type { Packet } from './resolve';
 
 export {
+  CALLOUT_CODE_FIRST_BASELINE,
   CALLOUT_CODE_HEAD_SIZE,
   CALLOUT_CODE_HEADER_HEIGHT,
   CALLOUT_CODE_LINE_HEIGHT,
   CALLOUT_CODE_PAD_X,
   CALLOUT_CODE_RADIUS,
   CALLOUT_CODE_SIZE,
+  CALLOUT_DESC_BASELINE,
   CALLOUT_DESC_SIZE,
   CALLOUT_GAP,
+  CALLOUT_LABEL_BASELINE,
   CALLOUT_LABEL_SIZE,
   CALLOUT_LINE_HEIGHT,
+  CALLOUT_NUMBER_RADIUS,
   CALLOUT_NUMBER_ROOM,
+  CALLOUT_ONE_LINE_HEIGHT,
   CALLOUT_OUTER_PAD_X,
   CALLOUT_RADIUS,
-  estimateCalloutTextWidth,
+  measureCalloutsWith,
 } from './calloutMeasure';
-export { separatePhaseCallouts } from './calloutSolver';
-
-export type CalloutPlacement = 'above' | 'below';
 
 export interface PacketCalloutCodeBox {
   header: string;
@@ -44,105 +40,49 @@ export interface PacketCalloutBox {
   boxTop: number;
   boxBottom: number;
   padX: number;
-  placement: CalloutPlacement;
   label: string;
   descLines: string[];
   code?: PacketCalloutCodeBox;
-  /** Width at the left that holds the stop number; the text and code start after it. */
+  /** Room before the heading for the stop number; the heading starts after it. */
   numberRoom: number;
+  /** How far in the description and the code start. */
+  bodyIndent: number;
   /** The number shared with the packet's stop on its rail, such as `2` or `5a`. */
   number?: string;
 }
 
-const DIMMED_OBSTACLE_MAX_LIFT = 280;
-
-export function placeCalloutBox(
-  packet: Packet,
-  card: MeasuredCalloutCard,
-  mid = pointAt(packet.path, 0.5),
-): PacketCalloutBox {
-  const placement: CalloutPlacement = packet.calloutPlacement ?? 'above';
-  const isAbove = placement === 'above';
-  const { halfW, height, padX, label, descLines, code, numberRoom } = card;
-  const cx = mid.x + (packet.calloutShift ?? 0);
-
-  const reach = railBox(packet.path);
-  const ys = [reach.y, reach.y + reach.height, mid.y];
-  let baseAnchor: number;
-  let anchor: number;
-  if (isAbove) {
-    const minY = Math.min(...ys);
-    baseAnchor = Math.min(mid.y - 36, minY - 26, packet.clearTop - CALLOUT_NODE_CLEARANCE);
-    anchor =
-      packet.calloutBottom !== undefined ? Math.min(baseAnchor, packet.calloutBottom) : baseAnchor;
-  } else {
-    const maxY = Math.max(...ys);
-    const clearBottom = packet.clearBottom ?? maxY;
-    baseAnchor = Math.max(mid.y + 38, maxY + 26, clearBottom + CALLOUT_NODE_CLEARANCE);
-    anchor = packet.calloutTop !== undefined ? Math.max(baseAnchor, packet.calloutTop) : baseAnchor;
-  }
-
-  const obstacles = [
-    ...packet.labelAreas.map((area) => ({ area, hard: true })),
-    ...(packet.dimmedNodeAreas ?? []).map((area) => ({ area, hard: false })),
-  ].sort((a, b) =>
-    isAbove ? b.area.y - a.area.y : a.area.y + a.area.height - (b.area.y + b.area.height),
-  );
-
-  for (let pass = 0; pass < 8; pass++) {
-    let moved = false;
-    for (const { area, hard } of obstacles) {
-      const top = isAbove ? anchor - height : anchor;
-      const bottom = isAbove ? anchor : anchor + height;
-      const overlapsX = cx - halfW < area.x + area.width && cx + halfW > area.x;
-      const overlapsY = top < area.y + area.height && bottom > area.y;
-      if (!overlapsX || !overlapsY) continue;
-      const next = isAbove
-        ? area.y - CALLOUT_LABEL_CLEARANCE
-        : area.y + area.height + CALLOUT_LABEL_CLEARANCE;
-      const lift = isAbove ? baseAnchor - next : next - baseAnchor;
-      if (!hard && lift > DIMMED_OBSTACLE_MAX_LIFT) continue;
-      if (isAbove ? next < anchor : next > anchor) {
-        anchor = next;
-        moved = true;
-      }
-    }
-    if (!moved) break;
-  }
-
-  const boxTop = isAbove ? anchor - height : anchor;
-  const boxBottom = isAbove ? anchor : anchor + height;
-  const box: PacketCalloutBox = {
-    cx,
-    halfW,
-    boxTop,
-    boxBottom,
-    padX,
-    placement,
-    label,
-    descLines,
-    numberRoom,
-  };
-  if (code) box.code = code;
-  if (packet.stopLabel !== undefined) box.number = packet.stopLabel;
-  return box;
-}
+/** How far above its rail a callout sits that was found no place of its own. */
+const UNPLACED_GAP = 26;
 
 /**
  * The box of a packet's callout. It stays still while the packet moves, so that a description
  * or a code block can be read without following anything.
  *
- * `separatePhaseCallouts` puts it above or below the rail; `placePhaseCallouts` then finds it
- * the free place nearest its rail, on any side (`calloutAt`).
+ * `placePhaseCallouts` finds it the free place nearest its rail, on any side (`calloutAt`).
+ * Where a step is too crowded to have one, it sits above the middle of its rail.
  */
 export function computePacketCalloutBox(packet: Packet): PacketCalloutBox | null {
   const card = measureCalloutCard(packet);
   if (!card) return null;
-  const box = placeCalloutBox(packet, card);
-  const at = packet.calloutAt;
-  if (!at) return box;
-  const height = box.boxBottom - box.boxTop;
-  return { ...box, cx: at.x + box.halfW, boxTop: at.y, boxBottom: at.y + height };
+  const { halfW, height, padX, label, descLines, code, numberRoom, bodyIndent } = card;
+  const at = packet.calloutAt ?? {
+    x: pointAt(packet.path, 0.5).x - halfW,
+    y: railBox(packet.path).y - UNPLACED_GAP - height,
+  };
+  const box: PacketCalloutBox = {
+    cx: at.x + halfW,
+    halfW,
+    boxTop: at.y,
+    boxBottom: at.y + height,
+    padX,
+    label,
+    descLines,
+    numberRoom,
+    bodyIndent,
+  };
+  if (code) box.code = code;
+  if (packet.stopLabel !== undefined) box.number = packet.stopLabel;
+  return box;
 }
 
 export function calloutRect(box: PacketCalloutBox): Rect {

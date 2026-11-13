@@ -2,7 +2,6 @@ import type { Layout, Rect } from '../layout';
 import type { DavDocument } from '../model/types';
 import { VIEWER_STRINGS, type ViewerLocale } from '../runtime/i18n';
 import {
-  estimateTextWidth,
   fitText,
   h,
   MAX_ZONE_MOVES,
@@ -12,6 +11,7 @@ import {
   minimapZones,
   type Size,
   THEME_COLOR,
+  textWidth,
   type VElement,
   wrapText,
   type ZoneMove,
@@ -34,10 +34,12 @@ export const TIMELINE_HEIGHT = 20;
 export const ZONE_STRIP_HEIGHT = 36;
 const MINIMAP_MAX = { width: 180, height: 64 } as const;
 
-const TITLE_SIZE = 14;
-const DESC_SIZE = 13;
-const DESC_LINE = 19;
-const STEP_NO_SIZE = 11.5;
+// A README shows the sheet narrower than it is drawn, so its text is set larger than the
+// preview sets the same text above the canvas.
+const TITLE_SIZE = 16;
+const DESC_SIZE = 14.5;
+const DESC_LINE = 21;
+const STEP_NO_SIZE = 12.5;
 
 /** The step's number, title and description; `aside` keeps room on the right for the minimap. */
 export function header(
@@ -60,7 +62,7 @@ export function header(
   const el = h('g', {}, h('rect', { x: 0, y: 0, width: WIDTH, height, fill: THEME_COLOR.bg }));
   steps.forEach((step, i) => {
     const stepNo = strings.stepLabel(step.index + 1, stepCount);
-    const titleX = PAD_X + estimateTextWidth(stepNo, STEP_NO_SIZE) + 10;
+    const titleX = PAD_X + textWidth(stepNo, STEP_NO_SIZE, 'mono') + 10;
     el.children.push(
       clock.showDuring(
         h(
@@ -86,7 +88,7 @@ export function header(
               'font-weight': 700,
               fill: THEME_COLOR.fg,
             },
-            fitText(step.view.stepTitle ?? '', TITLE_SIZE, right - titleX),
+            fitText(step.view.stepTitle ?? '', TITLE_SIZE, right - titleX, 'bold'),
           ),
           ...(descs[i] ?? []).map((line, k) =>
             h(
@@ -202,7 +204,7 @@ function zoneName(
     'text',
     { x: num(x), y, 'text-anchor': anchor, 'font-size': ZONE_SIZE, 'font-weight': 600, fill },
     h('tspan', { fill: zoneColor(place.color) }, '● '),
-    fitText(place.label, ZONE_SIZE, ZONE_NAME_MAX),
+    fitText(place.label, ZONE_SIZE, ZONE_NAME_MAX, 'bold'),
     suffix ? h('tspan', { fill: THEME_COLOR.muted, 'font-weight': 400 }, ` ${suffix}`) : null,
   );
 }
@@ -223,7 +225,7 @@ export function zoneStrip(
     h('rect', { x: 0, y: top, width: WIDTH, height: ZONE_STRIP_HEIGHT, fill: THEME_COLOR.bg }),
   );
   const nameWidth = (place: ZoneMove[number]) =>
-    estimateTextWidth(`● ${fitText(place.label, ZONE_SIZE, ZONE_NAME_MAX)}`, ZONE_SIZE);
+    textWidth(`● ${fitText(place.label, ZONE_SIZE, ZONE_NAME_MAX, 'bold')}`, ZONE_SIZE, 'bold');
 
   for (const step of steps) {
     for (const phase of step.phases) {
@@ -232,7 +234,7 @@ export function zoneStrip(
       if (moves.length === 0) continue;
       const widths = moves.map(([from, to]) =>
         from === to
-          ? nameWidth(from) + estimateTextWidth(` ${inside}`, ZONE_SIZE)
+          ? nameWidth(from) + textWidth(` ${inside}`, ZONE_SIZE)
           : nameWidth(from) + ZONE_PAIR_GAP * 2 + ZONE_LINE + nameWidth(to),
       );
       const total = widths.reduce((sum, w) => sum + w, 0) + ZONE_MOVE_GAP * (moves.length - 1);

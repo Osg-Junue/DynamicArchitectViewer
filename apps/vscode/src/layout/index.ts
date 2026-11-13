@@ -24,6 +24,7 @@ export {
   stationRect,
   WINDOW_SIZE,
 } from './metrics';
+export type { ZonePlacement } from './zoned';
 
 /**
  * Computes automatic positions and sizes for every node and group.
@@ -37,29 +38,53 @@ export {
  *   fewer crossings, or as many with shorter rails, so refinement never makes a diagram worse.
  *
  * When that leaves links too long, placing the zones freely is tried as well, and kept only
- * if it shortens them by more than the crossings it adds are worth (see `planZones`).
+ * if it shortens them by more than the crossings it adds are worth (see `searchZones`).
  */
 export function computeLayout(doc: DavDocument): Layout {
-  if (!hasZonesToPlace(doc)) return computeColumnLayout(doc);
-  // The search takes a noticeable moment; most edits do not change the structure.
-  const key = structureKey(doc);
-  if (zonePlan?.key !== key) zonePlan = { key, placement: planZones(withoutLabels(doc)) };
-  const { placement } = zonePlan;
+  const search = pendingZoneSearch(doc);
+  if (search) adoptZonePlan(search.key, searchZones(search.doc));
+  const placement = hasZonesToPlace(doc) ? zonePlan?.placement : undefined;
   return placement
     ? applyZonePlacement(doc, placement, computeColumnLayout)
     : computeColumnLayout(doc);
 }
 
+/** The last answer: most edits do not change the structure the placement depends on. */
 let zonePlan: { key: string; placement: ZonePlacement | undefined } | undefined;
 
+/** A search for where to place the zones of a diagram, to hand to `searchZones`. */
+export interface ZoneSearch {
+  key: string;
+  /**
+   * The diagram without labels, so that the layout stays a function of the file alone while
+   * typing a label cannot rearrange anything.
+   */
+  doc: DavDocument;
+}
+
 /**
- * Decides whether and where to move the zones. Given a diagram without labels, so that the
- * layout stays a function of the file alone while typing a label cannot rearrange anything.
+ * The search `computeLayout` would have to run for this diagram before it can answer, which
+ * takes a noticeable moment on a large one; `undefined` when it answers at once. A caller that
+ * must not wait runs `searchZones` elsewhere and hands the result to `adoptZonePlan`.
  */
-function planZones(doc: DavDocument): ZonePlacement | undefined {
+export function pendingZoneSearch(doc: DavDocument): ZoneSearch | undefined {
+  if (!hasZonesToPlace(doc)) return undefined;
+  const key = structureKey(doc);
+  if (zonePlan?.key === key) return undefined;
+  const bare = withoutLabels(doc);
+  // Most diagrams have no link long enough to move a zone for, and that is quick to see.
+  if (longLinkExcess(bare, computeColumnLayout(bare)) > 0) return { key, doc: bare };
+  zonePlan = { key, placement: undefined };
+  return undefined;
+}
+
+export function adoptZonePlan(key: string, placement: ZonePlacement | undefined): void {
+  zonePlan = { key, placement };
+}
+
+/** Decides whether and where to move the zones of a diagram that has links too long. */
+export function searchZones(doc: DavDocument): ZonePlacement | undefined {
   const columns = computeColumnLayout(doc);
-  const excess = longLinkExcess(doc, columns);
-  if (excess === 0) return undefined;
   const placement = searchZonePlacement(doc, computeColumnLayout);
   const zoned = applyZonePlacement(doc, placement, computeColumnLayout);
   // A crossing is worth one link that is a whole comfortable length too long: placing the

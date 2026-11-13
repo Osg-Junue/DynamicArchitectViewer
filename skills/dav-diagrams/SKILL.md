@@ -66,17 +66,17 @@ Keep the example values consistent: the order that is created as `ord_104` in st
 
 ### Text that fits
 
-Nothing wraps except `desc`. A longer text is cut off with `…`, and `--detail` reports it.
+Nothing wraps except `desc`. A longer text is cut off with `…`, and `--detail` reports it. Letters differ in width: a text full of capitals or of `m` and `w` fits fewer characters than the table says, and one full of `i` and `l` more.
 
 | Text | Fits about (Latin letters) | Fits about (Japanese) |
 | :--- | :--- | :--- |
-| Node label | 18 | 11 |
-| Node `sub` | 22 | 13 |
-| `badge` | 15 | 9 |
-| Edge label | 25 | 15 |
-| `animate` label | 38 | 23 |
-| `animate` `desc` | 150, in up to four lines | 85 |
-| `code` | 10 lines of 55 characters | 10 lines of 30 |
+| Node label | 20 | 12 |
+| Node `sub` | 26 | 15 |
+| `badge` | 16 | 10 |
+| Edge label | 28 | 16 |
+| `animate` label | 44 | 27 |
+| `animate` `desc` | 170, in up to four lines | 95 |
+| `code` | 10 lines of 55 characters | 10 lines of 35 |
 
 A step's own `desc` is shown above the diagram and has no such limit; keep it to one or two sentences anyway.
 

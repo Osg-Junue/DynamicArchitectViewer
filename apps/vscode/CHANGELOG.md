@@ -5,6 +5,19 @@ The `dav` language version is separate from the extension version.
 
 ## Unreleased
 
+- In the preview and in exported HTML, a callout is exactly as wide as its text: the text is measured in the font it is drawn in instead of estimated, so no room is left beside it for fonts the reader does not have. An exported SVG, which is made without a browser, keeps the estimate
+- The preview picks up a new build's stylesheet when it is opened again, without a reload of the window
+- Code in a callout is drawn in the editor's monospaced font in the preview and in exported HTML. A style rule had made it take the font of the interface, so its columns did not line up and its box was wider than the code
+- A callout is as wide as what it holds, and no wider: a tall one is no longer widened to keep its proportion. A description that fits on one line gets one, even where that makes the callout wider than its code; a longer one takes as few lines as fit, as long as the callout allows, and a word or two is not left alone on the last. The heading alone moves in for the number, so the description and the code use the room below it
+- Text takes the room it needs and little more: each Latin character is counted at its own width instead of an average, so a callout, a badge and the room kept for a label are about a sixth narrower, and more of a long name fits before it is cut
+- Japanese breaks between phrases: after a particle or a comma, and never inside a word in katakana or kanji
+- A callout is spaced evenly: its number stands as far from the edge as the text does on the other side, the description starts a little below the heading, the code box follows at the same distance, and the code has as much room above as below. A heading with a number before it starts right after the number
+- Every text is measured the same way, by its weight and with capitals counted as wider than small letters. A badge all in capitals is no longer tight in its pill; a node's name and sub-label may use the whole width of the node; a callout with Japanese text is a little narrower, since a CJK character is counted as exactly one em; and a label that is cut loses the space before its ellipsis
+- An exported HTML file is about 9 KB smaller: the callouts are placed in one pass instead of two, with the same result
+- Callouts are easier to read: the heading, the description and the code are each set a size larger, and a callout holds as many characters as before. In an exported SVG the step title and description above the diagram are larger too
+- The button that stops the animation shows a square, the usual sign for stop, instead of a dot on a line
+- The preview stays responsive on large diagrams: the search for where to place the zones, which takes over a second on three hundred nodes, runs in a worker, and the preview shows the diagram it has until the new layout is ready
+- Copy AI Prompt Template asks for the same detail as the agent skill: a `sub` on every node, a label on every edge, a `desc` on every step and packet, `code` where the content matters, packets that follow declared edges, and how long each text can be
 - The agent skill asks for more detail and can check it: `dav-check --detail` reports an edge or packet without a label, a step or packet without a description, a packet that travels where no edge is declared, a diagram without any `code`, and text too long to be shown in full. The skill gives the sizes that fit and shows how to write descriptions and code blocks
 - A second agent skill, `dav-reading`, explains the architecture and the data flows a `.dav` file describes. Its `dav-outline` script prints the file with every reference resolved and the packets of each step in order. Install AI Agent Skill installs both skills
 - The samples show a code block in every diagram, and three labels in the last sample that were cut off are shorter

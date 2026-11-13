@@ -1,24 +1,43 @@
-import { estimateTextWidth, isWide } from '../model/text';
+import { isWide, type TextStyle, textWidth } from '../model/text';
 
-export { estimateTextWidth };
+export { type TextStyle, textWidth };
 
-/** Sizes of the text a node carries, and how much of its cell's width its labels may take. */
+/** How wide a text is: `textWidth`, an estimate, unless a browser is there to measure it. */
+export type TextMeasure = (text: string, fontSize: number, style?: TextStyle) => number;
+
+/** Sizes of the text a node carries. Its labels may take the width of its cell. */
 export const NODE_LABEL_SIZE = 14;
 export const NODE_SUB_SIZE = 11.5;
-export const NODE_TEXT_INSET = 8;
 export const BADGE_SIZE = 11;
 export const BADGE_MAX_WIDTH = 120;
 
-export interface FitTextOptions {
-  measure?: (text: string, fontSize: number) => number;
-  trimBeforeEllipsis?: boolean;
-}
+/** Where a line may break: at a space, and before or after a CJK character, a dash or an arrow. */
+const isBreakable = (ch: string): boolean =>
+  ch === ' ' ||
+  ch === '\n' ||
+  isWide(ch) ||
+  ch === '—' ||
+  ch === '→' ||
+  ch === '←' ||
+  ch === '↔' ||
+  ch === '・';
 
-export interface WrapTextOptions extends FitTextOptions {
-  isBreakable?: (ch: string) => boolean;
-}
+type Script = 'hiragana' | 'katakana' | 'kanji';
 
-const defaultIsBreakable = (ch: string): boolean => ch === ' ' || ch === '\n' || isWide(ch);
+/** The script of a Japanese character; undefined for anything else. */
+function scriptOf(ch: string): Script | undefined {
+  if (ch >= '\u3041' && ch <= '\u309f') return 'hiragana';
+  // Katakana and its long vowel mark, but not the middle dot, which separates words.
+  if (ch >= '\u30a1' && ch <= '\u30ff' && ch !== '・') return 'katakana';
+  if ((ch >= '\u4e00' && ch <= '\u9fff') || (ch >= '\u3400' && ch <= '\u4dbf') || ch === '々') {
+    return 'kanji';
+  }
+  return undefined;
+}
+/** The particles of one kana that follow a noun in kanji. */
+const PARTICLES = new Set([...'をにへがはのとでもやか']);
+/** A run of Japanese longer than this, or than a line, may break inside. */
+const PHRASE_MAX = 12;
 
 const KINSOKU_OPEN_RE = /^[([{（「『【〈《〔]+$/;
 const KINSOKU_TRAILING_OPEN_RE = /^(.+?)([([{（「『【〈《〔]+)$/;
@@ -77,21 +96,24 @@ function coalesceKinsokuTokens(raw: readonly string[]): string[] {
   return out;
 }
 
-/** Truncates text with an ellipsis so it fits within maxWidth. */
+/**
+ * Cuts a text with an ellipsis so that it fits within `maxWidth`. A space before the ellipsis
+ * is dropped, except in code, where every column counts.
+ */
 export function fitText(
   text: string,
   fontSize: number,
   maxWidth: number,
-  options: FitTextOptions = {},
+  style: TextStyle = 'normal',
+  measure: TextMeasure = textWidth,
 ): string {
-  const measure = options.measure ?? estimateTextWidth;
-  if (measure(text, fontSize) <= maxWidth) return text;
+  if (measure(text, fontSize, style) <= maxWidth) return text;
   let out = '';
   for (const ch of text) {
-    if (measure(`${out + ch}…`, fontSize) > maxWidth) break;
+    if (measure(`${out + ch}…`, fontSize, style) > maxWidth) break;
     out += ch;
   }
-  return `${options.trimBeforeEllipsis ? out.trimEnd() : out}…`;
+  return `${style === 'mono' ? out : out.trimEnd()}…`;
 }
 
 /**
@@ -103,7 +125,8 @@ export function wrapText(
   fontSize: number,
   maxWidth: number,
   maxLines = 3,
-  options: WrapTextOptions = {},
+  style: TextStyle = 'normal',
+  measure: TextMeasure = textWidth,
 ): string[] {
   const clean = text
     .trim()
@@ -111,23 +134,52 @@ export function wrapText(
     .replace(/[^\S\n]+/g, ' ');
   if (!clean) return [];
 
-  const isBreakable = options.isBreakable ?? defaultIsBreakable;
-  const measure = options.measure ?? estimateTextWidth;
-
+  // Japanese has no spaces, but it has phrases: a word in kanji or katakana and the kana after
+  // it, as in 注文を, 確定する or サービスへ. A line breaks between phrases, not inside one, so a
+  // new piece starts at a kanji that follows kana, and at a change between kanji and katakana.
   const rawTokens: string[] = [];
   let word = '';
+  let last: Script | 'other' | undefined;
+  let length = 0;
+  /** How many hiragana have followed the last kanji; 2 stands for a run that did not follow one. */
+  let kanaRun = 0;
+  let lastChar = '';
+  const flush = () => {
+    if (word) rawTokens.push(word);
+    word = '';
+    length = 0;
+  };
   for (const ch of clean) {
-    if (isBreakable(ch)) {
-      if (word) {
-        rawTokens.push(word);
-        word = '';
-      }
-      rawTokens.push(ch);
-    } else {
+    const script = scriptOf(ch);
+    if (script) {
+      // One kana between two kanji is a particle, as in 注文を確定, or part of a word, as in
+      // 引き当て and 書き込み: only a particle ends a phrase.
+      const insideWord =
+        script === 'kanji' && last === 'hiragana' && kanaRun === 1 && !PARTICLES.has(lastChar);
+      const starts =
+        last === 'other' ||
+        length >= PHRASE_MAX ||
+        measure(word + ch, fontSize, style) > maxWidth ||
+        (script === 'kanji' && last !== 'kanji' && !insideWord) ||
+        (script === 'katakana' && last !== 'katakana');
+      if (starts) flush();
       word += ch;
+      length++;
+      kanaRun =
+        script === 'hiragana' ? (last === 'hiragana' ? kanaRun + 1 : last === 'kanji' ? 1 : 2) : 0;
+      lastChar = ch;
+      last = script;
+    } else if (isBreakable(ch)) {
+      flush();
+      rawTokens.push(ch);
+      last = undefined;
+    } else {
+      if (last !== 'other') flush();
+      word += ch;
+      last = 'other';
     }
   }
-  if (word) rawTokens.push(word);
+  flush();
   const tokens = coalesceKinsokuTokens(rawTokens);
 
   const lines: string[] = [];
@@ -136,20 +188,20 @@ export function wrapText(
     const tok = tokens[i] ?? '';
     if (!current && tok === ' ') continue;
     const candidate = current + tok;
-    if (tok === '\n' || (current && measure(candidate, fontSize) > maxWidth)) {
+    if (tok === '\n' || (current && measure(candidate, fontSize, style) > maxWidth)) {
       if (lines.length + 1 >= maxLines) {
         const rest = (current + tokens.slice(i).join('')).trim().replace(/\n/g, ' ');
-        lines.push(fitText(rest, fontSize, maxWidth, options));
+        lines.push(fitText(rest, fontSize, maxWidth, style, measure));
         return lines;
       }
-      lines.push(fitText(current.trimEnd(), fontSize, maxWidth, options));
+      lines.push(fitText(current.trimEnd(), fontSize, maxWidth, style, measure));
       current = tok === ' ' || tok === '\n' ? '' : tok;
     } else {
       current = candidate;
     }
   }
   if (current.trim()) {
-    lines.push(fitText(current.trim(), fontSize, maxWidth, options));
+    lines.push(fitText(current.trim(), fontSize, maxWidth, style, measure));
   }
   return lines;
 }

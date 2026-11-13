@@ -15,10 +15,10 @@ import { type RouteEdge, routeEdges } from './route';
 import {
   BADGE_MAX_WIDTH,
   BADGE_SIZE,
-  estimateTextWidth,
   fitText,
   NODE_LABEL_SIZE,
   NODE_SUB_SIZE,
+  textWidth,
 } from './text';
 import { ZONE_LABEL, zoneLabelRoom } from './zones';
 
@@ -39,21 +39,6 @@ export function stationArea(node: ResolvedNode): Rect {
     width,
     height: node.rect.y + node.rect.height - top,
   };
-}
-
-/** Directions between stations that have a rail of their own, not shared with the reverse. */
-function separateTracks(doc: DavDocument): Set<string> {
-  const sharedRail = new Set(
-    doc.edges
-      .filter((e) => e.direction === 'bidirectional')
-      .flatMap((e) => [idPair(e.from, e.to), idPair(e.to, e.from)]),
-  );
-  return new Set(
-    [...doc.edges, ...doc.steps.flatMap((s) => s.animations)]
-      .filter((r) => r.from !== r.to)
-      .map((r) => idPair(r.from, r.to))
-      .filter((key) => !sharedRail.has(key)),
-  );
 }
 
 /** Loops on one station are told apart by their position among them: each nests outside the last. */
@@ -104,8 +89,8 @@ export function nodeBody(node: ResolvedNode): Rect[] {
     node.rect.width,
     Math.max(
       area.width,
-      estimateTextWidth(node.label, NODE_LABEL_SIZE) + 8,
-      node.sub ? estimateTextWidth(node.sub, NODE_SUB_SIZE) + 8 : 0,
+      textWidth(node.label, NODE_LABEL_SIZE, 'bold') + 8,
+      node.sub ? textWidth(node.sub, NODE_SUB_SIZE) + 8 : 0,
     ),
   );
   return [
@@ -135,7 +120,7 @@ function direct(from: ResolvedNode, to: ResolvedNode): Route {
 
 /** The room a zone's name takes up, which no rail, label or callout is drawn over. */
 function zoneNameArea(label: string, zone: Rect): Rect {
-  const width = Math.min(estimateTextWidth(label, ZONE_LABEL.size), zoneLabelRoom(zone.width));
+  const width = Math.min(textWidth(label, ZONE_LABEL.size), zoneLabelRoom(zone.width));
   return {
     x: zone.x + ZONE_LABEL.inset - 4,
     y: zone.y + ZONE_LABEL.baseline - ZONE_LABEL.size - 2,
@@ -156,13 +141,13 @@ export function badgeArea(node: ResolvedNode): Rect[] {
   if (!node.badge) return [];
   const station = stationRect(node.rect, node.icon);
   const width =
-    estimateTextWidth(fitText(node.badge, BADGE_SIZE, BADGE_MAX_WIDTH), BADGE_SIZE) + 16;
+    textWidth(fitText(node.badge, BADGE_SIZE, BADGE_MAX_WIDTH, 'bold'), BADGE_SIZE, 'bold') + 16;
   return [{ x: station.x + station.width / 2 - width / 2, y: station.y - 25, width, height: 20 }];
 }
 
 /** The room an edge's label takes up where it is written. */
 export function edgeLabelArea(label: string, spot: EdgeLabelSpot): Rect {
-  const width = estimateTextWidth(
+  const width = textWidth(
     fitText(label, EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH),
     EDGE_LABEL_FONT_SIZE,
   );
@@ -213,7 +198,7 @@ function placeLabels(
   return edges.map((edge) => {
     if (!edge) return undefined;
     const text = fitText(edge.label, EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH);
-    const width = estimateTextWidth(text, EDGE_LABEL_FONT_SIZE);
+    const width = textWidth(text, EDGE_LABEL_FONT_SIZE);
     const middle = pointAt(edge.rail, 0.5);
     const stops: Rect = {
       x: middle.x - STOP_ROOM,
@@ -367,21 +352,14 @@ function routedFor(doc: DavDocument, layout: Layout, nodes: readonly ResolvedNod
  * course from step to step.
  */
 export class RailRouter {
-  readonly #tracks: Set<string>;
   readonly #loops: Map<DavEdge, number>;
   readonly #indexOf: Map<DavEdge, number>;
   readonly #routed: Routed;
 
   constructor(doc: DavDocument, layout: Layout, nodes: readonly ResolvedNode[]) {
-    this.#tracks = separateTracks(doc);
     this.#loops = loopOrdinals(doc);
     this.#indexOf = new Map(doc.edges.map((e, i) => [e, i]));
     this.#routed = routedFor(doc, layout, nodes);
-  }
-
-  /** Whether something also runs from `to` back to `from` on a track of its own. */
-  hasReverseTrack(from: string, to: string): boolean {
-    return this.#tracks.has(idPair(to, from));
   }
 
   /** A rail between two stations that no edge joins, such as the path of a lone packet. */

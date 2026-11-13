@@ -67,5 +67,5 @@ The Export menu in the preview toolbar saves the whole diagram as a standalone H
 
 - [AI agent skills](https://github.com/Osg-Junue/DynamicArchitectViewer#ai-agent-skills)
 - [Language specification](https://github.com/Osg-Junue/DynamicArchitectViewer/blob/HEAD/docs/specification.md)
-- [Examples](https://github.com/Osg-Junue/DynamicArchitectViewer/tree/HEAD/examples)
+- [Examples](https://github.com/Osg-Junue/DynamicArchitectViewer/blob/HEAD/docs/examples.md)
 - [Report an issue](https://github.com/Osg-Junue/DynamicArchitectViewer/issues)

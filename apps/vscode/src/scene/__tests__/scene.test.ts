@@ -3,7 +3,6 @@ import { parse } from '../../dsl';
 import { computeLayout, type Rect, rectOverlaps, stationRect } from '../../layout';
 import { ICON_NAMES } from '../../model/types';
 import { SAMPLE_TEMPLATES } from '../../samples';
-import { CALLOUT_GAP, separatePhaseCallouts } from '../callout';
 import { type Bezier, pointAt, type Rail, type Route, railEnds } from '../geometry';
 import { ICON_SHAPES } from '../icons';
 import {
@@ -21,10 +20,10 @@ import {
   resolveView,
   round,
   type VElement,
-  type VNode,
   wrapText,
 } from '../index';
 import { nodeBody } from '../rails';
+import { collectAttrs, collectText, findAll, overlap } from './helpers';
 
 const buildScene = (view: ResolvedView) => buildSceneWith(view, ICON_SHAPES);
 const buildPacket = (packet: Packet, t?: number) => buildPacketWith(packet, ICON_SHAPES, t);
@@ -146,24 +145,6 @@ describe('resolveView', () => {
     expect(JSON.stringify(document)).toBe(source);
   });
 });
-
-function collectText(node: VNode): string[] {
-  if (typeof node === 'string') return [node];
-  return node.children.flatMap(collectText);
-}
-
-function collectAttrs(node: VNode): string[] {
-  if (typeof node === 'string') return [];
-  return [
-    ...Object.entries(node.attrs).map(([k, v]) => `${k}=${v}`),
-    ...node.children.flatMap(collectAttrs),
-  ];
-}
-
-function findAll(node: VNode, pred: (e: VElement) => boolean): VElement[] {
-  if (typeof node === 'string') return [];
-  return [...(pred(node) ? [node] : []), ...node.children.flatMap((c) => findAll(c, pred))];
-}
 
 describe('buildScene', () => {
   it('renders every visible node, group and edge', () => {
@@ -388,62 +369,11 @@ step "S" {
         const boxes = phase.flatMap((p) => computePacketCalloutBox(p) ?? []);
         boxes.forEach((a, ai) => {
           for (const b of boxes.slice(ai + 1)) {
-            const overlaps =
-              a.cx - a.halfW < b.cx + b.halfW &&
-              a.cx + a.halfW > b.cx - b.halfW &&
-              a.boxTop < b.boxBottom &&
-              a.boxBottom > b.boxTop;
-            expect(overlaps).toBe(false);
+            expect(overlap(a, b)).toBe(false);
           }
         });
       }
     });
-  });
-
-  /** A packet parked at x, so that its callout sits at a chosen place. */
-  const packetAt = (x: number): Packet => {
-    const point = { x, y: 0 };
-    return {
-      from: 'a',
-      to: 'b',
-      fromLabel: 'A',
-      toLabel: 'B',
-      label: 'Callout',
-      color: 'red',
-      path: { p0: point, p1: point, p2: point, p3: point },
-      roundTrip: false,
-      clearTop: 0,
-      labelAreas: [],
-      durationMs: 2000,
-    };
-  };
-
-  it('shifts clashing callouts symmetrically and leaves far ones in place', () => {
-    const [first, far, clashing] = [packetAt(0), packetAt(1000), packetAt(0)] as const;
-    separatePhaseCallouts([first, far, clashing]);
-    expect(far).not.toHaveProperty('calloutShift');
-    expect(first.calloutShift).toBeLessThan(0);
-    expect(clashing.calloutShift).toBeGreaterThan(0);
-    expect((first.calloutShift ?? 0) + (clashing.calloutShift ?? 0)).toBeCloseTo(0);
-  });
-
-  it('moves clashing callouts apart by the smallest symmetric distance', () => {
-    const [first, second] = [packetAt(100), packetAt(100)] as const;
-    separatePhaseCallouts([first, second]);
-    const halfW = computePacketCalloutBox(first)?.halfW ?? 0;
-    const expectedSpan = halfW * 2 + CALLOUT_GAP + 1;
-    expect(first.calloutShift).toBeCloseTo(-expectedSpan / 2);
-    expect(second.calloutShift).toBeCloseTo(expectedSpan / 2);
-    expect((second.calloutShift ?? 0) - (first.calloutShift ?? 0)).toBeCloseTo(expectedSpan);
-  });
-
-  it('does not move callouts of packets that play one after another', () => {
-    const doc = parse(
-      'dav 1\nnode a\nnode b\na --> b\nstep "S" {\n  animate a --> b : "One"\n  animate a --> b : "Two"\n}\n',
-    ).document;
-    for (const phase of resolveView(doc, computeLayout(doc), 0).phases) {
-      expect(phase[0]).not.toHaveProperty('calloutShift');
-    }
   });
 
   it('marks only active edge labels for emphasis', () => {
@@ -490,20 +420,15 @@ step "S" {
     expect(last).toMatch(/^b x+…$/);
   });
 
-  it('supports custom fitText/wrapText options and geometry helpers without changing defaults', () => {
-    const fixedMeasure = (s: string) => s.length * 10;
-    // Default keeps trailing space before ellipsis (`trimBeforeEllipsis` false); opt-in trims it.
-    expect(fitText('abc def', 10, 50, { measure: fixedMeasure })).toBe('abc …');
-    expect(fitText('abc def', 10, 50, { measure: fixedMeasure, trimBeforeEllipsis: true })).toBe(
-      'abc…',
-    );
-    expect(
-      wrapText('alpha→beta→gamma', 10, 70, 3, {
-        measure: fixedMeasure,
-        isBreakable: (ch) => ch === '→',
-        trimBeforeEllipsis: true,
-      }),
-    ).toEqual(['alpha→', 'beta→', 'gamma']);
+  it('cuts and wraps a text by the style it is set in, and offers geometry helpers', () => {
+    // A space before the ellipsis is dropped, except in code, where every column counts.
+    expect(fitText('ab cdef', 10, 30)).toBe('ab…');
+    expect(fitText('ab cdef', 10, 30, 'mono')).toBe('ab …');
+    // Bold text is wider, so less of it fits.
+    expect(fitText('abcdefghijklmnop', 10, 60)).toBe('abcdefghi…');
+    expect(fitText('abcdefghijklmnop', 10, 60, 'bold')).toBe('abcdefgh…');
+    // A line may break at an arrow.
+    expect(wrapText('alpha→beta→gamma', 10, 45, 3)).toEqual(['alpha→', 'beta→', 'gamma']);
     expect(clamp(-5, 0, 10)).toBe(0);
     expect(clamp(15, 0, 10)).toBe(10);
     expect(clamp(4, 0, 10)).toBe(4);
@@ -585,7 +510,7 @@ step "S" {
     };
     for (const part of stepView.nodes.flatMap(nodeBody))
       expect(rectOverlaps(rect, part)).toBe(false);
-    // Just above the rail, where the first pass alone would leave it above both nodes' cells.
+    // Just above the rail, not above the cells of both nodes.
     const railY = pointAt(packet.path, 0.5).y;
     expect(railY - box.boxBottom).toBeGreaterThanOrEqual(21.9);
     expect(railY - box.boxBottom).toBeLessThan(40);

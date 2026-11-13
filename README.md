@@ -2,7 +2,7 @@
 
 Write architecture and screen-flow diagrams as text, then play them step by step. A VS Code extension for `.dav` files.
 
-![A request passing the edge, a cache hit, a write with replication, and a database failover, played step by step](docs/media/failover.svg)
+![A request passing the edge, a cache hit, a write with replication, and a database failover, played step by step](docs/media/examples/01-infra-ha-failover.svg)
 
 *This animation is an SVG file, exported by the extension from [`examples/01-infra-ha-failover.dav`](examples/01-infra-ha-failover.dav).*
 
@@ -44,9 +44,9 @@ step "The payment provider fails" {
 - **AI-friendly.** [Agent skills](#ai-agent-skills) let coding agents write, validate and explain `.dav` files, and a command copies a prompt for chat assistants.
 - **Japanese and English UI**, following the VS Code display language.
 
-![A checkout screen flow with the calls behind each screen: signing in, adding to the cart, charging the card and showing the confirmation](docs/media/screen-flow.svg)
+![A checkout screen flow with the calls behind each screen: signing in, adding to the cart, charging the card and showing the confirmation](docs/media/examples/02-screen-flow-checkout.svg)
 
-*A screen flow, exported the same way from [`examples/02-screen-flow-checkout.dav`](examples/02-screen-flow-checkout.dav).*
+*A screen flow, exported the same way from [`examples/02-screen-flow-checkout.dav`](examples/02-screen-flow-checkout.dav). [All examples](docs/examples.md) play like this.*
 
 ## Install
 
@@ -60,7 +60,7 @@ npm run package
 code --install-extension apps/vscode/dist/dynamic-architect-viewer.vsix
 ```
 
-Then open a `.dav` file, or run **DynamicArchitectViewer: New Diagram from Sample Template...** from the Command Palette, and press `Ctrl+Shift+V` (`⌘⇧V` on macOS) for the preview. More examples are in [`examples/`](examples/).
+Then open a `.dav` file, or run **DynamicArchitectViewer: New Diagram from Sample Template...** from the Command Palette, and press `Ctrl+Shift+V` (`⌘⇧V` on macOS) for the preview. More examples are in [`examples/`](examples/), and [docs/examples.md](docs/examples.md) plays each of them.
 
 ## AI agent skills
 
@@ -93,6 +93,7 @@ Then ask your agent as usual, such as "Diagram this repository's login flow in `
 
 ## Documentation
 
+- [Examples](docs/examples.md)
 - [Language specification](docs/specification.md)
 - [How diagrams are laid out](docs/layout.md)
 - [Architecture](docs/architecture.md)
