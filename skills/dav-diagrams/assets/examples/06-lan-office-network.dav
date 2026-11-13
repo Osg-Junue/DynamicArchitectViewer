@@ -94,7 +94,12 @@ step "Automatic failover to LTE" {
   state e_lte_wan [visible: true]
   state utm [color: yellow, badge: "FAILOVER"]
   state branch_gw [color: green, badge: "VPN UP"]
-  animate utm --> lte : "Route Change" [color: yellow, desc: "The default route moves to the LTE router"]
+  animate utm --> lte : "Route Change" [color: yellow, desc: "The default route moves to the LTE router"] {
+    code text "Default route" ```
+      before: 0.0.0.0/0 via wan0 (fiber)
+      after:  0.0.0.0/0 via lte0 (LTE)
+    ```
+  }
   animate lte --> wan : "IKE" [color: yellow, desc: "The VPN is negotiated again over the mobile link"]
   animate wan --> branch_gw : "Tunnel Up" [color: yellow, desc: "The tunnel to the branch router is back"]
 }

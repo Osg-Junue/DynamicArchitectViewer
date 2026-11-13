@@ -39,7 +39,7 @@ flowchart LR
 │   ├── e2e/                 Playwright tests
 │   ├── syntaxes/            TextMate grammar
 │   └── media/               Icons and screenshot
-├── skills/dav-diagrams/     Agent skill. See "The agent skill" below
+├── skills/                  Agent skills. See "The agent skills" below
 ├── .claude-plugin/          Claude Code marketplace that lists the skill
 ├── examples/                Sample .dav files
 └── docs/                    This documentation
@@ -58,7 +58,7 @@ All paths are under `apps/vscode/src`.
 | `runtime/` | `Player`, shared by the preview and exported HTML | `scene`, `layout`, `model` |
 | `exporter/` | Standalone HTML and SVG export, HTML import | `dsl`, `layout`, `model`, `scene`, `runtime` |
 | `prompt/` | Prompt template that teaches the language to AI agents | `model` |
-| `skill/` | The `dav-check` command bundled with the agent skill | `dsl`, `model` |
+| `skill/` | The `dav-check` and `dav-outline` commands bundled with the agent skills | `dsl`, `model`, `scene` |
 | `protocol/` | Types of the messages between extension and webview | `model` |
 | `samples/` | Sample diagrams for the New Diagram command | Nothing |
 | `editor/` | The preview webview UI and its documentation | Most of the above |
@@ -162,7 +162,7 @@ With `camera: 'follow'`, the default, the camera follows the preview's rules fro
 | `dav.importHtml` | Open the `.dav` text embedded in an exported file |
 | `dav.newFromTemplate` | Create a diagram from a sample |
 | `dav.copyAiPrompt` | Copy a prompt that teaches the language to an AI agent |
-| `dav.installAgentSkill` | Copy the agent skill into a skills directory of Claude Code, Copilot or Codex |
+| `dav.installAgentSkill` | Copy the agent skills into a skills directory of Claude Code, Copilot or Codex |
 
 The extension and webview talk through typed messages in `protocol/messages.ts`:
 
@@ -177,24 +177,32 @@ The extension and webview talk through typed messages in `protocol/messages.ts`:
 
 **Language.** The UI is Japanese when `vscode.env.language` is Japanese, and English otherwise. The extension writes this into `<html lang>` for the webview, and command titles come from `package.nls*.json`.
 
-## The agent skill
+## The agent skills
 
-`skills/dav-diagrams/` follows the [Agent Skills](https://agentskills.io/specification) format. Only `SKILL.md` is written by hand. `npm run build:skill` generates the rest:
+`skills/` holds two skills in the [Agent Skills](https://agentskills.io/specification) format: `dav-diagrams` for writing diagrams and `dav-reading` for explaining them. Only each `SKILL.md` is written by hand. `npm run build:skill` generates the rest:
 
 | Path | Source |
 | :--- | :--- |
-| `scripts/dav-check.mjs` | `src/skill/check.ts`, bundled with the parser so that it needs no install |
-| `references/` | `docs/specification.md` and `docs/layout.md` |
-| `assets/examples/` | `examples/` |
+| `dav-diagrams/scripts/dav-check.mjs` | `src/skill/check.ts`, bundled with the parser so that it needs no install |
+| `dav-diagrams/references/` | `docs/specification.md` and `docs/layout.md` |
+| `dav-diagrams/assets/examples/` | `examples/` |
+| `dav-reading/scripts/dav-outline.mjs` | `src/skill/outline.ts`, bundled the same way |
+| `dav-reading/references/` | `docs/specification.md` |
 
-The generated files are committed, because the marketplace and the `skills` CLI install directly from the repository. CI fails if they are out of date. The build also copies the skill to `dist/skill/`, because the VSIX contains only `apps/vscode`.
+`dav-check` prints the diagnostics of the parser and can format the file. With `--detail` it also prints hints (`src/skill/review.ts`): an edge or packet without a label, a step or packet without a `desc`, a packet that travels where no edge is declared, a diagram without any `code`, and every text that is drawn cut off. Hints are not diagnostics of the language, so the editor does not show them. What is cut off comes from `scene/textCuts.ts`, which asks the same code that draws the text, so the checker cannot disagree with the preview.
+
+`dav-outline` prints what a file says as Markdown or JSON: zones and nodes with their labels, every edge, and for each step its packets in the order they travel, what the step changes and what still shows from earlier steps.
+
+The examples in `examples/` and in `dav-diagrams/SKILL.md` pass `dav-check --detail`, and the excerpts in `dav-reading/SKILL.md` are lines of a real outline; tests keep both true.
+
+The generated files are committed, because the marketplace and the `skills` CLI install directly from the repository. CI fails if they are out of date. The build also copies the skills to `dist/skill/`, because the VSIX contains only `apps/vscode`.
 
 ## Tests
 
 | Location | Covers |
 | :--- | :--- |
 | `src/__tests__/architecture.test.ts` | Dependency direction between modules |
-| `src/skill/__tests__/` | `SKILL.md` matches the language, and the behavior of the checker |
+| `src/skill/__tests__/` | Each `SKILL.md` matches the language and its script, and the behavior of `dav-check` and `dav-outline` |
 | `src/dsl/__tests__/` | Parsing, every diagnostic, the formatter, and property tests with fast-check |
 | `src/layout/__tests__/` | Layout invariants and a crossing budget for each sample |
 | `src/scene/__tests__/` | Step state, rails, callouts and rendering |

@@ -12,14 +12,16 @@ import {
 } from './geometry';
 import type { ResolvedNode } from './resolve';
 import { type RouteEdge, routeEdges } from './route';
-import { estimateTextWidth, fitText } from './text';
+import {
+  BADGE_MAX_WIDTH,
+  BADGE_SIZE,
+  estimateTextWidth,
+  fitText,
+  NODE_LABEL_SIZE,
+  NODE_SUB_SIZE,
+} from './text';
 import { ZONE_LABEL, zoneLabelRoom } from './zones';
 
-/** Sizes of a node's name, of the line below it and of its badge, as `build.ts` draws them. */
-const NODE_LABEL_SIZE = 14;
-const NODE_SUB_SIZE = 11.5;
-const BADGE_SIZE = 11;
-const BADGE_MAX_WIDTH = 120;
 /** How far above the middle of its curve a loop's label is written, clear of a numbered stop. */
 const LOOP_LABEL_LIFT = 20;
 

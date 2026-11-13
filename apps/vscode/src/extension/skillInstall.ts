@@ -2,7 +2,8 @@ import { homedir } from 'node:os';
 import * as vscode from 'vscode';
 import { t } from './locale';
 
-const SKILL_NAME = 'dav-diagrams';
+/** The skills the extension carries: one to write diagrams, one to read them. */
+const SKILL_NAMES = ['dav-diagrams', 'dav-reading'];
 
 /** Where each agent looks for skills, relative to the workspace and to the home directory. */
 const SKILL_TARGETS: ReadonlyArray<{
@@ -39,18 +40,23 @@ export async function installAgentSkill(extensionUri: vscode.Uri): Promise<void>
     },
   ]);
   const picked = await vscode.window.showQuickPick(items, {
-    placeHolder: t('スキルをインストールする場所を選択', 'Choose where to install the skill'),
+    placeHolder: t('スキルをインストールする場所を選択', 'Choose where to install the skills'),
   });
   if (!picked) return;
 
   const parent = vscode.Uri.joinPath(picked.root, ...picked.segments);
-  const target = vscode.Uri.joinPath(parent, SKILL_NAME);
-  if (await uriExists(target)) {
+  const targets = SKILL_NAMES.map((name) => ({ name, uri: vscode.Uri.joinPath(parent, name) }));
+  const existing: string[] = [];
+  for (const { name, uri } of targets) {
+    if (await uriExists(uri)) existing.push(name);
+  }
+  if (existing.length > 0) {
     const replace = t('置き換える', 'Replace');
+    const names = existing.join(', ');
     const answer = await vscode.window.showWarningMessage(
       t(
-        `${picked.detail}/${SKILL_NAME} は既に存在します。置き換えますか？`,
-        `${picked.detail}/${SKILL_NAME} already exists. Replace it?`,
+        `${picked.detail} に ${names} は既に存在します。置き換えますか？`,
+        `${names} already exists in ${picked.detail}. Replace it?`,
       ),
       { modal: true },
       replace,
@@ -59,15 +65,16 @@ export async function installAgentSkill(extensionUri: vscode.Uri): Promise<void>
   }
 
   await vscode.workspace.fs.createDirectory(parent);
-  await vscode.workspace.fs.copy(
-    vscode.Uri.joinPath(extensionUri, 'dist', 'skill', SKILL_NAME),
-    target,
-    { overwrite: true },
-  );
+  for (const { name, uri } of targets) {
+    await vscode.workspace.fs.copy(vscode.Uri.joinPath(extensionUri, 'dist', 'skill', name), uri, {
+      overwrite: true,
+    });
+  }
+  const installed = SKILL_NAMES.join(', ');
   void vscode.window.showInformationMessage(
     t(
-      `スキルをインストールしました: ${picked.detail}/${SKILL_NAME}。エージェントの新しいセッションで使えます。`,
-      `Installed the skill to ${picked.detail}/${SKILL_NAME}. It is available in new agent sessions.`,
+      `スキル（${installed}）を ${picked.detail} にインストールしました。エージェントの新しいセッションで使えます。`,
+      `Installed the skills (${installed}) to ${picked.detail}. They are available in new agent sessions.`,
     ),
   );
 }

@@ -2,6 +2,13 @@ import { estimateTextWidth, isWide } from '../model/text';
 
 export { estimateTextWidth };
 
+/** Sizes of the text a node carries, and how much of its cell's width its labels may take. */
+export const NODE_LABEL_SIZE = 14;
+export const NODE_SUB_SIZE = 11.5;
+export const NODE_TEXT_INSET = 8;
+export const BADGE_SIZE = 11;
+export const BADGE_MAX_WIDTH = 120;
+
 export interface FitTextOptions {
   measure?: (text: string, fontSize: number) => number;
   trimBeforeEllipsis?: boolean;

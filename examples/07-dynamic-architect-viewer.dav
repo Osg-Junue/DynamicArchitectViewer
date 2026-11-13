@@ -2,17 +2,17 @@ dav 1
 title "DynamicArchitectViewer: DSL parsing, auto layout, live preview and HTML export"
 
 group vscode_host "VS Code Extension Host" [color: teal] {
-  node editor ".dav Editor" [icon: file, sub: "TextDocument / Diagnostics"]
+  node editor ".dav Editor" [icon: file, sub: "TextDocument"]
   node ext "Extension Host" [icon: runtime, sub: "extension/extension.ts"]
 }
 
 group core_pipeline "DSL & Layout" [color: blue] {
-  node dsl "DSL Parser" [icon: logic, sub: "dsl/ (Lezer LR / SourceMap)"]
+  node dsl "DSL Parser" [icon: logic, sub: "dsl/ (Lezer parser)"]
   node layout "Auto Layout" [icon: sheet, sub: "layout/ (computeLayout)"]
 }
 
 group scene_runtime "Scene & Runtime" [color: purple] {
-  node scene "Scene Builder" [icon: function, sub: "scene/ (resolveView / buildScene)"]
+  node scene "Scene Builder" [icon: function, sub: "scene/ (resolveView)"]
   node player "SVG Player" [icon: monitor, sub: "runtime/player.ts"]
 }
 
@@ -88,7 +88,7 @@ step "Resolving the step scene and rendering the live preview" {
     code json "Layout" ```
       {
         "nodes": {
-          "api": { "x": 320, "y": 140, "width": 176, "height": 118 }
+          "api": { "x": 320, "y": 140, "width": 176 }
         }
       }
     ```

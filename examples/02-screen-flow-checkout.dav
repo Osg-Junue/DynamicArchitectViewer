@@ -43,7 +43,15 @@ step "Charging the card" {
   desc "The user confirms the order. The Checkout API calls Stripe to authorize the payment."
   focus mod_pay, shop_api, stripe
   state mod_pay [badge: "PROCESSING"]
-  animate mod_pay --> shop_api : "POST /checkout" [desc: "The payment token and order are sent, and a lock prevents double submission"]
+  animate mod_pay --> shop_api : "POST /checkout" [desc: "The payment token and order are sent, and a lock prevents double submission"] {
+    code json "Checkout Request" ```
+      {
+        "cartId": "cart_3051",
+        "paymentToken": "tok_test_4242",
+        "idempotencyKey": "chk_7f3c91ab"
+      }
+    ```
+  }
   animate shop_api --> stripe : "POST /v1/charges" [desc: "The backend calls Stripe to charge the card"]
 }
 

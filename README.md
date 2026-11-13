@@ -39,7 +39,7 @@ step "The payment provider fails" {
 - **Language support:** highlighting, diagnostics with Quick Fixes, completions, a formatter that keeps comments, and an outline.
 - **Standalone HTML export.** One file with all steps that works offline, with no external requests. The source can be extracted from it again.
 - **SVG export for READMEs.** An animated or still SVG covers every step or just the step in the preview, with the camera following the flow or keeping the whole diagram in view. It runs no script, so GitHub and GitLab play it as an image.
-- **AI-friendly.** An [agent skill](#ai-agent-skill) lets coding agents write and validate `.dav` files, and a command copies a prompt for chat assistants.
+- **AI-friendly.** An [agent skill](#ai-agent-skills) lets coding agents write and validate `.dav` files, and a command copies a prompt for chat assistants.
 - **Japanese and English UI**, following the VS Code display language.
 
 ![With "Focus on active animation" off, packets run off the screen; turned on, the camera follows them](docs/media/follow.gif)
@@ -58,11 +58,16 @@ code --install-extension apps/vscode/dist/dynamic-architect-viewer.vsix
 
 Then open a `.dav` file, or run **DynamicArchitectViewer: New Diagram from Sample Template...** from the Command Palette, and press `Ctrl+Shift+V` (`⌘⇧V` on macOS) for the preview. More examples are in [`examples/`](examples/).
 
-## AI agent skill
+## AI agent skills
 
-The [`dav-diagrams`](skills/dav-diagrams/SKILL.md) skill teaches coding agents the language, how layout works and how to structure steps. Its bundled checker runs the same parser and formatter as the editor, so an agent can fix its own mistakes. The checker needs Node.js 18 or later.
+Two skills teach coding agents to work with `.dav` files. Their scripts need Node.js 18 or later.
 
-**From VS Code:** run **DynamicArchitectViewer: Install AI Agent Skill...** from the Command Palette, then choose Claude Code, GitHub Copilot or Codex, and either the workspace or all projects.
+| Skill | For | Its script |
+| :--- | :--- | :--- |
+| [`dav-diagrams`](skills/dav-diagrams/SKILL.md) | Writing and changing diagrams: the language, how layout works, how to structure steps, and how much detail a diagram needs | `dav-check` runs the parser and formatter of the editor, and with `--detail` also reports missing descriptions and code, and text too long to be shown in full |
+| [`dav-reading`](skills/dav-reading/SKILL.md) | Reading diagrams: explaining the architecture and the data flows a `.dav` file describes | `dav-outline` prints what the file says, with every reference resolved and the packets of each step in order |
+
+**From VS Code:** run **DynamicArchitectViewer: Install AI Agent Skill...** from the Command Palette, then choose Claude Code, GitHub Copilot or Codex, and either the workspace or all projects. It installs both skills.
 
 ![Installing the skill for Claude Code in this workspace from the Command Palette](docs/media/skill-install.gif)
 
@@ -77,9 +82,10 @@ claude plugin install dynamic-architect-viewer@osg-junue
 
 ```bash
 npx skills add Osg-Junue/DynamicArchitectViewer --skill dav-diagrams
+npx skills add Osg-Junue/DynamicArchitectViewer --skill dav-reading
 ```
 
-Then ask your agent for a diagram as usual, such as "Diagram this repository's login flow in `auth.dav`".
+Then ask your agent as usual, such as "Diagram this repository's login flow in `auth.dav`" or "Explain how an order flows through `checkout.dav`".
 
 ## Documentation
 
