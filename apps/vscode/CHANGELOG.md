@@ -3,6 +3,10 @@
 This project follows [Semantic Versioning](https://semver.org/). The `0.x` series was a preview.
 The `dav` language version is separate from the extension version.
 
+## Unreleased
+
+- A command line, `dav`, in the npm package `dynamic-architect-viewer-cli`. `dav export` writes the SVG or the standalone HTML of a diagram without the editor, and with `--check` fails when the file there is missing or out of date, which keeps the SVG in a README up to date from CI. `dav check`, `dav format` and `dav outline` report what the editor reports, format files and print what a diagram says
+
 ## 1.0.0 (2026-11-13)
 
 The first stable release: the extension is no longer marked as a preview.

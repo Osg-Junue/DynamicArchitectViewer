@@ -43,6 +43,7 @@ flowchart LR
 │   ├── e2e/                 Playwright tests
 │   ├── syntaxes/            TextMate grammar
 │   └── media/               Icons and screenshot
+├── apps/cli/                The npm package of the `dav` command. See "The command line" below
 ├── skills/                  Agent skills. See "The agent skills" below
 ├── .claude-plugin/          Claude Code marketplace that lists the skill
 ├── examples/                Sample .dav files
@@ -63,6 +64,7 @@ All paths are under `apps/vscode/src`.
 | `exporter/` | Standalone HTML and SVG export, HTML import | `dsl`, `layout`, `model`, `scene`, `runtime` |
 | `prompt/` | Prompt template that teaches the language to AI agents | `model` |
 | `skill/` | The `dav-check` and `dav-outline` commands bundled with the agent skills | `dsl`, `layout`, `model`, `scene` |
+| `cli/` | The `dav` command of the npm package | `dsl`, `exporter`, `model`, `skill` |
 | `protocol/` | Types of the messages between extension and webview | `model` |
 | `samples/` | Sample diagrams for the New Diagram command | Nothing |
 | `editor/` | The preview webview UI and its documentation | Most of the above |
@@ -189,10 +191,10 @@ The extension and webview talk through typed messages in `protocol/messages.ts`:
 
 | Path | Source |
 | :--- | :--- |
-| `dav-diagrams/scripts/dav-check.mjs` | `src/skill/check.ts`, bundled with the parser so that it needs no install |
+| `dav-diagrams/scripts/dav-check.mjs` | `src/skill/checkEntry.ts`, which runs `check.ts`, bundled with the parser so that it needs no install |
 | `dav-diagrams/references/` | `docs/specification.md` and `docs/layout.md` |
 | `dav-diagrams/assets/examples/` | `examples/` |
-| `dav-reading/scripts/dav-outline.mjs` | `src/skill/outline.ts`, bundled the same way |
+| `dav-reading/scripts/dav-outline.mjs` | `src/skill/outlineEntry.ts`, which runs `outline.ts`, bundled the same way |
 | `dav-reading/references/` | `docs/specification.md` |
 
 `dav-check` prints the diagnostics of the parser and can format the file. With `--detail` it also prints hints (`src/skill/review.ts`): an edge or packet without a label, a step or packet without a `desc`, a packet that travels where no edge is declared, a diagram without any `code`, and every text that is drawn cut off. Hints are not diagnostics of the language, so the editor does not show them. What is cut off comes from `scene/textCuts.ts`, which asks the same code that draws the text, so the checker cannot disagree with the preview. `--detail` also describes the layout (`src/skill/layoutReport.ts`): the size and proportion of the diagram, the columns and rows its nodes and zones take, and how many connections cross, with notes on a zone stacked in one column, a diagram much taller than wide, and crossings. These lines do not fail the check; they stand in for the look at the preview that an agent cannot take.
@@ -203,10 +205,28 @@ The examples in `examples/` and in `dav-diagrams/SKILL.md` pass `dav-check --det
 
 The generated files are committed, because the marketplace and the `skills` CLI install directly from the repository. CI fails if they are out of date. The build also copies the skills to `dist/skill/`, because the VSIX contains only `apps/vscode`.
 
+## The command line
+
+`apps/cli` is the npm package `dynamic-architect-viewer-cli`. Its `dav` command is one file, `dist/dav.mjs`, which `npm run build:cli` bundles from `src/cli/` with the parser, the exporters and the player that exported HTML inlines, so the package has no dependencies. The package has the version of the extension and is released with it.
+
+| Command | What runs |
+| :--- | :--- |
+| `dav export` | `exportSvg` and `exportHtml`, the exporters behind the Export menu. `--check` compares with the file there is instead of writing |
+| `dav check` | `runCheck` of `skill/check.ts`, as `dav-check` does |
+| `dav format` | `format` of `dsl/` |
+| `dav outline` | `runOutline` of `skill/outline.ts`, as `dav-outline` does |
+
+The exit code is 0, or 1 when something is reported (a diagnostic, a file that is not formatted, an export that is missing or out of date), or 2 for misuse and for a file that cannot be read.
+
+**Stricter than the editor.** The editor exports whatever can be drawn, and refuses only a text with nothing to draw. `dav export` exports nothing from a diagram with an error, so that a run in CI does not publish a diagram that is half there. Warnings are shown and do not stop the export.
+
+**The same bytes.** An export depends only on the text and the options: the layout is deterministic, and the SVG sizes its text by the estimate. So `dav export --check` compares byte for byte, after setting back line endings that a checkout changed. A later version may lay out a diagram differently, and then the check fails until the files are exported again.
+
 ## Tests
 
 | Location | Covers |
 | :--- | :--- |
+| `src/cli/__tests__/` | The `dav` command: its options, what each command writes and its exit codes, and that the built file of the npm package runs and has the version of the extension |
 | `src/__tests__/architecture.test.ts` | Dependency direction between modules |
 | `src/skill/__tests__/` | Each `SKILL.md` matches the language and its script, and the behavior of `dav-check` and `dav-outline` |
 | `src/dsl/__tests__/` | Parsing, every diagnostic, the formatter, and property tests with fast-check |

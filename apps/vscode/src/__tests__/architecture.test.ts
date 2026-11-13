@@ -43,6 +43,10 @@ const RULES: Record<string, { allowedLayers: string[]; forbiddenPackages: RegExp
     allowedLayers: ['skill', 'dsl', 'layout', 'model', 'scene'],
     forbiddenPackages: /^(react|react-dom|vscode)/,
   },
+  cli: {
+    allowedLayers: ['cli', 'dsl', 'exporter', 'model', 'skill'],
+    forbiddenPackages: /^(react|react-dom|vscode)/,
+  },
   editor: {
     allowedLayers: [
       'editor',

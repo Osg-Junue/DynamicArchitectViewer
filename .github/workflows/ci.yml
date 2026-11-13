@@ -32,6 +32,7 @@ jobs:
           test -f apps/vscode/dist/webview/assets/webview.css
           test -f apps/vscode/dist/skill/dav-diagrams/SKILL.md
           test -f apps/vscode/dist/dynamic-architect-viewer.vsix
+          test -f apps/cli/dist/dav.mjs
       - name: Verify the generated skill files are committed
         run: git diff --exit-code -- skills
       - uses: actions/upload-artifact@v7

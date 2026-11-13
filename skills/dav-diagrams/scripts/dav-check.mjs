@@ -1,4 +1,4 @@
-// Generated from apps/vscode/src/skill/check.ts. Do not edit.
+// Generated from apps/vscode/src/skill/checkEntry.ts. Do not edit.
 import { readFileSync as e, writeFileSync as t } from "node:fs";
 // src/model/types.ts
 var n = /* @__PURE__ */ "server.container.function.runtime.database.cache.queue.storage.lb.firewall.cdn.cloud.building.router.hub.wifi.external.auth.ai.api.mail.monitor.schedule.search.logic.webhook.payment.key.screen.modal.browser.desktop.mobile.terminal.device.printer.chat.sheet.file.user.users.bot".split(".");
@@ -4055,14 +4055,17 @@ function ui(e, t) {
 	let n = Number.isNaN(t) ? 0 : Math.max(0, Math.min(e.length, Math.trunc(t))), r = n === 0 ? 1 : n - e.lastIndexOf("\n", n - 1);
 	return `${te(e, n)}:${r}`;
 }
-function di(n, r, i) {
+function di(e, t, n) {
+	return `${e}:${ui(t, n.from)}: ${n.severity} ${n.code}: ${mt(n)}`;
+}
+function fi(n, r, i) {
 	let a = e(n, "utf8").replace(/^﻿/, "");
 	if (r) {
 		let e = yt(a);
 		e !== a && (t(n, e), a = e);
 	}
 	let { document: o, diagnostics: s } = st(a);
-	for (let e of s) console.log(`${n}:${ui(a, e.from)}: ${e.severity} ${e.code}: ${mt(e)}`);
+	for (let e of s) console.log(di(n, a, e));
 	let c = i && s.length === 0 ? ii(o) : [];
 	for (let e of c) console.log(`${n}: hint ${e.code}: ${e.message}`);
 	if (i && s.length === 0) {
@@ -4076,16 +4079,17 @@ function di(n, r, i) {
 	}
 	return s.length === 0 && c.length === 0;
 }
-function fi(e) {
-	if (e.includes("--help") || e.includes("-h")) return console.log(ai), si;
-	let t = e.filter((e) => !oi.includes(e));
-	if (t.length === 0 || t.some((e) => e.startsWith("-"))) return console.error(ai), li;
-	let n = !0;
-	for (let r of t) try {
-		di(r, e.includes("--write"), e.includes("--detail")) || (n = !1);
+function pi(e, t = ai) {
+	if (e.includes("--help") || e.includes("-h")) return console.log(t), si;
+	let n = e.filter((e) => !oi.includes(e));
+	if (n.length === 0 || n.some((e) => e.startsWith("-"))) return console.error(t), li;
+	let r = !0;
+	for (let t of n) try {
+		fi(t, e.includes("--write"), e.includes("--detail")) || (r = !1);
 	} catch (e) {
-		return console.error(`${r}: ${e instanceof Error ? e.message : String(e)}`), li;
+		return console.error(`${t}: ${e instanceof Error ? e.message : String(e)}`), li;
 	}
-	return n ? si : ci;
+	return r ? si : ci;
 }
-process.exitCode = fi(process.argv.slice(2));
+// src/skill/checkEntry.ts
+process.exitCode = pi(process.argv.slice(2));
