@@ -45,12 +45,7 @@
   ],
   "activationEvents": [
     "onLanguage:dav",
-    "onCommand:dav.openPreview",
-    "onCommand:dav.exportHtml",
-    "onCommand:dav.importHtml",
-    "onCommand:dav.newFromTemplate",
-    "onCommand:dav.copyAiPrompt",
-    "onCommand:dav.installAgentSkill"
+    "onWebviewPanel:dav.canvasPreview"
   ],
   "main": "./dist/extension.cjs",
   "contributes": {
@@ -90,6 +85,11 @@
         "title": "%command.exportHtml.title%",
         "category": "DynamicArchitectViewer",
         "icon": "$(export)"
+      },
+      {
+        "command": "dav.exportSvg",
+        "title": "%command.exportSvg.title%",
+        "category": "DynamicArchitectViewer"
       },
       {
         "command": "dav.importHtml",

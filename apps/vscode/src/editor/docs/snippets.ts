@@ -285,6 +285,24 @@ step "Label, desc and color" {
   }
 }`;
 
+export const CODE_DSL = `dav 1
+
+node app "App" [icon: container]
+node api "Orders API" [icon: api]
+app --> api
+
+step "Code in a callout" {
+  animate app --> api : "POST /orders" {
+    desc "The request body"
+    code json "Order Request" \`\`\`
+      {
+        "orderId": "ord_01",
+        "amount": 14800
+      }
+    \`\`\`
+  }
+}`;
+
 export const NO_EDGE_DSL = `dav 1
 
 node a "Producer" [icon: function]
@@ -365,7 +383,10 @@ DescStmt      ::= "desc" String
 FocusStmt     ::= "focus" Identifier ("," Identifier)*
 StateStmt     ::= "state" Identifier AttrBlock
 AnimateStmt   ::= "animate" Identifier AnimateArrow Identifier (":" String)?
-                  AttrBlock? ("{" DescStmt* "}")?
+                  AttrBlock? AnimateBody?
+AnimateBody   ::= "{" (DescStmt | CodeStmt)* "}"
+CodeStmt      ::= "code" CodeLang? (String CodeFence | CodeFence | String)
+CodeLang      ::= Identifier | "dav"
 AnimateArrow  ::= "-->" | "<->"
 
 AttrBlock     ::= "[" (Attr ("," Attr)* ","?)? "]"
@@ -393,6 +414,8 @@ export const DIAGNOSTIC_EXAMPLES: Record<DiagnosticCode, string> = {
   'invalid-escape': 'dav 1\ntitle "a\\q"',
   'attribute-not-applicable': 'dav 1\ngroup g { node a }\nstep "S" {\n  state g [badge: "x"]\n}',
   'empty-state': 'dav 1\nnode a\nstep "S" {\n  state a []\n}',
+  'duplicate-code':
+    'dav 1\nnode a\nnode b\nstep "S" {\n  animate a --> b [code: "x"] {\n    code "y"\n  }\n}',
 };
 
 /** All documents animated or rendered by the documentation, for validation. */
@@ -411,6 +434,7 @@ export const ALL_EXAMPLE_DOCUMENTS: readonly string[] = [
   ROUND_TRIP_DSL,
   PACKET_ICON_DSL,
   CALLOUT_DSL,
+  CODE_DSL,
   NO_EDGE_DSL,
   ...COLOR_NAMES.map(colorLabDsl),
   ...NODE_GALLERY.map((code) => NODE_PRELUDE + code),

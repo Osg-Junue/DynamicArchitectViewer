@@ -1,26 +1,30 @@
 import { describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
-import { computeLayout, type Rect, stationRect } from '../../layout';
+import { computeLayout, type Rect, rectOverlaps, stationRect } from '../../layout';
 import { ICON_NAMES } from '../../model/types';
 import { SAMPLE_TEMPLATES } from '../../samples';
-import { separatePhaseCallouts } from '../callout';
-import { type Bezier, pointAt } from '../geometry';
+import { CALLOUT_GAP, separatePhaseCallouts } from '../callout';
+import { type Bezier, pointAt, type Rail, type Route, railEnds } from '../geometry';
 import { ICON_SHAPES } from '../icons';
 import {
   activeLabelFill,
   buildPacket as buildPacketWith,
   buildScene as buildSceneWith,
+  clamp,
   computePacketCalloutBox,
   DEFAULT_FLOW_COLOR,
+  fitText,
   flowColors,
   type Packet,
   packetPosition,
   type ResolvedView,
   resolveView,
+  round,
   type VElement,
   type VNode,
+  wrapText,
 } from '../index';
-import { wrapText } from '../text';
+import { nodeBody } from '../rails';
 
 const buildScene = (view: ResolvedView) => buildSceneWith(view, ICON_SHAPES);
 const buildPacket = (packet: Packet, t?: number) => buildPacketWith(packet, ICON_SHAPES, t);
@@ -99,7 +103,7 @@ describe('resolveView', () => {
   it('reverses the path when a packet travels against a bidirectional edge', () => {
     const packet = view(0).phases[1]?.[0];
     const e = edge(0, 'client->db');
-    expect(packet && e && packet.path.p0).toEqual(e?.path.p3);
+    expect(packet && railEnds(packet.path).start).toEqual(e && railEnds(e.path).end);
     expect(e?.active).toBe(true);
   });
 
@@ -115,10 +119,21 @@ describe('resolveView', () => {
     expect(view(2).groups.find((g) => g.id === 'vpc')?.dimmed).toBe(false);
   });
 
-  it('dims edges that are not part of the focus', () => {
-    expect(edge(0, 'client->api')?.dimmed).toBe(false);
-    expect(edge(2, 'client->api')?.dimmed).toBe(true);
-    expect(edge(2, 'api->db')?.dimmed).toBe(false);
+  it('draws only the edges that are part of the focus', () => {
+    expect(edge(0, 'client->api')).toBeDefined();
+    expect(edge(2, 'client->api')).toBeUndefined();
+    // Nothing runs on it in this step, but both of its nodes are in the focused group.
+    expect(edge(2, 'api->db')).toBeDefined();
+    expect(edge(2, 'api->db')?.active).toBe(false);
+  });
+
+  it('draws every edge on the overview and in a step that focuses on nothing', () => {
+    const dsl =
+      'dav 1\nnode a\nnode b\nnode c\na --> b\nb --> c\nstep "S" {\n  desc "Nothing"\n}\n';
+    const { document } = parse(dsl);
+    const layout = computeLayout(document);
+    expect(resolveView(document, layout, 0).edges.map((e) => e.id)).toEqual(['a->b', 'b->c']);
+    expect(resolveView(document, layout, null).edges).toHaveLength(2);
   });
 
   it('is deterministic regardless of navigation order', () => {
@@ -190,7 +205,7 @@ describe('buildScene', () => {
     expect(findAll(dot, (e) => e.tag === 'circle' && e.attrs.r === 8)).toHaveLength(1);
   });
 
-  it('renders a stationary speech-bubble callout whose pointer tip tracks the moving dot', () => {
+  it('renders a callout that stays still while only the marker moves', () => {
     const doc = parse(
       'dav 1\nnode a "A"\nnode b "B"\na --> b\nstep "S" {\n  animate a --> b : "POST /v1/charges" [desc: "Edge WAF inspects payload and verifies mTLS before forwarding"]\n}\n',
     ).document;
@@ -205,14 +220,14 @@ describe('buildScene', () => {
     expect(texts).toContain('POST /v1/charges');
     expect(texts).toContain('Edge WAF inspects payload');
 
-    // Text elements stay stationary while bubble tail path and dot transform move from t=0 to t=1
+    // The text and the box stay where they are while the marker moves from t=0 to t=1
     const label0 = findAll(v0, (e) => e.attrs.class === 'dav-packet-label')[0];
     const label1 = findAll(v1, (e) => e.attrs.class === 'dav-packet-label')[0];
     expect(label0?.attrs).toEqual(label1?.attrs);
 
     const bubble0 = findAll(v0, (e) => e.attrs.class === 'dav-packet-bubble')[0];
     const bubble1 = findAll(v1, (e) => e.attrs.class === 'dav-packet-bubble')[0];
-    expect(bubble0?.attrs.d).not.toEqual(bubble1?.attrs.d);
+    expect(bubble0?.attrs.d).toEqual(bubble1?.attrs.d);
 
     const dot0 = findAll(v0, (e) => e.attrs.class === 'dav-packet-dot')[0];
     const dot1 = findAll(v1, (e) => e.attrs.class === 'dav-packet-dot')[0];
@@ -314,13 +329,13 @@ describe('buildScene', () => {
     };
 
     const roundTrip = packetFor('<->');
-    expect(packetPosition(roundTrip, 0)).toEqual(roundTrip.path.p0);
-    expect(packetPosition(roundTrip, 0.5)).toEqual(roundTrip.path.p3);
-    expect(packetPosition(roundTrip, 1)).toEqual(roundTrip.path.p0);
+    expect(packetPosition(roundTrip, 0)).toEqual(railEnds(roundTrip.path).start);
+    expect(packetPosition(roundTrip, 0.5)).toEqual(railEnds(roundTrip.path).end);
+    expect(packetPosition(roundTrip, 1)).toEqual(railEnds(roundTrip.path).start);
 
     const oneWay = packetFor('-->');
-    expect(packetPosition(oneWay, 0.5)).not.toEqual(oneWay.path.p3);
-    expect(packetPosition(oneWay, 1)).toEqual(oneWay.path.p3);
+    expect(packetPosition(oneWay, 0.5)).not.toEqual(railEnds(oneWay.path).end);
+    expect(packetPosition(oneWay, 1)).toEqual(railEnds(oneWay.path).end);
   });
 
   it.each(SAMPLE_TEMPLATES.map((s) => [s.id, s.dsl] as const))(
@@ -329,15 +344,19 @@ describe('buildScene', () => {
       const doc = parse(dsl).document;
       const l = computeLayout(doc);
       doc.steps.forEach((_step, i) => {
-        for (const packet of resolveView(doc, l, i).phases.flat()) {
+        const view = resolveView(doc, l, i);
+        for (const packet of view.phases.flat()) {
           const box = computePacketCalloutBox(packet);
           if (!box) continue;
-          for (const area of packet.labelAreas) {
+          // The strip across the top of each zone, where its name is, wherever the camera
+          // has slid the name to.
+          for (const group of view.groups) {
+            const header = { ...group.rect, height: 34 };
             const overlaps =
-              box.cx - box.halfW < area.x + area.width &&
-              box.cx + box.halfW > area.x &&
-              box.boxTop < area.y + area.height &&
-              box.boxBottom > area.y;
+              box.cx - box.halfW < header.x + header.width &&
+              box.cx + box.halfW > header.x &&
+              box.boxTop < header.y + header.height &&
+              box.boxBottom > header.y;
             expect(overlaps).toBe(false);
           }
         }
@@ -399,19 +418,23 @@ step "S" {
     };
   };
 
-  it('keeps the first callout in place and moves only the ones in its way', () => {
+  it('shifts clashing callouts symmetrically and leaves far ones in place', () => {
     const [first, far, clashing] = [packetAt(0), packetAt(1000), packetAt(0)] as const;
     separatePhaseCallouts([first, far, clashing]);
-    expect(first).not.toHaveProperty('calloutShift');
     expect(far).not.toHaveProperty('calloutShift');
-    expect(clashing.calloutShift).toBeDefined();
+    expect(first.calloutShift).toBeLessThan(0);
+    expect(clashing.calloutShift).toBeGreaterThan(0);
+    expect((first.calloutShift ?? 0) + (clashing.calloutShift ?? 0)).toBeCloseTo(0);
   });
 
-  it('moves a clashing callout by the smallest distance that clears it', () => {
+  it('moves clashing callouts apart by the smallest symmetric distance', () => {
     const [first, second] = [packetAt(100), packetAt(100)] as const;
     separatePhaseCallouts([first, second]);
     const halfW = computePacketCalloutBox(first)?.halfW ?? 0;
-    expect(Math.abs(second.calloutShift ?? 0)).toBeCloseTo(halfW * 2 + 13);
+    const expectedSpan = halfW * 2 + CALLOUT_GAP + 1;
+    expect(first.calloutShift).toBeCloseTo(-expectedSpan / 2);
+    expect(second.calloutShift).toBeCloseTo(expectedSpan / 2);
+    expect((second.calloutShift ?? 0) - (first.calloutShift ?? 0)).toBeCloseTo(expectedSpan);
   });
 
   it('does not move callouts of packets that play one after another', () => {
@@ -467,6 +490,26 @@ step "S" {
     expect(last).toMatch(/^b x+…$/);
   });
 
+  it('supports custom fitText/wrapText options and geometry helpers without changing defaults', () => {
+    const fixedMeasure = (s: string) => s.length * 10;
+    // Default keeps trailing space before ellipsis (`trimBeforeEllipsis` false); opt-in trims it.
+    expect(fitText('abc def', 10, 50, { measure: fixedMeasure })).toBe('abc …');
+    expect(fitText('abc def', 10, 50, { measure: fixedMeasure, trimBeforeEllipsis: true })).toBe(
+      'abc…',
+    );
+    expect(
+      wrapText('alpha→beta→gamma', 10, 70, 3, {
+        measure: fixedMeasure,
+        isBreakable: (ch) => ch === '→',
+        trimBeforeEllipsis: true,
+      }),
+    ).toEqual(['alpha→', 'beta→', 'gamma']);
+    expect(clamp(-5, 0, 10)).toBe(0);
+    expect(clamp(15, 0, 10)).toBe(10);
+    expect(clamp(4, 0, 10)).toBe(4);
+    expect(round(12.34)).toBe(12.3);
+  });
+
   it('keeps the child groups of a focused group undimmed', () => {
     const doc = parse(
       'dav 1\ngroup parent {\n  group child {}\n}\ngroup other {}\nnode a\nstep "S" {\n  focus parent\n}\n',
@@ -493,11 +536,11 @@ step "S" {
     expect(stops.map((s) => s.attrs['data-active-text'])).toEqual(['#ffffff', 'var(--dav-bg)']);
   });
 
-  it('leaves stations along the direction of travel', () => {
+  it('starts two rails of one station at different points', () => {
     const doc = parse('dav 1\nnode a\nnode b\nnode c\na --> b\na --> c\n').document;
     const v = resolveView(doc, computeLayout(doc), null);
     const [first, second] = v.edges;
-    expect(first?.path.p0).not.toEqual(second?.path.p0);
+    expect(first && railEnds(first.path).start).not.toEqual(second && railEnds(second.path).start);
   });
 
   it('runs opposite directions on parallel tracks', () => {
@@ -505,9 +548,14 @@ step "S" {
       'dav 1\nnode a\nnode b\na --> b\nb --> a\nstep "S" {\n  animate a --> b\n  animate b --> a\n}\n',
     ).document;
     const v = resolveView(doc, computeLayout(doc), 0);
-    const y = (id: string) => v.edges.find((e) => e.id === id)?.path.p0.y ?? 0;
+    const y = (id: string) => {
+      const edge = v.edges.find((e) => e.id === id);
+      return edge ? railEnds(edge.path).start.y : 0;
+    };
+    // Each keeps to the left of its own direction: left to right above, the way back below.
     expect(y('a->b')).toBeLessThan(y('b->a'));
-    expect(v.phases[1]?.[0]?.path.p0.y).toBe(y('b->a'));
+    const back = v.phases[1]?.[0];
+    expect(back && railEnds(back.path).start.y).toBe(y('b->a'));
   });
 
   it('numbers the phases of a multi-phase step', () => {
@@ -517,15 +565,27 @@ step "S" {
     expect(findAll(buildScene(view(2)), (e) => e.attrs.class === 'dav-stop')).toEqual([]);
   });
 
-  it('keeps callouts above their endpoint nodes', () => {
+  it('puts a callout next to its rail, off the stations and labels at its ends', () => {
     const doc = parse(
       'dav 1\nnode a "A"\nnode b [icon: modal]\na --> b\nstep "S" {\n  animate a --> b : "x" [desc: "long description"]\n}\n',
     ).document;
     const layout = computeLayout(doc);
-    const packet = resolveView(doc, layout, 0).phases[0]?.[0];
+    const stepView = resolveView(doc, layout, 0);
+    const packet = stepView.phases[0]?.[0];
     const box = packet && computePacketCalloutBox(packet);
-    const top = Math.min(layout.nodes.a?.y ?? 0, layout.nodes.b?.y ?? 0);
-    expect(box?.boxBottom).toBeLessThanOrEqual(top - 8);
+    if (!packet || !box) throw new Error('missing callout');
+    const rect = {
+      x: box.cx - box.halfW,
+      y: box.boxTop,
+      width: box.halfW * 2,
+      height: box.boxBottom - box.boxTop,
+    };
+    for (const part of stepView.nodes.flatMap(nodeBody))
+      expect(rectOverlaps(rect, part)).toBe(false);
+    // Just above the rail, where the first pass alone would leave it above both nodes' cells.
+    const railY = pointAt(packet.path, 0.5).y;
+    expect(railY - box.boxBottom).toBeGreaterThanOrEqual(21.9);
+    expect(railY - box.boxBottom).toBeLessThan(40);
   });
 
   it.each(SAMPLE_TEMPLATES.map((s) => [s.id, s.dsl] as const))(
@@ -580,7 +640,8 @@ describe('self-loops', () => {
     const view = resolveView(document, layout, 0);
     const [first, second] = view.edges;
     expect(view.phases[0]?.[0]?.path).toEqual(first?.path);
-    expect(second?.path.p1.y).toBeLessThan(first?.path.p1.y as number);
+    if (!first || !second) throw new Error('missing loop');
+    expect((second.path as Bezier).p1.y).toBeLessThan((first.path as Bezier).p1.y);
   });
 
   it('reserves room above the node, and keeps rows level and groups around the loop', () => {
@@ -624,7 +685,7 @@ describe('numbered stops on a shared rail', () => {
     );
     const view = resolveView(document, computeLayout(document), 0);
     const circle = findAll(buildScene(view), (e) => e.attrs.class === 'dav-stop')[0]?.children[0];
-    const mid = pointAt(view.phases[0]?.[0]?.path as Bezier, 0.5);
+    const mid = pointAt(view.phases[0]?.[0]?.path as Rail, 0.5);
     expect((circle as VElement).attrs.cx).toBe(mid.x);
     expect((circle as VElement).attrs.cy).toBe(mid.y);
   });
@@ -650,9 +711,10 @@ describe('edges between the same stations', () => {
     ['a bidirectional edge last', 'b --> a [id: x]\na <-> b'],
   ])('keeps them apart with %s', (_name, edges) => {
     const [first, second] = build(`dav 1\nnode a\nnode b\n${edges}\n`).edges;
-    const a = pointAt(first?.path as Bezier, 0.5);
-    const b = pointAt(second?.path as Bezier, 0.5);
-    expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeGreaterThan(20);
+    const a = pointAt(first?.path as Rail, 0.5);
+    const b = pointAt(second?.path as Rail, 0.5);
+    // Side by side, a line's width and more apart.
+    expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeGreaterThanOrEqual(6);
   });
 
   it('runs a packet along the edge it belongs to', () => {
@@ -663,18 +725,20 @@ describe('edges between the same stations', () => {
     expect(view.phases[0]?.[0]?.path).toEqual(view.edges.find((e) => e.id === 'y')?.path);
   });
 
-  it('starts a steep rail at the side of its station on a fan-out', () => {
+  it('leaves a station level or upright, and meets the next one the same way', () => {
     const { document } = parse(
       'dav 1\nnode a\nnode x\nnode y\nnode z\na --> x\na --> y\na --> z\n',
     );
-    const layout = computeLayout(document);
-    const view = resolveView(document, layout, null);
-    const station = stationRect(layout.nodes.a as Rect, 'server');
-    const rail = view.edges.find((e) => e.to === 'z')?.path as Bezier;
-    const cx = station.x + station.width / 2;
-    const cy = station.y + station.height / 2;
-    const fromCenter = Math.hypot(rail.p0.x - cx, rail.p0.y - cy);
-    expect(rail.p0.x === cx || Math.abs(fromCenter - station.width / 2) < 0.01).toBe(true);
+    const view = resolveView(document, computeLayout(document), null);
+    expect(view.edges).toHaveLength(3);
+    for (const edge of view.edges) {
+      const { points } = edge.path as Route;
+      for (let i = 0; i + 1 < points.length; i++) {
+        const p = points[i];
+        const q = points[i + 1];
+        expect(p && q && (p.x === q.x || p.y === q.y)).toBe(true);
+      }
+    }
   });
 });
 
@@ -703,7 +767,7 @@ describe('focus from state', () => {
       ['b', false],
       ['c', true],
     ]);
-    expect(view.edges[0]?.dimmed).toBe(false);
+    expect(view.edges.map((e) => e.id)).toEqual(['e']);
   });
 
   it('still focuses an ordinary state target', () => {

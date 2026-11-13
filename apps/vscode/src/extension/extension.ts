@@ -1,12 +1,8 @@
 import * as vscode from 'vscode';
-import { importContent } from '../exporter';
-import { buildAiPrompt } from '../prompt';
-import { SAMPLES } from '../samples';
-import { exportDocumentToHtml, LANGUAGE_ID } from './documents';
+import { exportDocumentToHtml, exportDocumentToSvg, LANGUAGE_ID } from './documents';
 import { registerLanguageFeatures } from './languageFeatures';
 import { t, uiLocale } from './locale';
-import { CanvasPanelManager } from './previewPanel';
-import { installAgentSkill } from './skillInstall';
+import { CanvasPanelManager, PREVIEW_VIEW_TYPE } from './previewPanel';
 
 const openDavFirst = (): string =>
   t('先に .dav ファイルを開いてください。', 'Open a .dav file first.');
@@ -24,6 +20,16 @@ export function activate(context: vscode.ExtensionContext): void {
     return previewed && !previewed.isClosed ? previewed : undefined;
   };
 
+  const withTargetDocument =
+    (fn: (doc: vscode.TextDocument) => Promise<void>) => async (): Promise<void> => {
+      const doc = commandTargetDocument();
+      if (!doc) {
+        void vscode.window.showInformationMessage(openDavFirst());
+        return;
+      }
+      await fn(doc);
+    };
+
   /** Opens text as a new, unsaved diagram, next to its preview. */
   const openNewDocument = async (content: string): Promise<void> => {
     const doc = await vscode.workspace.openTextDocument({ language: LANGUAGE_ID, content });
@@ -32,6 +38,10 @@ export function activate(context: vscode.ExtensionContext): void {
   };
 
   context.subscriptions.push(
+    // Brings the preview back after the window reloads.
+    vscode.window.registerWebviewPanelSerializer(PREVIEW_VIEW_TYPE, {
+      deserializeWebviewPanel: (panel, state) => panelManager.restore(panel, state),
+    }),
     vscode.commands.registerCommand('dav.openPreview', () => {
       const doc = vscode.window.activeTextEditor?.document;
       if (!doc || (doc.languageId !== LANGUAGE_ID && !doc.uri.fsPath.endsWith('.dav'))) {
@@ -40,14 +50,14 @@ export function activate(context: vscode.ExtensionContext): void {
       }
       panelManager.open(doc);
     }),
-    vscode.commands.registerCommand('dav.exportHtml', async () => {
-      const doc = commandTargetDocument();
-      if (!doc) {
-        void vscode.window.showInformationMessage(openDavFirst());
-        return;
-      }
-      await exportDocumentToHtml(doc);
-    }),
+    vscode.commands.registerCommand(
+      'dav.exportHtml',
+      withTargetDocument((doc) => exportDocumentToHtml(doc)),
+    ),
+    vscode.commands.registerCommand(
+      'dav.exportSvg',
+      withTargetDocument((doc) => exportDocumentToSvg(doc)),
+    ),
     vscode.commands.registerCommand('dav.importHtml', async () => {
       const uris = await vscode.window.showOpenDialog({
         canSelectMany: false,
@@ -57,6 +67,7 @@ export function activate(context: vscode.ExtensionContext): void {
       if (!uri) return;
       const bytes = await vscode.workspace.fs.readFile(uri);
       const content = new TextDecoder('utf-8').decode(bytes);
+      const { importContent } = await import('../exporter');
       const res = importContent(content);
       if (!res.ok) {
         void vscode.window.showErrorMessage(
@@ -70,14 +81,20 @@ export function activate(context: vscode.ExtensionContext): void {
       await openNewDocument(res.dsl);
     }),
     vscode.commands.registerCommand('dav.newFromTemplate', async () => {
+      const { SAMPLE_TEMPLATES } = await import('../samples');
       const picked = await vscode.window.showQuickPick(
-        SAMPLES.map((s) => ({ label: s.name, detail: s.id, dsl: s.dsl })),
+        SAMPLE_TEMPLATES.map((s) => ({
+          label: t(...s.name),
+          detail: t(...s.description),
+          dsl: s.dsl,
+        })),
         { placeHolder: t('サンプルのテンプレートを選択', 'Select a sample diagram template') },
       );
       if (!picked) return;
       await openNewDocument(picked.dsl);
     }),
     vscode.commands.registerCommand('dav.copyAiPrompt', async () => {
+      const { buildAiPrompt } = await import('../prompt');
       const currentDsl = commandTargetDocument()?.getText();
       const prompt = buildAiPrompt({
         locale: uiLocale(),
@@ -91,9 +108,10 @@ export function activate(context: vscode.ExtensionContext): void {
         ),
       );
     }),
-    vscode.commands.registerCommand('dav.installAgentSkill', () =>
-      installAgentSkill(context.extensionUri),
-    ),
+    vscode.commands.registerCommand('dav.installAgentSkill', async () => {
+      const { installAgentSkill } = await import('./skillInstall');
+      await installAgentSkill(context.extensionUri);
+    }),
   );
 }
 

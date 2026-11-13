@@ -5,7 +5,7 @@ DynamicArchitectViewer is a VS Code extension in `apps/vscode`. It turns a `.dav
 ## Principles
 
 1. **The text is the source of truth.** There is no diagram state apart from the `.dav` file.
-2. **One renderer.** The preview and exported HTML run the same layout, scene and player code.
+2. **One renderer.** The preview and exported HTML run the same layout, scene and player code. The SVG export draws the same scene and frames it with the same camera rules.
 3. **Exported HTML stands alone.** It makes no network requests and keeps working from `file://`.
 4. **Input is untrusted.** Opening a `.dav` or HTML file from someone else must be safe.
 5. **Easy to write, including for AI agents.** No coordinates, and errors say what to fix.
@@ -25,6 +25,7 @@ flowchart LR
   Build --> Player["runtime: Player"]
   Player --> Preview["Preview webview"]
   Player --> Html["Exported HTML"]
+  Build --> Svg["Exported SVG"]
 ```
 
 `resolveView` works out the state of the diagram at a step. `buildScene` turns that into a tree of virtual SVG elements, and `Player` renders the tree and runs the animation. Everything before `Player` is free of the DOM.
@@ -53,12 +54,12 @@ All paths are under `apps/vscode/src`.
 | `model/` | Data types and icon metadata. No coordinates or source positions | Nothing |
 | `dsl/` | Parser, validation, completions, formatter | `model` |
 | `layout/` | `computeLayout(doc)`. See [How diagrams are laid out](layout.md) | `model` |
-| `scene/` | Step state, rail geometry, callouts, virtual SVG. No DOM | `layout`, `model` |
+| `scene/` | Step state, rail geometry, callouts, camera framing, virtual SVG. No DOM | `layout`, `model` |
 | `runtime/` | `Player`, shared by the preview and exported HTML | `scene`, `layout`, `model` |
-| `exporter/` | Standalone HTML export and import | `dsl`, `layout`, `model`, `scene`, `runtime` |
+| `exporter/` | Standalone HTML and SVG export, HTML import | `dsl`, `layout`, `model`, `scene`, `runtime` |
 | `prompt/` | Prompt template that teaches the language to AI agents | `model` |
 | `skill/` | The `dav-check` command bundled with the agent skill | `dsl`, `model` |
-| `protocol/` | Types of the messages between extension and webview | Nothing |
+| `protocol/` | Types of the messages between extension and webview | `model` |
 | `samples/` | Sample diagrams for the New Diagram command | Nothing |
 | `editor/` | The preview webview UI and its documentation | Most of the above |
 | `extension/` | The VS Code extension host | `protocol`, `prompt`, `dsl`, `exporter`, `samples`, `model`, `layout` |
@@ -73,7 +74,7 @@ All paths are under `apps/vscode/src`.
 parse(text): { document, diagnostics, sourceMap }
 format(text): string                    // Returns the original text on a syntax error
 formatDiagnostic(diagnostic, 'ja' | 'en'): string
-computeCompletions(text, offset, includeSnippets?): DslCompletionList | null
+computeCompletions(text, offset, explicit?, locale?): DslCompletionList | null
 findAtOffset(sourceMap, offset): { elementId: string | null; stepIndex: number | null }
 ```
 
@@ -90,7 +91,7 @@ findAtOffset(sourceMap, offset): { elementId: string | null; stepIndex: number |
 `runtime/player.ts` draws the scene and plays each step's phases. `runtime/camera.ts` handles zoom and pan.
 
 - `animate` statements play in order, and `parallel: true` joins the preceding phase.
-- Callouts stay still while their pointer follows the packet. Callouts of one phase that would overlap are moved sideways by the smallest distance that clears them (`scene/callout.ts`).
+- A callout stays still while its packet moves, and no line joins the two: the callout carries the number of the packet's stop on the rail, in the packet's color. Packets of one phase get a letter each (`5a`, `5b`). A callout is first put above or below its rail (`scene/calloutSolver.ts`). A last pass then gives it the free place nearest its own rail, on any side, a little in favor of the middle of the rail where its numbered stop is (`scene/calloutPlace.ts`); it keeps the first place only when no free one is found within 300 units. A callout comes no closer than 22 units to its own rail and 12 to any other. It never covers a node's station, badge or labels, the label of an edge, a rail, another callout of its phase, or the strip across the top of a zone, which the zone's name moves along with the camera. Two things it does only where that brings it clearly closer: lie across a zone's side or bottom border (worth 30 units), and use the empty part of a node's cell (worth 12). Callouts of one phase that end up nearly level are set level.
 - With `prefers-reduced-motion`, animation stays off. Clicking a node shows the packets of a phase, parked on the rail.
 - Drawing uses `createElementNS`, `textContent`, `setAttribute` and CSSOM only: never `innerHTML` or inline `style` attributes.
 
@@ -127,14 +128,37 @@ findAtOffset(sourceMap, offset): { elementId: string | null; stepIndex: number |
 
 **Extracting the DSL.** `importContent(content)` in `exporter/import.ts` reads the `dav-data` JSON without evaluating the page. It checks `format`, `version` and the type of `dsl`, and otherwise returns a reason such as `unrecognized-html`, `unsupported-version` or `corrupt`.
 
+## Exported SVG
+
+`exportSvg(dsl, options)` in `exporter/svg.ts` writes an image for places that show pictures but run no script, such as a README on GitHub or GitLab, where it goes in an `<img>`.
+
+- **Still** (`animate: false`, or a diagram without steps): the overview, framed on the whole diagram.
+- **Animated**: every step in a loop at 1x, as "Play all" plays them. The canvas is 960 × 540 below a header with the step's title and description, the step ruler and, when the diagram has zones, the zone strip. When the camera ever shows less than the whole diagram, a minimap sits beside the header rather than over the canvas.
+- **Animated, whole diagram** (`camera: 'whole'`): the same playback with the camera kept on everything any step draws. The canvas stays 960 wide and takes the diagram's proportions, at most the preview's fit zoom, between 240 and 1200 high. No minimap is needed.
+- **One step** (`step: n`): the step keeps its number in the diagram, as "Step 3 / 8". Animated, it repeats the step's phases as "Play step" does, without the step ruler. Still, it frames the whole diagram under the step's header while showing the scene as the preview does with animation stopped: the step's state, every flow lit in its color, and its rail labels emphasized. A step's state includes what earlier steps set, as in the preview.
+
+Motion uses SMIL only, because `<img>` runs no script. Every animation lasts the length of the whole playback and repeats, so they stay in step without referring to one another:
+
+| What changes | How |
+| :--- | :--- |
+| The step's scene, a phase's packets, flows, lit stops, emphasized labels and zone outlines | One copy per state, shown with a discrete `display` animation |
+| The camera | `viewBox` of the canvas, eased between the poses the preview's camera would head for |
+| Zone names on the canvas | Kept inside the visible `viewBox` as the camera moves, as in the preview |
+| A packet riding its rail | Positions sampled every 66 ms and at the start, middle and end of each corner of the rail, interpolated in between |
+
+With `camera: 'follow'`, the default, the camera follows the preview's rules from `scene/framing.ts`: each step starts on `stepFrame`, and a phase whose nodes are off screen moves to `calmFrame`. The preview's "follow" toggle and the reader's own panning have no counterpart, and SMIL animations in an `<img>` cannot honor `prefers-reduced-motion` (the whole-diagram or still export moves less). Each element's attributes hold its state at the start of the loop, so a viewer without SMIL shows the first moment of the first step. Colors follow the reader's system light or dark setting, which can differ from the theme of the site showing the image.
+
+**Security.** The scene is serialized by `exporter/xml.ts`, which escapes every text and attribute value and drops characters XML does not allow. The file has no script, no `foreignObject` and no external reference.
+
 ## The extension host
 
-`extension/languageFeatures.ts` provides diagnostics, Quick Fixes, completions, formatting and the outline. `extension/extension.ts` registers these commands:
+`extension/languageFeatures.ts` provides diagnostics, Quick Fixes, completions, formatting and the outline. `extension/extension.ts` registers these commands. While `hasFatalError` (in `dsl/`) holds, meaning the text has errors and nothing to draw, the preview keeps its last diagram and disables its Export button, and the export commands show a warning instead of writing a file:
 
 | Command | Action |
 | :--- | :--- |
 | `dav.openPreview` | Open the preview beside the editor |
 | `dav.exportHtml` | Export a standalone HTML file |
+| `dav.exportSvg` | Export an animated SVG (camera following or whole diagram) or a still one |
 | `dav.importHtml` | Open the `.dav` text embedded in an exported file |
 | `dav.newFromTemplate` | Create a diagram from a sample |
 | `dav.copyAiPrompt` | Copy a prompt that teaches the language to an AI agent |
@@ -144,10 +168,12 @@ The extension and webview talk through typed messages in `protocol/messages.ts`:
 
 | Message | Direction | Purpose |
 | :--- | :--- | :--- |
+| `ready` | Webview to extension | The webview has mounted, with the `uri` and `version` of the document it already drew from the page, if any. The extension sends `docChanged` only when they are out of date |
 | `docChanged` | Extension to webview | The text changed, so update the diagram |
 | `cursorMoved` | Extension to webview | Highlight the element at the cursor, and go to its step |
 | `revealRange` | Webview to extension | Double-clicking an element jumps to its declaration |
-| `exportHtml` | Webview to extension | Export from the toolbar |
+| `exportHtml` | Webview to extension | Export HTML from the toolbar's Export menu |
+| `exportSvg` | Webview to extension | Export an SVG from the same menu, with `animate`, `camera` and `step` (`null` for every step) |
 
 **Language.** The UI is Japanese when `vscode.env.language` is Japanese, and English otherwise. The extension writes this into `<html lang>` for the webview, and command titles come from `package.nls*.json`.
 
@@ -173,4 +199,9 @@ The generated files are committed, because the marketplace and the `skills` CLI 
 | `src/layout/__tests__/` | Layout invariants and a crossing budget for each sample |
 | `src/scene/__tests__/` | Step state, rails, callouts and rendering |
 | `src/samples/__tests__/` | Sample templates match `examples/` |
+| `src/model/__tests__/` | Text width estimates, code indentation and other shared helpers |
+| `src/exporter/__tests__/` | Exported HTML and its import, the SVG export and its camera plan |
+| `src/extension/__tests__/` | Commands, language features and the preview panel, against a mocked `vscode` |
+| `src/editor/__tests__/` | Every example in the in-app documentation compiles and plays |
+| `src/prompt/__tests__/` | The AI prompt template |
 | `e2e/` | The preview and exported HTML in a real browser, including that both render the same SVG |

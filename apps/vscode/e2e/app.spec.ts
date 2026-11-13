@@ -4,23 +4,28 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { expect, type Page, test } from '@playwright/test';
 import { createServer } from 'vite';
+import type { SvgExportOptions } from '../src/exporter';
 import { ICON_NAMES } from '../src/model/types';
-
-interface PostedMessage {
-  type: string;
-  from?: number;
-}
+import {
+  INITIAL_DOC_ELEMENT_ID,
+  serializeInitialDoc,
+  type WebviewToHostMessage,
+} from '../src/protocol/messages';
 
 const DEFAULT_DSL = readFileSync(
   new URL('../../../examples/01-infra-ha-failover.dav', import.meta.url),
+  'utf8',
+);
+const EVENT_DRIVEN_DSL = readFileSync(
+  new URL('../../../examples/03-event-driven-async.dav', import.meta.url),
   'utf8',
 );
 
 /** Loads the webview the way the extension does: it reports `ready` and receives the document. */
 async function openWebview(page: Page, dsl: string = DEFAULT_DSL): Promise<void> {
   await page.addInitScript((text) => {
-    const posted: PostedMessage[] = [];
-    (window as unknown as { __posted: PostedMessage[] }).__posted = posted;
+    const posted: WebviewToHostMessage[] = [];
+    (window as unknown as { __posted: WebviewToHostMessage[] }).__posted = posted;
     window.acquireVsCodeApi = () => ({
       postMessage(message) {
         posted.push(message);
@@ -31,12 +36,21 @@ async function openWebview(page: Page, dsl: string = DEFAULT_DSL): Promise<void>
   await page.goto('/');
 }
 
-function postedMessages(page: Page): Promise<PostedMessage[]> {
-  return page.evaluate(() => (window as unknown as { __posted: PostedMessage[] }).__posted);
+function postedMessages(page: Page): Promise<WebviewToHostMessage[]> {
+  return page.evaluate(() => (window as unknown as { __posted: WebviewToHostMessage[] }).__posted);
 }
 
-function sendDsl(page: Page, dsl: string): Promise<void> {
-  return page.evaluate((text) => window.postMessage({ type: 'docChanged', dsl: text }, '*'), dsl);
+function sendDsl(page: Page, dsl: string, uri?: string): Promise<void> {
+  return page.evaluate(
+    ([text, nextUri]) =>
+      window.postMessage(
+        nextUri === undefined
+          ? { type: 'docChanged', dsl: text }
+          : { type: 'docChanged', dsl: text, uri: nextUri },
+        '*',
+      ),
+    [dsl, uri] as const,
+  );
 }
 
 function sendCursor(page: Page, offset: number): Promise<void> {
@@ -69,6 +83,39 @@ async function writeExport(
 ): Promise<void> {
   exporter ??= loadExporter();
   await writeFile(file, await (await exporter).exportHtml(dsl, { locale }));
+}
+
+async function writeSvgExport(
+  file: string,
+  dsl: string = DEFAULT_DSL,
+  options?: SvgExportOptions,
+): Promise<void> {
+  exporter ??= loadExporter();
+  await writeFile(file, (await exporter).exportSvg(dsl, options));
+}
+
+async function seekSvgTime(page: Page, seconds: number): Promise<void> {
+  await page.evaluate(async (t) => {
+    for (const svg of document.querySelectorAll('svg')) {
+      svg.pauseAnimations();
+      svg.setCurrentTime(t);
+    }
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
+  }, seconds);
+}
+
+async function expectSvgLoadsInImg(page: Page, htmlPath: string, svgHref: string): Promise<void> {
+  await writeFile(htmlPath, `<!doctype html><img id="diagram" src="${svgHref}" alt="diagram">`);
+  await page.goto(pathToFileURL(htmlPath).href);
+  await expect
+    .poll(() =>
+      page
+        .locator('#diagram')
+        .evaluate((img: HTMLImageElement) => (img.complete ? img.naturalWidth : 0)),
+    )
+    .toBe(960);
 }
 
 /** Collects console errors, page errors and CSP violations. */
@@ -257,10 +304,56 @@ test.describe('webview preview', () => {
     const revealMsg = (await postedMessages(page)).filter((m) => m.type === 'revealRange').pop();
     expect(revealMsg?.from).toBe(dsl.indexOf('node api "API"'));
 
-    // Export HTML button posts `exportHtml` to Extension Host
-    await page.getByTestId('btn-export-html').click();
-    const exportMsg = (await postedMessages(page)).some((m) => m.type === 'exportHtml');
-    expect(exportMsg).toBe(true);
+    // The Export menu posts the picked format to Extension Host
+    const exportBtn = page.getByTestId('btn-export');
+    await exportBtn.click();
+    await expect(exportBtn).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByRole('menuitem')).toHaveCount(4);
+    // The range comes first: every step, or the one the preview shows
+    await expect(page.getByTestId('export-scope-all')).toBeFocused();
+    await expect(page.getByTestId('export-scope-all')).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByTestId('export-scope-step')).toHaveText('This step: 2. S2');
+    await page.getByTestId('export-html').click();
+    await expect(page.getByRole('menu')).toBeHidden();
+    expect((await postedMessages(page)).some((m) => m.type === 'exportHtml')).toBe(true);
+
+    // Keyboard: arrows move through the range and the formats, Enter picks one, Escape closes
+    await exportBtn.focus();
+    for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowDown');
+    await expect(page.getByTestId('export-svg-animated')).toBeFocused();
+    await page.keyboard.press('Enter');
+    await exportBtn.click();
+    await page.getByTestId('export-svg-whole').click();
+
+    // One step: picking it keeps the menu open, and S2 has nothing to animate or to make HTML of
+    await exportBtn.click();
+    await page.getByTestId('export-scope-step').click();
+    await expect(page.getByTestId('export-scope-step')).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByRole('menu')).toBeVisible();
+    await expect(page.getByTestId('export-html')).toBeDisabled();
+    await expect(page.getByTestId('export-svg-animated')).toBeDisabled();
+    await expect(page.getByTestId('export-svg-whole')).toBeDisabled();
+    await page.keyboard.press('End');
+    await page.keyboard.press('Enter');
+    const svgMessages = (await postedMessages(page)).filter((m) => m.type === 'exportSvg');
+    expect(svgMessages.map((m) => [m.animate, m.camera, m.step])).toEqual([
+      [true, 'follow', null],
+      [true, 'whole', null],
+      [false, 'follow', 1],
+    ]);
+    // The range stays chosen while the same step shows
+    await exportBtn.click();
+    await expect(page.getByTestId('export-scope-step')).toHaveAttribute('aria-checked', 'true');
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('menu')).toBeHidden();
+    await expect(exportBtn).toBeFocused();
+    await expect(page.locator('.dav-step-title')).toContainText('Step 2 / 2');
+
+    // A click elsewhere closes it without exporting
+    await exportBtn.click();
+    await page.locator('.dav-viewport').click({ position: { x: 5, y: 5 } });
+    await expect(page.getByRole('menu')).toBeHidden();
+    expect((await postedMessages(page)).filter((m) => m.type.startsWith('export'))).toHaveLength(4);
   });
 
   for (const [lang, nav, close] of [
@@ -340,7 +433,7 @@ test.describe('webview preview', () => {
 
     // Animation pages show the phases of the running step.
     await page.getByTestId('doc-nav-animate').click();
-    await expect(page.getByTestId('doc-figure')).toHaveCount(6);
+    await expect(page.getByTestId('doc-figure')).toHaveCount(7);
     await expect(page.getByTestId('doc-phase-strip').first().locator('.doc-phase')).toHaveCount(3);
     await expect(page.locator('.doc-phase.is-active').first()).toBeVisible();
 
@@ -351,7 +444,7 @@ test.describe('webview preview', () => {
     await expect(badgeRow.locator('td').last()).toHaveText('—');
 
     await page.getByTestId('doc-nav-diagnostics').click();
-    await expect(page.getByTestId('doc-diagnostics').locator('tbody tr')).toHaveCount(19);
+    await expect(page.getByTestId('doc-diagnostics').locator('tbody tr')).toHaveCount(20);
 
     await page.getByTestId('doc-nav-prompt').click();
     await expect(page.getByTestId('ai-prompt-textarea')).toHaveValue(/dav 1/);
@@ -382,7 +475,419 @@ test.describe('webview preview', () => {
     }));
     expect(toolbarOverflow.scrollWidth).toBeLessThanOrEqual(toolbarOverflow.clientWidth);
     await expect(page.locator('header.toolbar [data-testid="btn-play"]')).toBeVisible();
-    await expect(page.getByTestId('btn-export-html')).toBeVisible();
+    await expect(page.getByTestId('btn-export')).toBeVisible();
+    // The open menu stays inside the narrow pane
+    await page.getByTestId('btn-export').click();
+    const menuBox = await page.getByRole('menu').boundingBox();
+    expect(menuBox).not.toBeNull();
+    if (menuBox) {
+      expect(menuBox.x).toBeGreaterThanOrEqual(0);
+      expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(600);
+    }
+    await page.keyboard.press('Escape');
+
+    expect(errors).toEqual([]);
+  });
+
+  test('exports single-step animated SVGs only when the step resolves motion', async ({ page }) => {
+    const errors = watchErrors(page);
+    const dsl = [
+      'dav 1',
+      'title "Step Motion"',
+      'group zone "Zone" {',
+      '  node api "API"',
+      '  node db "DB"',
+      '}',
+      'api --> db : "SQL"',
+      'step "Idle" {',
+      '  focus api',
+      '}',
+      'step "Active flow" {',
+      '  animate api --> db : "SELECT 1"',
+      '}',
+      'step "Missing endpoint" {',
+      '  animate api --> ghost : "Noop"',
+      '}',
+      'step "Group endpoint" {',
+      '  animate api --> zone : "Noop"',
+      '}',
+      '',
+    ].join('\n');
+
+    await openWebview(page, dsl);
+    const stepSelect = page.getByTestId('select-step');
+    const exportBtn = page.getByTestId('btn-export');
+
+    // Step 2 resolves real motion: single-step animated SVG options are enabled and post step: 1
+    await stepSelect.selectOption('1');
+    await expect(page.locator('.dav-step-title')).toContainText('Step 2 / 4');
+
+    await exportBtn.click();
+    await page.getByTestId('export-scope-step').click();
+    await expect(page.getByTestId('export-scope-step')).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByTestId('export-svg-animated')).toBeEnabled();
+    await expect(page.getByTestId('export-svg-whole')).toBeEnabled();
+    await page.getByTestId('export-svg-animated').click();
+
+    await exportBtn.click();
+    await expect(page.getByTestId('export-scope-step')).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByTestId('export-svg-whole')).toBeEnabled();
+    await page.getByTestId('export-svg-whole').click();
+
+    const svgMessages = (await postedMessages(page)).filter((m) => m.type === 'exportSvg');
+    expect(svgMessages).toEqual([
+      { type: 'exportSvg', animate: true, camera: 'follow', step: 1, dsl },
+      { type: 'exportSvg', animate: true, camera: 'whole', step: 1, dsl },
+    ]);
+
+    // Undeclared node or group endpoints resolve 0 phases, keeping animated items disabled
+    for (const stepValue of ['2', '3']) {
+      await stepSelect.selectOption(stepValue);
+      await exportBtn.click();
+      await page.getByTestId('export-scope-step').click();
+      await expect(page.getByTestId('export-svg-animated')).toBeDisabled();
+      await expect(page.getByTestId('export-svg-whole')).toBeDisabled();
+      await page.keyboard.press('Escape');
+    }
+
+    expect(errors).toEqual([]);
+  });
+
+  test('keeps the export menu inside a narrow 420x600 split-pane when the toolbar wraps', async ({
+    page,
+  }) => {
+    const errors = watchErrors(page);
+    await page.setViewportSize({ width: 420, height: 600 });
+    await openWebview(page);
+    await expect(page.locator('.dav-node')).not.toHaveCount(0);
+    await expect(page.locator('.dav-step-title')).toContainText('Step 1 / 4');
+
+    const docScrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+    expect(docScrollWidth).toBeLessThanOrEqual(420);
+
+    const leftBox = await page.locator('.toolbar-left').boundingBox();
+    const rightBox = await page.locator('.toolbar-right').boundingBox();
+    const helpBox = await page.getByTestId('btn-open-help').boundingBox();
+    expect(leftBox).not.toBeNull();
+    expect(rightBox).not.toBeNull();
+    expect(helpBox).not.toBeNull();
+    if (leftBox && rightBox && helpBox) {
+      expect(rightBox.y).toBeGreaterThan(leftBox.y);
+      expect(helpBox.x + helpBox.width).toBeLessThanOrEqual(408);
+    }
+
+    await page.getByTestId('btn-export').click();
+    await expect(page.getByTestId('export-scope-step')).toBeVisible();
+    const listBox = await page.locator('.export-menu-list').boundingBox();
+    expect(listBox).not.toBeNull();
+    if (listBox) {
+      expect(listBox.x).toBeGreaterThanOrEqual(12);
+      expect(listBox.x + listBox.width).toBeLessThanOrEqual(408);
+      expect(listBox.y + listBox.height).toBeLessThanOrEqual(600);
+    }
+
+    await page.keyboard.press('Escape');
+    expect(errors).toEqual([]);
+  });
+
+  test('syncs export state across fatal syntax errors, contains arrow keys, and resets scope on step or URI change', async ({
+    page,
+  }) => {
+    const errors = watchErrors(page);
+    const validDsl = [
+      'dav 1',
+      'title "Valid"',
+      'node api "API"',
+      'node db "DB"',
+      'api --> db',
+      'step "One" {',
+      '  animate api --> db : "Ping"',
+      '}',
+      'step "Two" {',
+      '  animate db --> api : "Pong"',
+      '}',
+      '',
+    ].join('\n');
+
+    await openWebview(page, validDsl);
+    await sendDsl(page, validDsl, 'file:///one.dav');
+    const stepSelect = page.getByTestId('select-step');
+    const exportBtn = page.getByTestId('btn-export');
+
+    await stepSelect.selectOption('1');
+    await expect(page.locator('.dav-step-title')).toContainText('Step 2 / 2');
+
+    // ArrowLeft and ArrowRight inside the open menu do not leak to the underlying Player
+    await exportBtn.click();
+    await expect(page.getByRole('menu')).toBeVisible();
+    await page.keyboard.press('ArrowLeft');
+    await expect(page.locator('.dav-step-title')).toContainText('Step 2 / 2');
+    await expect(stepSelect).toHaveValue('1');
+    await page.keyboard.press('ArrowRight');
+    await expect(page.locator('.dav-step-title')).toContainText('Step 2 / 2');
+    await expect(stepSelect).toHaveValue('1');
+
+    // Scope stays on This step when reopened on the same step, and resets on another step
+    await page.getByTestId('export-scope-step').click();
+    await expect(page.getByTestId('export-scope-step')).toHaveAttribute('aria-checked', 'true');
+    await page.keyboard.press('Escape');
+
+    await exportBtn.click();
+    await expect(page.getByTestId('export-scope-step')).toHaveAttribute('aria-checked', 'true');
+    await page.keyboard.press('Escape');
+
+    await stepSelect.selectOption('0');
+    await expect(page.locator('.dav-step-title')).toContainText('Step 1 / 2');
+    await exportBtn.click();
+    await expect(page.getByTestId('export-scope-all')).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByTestId('export-scope-step')).toHaveAttribute('aria-checked', 'false');
+    await page.keyboard.press('Escape');
+
+    // A fatal syntax error keeps the last diagram on screen but blocks exporting, and closes the menu
+    await stepSelect.selectOption('1');
+    await expect(page.locator('.dav-step-title')).toContainText('Step 2 / 2');
+    await exportBtn.click();
+    await expect(page.getByRole('menu')).toBeVisible();
+    await sendDsl(page, 'dav 1\n]', 'file:///one.dav');
+    await expect(page.locator('.dav-node')).toHaveCount(2);
+    await expect(page.locator('.dav-step-title')).toContainText('Step 2 / 2');
+    await expect(page.getByRole('menu')).toBeHidden();
+    await expect(exportBtn).toHaveAttribute('aria-disabled', 'true');
+    await expect(exportBtn).toHaveAttribute('title', 'Fix the syntax error to export');
+    // Playwright waits for an aria-disabled button to become enabled, so this click is forced.
+    await exportBtn.click({ force: true });
+    await exportBtn.focus();
+    await page.keyboard.press('ArrowDown');
+    await expect(page.getByRole('menu')).toBeHidden();
+    expect((await postedMessages(page)).filter((m) => m.type.startsWith('export'))).toEqual([]);
+
+    // Fixing the text makes exporting possible again
+    await sendDsl(page, validDsl, 'file:///one.dav');
+    await expect(exportBtn).not.toHaveAttribute('aria-disabled');
+    await expect(exportBtn).not.toHaveAttribute('title');
+    await expect(page.locator('.dav-step-title')).toContainText('Step 2 / 2');
+
+    await exportBtn.click();
+    await expect(page.getByTestId('export-scope-step')).toHaveText('This step: 2. Two');
+    await page.getByTestId('export-scope-step').click();
+    await page.getByTestId('export-svg-still').click();
+
+    await exportBtn.click();
+    await page.getByTestId('export-scope-all').click();
+    await page.getByTestId('export-html').click();
+
+    const exports = (await postedMessages(page)).filter((m) => m.type.startsWith('export'));
+    expect(exports).toEqual([
+      { type: 'exportSvg', animate: false, camera: 'follow', step: 1, dsl: validDsl },
+      { type: 'exportHtml', dsl: validDsl },
+    ]);
+
+    // Switching to a new URI resets scope to All steps even when landing on the same step index
+    await stepSelect.selectOption('0');
+    await exportBtn.click();
+    await page.getByTestId('export-scope-step').click();
+    await expect(page.getByTestId('export-scope-step')).toHaveAttribute('aria-checked', 'true');
+    await page.keyboard.press('Escape');
+
+    await sendDsl(page, validDsl, 'file:///two.dav');
+    await expect(page.locator('.dav-step-title')).toContainText('Step 1 / 2');
+    await exportBtn.click();
+    await expect(page.getByTestId('export-scope-all')).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByTestId('export-scope-step')).toHaveAttribute('aria-checked', 'false');
+    await page.keyboard.press('Escape');
+
+    expect(errors).toEqual([]);
+  });
+
+  test('keeps focus inside the menu on disabled clicks, places separator under menu, and supports High Contrast', async ({
+    page,
+  }) => {
+    const errors = watchErrors(page);
+    await openWebview(page);
+    await expect(page.locator('.dav-step-title')).toContainText('Step 1 / 4');
+
+    const exportBtn = page.getByTestId('btn-export');
+    await exportBtn.focus();
+    await page.keyboard.press('ArrowDown');
+    await expect(page.getByRole('menu')).toBeVisible();
+
+    // Separator is a direct child of role="menu" and visible while a step is active
+    const separator = page.locator('[role="menu"] > [role="separator"]');
+    await expect(separator).toHaveCount(1);
+    await expect(separator).toBeVisible();
+
+    // Keyboard :focus-visible outline is visible, and High Contrast radio dot uses 4px border
+    const focusOutline = await page.getByTestId('export-scope-all').evaluate((el) => ({
+      focusVisible: el.matches(':focus-visible'),
+      outlineStyle: getComputedStyle(el).outlineStyle,
+    }));
+    expect(focusOutline.focusVisible).toBe(true);
+    expect(focusOutline.outlineStyle).not.toBe('none');
+
+    await page.emulateMedia({ forcedColors: 'active' });
+    const radioBorderTop = await page
+      .locator('.export-scope[aria-checked="true"]')
+      .evaluate((el) => getComputedStyle(el, '::before').borderTopWidth);
+    expect(radioBorderTop).toBe('4px');
+    await page.emulateMedia({ forcedColors: 'none' });
+
+    // Clicking disabled Standalone HTML or the separator keeps the menu open and focus inside it
+    await page.getByTestId('export-scope-step').click();
+    const htmlItem = page.getByTestId('export-html');
+    await expect(htmlItem).toBeDisabled();
+
+    for (const target of [htmlItem, separator]) {
+      const box = await target.boundingBox();
+      expect(box).not.toBeNull();
+      if (box) {
+        await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      }
+      await expect(page.getByRole('menu')).toBeVisible();
+      const focusState = await page.evaluate(() => {
+        const menu = document.querySelector('[role="menu"]');
+        const active = document.activeElement;
+        return {
+          insideMenu: Boolean(menu && active && menu.contains(active)),
+          tagName: active?.tagName ?? null,
+        };
+      });
+      expect(focusState.insideMenu).toBe(true);
+      expect(focusState.tagName).not.toBe('BODY');
+    }
+
+    // On Overview, the separator is hidden along with the scope radios
+    await page.keyboard.press('Escape');
+    await page.getByTestId('select-step').selectOption('overview');
+    await expect(page.locator('.dav-step-title')).toHaveText('Overview');
+    await exportBtn.click();
+    await expect(separator).toBeHidden();
+    await page.keyboard.press('Escape');
+
+    expect(errors).toEqual([]);
+  });
+
+  test('boots from inline CSS and document with one script fetch, skips duplicate ready render, and lazy-loads HelpModal without loading the script twice', async ({
+    page,
+  }) => {
+    const errors = watchErrors(page);
+    const webviewCss = await readFile(
+      new URL('../dist/webview/assets/webview.css', import.meta.url),
+      'utf8',
+    );
+    const initialDsl = [
+      'dav 1',
+      'title "Cold </script> Boot"',
+      'node api "API </script>"',
+      'node db "DB"',
+      'api --> db : "SQL"',
+      'step "Run" {',
+      '  animate api --> db : "Query"',
+      '}',
+      '',
+    ].join('\n');
+    const nonce = '0123456789abcdef0123456789abcdef';
+    const csp = [
+      "default-src 'none'",
+      "img-src 'self' data:",
+      `style-src 'nonce-${nonce}' 'self'`,
+      `script-src 'nonce-${nonce}' 'self'`,
+    ].join('; ');
+    const initialJson = serializeInitialDoc({
+      uri: 'file:///cold.dav',
+      dsl: initialDsl,
+      version: 7,
+    });
+    const inlineHtml = [
+      '<!DOCTYPE html>',
+      '<html lang="en">',
+      '<head>',
+      '<meta charset="UTF-8">',
+      `<meta http-equiv="Content-Security-Policy" content="${csp}">`,
+      '<meta name="viewport" content="width=device-width, initial-scale=1.0">',
+      `<style nonce="${nonce}">${webviewCss}</style>`,
+      '<title>DynamicArchitectViewer</title>',
+      '</head>',
+      '<body>',
+      '<div id="root"></div>',
+      `<script id="${INITIAL_DOC_ELEMENT_ID}" type="application/json">${initialJson}</script>`,
+      `<script nonce="${nonce}" type="module" src="/assets/webview.js"></script>`,
+      '</body>',
+      '</html>',
+    ].join('\n');
+
+    const requestedPaths: string[] = [];
+    page.on('request', (req) => {
+      const url = new URL(req.url());
+      if (url.pathname !== '/favicon.ico') requestedPaths.push(url.pathname);
+    });
+
+    await page.route('**/inline-cold-start', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/html; charset=utf-8',
+        headers: { 'content-security-policy': csp },
+        body: inlineHtml,
+      });
+    });
+
+    // Host does NOT reply to `ready` with `docChanged` when initial doc is up to date.
+    await page.addInitScript(() => {
+      const posted: WebviewToHostMessage[] = [];
+      (window as unknown as { __posted: WebviewToHostMessage[] }).__posted = posted;
+      window.acquireVsCodeApi = () => ({
+        postMessage(message) {
+          posted.push(message);
+        },
+      });
+    });
+
+    await page.goto('/inline-cold-start');
+    await expect(page.locator('.dav-node')).toHaveCount(2);
+    await expect(page.locator('.dav-title')).toHaveText('Cold </script> Boot');
+    await expect(page.locator('.dav-step-title')).toContainText('Step 1 / 1');
+
+    // Cold boot fetched only the script (no stylesheet) and posted versioned ready.
+    expect(requestedPaths).toEqual(['/inline-cold-start', '/assets/webview.js']);
+    expect(await postedMessages(page)).toEqual([
+      { type: 'ready', uri: 'file:///cold.dav', version: 7 },
+    ]);
+
+    // SVG url(#dav-arrow) fragment marker resolves without <base href> breakage.
+    await expect(page.locator('defs marker#dav-arrow')).toHaveCount(1);
+    await expect(page.locator('.dav-edge path[marker-end="url(#dav-arrow)"]')).toHaveCount(1);
+
+    // Duplicate (uri, version) docChanged does not re-render; newer version updates cleanly.
+    await page.locator('.dav-node[data-id="api"]').evaluate((el) => {
+      el.setAttribute('data-boot-marker', 'kept');
+    });
+    await page.evaluate((dsl) => {
+      window.postMessage({ type: 'docChanged', dsl, uri: 'file:///cold.dav', version: 7 }, '*');
+    }, initialDsl);
+    await expect(page.locator('.dav-node[data-id="api"]')).toHaveAttribute(
+      'data-boot-marker',
+      'kept',
+    );
+
+    const nextDsl = initialDsl.replace('Cold </script> Boot', 'Warm Update');
+    await page.evaluate((dsl) => {
+      window.postMessage({ type: 'docChanged', dsl, uri: 'file:///cold.dav', version: 8 }, '*');
+    }, nextDsl);
+    await expect(page.locator('.dav-title')).toHaveText('Warm Update');
+
+    // Clicking Help lazy-loads HelpModal.js, which shares the script already loaded.
+    await page.getByTestId('btn-open-help').click();
+    const dialog = page.getByTestId('help-dialog');
+    await expect(dialog).toBeVisible();
+    expect(requestedPaths).toEqual([
+      '/inline-cold-start',
+      '/assets/webview.js',
+      '/assets/HelpModal.js',
+    ]);
+    await expect(page.locator('#root > .shell')).toHaveCount(1);
+
+    await page.getByTestId('doc-nav-prompt').click();
+    await page.getByTestId('chk-include-current-dsl').check();
+    await expect(page.getByTestId('ai-prompt-textarea')).toHaveValue(/Warm Update/);
 
     expect(errors).toEqual([]);
   });
@@ -465,18 +970,17 @@ test('switching documents discards the previous one', async ({ page }) => {
     'dav 1\ntitle "A"\nnode a\nnode b\na --> b\nstep "1" {\n focus a\n}\nstep "2" {\n focus b\n}\n',
   );
   await expect(page.locator('.dav-title')).toHaveText('A');
-  await page.evaluate(() => {
-    window.postMessage(
-      { type: 'docChanged', dsl: 'dav 1\ntitle "A"\nnode a', uri: 'file:///a.dav' },
-      '*',
-    );
-  });
+  await sendDsl(page, 'dav 1\ntitle "A"\nnode a', 'file:///a.dav');
   await expect(page.locator('.dav-node')).toHaveCount(1);
-  await page.getByTestId('btn-export-html').waitFor();
+  // Without steps there is nothing to animate, and no step to pick
+  await page.getByTestId('btn-export').click();
+  await expect(page.getByTestId('export-svg-animated')).toBeDisabled();
+  await expect(page.getByTestId('export-svg-whole')).toBeDisabled();
+  await expect(page.getByTestId('export-scope-step')).toBeHidden();
+  await expect(page.getByTestId('export-html')).toBeFocused();
+  await page.keyboard.press('Escape');
 
-  await page.evaluate(() => {
-    window.postMessage({ type: 'docChanged', dsl: '', uri: 'file:///b.dav' }, '*');
-  });
+  await sendDsl(page, '', 'file:///b.dav');
   await expect(page.locator('.dav-node')).toHaveCount(0);
   await expect(page.locator('.dav-title')).toHaveText('');
 });
@@ -654,5 +1158,198 @@ test.describe('exported HTML', () => {
     await viewer.waitForTimeout(600);
     expect(await viewer.locator('.dav-packet-dot').first().getAttribute('transform')).toBe(before);
     await context.close();
+  });
+});
+
+test.describe('exported SVG', () => {
+  test('parses as strict XML, adapts theme colors, and renders cleanly standalone and in <img>', async ({
+    page,
+  }, info) => {
+    const errors = watchErrors(page);
+    const svgFile = info.outputPath('export.svg');
+    const dslWithUnicode = `${DEFAULT_DSL}\nnode unicode_probe "🚀 𠮷 \uD800\uFFFE\uFFFF"\n`;
+    await writeSvgExport(svgFile, dslWithUnicode);
+
+    await page.goto(pathToFileURL(svgFile).href);
+    await expect(page.locator('parsererror')).toHaveCount(0);
+    await expect(page.locator('svg.dav-svg')).toHaveAttribute('aria-describedby', 'dav-desc');
+    await expect(page.locator('desc#dav-desc')).toHaveCount(1);
+
+    // Translucent zone fill uses SVG-native fill + fill-opacity rather than color-mix().
+    const groupRect = page.locator('.dav-group > rect').first();
+    const zoneStyle = await groupRect.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { fill: cs.fill, fillOpacity: cs.fillOpacity };
+    });
+    expect(zoneStyle.fill).toMatch(/^rgb\(/);
+    expect(Number(zoneStyle.fillOpacity)).toBeGreaterThan(0);
+    expect(Number(zoneStyle.fillOpacity)).toBeLessThan(1);
+
+    // Scoped .dav-svg tokens resolve light-dark() across color schemes.
+    const stationStroke = () =>
+      page
+        .locator('.dav-station')
+        .first()
+        .evaluate((el) => getComputedStyle(el).stroke);
+    await page.emulateMedia({ colorScheme: 'dark' });
+    const darkStroke = await stationStroke();
+    await page.emulateMedia({ colorScheme: 'light' });
+    expect(await stationStroke()).not.toBe(darkStroke);
+
+    // Zone labels render inside the SVG canvas viewport.
+    const canvasBox = await page.locator('svg.dav-svg > svg').boundingBox();
+    const labelBox = await page.locator('.dav-group-label').first().boundingBox();
+    expect(canvasBox).not.toBeNull();
+    expect(labelBox).not.toBeNull();
+    if (canvasBox && labelBox) {
+      expect(labelBox.x).toBeGreaterThanOrEqual(canvasBox.x - 1);
+      expect(labelBox.y).toBeGreaterThanOrEqual(canvasBox.y - 1);
+      expect(labelBox.x + labelBox.width).toBeLessThanOrEqual(canvasBox.x + canvasBox.width + 1);
+      expect(labelBox.y + labelBox.height).toBeLessThanOrEqual(canvasBox.y + canvasBox.height + 1);
+    }
+
+    // Loads as an <img> without broken-image fallback.
+    await expectSvgLoadsInImg(page, info.outputPath('img-host.html'), './export.svg');
+
+    expect(errors).toEqual([]);
+  });
+
+  test('keeps nested zone labels inside the canvas without overlapping across SMIL camera pans', async ({
+    page,
+  }, info) => {
+    const errors = watchErrors(page);
+    const svgFile = info.outputPath('nested-zones.svg');
+    const nestedDsl = [
+      'dav 1',
+      'node hub "Hub"',
+      'group outer "Outer Zone" {',
+      '  group mid "Middle Zone" {',
+      '    group inner "Inner Zone" {',
+      '      node n1 "Top"',
+      '    }',
+      '    node n2 "Mid"',
+      '  }',
+      '  group lower "Lower Zone" {',
+      ...Array.from({ length: 6 }, (_, i) => `    node n${i + 3} "Row ${i + 3}"`),
+      '  }',
+      '}',
+      ...Array.from({ length: 8 }, (_, i) => `hub --> n${i + 1}`),
+      'step "Top" {',
+      '  focus n1',
+      '}',
+      'step "Bottom" {',
+      '  focus n8',
+      '}',
+    ].join('\n');
+    await writeSvgExport(svgFile, nestedDsl);
+
+    await page.goto(pathToFileURL(svgFile).href);
+    await expect(page.locator('parsererror')).toHaveCount(0);
+
+    for (const sec of [0, 1.8, 1.835, 1.87, 1.9, 2.6]) {
+      await seekSvgTime(page, sec);
+      const snapshot = await page.evaluate(() => {
+        const canvas = document.querySelector('svg.dav-svg > svg')?.getBoundingClientRect();
+        const labels = Array.from(document.querySelectorAll('.dav-layer-zone-labels > g'))
+          .filter((g) => getComputedStyle(g).display !== 'none')
+          .map((g) => {
+            const box = g.querySelector('text')?.getBoundingClientRect();
+            return {
+              id: g.getAttribute('data-id') ?? '',
+              left: box?.left ?? 0,
+              right: box?.right ?? 0,
+              top: box?.top ?? 0,
+              bottom: box?.bottom ?? 0,
+            };
+          });
+        return { canvas, labels };
+      });
+
+      expect(snapshot.canvas).toBeDefined();
+      expect(snapshot.labels.length).toBeGreaterThan(0);
+      if (snapshot.canvas) {
+        for (const label of snapshot.labels) {
+          expect(label.left).toBeGreaterThanOrEqual(snapshot.canvas.left - 2);
+          expect(label.right).toBeLessThanOrEqual(snapshot.canvas.right + 2);
+          expect(label.top).toBeGreaterThanOrEqual(snapshot.canvas.top - 2);
+          expect(label.bottom).toBeLessThanOrEqual(snapshot.canvas.bottom + 2);
+        }
+      }
+      for (let i = 0; i < snapshot.labels.length; i++) {
+        for (let j = i + 1; j < snapshot.labels.length; j++) {
+          const a = snapshot.labels[i];
+          const b = snapshot.labels[j];
+          if (!a || !b) continue;
+          const verticalOverlap = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+          const horizontalOverlap = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+          expect(verticalOverlap > 1 && horizontalOverlap > 1).toBe(false);
+        }
+      }
+    }
+
+    expect(errors).toEqual([]);
+  });
+
+  test('renders whole-diagram and single-step SVG modes as valid XML and <img> without clipping callouts', async ({
+    page,
+  }, info) => {
+    const errors = watchErrors(page);
+    const modes: Array<{ name: string; options: SvgExportOptions }> = [
+      { name: 'whole-all.svg', options: { camera: 'whole' } },
+      { name: 'whole-step3.svg', options: { step: 2, camera: 'whole' } },
+      { name: 'still-step1.svg', options: { step: 0, animate: false } },
+    ];
+
+    for (const { name, options } of modes) {
+      const svgFile = info.outputPath(name);
+      await writeSvgExport(svgFile, EVENT_DRIVEN_DSL, options);
+
+      await page.goto(pathToFileURL(svgFile).href);
+      await expect(page.locator('parsererror')).toHaveCount(0);
+
+      await expectSvgLoadsInImg(page, info.outputPath(`${name}.html`), `./${name}`);
+    }
+
+    // Inline 03-event-driven-async Step 3 ({ step: 2, camera: 'whole' }): every callout lies inside viewBox
+    const step3Svg = (await readFile(info.outputPath('whole-step3.svg'), 'utf8')).replace(
+      /^<\?xml[^>]*\?>\s*/,
+      '',
+    );
+    const inlineHtml = info.outputPath('inline-event-step3.html');
+    await writeFile(inlineHtml, `<!doctype html><meta charset="utf-8"><body>${step3Svg}</body>`);
+    await page.goto(pathToFileURL(inlineHtml).href);
+
+    for (const sec of [0, 0.9]) {
+      await seekSvgTime(page, sec);
+      const geometry = await page.evaluate(() => {
+        const canvasSvg = document.querySelector<SVGSVGElement>('svg.dav-svg > svg');
+        if (!canvasSvg) return null;
+        const vb = canvasSvg.viewBox.animVal;
+        const callouts = Array.from(
+          canvasSvg.querySelectorAll<SVGGraphicsElement>('.dav-packet-callout'),
+        ).map((el) => {
+          const b = el.getBBox();
+          return { x: b.x, y: b.y, width: b.width, height: b.height };
+        });
+        return {
+          viewBox: { x: vb.x, y: vb.y, width: vb.width, height: vb.height },
+          callouts,
+        };
+      });
+
+      expect(geometry).not.toBeNull();
+      expect(geometry?.callouts.length).toBeGreaterThan(0);
+      if (geometry) {
+        const { viewBox } = geometry;
+        for (const box of geometry.callouts) {
+          expect(box.x).toBeGreaterThanOrEqual(viewBox.x);
+          expect(box.y).toBeGreaterThanOrEqual(viewBox.y);
+          expect(box.x + box.width).toBeLessThanOrEqual(viewBox.x + viewBox.width);
+          expect(box.y + box.height).toBeLessThanOrEqual(viewBox.y + viewBox.height);
+        }
+      }
+    }
+
+    expect(errors).toEqual([]);
   });
 });

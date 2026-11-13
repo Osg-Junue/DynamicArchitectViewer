@@ -4,7 +4,9 @@
   "scopeName": "source.dav",
   "patterns": [
     { "include": "#comments" },
+    { "include": "#code-fences" },
     { "include": "#attributes" },
+    { "include": "#code-statement" },
     { "include": "#keywords" },
     { "include": "#booleans" },
     { "include": "#arrows" },
@@ -18,6 +20,28 @@
         {
           "name": "comment.line.double-slash.dav",
           "match": "//.*$"
+        }
+      ]
+    },
+    "code-fences": {
+      "name": "markup.raw.block.dav",
+      "begin": "```",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.raw.begin.dav" }
+      },
+      "end": "```",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.raw.end.dav" }
+      }
+    },
+    "code-statement": {
+      "patterns": [
+        {
+          "match": "(?:^|(?<=\\{))\\s*\\b(code)\\b(?:\\s+([A-Za-z_][A-Za-z0-9_]*))?(?=\\s*(?:\"|```))",
+          "captures": {
+            "1": { "name": "keyword.control.dav" },
+            "2": { "name": "entity.name.type.dav" }
+          }
         }
       ]
     },
@@ -83,7 +107,7 @@
           }
         },
         {
-          "match": "\\b(icon|sub|badge|color|visible|parallel|desc|id)\\s*(:)",
+          "match": "\\b(icon|sub|badge|color|visible|parallel|desc|code|id)\\s*(:)",
           "captures": {
             "1": { "name": "variable.other.property.dav" },
             "2": { "name": "punctuation.separator.key-value.dav" }

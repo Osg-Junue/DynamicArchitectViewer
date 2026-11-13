@@ -1,3 +1,32 @@
+:root {
+  --raw-primary-bg: #20282f;
+  --raw-primary-hover: #38434d;
+  --raw-primary-fg: #fffefa;
+  --raw-error: #cf222e;
+  --raw-warning: #9a6700;
+  --raw-ok: #1a7f37;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --raw-primary-bg: #dde0e4;
+    --raw-primary-hover: #ffffff;
+    --raw-primary-fg: #191b1e;
+    --raw-error: #f48771;
+    --raw-warning: #e2b341;
+    --raw-ok: #73c991;
+  }
+}
+
+:root {
+  --dav-primary-bg: var(--vscode-button-background, var(--raw-primary-bg));
+  --dav-primary-hover: var(--vscode-button-hoverBackground, var(--raw-primary-hover));
+  --dav-primary-fg: var(--vscode-button-foreground, var(--raw-primary-fg));
+  --dav-error: var(--vscode-errorForeground, var(--raw-error));
+  --dav-warning: var(--vscode-editorWarning-foreground, var(--raw-warning));
+  --dav-ok: var(--vscode-testing-iconPassed, var(--raw-ok));
+}
+
 *,
 ::before,
 ::after {
@@ -22,6 +51,7 @@ body {
 
 .shell {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto 1fr;
   height: 100%;
 }
@@ -33,6 +63,7 @@ body {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 6px 10px;
+  min-width: 0;
   min-height: 38px;
   padding: 4px 12px;
   background: var(--dav-bg);
@@ -51,8 +82,14 @@ body {
 .toolbar-left {
   flex: 1 1 auto;
 }
+.toolbar-left .dav-playback-bar,
+.toolbar-left .dav-step-select {
+  min-width: 0;
+  flex-shrink: 1;
+}
 .toolbar-right {
   flex: 0 0 auto;
+  margin-left: auto;
   justify-content: flex-end;
 }
 .btn {
@@ -89,6 +126,112 @@ body {
   width: 26px;
   padding: 0;
   border-color: transparent;
+}
+
+.export-menu {
+  position: relative;
+}
+.export-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.export-button[aria-disabled="true"],
+.export-button[aria-disabled="true"]:hover {
+  background: var(--dav-primary-bg);
+  opacity: 0.45;
+  cursor: default;
+}
+.export-caret {
+  flex: none;
+}
+.export-menu-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  width: max-content;
+  min-width: min(220px, calc(100vw - 58px));
+  max-width: min(320px, calc(100vw - 58px));
+  max-height: calc(100vh - 76px);
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--dav-panel);
+  border: 1px solid var(--dav-border);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px var(--dav-shadow);
+}
+.export-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--dav-fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.export-item:hover:not(:disabled),
+.export-item:focus-visible {
+  background: var(--dav-hover);
+}
+.export-item:focus-visible {
+  outline: 1px solid var(--dav-focus);
+  outline-offset: -1px;
+}
+.export-scope-group {
+  display: flex;
+  flex-direction: column;
+}
+.export-scope {
+  display: block;
+  padding-left: 24px;
+  position: relative;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.export-scope::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  border: 1px solid var(--dav-muted);
+  border-radius: 50%;
+}
+.export-scope[aria-checked="true"]::before {
+  background: var(--dav-fg);
+  border-color: var(--dav-fg);
+  border-width: 4px;
+}
+.export-separator {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--dav-border);
+}
+.export-menu-list[hidden],
+.export-scope-group[hidden],
+.export-separator[hidden] {
+  display: none;
+}
+.export-item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.export-item-label {
+  font-weight: 600;
+}
+.export-item-detail {
+  color: var(--dav-muted);
+  font-size: 11px;
 }
 
 .preview-pane,

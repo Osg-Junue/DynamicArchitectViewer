@@ -41,7 +41,15 @@ worker ..> dlq : "Quarantine" [id: e_dlq, visible: false, color: red]
 step "Accepting the order and limiting the rate" {
   desc "The gateway checks its rate limit counter, then forwards the order to the Order Service."
   state gw [badge: "98 req/s"]
-  animate client --> gw : "POST /orders" [icon: file, desc: "The customer submits an order"]
+  animate client --> gw : "POST /orders" [icon: file, desc: "The customer submits an order"] {
+    code json "Order Request" ```
+      {
+        "orderId": "ord_01JCK9X7",
+        "amount": 14800,
+        "idempotencyKey": "idem_9f3a2c"
+      }
+    ```
+  }
   animate gw --> gw : "Rate Check" [color: teal, desc: "The token bucket decides whether to allow the request"]
   animate gw --> order : "CreateOrder" [icon: file, desc: "The authenticated order is forwarded"]
 }
@@ -88,8 +96,19 @@ step "Confirming the order and responding" {
   state order [badge: "CONFIRMED", color: green]
   animate payment --> order : "Charged" [color: green, desc: "Reports that payment is complete"]
   animate order --> order : "→ CONFIRMED" [color: green, desc: "The order becomes CONFIRMED"]
-  animate order --> gw : "201 Created" [desc: "Returns the created order"]
-  animate order --> queue : "OrderConfirmed" [icon: mail, parallel: true, color: purple, desc: "Publishes an event for fulfillment"]
+  animate order --> gw : "201 Created" [desc: "Returns the created order"] {
+    code json ```
+      { "orderId": "ord_01JCK9X7", "status": "CONFIRMED" }
+    ```
+  }
+  animate order --> queue : "OrderConfirmed" [icon: mail, parallel: true, color: purple, desc: "Publishes an event for fulfillment"] {
+    code json "OrderConfirmed" ```
+      {
+        "event": "order.confirmed",
+        "orderId": "ord_01JCK9X7"
+      }
+    ```
+  }
   animate gw --> client : "201 Created" [desc: "Tells the customer the order is complete"]
 }
 

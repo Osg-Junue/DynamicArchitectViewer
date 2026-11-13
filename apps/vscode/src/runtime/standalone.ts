@@ -1,4 +1,5 @@
 import { EXPORT_DATA_ELEMENT_ID } from './constants';
+import type { ViewerLocale } from './i18n';
 import { Player, type PlayerData } from './player';
 import './styles.css';
 
@@ -9,7 +10,7 @@ import './styles.css';
 function boot(): void {
   const source = document.getElementById(EXPORT_DATA_ELEMENT_ID);
   if (!source?.textContent) return;
-  const payload = JSON.parse(source.textContent) as PlayerData & { locale?: 'ja' | 'en' };
+  const payload = JSON.parse(source.textContent) as PlayerData & { locale?: ViewerLocale };
   const options = payload.locale
     ? { locale: payload.locale, globalKeyboard: true }
     : { globalKeyboard: true };

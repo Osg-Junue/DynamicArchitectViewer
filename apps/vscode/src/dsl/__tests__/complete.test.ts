@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeCompletions, findAtOffset, parse } from '../../dsl';
+import { computeCompletions, findAtOffset, parse } from '../index';
 
 describe('findAtOffset', () => {
   const sample = [
@@ -83,5 +83,25 @@ describe('computeCompletions', () => {
     expect(labelsAt(`${dsl}node x [\n  `)).toContain('icon');
     expect(labelsAt(`${dsl}node x [\n  `)).not.toContain('node');
     expect(labelsAt(`${dsl}step "s" {\n  state db [\n    color: `)).toContain('none');
+  });
+
+  it('completes code and desc inside AnimateBody and suppresses after keyword', () => {
+    expect(labelsAt(`${dsl}step "s" {\n  animate api --> db {\n    `)).toEqual(['code', 'desc']);
+    expect(labelsAt(`${dsl}step "s" {\n  animate api --> db {\n    co`)).toEqual(['code', 'desc']);
+    expect(labelsAt(`${dsl}step "s" {\n  animate api --> db { co`)).toEqual(['code', 'desc']);
+    expect(labelsAt(`${dsl}step "s" {\n  animate api --> db {\n    code `)).toBeUndefined();
+    expect(labelsAt(`${dsl}step "s" {\n  animate api --> db {\n    code json `)).toBeUndefined();
+  });
+
+  it('suppresses completions inside unclosed code fences and resumes after closing fence', () => {
+    const unclosed = `${dsl}step "s" {\n  animate api --> db {\n    code json \`\`\`\n      node `;
+    expect(computeCompletions(unclosed, unclosed.length, true)).toBeNull();
+
+    const betweenFences = `${dsl}step "s" {\n  animate api --> db {\n    code json \`\`\`\n      [icon: \n    \`\`\`\n  }\n}`;
+    const insidePos = betweenFences.lastIndexOf('[icon: ') + '[icon: '.length;
+    expect(computeCompletions(betweenFences, insidePos, true)).toBeNull();
+
+    const afterClosedWithBracket = `${dsl}step "s" {\n  animate api --> db {\n    code text \`\`\`\n      [unbalanced\n    \`\`\`\n    `;
+    expect(labelsAt(afterClosedWithBracket)).toEqual(['code', 'desc']);
   });
 });

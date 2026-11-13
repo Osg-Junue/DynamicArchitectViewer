@@ -1,10 +1,12 @@
 import { gzipSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
+import { escapeJsonForHtml } from '../../model/text';
 import runtimeScript from '../../runtime/generated/player.js?raw';
 import { SAMPLE_TEMPLATES } from '../../samples';
 import { ICON_SHAPES } from '../../scene/icons';
-import { EXPORT_DATA_ELEMENT_ID, escapeJsonForHtml, exportHtml, importContent } from '../index';
+import { collectUsedIcons } from '../icons';
+import { EXPORT_DATA_ELEMENT_ID, exportHtml, importContent } from '../index';
 
 const SAMPLE = SAMPLE_TEMPLATES[0]?.dsl ?? '';
 
@@ -98,6 +100,7 @@ describe('embedded icons', () => {
     const { icons } = payloadOf(await exportHtml(dsl));
     expect(Object.keys(icons).sort()).toEqual(['browser', 'database', 'key']);
     expect(icons.key).toEqual(ICON_SHAPES.key);
+    expect(collectUsedIcons(document)).toEqual(icons);
   });
 
   it.each(SAMPLE_TEMPLATES.map((s) => [s.id, s.dsl] as const))(

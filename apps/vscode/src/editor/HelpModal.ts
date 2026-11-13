@@ -1,13 +1,11 @@
 import { clear, html } from '../runtime/dom';
-import { detectLocale } from '../runtime/i18n';
+import { detectLocale, type ViewerLocale } from '../runtime/i18n';
 import type { Translate } from './docs/figures';
 import { DOC_GROUPS, DOC_PAGES, type DocContext, rich } from './docs/pages';
 
 /** The viewer's documentation: a page per topic, with live examples on the active page only. */
 export class HelpModal {
   readonly element: HTMLDialogElement;
-  /** Follows the VS Code display language, like the rest of the UI. */
-  private readonly locale = detectLocale();
   private currentDsl = '';
   private pageId: string = DOC_PAGES[0]?.id ?? '';
   private readonly promptState = { includeCurrent: false };
@@ -17,7 +15,8 @@ export class HelpModal {
   private readonly titleEl: HTMLElement;
   private readonly closeBtn: HTMLButtonElement;
 
-  constructor() {
+  /** `locale` follows the VS Code display language, like the rest of the UI. */
+  constructor(private readonly locale: ViewerLocale = detectLocale()) {
     this.titleEl = html('span', { class: 'doc-title' });
     this.navEl = html('nav', { class: 'doc-nav' });
     this.contentEl = html('div', { class: 'doc-content' });
@@ -37,10 +36,10 @@ export class HelpModal {
 
     // A drag that starts on the page and ends outside it also clicks the dialog.
     let pressedBackdrop = false;
-    this.element.addEventListener('pointerdown', (e) => {
+    this.element.addEventListener('pointerdown', (e: PointerEvent) => {
       pressedBackdrop = e.target === this.element;
     });
-    this.element.addEventListener('click', (e) => {
+    this.element.addEventListener('click', (e: MouseEvent) => {
       if (e.target === this.element && pressedBackdrop) this.close();
     });
     this.element.addEventListener('close', () => this.disposePage());

@@ -38,16 +38,8 @@ export const CONTROL_ICONS = {
     ['rect', { x: 3, y: 4, width: 18, height: 16, rx: 2 }],
     ['rect', { x: 11, y: 11, width: 7, height: 6, rx: 1 }],
   ),
-  docs: {
-    ...line(
-      ['path', { d: 'M4 3h11l5 5v13H4z' }],
-      ['path', { d: 'M14 3v6h6' }],
-      ['path', { d: 'M8 9h3' }],
-      ['path', { d: 'M8 13h8' }],
-      ['path', { d: 'M8 17h8' }],
-    ),
-    size: 16,
-  },
+  zoomOut: line(['path', { d: 'M5 12h14' }]),
+  zoomIn: line(['path', { d: 'M5 12h14' }], ['path', { d: 'M12 5v14' }]),
   pause: solid(
     ['rect', { x: 6, y: 5, width: 4, height: 14, rx: 1 }],
     ['rect', { x: 14, y: 5, width: 4, height: 14, rx: 1 }],
@@ -61,6 +53,19 @@ export const CONTROL_ICONS = {
     size: 16,
   },
 } as const satisfies Record<string, ControlIcon>;
+
+/** Artwork for the editor's documentation button, kept separate so the runtime bundle omits it. */
+export const DOCS_ICON: ControlIcon = {
+  shapes: [
+    ['path', { d: 'M4 3h11l5 5v13H4z' }],
+    ['path', { d: 'M14 3v6h6' }],
+    ['path', { d: 'M8 9h3' }],
+    ['path', { d: 'M8 13h8' }],
+    ['path', { d: 'M8 17h8' }],
+  ],
+  filled: false,
+  size: 16,
+};
 
 const LINE_STYLE = {
   fill: 'none',

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
-import { computeLayout, type Rect } from '../index';
+import { computeLayout, countCrossings, type Rect, rectContains, rectOverlaps } from '../index';
+import { STATION_CENTER } from '../metrics';
 
 /** Zones of `size` chained nodes in a row, with links from the first zone to all the others. */
 function bigDiagram(size = 6, zones = 8): string {
@@ -23,15 +24,6 @@ function bigDiagram(size = 6, zones = 8): string {
   return lines.join('\n');
 }
 
-const overlaps = (a: Rect, b: Rect) =>
-  a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
-
-const contains = (outer: Rect, inner: Rect) =>
-  inner.x >= outer.x &&
-  inner.y >= outer.y &&
-  inner.x + inner.width <= outer.x + outer.width &&
-  inner.y + inner.height <= outer.y + outer.height;
-
 describe('zoned placement', () => {
   const { document } = parse(bigDiagram());
   const layout = computeLayout(document);
@@ -39,6 +31,71 @@ describe('zoned placement', () => {
   it('moves zones off the shared columns when links are too long', () => {
     const columns = new Set(Object.values(layout.nodes).map((n) => n.x));
     expect(columns.size).toBeLessThan(document.nodes.length);
+  });
+
+  it('fills the canvas instead of stretching into a strip', () => {
+    const rects = Object.values(layout.groups);
+    const width = Math.max(...rects.map((r) => r.x + r.width)) - Math.min(...rects.map((r) => r.x));
+    const height =
+      Math.max(...rects.map((r) => r.y + r.height)) - Math.min(...rects.map((r) => r.y));
+    // The column layout of this diagram is 60 times as wide as it is high. How close to the
+    // canvas's own 1.6 the zones come is a balance against the length of their links.
+    expect(width / height).toBeLessThan(3.5);
+    expect(width / height).toBeGreaterThan(1);
+  });
+
+  it.each([
+    [4, 3],
+    [4, 9],
+    [6, 5],
+    [8, 9],
+    [10, 7],
+  ])('frees %i zones of %i nodes from the strip their columns make', (zones, size) => {
+    // In columns, each of these is a single row without crossings, dozens of times wider
+    // than high. Freeing the zones costs a crossing or two and is worth it.
+    const doc = parse(bigDiagram(size, zones)).document;
+    const placed = computeLayout(doc);
+    const rects = Object.values(placed.groups);
+    const width = Math.max(...rects.map((r) => r.x + r.width)) - Math.min(...rects.map((r) => r.x));
+    const height =
+      Math.max(...rects.map((r) => r.y + r.height)) - Math.min(...rects.map((r) => r.y));
+    expect(width / height).toBeLessThan(5);
+    expect(countCrossings(doc, placed)).toBeLessThanOrEqual(2);
+  });
+
+  it('leaves no zone further from the others than its clearance asks for', () => {
+    // Every zone of this diagram is linked to another, so each is pulled next to one.
+    const rects = Object.values(layout.groups);
+    const gapTo = (a: Rect, b: Rect): number =>
+      Math.hypot(
+        Math.max(0, a.x - (b.x + b.width), b.x - (a.x + a.width)),
+        Math.max(0, a.y - (b.y + b.height), b.y - (a.y + a.height)),
+      );
+    for (const a of rects) {
+      const nearest = Math.min(...rects.filter((b) => b !== a).map((b) => gapTo(a, b)));
+      // 60 across and 34 down are the clearances; a diagonal neighbor is a little further.
+      expect(nearest).toBeLessThanOrEqual(70);
+      expect(nearest).toBeGreaterThanOrEqual(34);
+    }
+  });
+
+  it('puts the stations of linked zones level or straight above each other where it can', () => {
+    const station = (id: string) => {
+      const r = layout.nodes[id] as Rect;
+      return { x: r.x + r.width / 2, y: r.y + STATION_CENTER };
+    };
+    const zoneOf = new Map(document.nodes.map((n) => [n.id, n.parentId]));
+    const between = document.edges.filter((e) => zoneOf.get(e.from) !== zoneOf.get(e.to));
+    const straight = between.filter((e) => {
+      const a = station(e.from);
+      const b = station(e.to);
+      return Math.abs(a.x - b.x) < 0.5 || Math.abs(a.y - b.y) < 0.5;
+    });
+    // Zones are rigid and most have several links, so only some of the 13 can be straight:
+    // 5 are. Without the search's pull towards facing stations and the final move, 1 is;
+    // with the final move alone, 3.
+    expect(between).toHaveLength(13);
+    expect(straight.length).toBeGreaterThanOrEqual(4);
   });
 
   it('keeps shared columns when no link is too long', () => {
@@ -74,7 +131,7 @@ b1 --> b2`);
       expect(widened.groups.z1?.width).toBeGreaterThan(layout.groups.z1?.width as number);
       const rects = Object.values(widened.groups);
       rects.forEach((a, i) => {
-        for (const b of rects.slice(i + 1)) expect(overlaps(a, b)).toBe(false);
+        for (const b of rects.slice(i + 1)) expect(rectOverlaps(a, b)).toBe(false);
       });
     });
 
@@ -91,12 +148,12 @@ b1 --> b2`);
     expect(ids).toHaveLength(document.nodes.length);
     ids.forEach((a, i) => {
       for (const b of ids.slice(i + 1)) {
-        expect(overlaps(layout.nodes[a] as Rect, layout.nodes[b] as Rect)).toBe(false);
+        expect(rectOverlaps(layout.nodes[a] as Rect, layout.nodes[b] as Rect)).toBe(false);
       }
     });
     for (const n of document.nodes) {
       expect(
-        contains(layout.groups[n.parentId as string] as Rect, layout.nodes[n.id] as Rect),
+        rectContains(layout.groups[n.parentId as string] as Rect, layout.nodes[n.id] as Rect),
       ).toBe(true);
     }
   });
@@ -104,7 +161,7 @@ b1 --> b2`);
   it('never overlaps two zones', () => {
     const rects = Object.values(layout.groups);
     rects.forEach((a, i) => {
-      for (const b of rects.slice(i + 1)) expect(overlaps(a, b)).toBe(false);
+      for (const b of rects.slice(i + 1)) expect(rectOverlaps(a, b)).toBe(false);
     });
   });
 
@@ -120,8 +177,8 @@ z0n0 --> deep
 deep --> loose`;
     const doc = parse(source).document;
     const result = computeLayout(doc);
-    expect(contains(result.groups.inner as Rect, result.nodes.deep as Rect)).toBe(true);
-    expect(contains(result.groups.outer as Rect, result.groups.inner as Rect)).toBe(true);
+    expect(rectContains(result.groups.inner as Rect, result.nodes.deep as Rect)).toBe(true);
+    expect(rectContains(result.groups.outer as Rect, result.groups.inner as Rect)).toBe(true);
     expect(result.nodes.loose).toBeDefined();
     expect(result.groups.loose).toBeUndefined();
   });

@@ -1,8 +1,13 @@
 import type { SyntaxNode } from '@lezer/common';
-import { childNodes, parseTree, sliceOf } from './syntax';
+import { attributeValueNode, childNodes, parseTree, sliceOf, unescapeCodeFence } from './syntax';
 
 const INDENT = '  ';
 const CONTAINERS = new Set(['GroupBody', 'StepBody', 'AnimateBody']);
+const CONTAINER_BY_STMT: Readonly<Record<string, { body: string; emptySuffix: string }>> = {
+  Group: { body: 'GroupBody', emptySuffix: ' {}' },
+  Step: { body: 'StepBody', emptySuffix: ' {}' },
+  Animate: { body: 'AnimateBody', emptySuffix: '' },
+};
 const STATEMENTS = new Set([
   'Header',
   'Title',
@@ -14,6 +19,7 @@ const STATEMENTS = new Set([
   'Focus',
   'State',
   'Animate',
+  'Code',
 ]);
 
 /**
@@ -79,43 +85,38 @@ class Printer {
 
     // Comments inside a statement cannot be relocated safely: keep its original text.
     if (containsComment(node)) {
-      this.verbatim(node, indent);
+      if (node.name === 'Code') {
+        this.verbatimCode(node, indent);
+      } else {
+        this.verbatim(node, indent);
+      }
       return;
     }
 
-    switch (node.name) {
-      case 'Group':
-      case 'Step': {
-        const body = node.getChild(node.name === 'Group' ? 'GroupBody' : 'StepBody');
-        const head = this.inline(node, (c) => !CONTAINERS.has(c.name));
-        const hasContent =
-          body !== null && childNodes(body).some((c) => c.name !== '{' && c.name !== '}');
-        if (!body || !hasContent) {
-          this.lines.push(`${indent}${head} {}`);
-          return;
-        }
-        this.lines.push(`${indent}${head} {`);
-        this.block(body, depth + 1);
-        this.lines.push(`${indent}}`);
-        return;
-      }
-      case 'Animate': {
-        const body = node.getChild('AnimateBody');
-        const head = this.inline(node, (c) => !CONTAINERS.has(c.name));
-        const hasContent =
-          body !== null && childNodes(body).some((c) => c.name !== '{' && c.name !== '}');
-        if (!body || !hasContent) {
-          this.lines.push(`${indent}${head}`);
-          return;
-        }
-        this.lines.push(`${indent}${head} {`);
-        this.block(body, depth + 1);
-        this.lines.push(`${indent}}`);
-        return;
-      }
-      default:
-        this.lines.push(indent + this.inline(node, () => true));
+    if (node.name === 'Code') {
+      this.code(node, indent);
+      return;
     }
+
+    const container = Object.hasOwn(CONTAINER_BY_STMT, node.name)
+      ? CONTAINER_BY_STMT[node.name]
+      : undefined;
+    if (container) {
+      const body = node.getChild(container.body);
+      const head = this.inline(node, (c) => !CONTAINERS.has(c.name));
+      const hasContent =
+        body !== null && childNodes(body).some((c) => c.name !== '{' && c.name !== '}');
+      if (!body || !hasContent) {
+        this.lines.push(`${indent}${head}${container.emptySuffix}`);
+        return;
+      }
+      this.lines.push(`${indent}${head} {`);
+      this.block(body, depth + 1);
+      this.lines.push(`${indent}}`);
+      return;
+    }
+
+    this.lines.push(indent + this.inline(node, () => true));
   }
 
   /** Renders a statement's tokens on one line with canonical spacing. */
@@ -135,10 +136,12 @@ class Printer {
         case 'Label':
           parts.push(sliceOf(this.text, child));
           break;
-        case ',':
+        case ',': {
           // Focus list separator.
-          parts[parts.length - 1] += ',';
+          const prev = parts[parts.length - 1];
+          if (prev !== undefined) parts[parts.length - 1] = `${prev},`;
           break;
+        }
         default:
           parts.push(sliceOf(this.text, child));
       }
@@ -149,15 +152,69 @@ class Printer {
   private attributes(node: SyntaxNode): string {
     const items = node.getChildren('Attribute').map((attr) => {
       const name = attr.getChild('AttrName');
-      const value = childNodes(attr).find((c) => c.name !== 'AttrName' && c.name !== ':');
+      const value = attributeValueNode(attr);
       return `${name ? sliceOf(this.text, name) : ''}: ${value ? sliceOf(this.text, value) : ''}`;
     });
     return `[${items.join(', ')}]`;
   }
 
+  private code(node: SyntaxNode, indent: string): void {
+    const langNode = node.getChild('CodeLang');
+    const strNode = node.getChild('String');
+    const fenceNode = node.getChild('CodeFence');
+
+    const head = ['code'];
+    if (langNode) head.push(sliceOf(this.text, langNode));
+    if (strNode) head.push(sliceOf(this.text, strNode));
+
+    if (!fenceNode) {
+      this.lines.push(`${indent}${head.join(' ')}`);
+      return;
+    }
+
+    head.push('```');
+    this.lines.push(`${indent}${head.join(' ')}`);
+    this.fenceBody(fenceNode, indent);
+  }
+
+  private verbatimCode(node: SyntaxNode, indent: string): void {
+    const fenceNode = node.getChild('CodeFence');
+    if (!fenceNode) {
+      this.verbatim(node, indent);
+      return;
+    }
+    const prefix = sliceOf(this.text, { from: node.from, to: fenceNode.from }).replace(
+      /[ \t]*$/,
+      '',
+    );
+    const fenceOnNewLine = prefix.endsWith('\n');
+    const headRaw = fenceOnNewLine ? prefix.replace(/\r?\n$/, '') : prefix;
+    this.verbatimSpan(headRaw, node.from, indent);
+    if (fenceOnNewLine) {
+      this.lines.push(`${indent}\`\`\``);
+    } else {
+      this.appendToLastLine(' ```');
+    }
+    this.fenceBody(fenceNode, indent);
+  }
+
+  private fenceBody(fenceNode: SyntaxNode, indent: string): void {
+    const body = unescapeCodeFence(sliceOf(this.text, fenceNode));
+    if (body.length > 0) {
+      for (const line of body.split('\n')) {
+        this.lines.push(line.length > 0 ? `${indent}  ${line}` : '');
+      }
+    }
+    this.lines.push(`${indent}\`\`\``);
+  }
+
   private verbatim(node: SyntaxNode, indent: string): void {
-    const raw = sliceOf(this.text, node).split(/\r?\n/);
-    const baseIndent = leadingWhitespace(this.lineAt(node.from));
+    this.verbatimSpan(sliceOf(this.text, node), node.from, indent);
+  }
+
+  private verbatimSpan(rawText: string, from: number, indent: string): void {
+    const raw = rawText.split(/\r?\n/);
+    const baseIndent = leadingWhitespace(this.lineAt(from));
     raw.forEach((line, i) => {
       if (i === 0) {
         this.lines.push(indent + line.trimEnd());
@@ -178,7 +235,8 @@ class Printer {
 
   private appendToLastLine(suffix: string): void {
     const last = this.lines.length - 1;
-    if (last >= 0) this.lines[last] += suffix;
+    const prev = this.lines[last];
+    if (prev !== undefined) this.lines[last] = prev + suffix;
     else this.lines.push(suffix.trimStart());
   }
 }

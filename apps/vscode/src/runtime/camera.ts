@@ -1,17 +1,8 @@
 import type { Rect } from '../layout';
+import { clampZoom, type Frame, framePose, type Pose, type Size, visibleWorld } from '../scene';
 
-const MIN_ZOOM = 0.15;
-const MAX_ZOOM = 4;
 /** Time constant of the easing towards the target, in milliseconds. */
 const EASE_MS = 160;
-
-interface Pose {
-  zoom: number;
-  panX: number;
-  panY: number;
-}
-
-const clampZoom = (zoom: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
 
 /** Where the diagram is on the canvas, and how it eases towards a new place. */
 export class Camera {
@@ -53,7 +44,7 @@ export class Camera {
     this.#cachedSize = null;
   }
 
-  #viewSize(): { width: number; height: number } {
+  #viewSize(): Size {
     if (this.#cachedSize) return this.#cachedSize;
     const { width, height } = this.#canvas.getBoundingClientRect();
     const size = { width, height };
@@ -64,11 +55,8 @@ export class Camera {
     return size;
   }
 
-  /** The zoom at which a rectangle exactly fits the canvas; unbounded while it has no size. */
-  fitZoom(b: Rect): number {
-    const { width, height } = this.#viewSize();
-    if (width === 0 || height === 0) return Number.POSITIVE_INFINITY;
-    return Math.min(width / b.width, height / b.height);
+  get viewSize(): Size {
+    return this.#viewSize();
   }
 
   /** The part of the diagram on screen now, in diagram coordinates. */
@@ -82,34 +70,16 @@ export class Camera {
   }
 
   #worldSeenFrom(pose: Pose): Rect | null {
-    const { width, height } = this.#viewSize();
-    if (width === 0 || height === 0) return null;
-    return {
-      x: -pose.panX / pose.zoom,
-      y: -pose.panY / pose.zoom,
-      width: width / pose.zoom,
-      height: height / pose.zoom,
-    };
+    const size = this.#viewSize();
+    if (size.width === 0 || size.height === 0) return null;
+    return visibleWorld(size, pose);
   }
 
-  clientToWorld(clientX: number, clientY: number): { x: number; y: number } {
-    const box = this.#canvas.getBoundingClientRect();
-    return {
-      x: (clientX - box.left - this.#pose.panX) / this.#pose.zoom,
-      y: (clientY - box.top - this.#pose.panY) / this.#pose.zoom,
-    };
-  }
-
-  /** Frames a rectangle, zooming in no further than `maxAutoZoom`. */
-  frame(b: Rect, maxAutoZoom: number, smooth: boolean): void {
+  /** Frames a rectangle, zooming in no further than the frame allows. */
+  frame(frame: Frame, smooth: boolean): void {
     const box = this.#viewSize();
     if (box.width === 0 || box.height === 0) return;
-    const zoom = clampZoom(Math.min(this.fitZoom(b), maxAutoZoom));
-    const pose = {
-      zoom,
-      panX: (box.width - b.width * zoom) / 2 - b.x * zoom,
-      panY: (box.height - b.height * zoom) / 2 - b.y * zoom,
-    };
+    const pose = framePose(box, frame);
     if (!smooth || this.#reducedMotion) {
       this.#target = null;
       this.#pose = pose;
@@ -137,9 +107,13 @@ export class Camera {
   /** Zooms around a point of the canvas; by default, around its center. */
   zoomBy(factor: number, cx?: number, cy?: number): void {
     this.#target = null;
-    const box = this.#canvas.getBoundingClientRect();
-    const x = cx ?? box.width / 2;
-    const y = cy ?? box.height / 2;
+    let x = cx;
+    let y = cy;
+    if (x === undefined || y === undefined) {
+      const box = this.#canvas.getBoundingClientRect();
+      x ??= box.width / 2;
+      y ??= box.height / 2;
+    }
     const { zoom, panX, panY } = this.#pose;
     const next = clampZoom(zoom * factor);
     const k = next / zoom;

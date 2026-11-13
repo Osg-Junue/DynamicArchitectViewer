@@ -1,7 +1,8 @@
 import type { SyntaxNode, Tree } from '@lezer/common';
+import { normalizeCodeIndent } from '../model/text';
 import { parser } from './grammar/dav.grammar';
 
-export { parser };
+const VALUE_NODE_NAMES = new Set(['String', 'Number', 'Color', 'Identifier', 'Boolean']);
 
 /** Parses DSL text into a Lezer syntax tree (never throws; errors become ⚠ nodes). */
 export function parseTree(text: string): Tree {
@@ -15,11 +16,19 @@ export function childNodes(node: SyntaxNode): SyntaxNode[] {
   return out;
 }
 
+/** The value child of an `Attribute` node, ignoring `AttrName`, `:`, and comments. */
+export function attributeValueNode(attr: SyntaxNode): SyntaxNode | null {
+  for (let c = attr.firstChild; c; c = c.nextSibling) {
+    if (VALUE_NODE_NAMES.has(c.name)) return c;
+  }
+  return null;
+}
+
 export function sliceOf(text: string, node: { from: number; to: number }): string {
   return text.slice(node.from, node.to);
 }
 
-export interface InvalidEscape {
+interface InvalidEscape {
   /** Offset of the backslash relative to the start of the raw string token. */
   offset: number;
   sequence: string;
@@ -58,4 +67,11 @@ export function unescapeString(raw: string): { value: string; invalid: InvalidEs
     i++;
   }
   return { value, invalid };
+}
+
+/** Decodes and dedents a raw triple-backtick ``` ... ``` token. */
+export function unescapeCodeFence(raw: string): string {
+  const hasOpen = raw.startsWith('```');
+  const closed = raw.length >= (hasOpen ? 6 : 3) && raw.endsWith('```');
+  return normalizeCodeIndent(raw.slice(hasOpen ? 3 : 0, closed ? -3 : undefined));
 }

@@ -1,50 +1,30 @@
 import type { SyntaxNode } from '@lezer/common';
 import {
   type Animation,
-  COLOR_NAMES,
-  COLOR_RESET,
+  type CodeBlock,
   CURRENT_DSL_VERSION,
   type DavDocument,
   type DavEdge,
   type DavGroup,
   type DavNode,
   type DavStep,
-  type Direction,
-  ICON_NAMES,
-  type IconName,
   implicitEdgeId,
-  type LineStyle,
   type StateOverride,
 } from '../model/types';
+import { type ParsedAttrs, readAttributes, readStringLiteral, type ValidAttr } from './attributes';
 import type { Diagnostic, DiagnosticCode, Severity } from './diagnostics';
+import { ARROW_SPECS, type AttrOwner, STATE_ATTRIBUTES_BY_TARGET } from './schema';
 import {
-  ATTRIBUTE_SCHEMA,
-  type AttrOwner,
-  type AttrType,
-  STATE_ATTRIBUTES_BY_TARGET,
-} from './schema';
-import { childNodes, parseTree, sliceOf, unescapeString } from './syntax';
+  type ElementKind,
+  type ElementSource,
+  rangeOf,
+  type SourceMap,
+  type SourceRange,
+} from './sourceMap';
+import { childNodes, parseTree, sliceOf, unescapeCodeFence } from './syntax';
 
-export type ElementKind = 'node' | 'group' | 'edge';
-
-export interface SourceRange {
-  from: number;
-  to: number;
-}
-
-export interface ElementSource extends SourceRange {
-  kind: ElementKind;
-  id: string;
-  /** Range of the identifier token (absent for implicit edge IDs). */
-  idRange?: SourceRange;
-}
-
-export interface SourceMap {
-  /** Keyed by element ID (implicit edge IDs use `from->to`). First declaration wins. */
-  elements: ReadonlyMap<string, ElementSource>;
-  /** Statement range for each step, by index. */
-  steps: readonly SourceRange[];
-}
+export type { ElementKind, ElementSource, SourceMap, SourceRange } from './sourceMap';
+export { findAtOffset } from './sourceMap';
 
 export interface ParseResult {
   document: DavDocument;
@@ -60,37 +40,26 @@ interface Reference {
 
 interface PendingStateCheck {
   target: string;
-  attrs: Map<string, ValidAttr>;
+  attrs: ReadonlyMap<string, ValidAttr>;
 }
-
-interface ValidAttr {
-  value: string | boolean;
-  node: SyntaxNode;
-}
-
-const ARROWS: Record<string, { style: LineStyle; direction: Direction }> = {
-  '-->': { style: 'solid', direction: 'forward' },
-  '..>': { style: 'dashed', direction: 'forward' },
-  '<->': { style: 'solid', direction: 'bidirectional' },
-  '<.>': { style: 'dashed', direction: 'bidirectional' },
-};
 
 const DEFAULT_ARROW = { style: 'solid', direction: 'forward' } as const;
-
-const VALUE_NODE_NAMES = new Set(['String', 'Number', 'Color', 'Identifier', 'Boolean']);
-
-const EXPECTED_BY_TYPE: Record<AttrType, string> = {
-  string: '"..."',
-  bool: 'true | false',
-  color: COLOR_NAMES.join(' | '),
-  stateColor: [...COLOR_NAMES, COLOR_RESET].join(' | '),
-  icon: ICON_NAMES.join(' | '),
-  ident: 'identifier',
-};
 
 /** Parses and validates DSL v1 text. Never throws. */
 export function parse(text: string): ParseResult {
   return new Analyzer(text).run();
+}
+
+/**
+ * The text has errors and nothing left to draw. The preview keeps showing the last diagram it
+ * could draw, and nothing is exported, so that a broken text never replaces a working picture.
+ */
+export function hasFatalError({ diagnostics, document }: ParseResult): boolean {
+  return (
+    diagnostics.some((d) => d.severity === 'error') &&
+    document.nodes.length === 0 &&
+    document.groups.length === 0
+  );
 }
 
 class Analyzer {
@@ -108,6 +77,14 @@ class Analyzer {
     steps: [],
   };
   private titleSeen = false;
+  private readonly reportFn = (
+    code: DiagnosticCode,
+    severity: Severity,
+    range: SourceRange,
+    args: Record<string, string> = {},
+  ): void => {
+    this.report(code, severity, range, args);
+  };
 
   constructor(private readonly text: string) {}
 
@@ -218,10 +195,10 @@ class Analyzer {
     const id = sliceOf(this.text, idNode);
     const attrs = this.readAttributes(node.getChild('Attributes'), 'group');
 
-    const group: DavGroup = { id, label: this.readLabel(node) ?? id };
+    const group: DavGroup = { id, label: this.readChildString(node, 'Label') ?? id };
     if (parentId) group.parentId = parentId;
-    const color = attrs.get('color')?.value;
-    if (typeof color === 'string') group.color = color;
+    const color = attrs.value('color');
+    if (color !== undefined) group.color = color;
 
     const declared = this.declare({
       kind: 'group',
@@ -250,14 +227,17 @@ class Analyzer {
 
     const result: DavNode = {
       id,
-      label: this.readLabel(node) ?? id,
-      icon: (attrs.get('icon')?.value as IconName | undefined) ?? 'server',
-      visible: (attrs.get('visible')?.value as boolean | undefined) ?? true,
+      label: this.readChildString(node, 'Label') ?? id,
+      icon: attrs.value('icon') ?? 'server',
+      visible: attrs.value('visible') ?? true,
     };
     if (parentId) result.parentId = parentId;
-    assignString(result, 'sub', attrs);
-    assignString(result, 'badge', attrs);
-    assignString(result, 'color', attrs);
+    const sub = attrs.value('sub');
+    if (sub !== undefined) result.sub = sub;
+    const badge = attrs.value('badge');
+    if (badge !== undefined) result.badge = badge;
+    const color = attrs.value('color');
+    if (color !== undefined) result.color = color;
 
     const declared = this.declare({
       kind: 'node',
@@ -277,7 +257,7 @@ class Analyzer {
     const from = sliceOf(this.text, fromNode);
     const to = sliceOf(this.text, toNode);
     const arrowText = sliceOf(this.text, arrowNode);
-    const arrow = ARROWS[arrowText] ?? DEFAULT_ARROW;
+    const arrow = ARROW_SPECS[arrowText] ?? DEFAULT_ARROW;
     if (from === to && arrow.direction === 'bidirectional') {
       this.report('invalid-self-arrow', 'error', arrowNode, {
         arrow: arrowText,
@@ -288,17 +268,18 @@ class Analyzer {
     const explicit = attrs.get('id');
 
     const edge: DavEdge = {
-      id: typeof explicit?.value === 'string' ? explicit.value : implicitEdgeId(from, to),
+      id: explicit?.value ?? implicitEdgeId(from, to),
       explicitId: explicit !== undefined,
       from,
       to,
       style: arrow.style,
       direction: arrow.direction,
-      visible: (attrs.get('visible')?.value as boolean | undefined) ?? true,
+      visible: attrs.value('visible') ?? true,
     };
-    const label = this.readEdgeLabel(node);
+    const label = this.readChildString(node, 'EdgeLabel');
     if (label !== undefined) edge.label = label;
-    assignString(edge, 'color', attrs);
+    const color = attrs.value('color');
+    if (color !== undefined) edge.color = color;
 
     if (explicit) {
       this.declare({
@@ -322,25 +303,18 @@ class Analyzer {
   }
 
   private readStep(node: SyntaxNode): void {
-    const titleNode = node.getChild('String');
     const step: DavStep = {
       index: this.doc.steps.length,
-      title: titleNode ? this.readString(titleNode) : '',
+      title: this.readChildString(node) ?? '',
       description: '',
       focus: [],
       states: [],
       animations: [],
     };
 
-    const descriptions: string[] = [];
     const body = node.getChild('StepBody');
     for (const stmt of body ? childNodes(body) : []) {
       switch (stmt.name) {
-        case 'Desc': {
-          const str = stmt.getChild('String');
-          if (str) descriptions.push(this.readString(str));
-          break;
-        }
         case 'Focus':
           for (const ref of stmt.getChildren('Identifier')) {
             const id = sliceOf(this.text, ref);
@@ -356,7 +330,7 @@ class Analyzer {
           break;
       }
     }
-    step.description = descriptions.join('\n');
+    step.description = this.readDescList(body).join('\n');
 
     this.stepRanges.push({ from: node.from, to: node.to });
     this.doc.steps.push(step);
@@ -373,10 +347,12 @@ class Analyzer {
     }
 
     const override: StateOverride = { target };
-    const visible = attrs.get('visible')?.value;
-    if (typeof visible === 'boolean') override.visible = visible;
-    assignString(override, 'badge', attrs);
-    assignString(override, 'color', attrs);
+    const visible = attrs.value('visible');
+    if (visible !== undefined) override.visible = visible;
+    const badge = attrs.value('badge');
+    if (badge !== undefined) override.badge = badge;
+    const color = attrs.value('color');
+    if (color !== undefined) override.color = color;
 
     step.states.push(override);
     this.references.push({
@@ -384,7 +360,7 @@ class Analyzer {
       range: rangeOf(targetNode),
       allowed: ['node', 'group', 'edge'],
     });
-    this.stateChecks.push({ target, attrs });
+    this.stateChecks.push({ target, attrs: attrs.entries });
   }
 
   private readAnimate(stmt: SyntaxNode, step: DavStep): void {
@@ -392,7 +368,7 @@ class Analyzer {
     const arrowNode = stmt.getChild('Arrow');
     if (!fromNode || !toNode || !arrowNode) return;
     const arrowText = sliceOf(this.text, arrowNode);
-    const arrow = ARROWS[arrowText] ?? DEFAULT_ARROW;
+    const arrow = ARROW_SPECS[arrowText] ?? DEFAULT_ARROW;
     if (arrow.style === 'dashed') {
       this.report('invalid-animate-arrow', 'error', arrowNode, {
         arrow: arrowText,
@@ -413,30 +389,50 @@ class Analyzer {
       from: sliceOf(this.text, fromNode),
       to: sliceOf(this.text, toNode),
       direction: arrow.direction,
-      parallel: (attrs.get('parallel')?.value as boolean | undefined) ?? false,
+      parallel: attrs.value('parallel') ?? false,
     };
-    const label = this.readEdgeLabel(stmt);
+    const label = this.readChildString(stmt, 'EdgeLabel');
     if (label !== undefined) animation.label = label;
-    assignString(animation, 'color', attrs);
-    const icon = attrs.get('icon')?.value as IconName | undefined;
+    const color = attrs.value('color');
+    if (color !== undefined) animation.color = color;
+    const icon = attrs.value('icon');
     if (icon !== undefined) animation.icon = icon;
 
     const descs: string[] = [];
-    const attrDesc = attrs.get('desc')?.value;
-    if (typeof attrDesc === 'string' && attrDesc.length > 0) {
+    const attrDesc = attrs.value('desc');
+    if (attrDesc !== undefined && attrDesc.length > 0) {
       descs.push(attrDesc);
     }
-    const body = stmt.getChild('AnimateBody');
-    if (body) {
-      for (const child of childNodes(body)) {
-        if (child.name === 'Desc') {
-          const str = child.getChild('String');
-          if (str) descs.push(this.readString(str));
+    const animateBody = stmt.getChild('AnimateBody');
+    descs.push(...this.readDescList(animateBody));
+    if (descs.length > 0) {
+      animation.description = descs.join('\n');
+    }
+
+    let codeSeen = false;
+    let lastCode: CodeBlock | undefined;
+    const attrCode = attrs.get('code');
+    if (attrCode !== undefined) {
+      codeSeen = true;
+      if (attrCode.value.trim().length > 0) {
+        lastCode = { body: attrCode.value };
+      }
+    }
+    if (animateBody) {
+      for (const child of childNodes(animateBody)) {
+        if (child.name !== 'Code') continue;
+        if (codeSeen) {
+          this.report('duplicate-code', 'warning', child);
+        }
+        codeSeen = true;
+        const parsed = this.readCode(child);
+        if (parsed !== undefined) {
+          lastCode = parsed;
         }
       }
     }
-    if (descs.length > 0) {
-      animation.description = descs.join('\n');
+    if (lastCode !== undefined) {
+      animation.code = lastCode;
     }
 
     step.animations.push(animation);
@@ -446,112 +442,65 @@ class Analyzer {
     );
   }
 
+  private readCode(node: SyntaxNode): CodeBlock | undefined {
+    const langNode = node.getChild('CodeLang');
+    const strNode = node.getChild('String');
+    const fenceNode = node.getChild('CodeFence');
+
+    let title: string | undefined;
+    let body: string | undefined;
+
+    if (fenceNode) {
+      if (strNode) {
+        title = this.readString(strNode);
+      }
+      body = unescapeCodeFence(sliceOf(this.text, fenceNode));
+    } else if (strNode) {
+      body = this.readString(strNode);
+    }
+
+    if (body === undefined || body.trim().length === 0) {
+      return undefined;
+    }
+
+    const block: CodeBlock = { body };
+    if (langNode) {
+      block.lang = sliceOf(this.text, langNode);
+    }
+    if (title !== undefined) {
+      block.title = title;
+    }
+    return block;
+  }
+
   // ---------------------------------------------------------------------------
   // Shared readers
   // ---------------------------------------------------------------------------
 
   private readString(node: SyntaxNode): string {
-    const { value, invalid } = unescapeString(sliceOf(this.text, node));
-    for (const esc of invalid) {
-      const from = node.from + esc.offset;
-      this.report(
-        'invalid-escape',
-        'error',
-        { from, to: from + esc.sequence.length },
-        { sequence: esc.sequence },
-      );
-    }
-    return value;
+    return readStringLiteral(this.text, node, this.reportFn);
   }
 
-  private readLabel(node: SyntaxNode): string | undefined {
-    const str = node.getChild('Label')?.getChild('String');
+  private readChildString(node: SyntaxNode, wrapper?: string): string | undefined {
+    const target = wrapper ? node.getChild(wrapper) : node;
+    const str = target?.getChild('String');
     return str ? this.readString(str) : undefined;
   }
 
-  private readEdgeLabel(node: SyntaxNode): string | undefined {
-    const str = node.getChild('EdgeLabel')?.getChild('String');
-    return str ? this.readString(str) : undefined;
-  }
-
-  /** Reads and validates an attribute list. Invalid entries are reported and omitted. */
-  private readAttributes(node: SyntaxNode | null, owner: AttrOwner): Map<string, ValidAttr> {
-    const result = new Map<string, ValidAttr>();
-    if (!node) return result;
-    const schema = ATTRIBUTE_SCHEMA[owner];
-    const seen = new Set<string>();
-
-    for (const attr of node.getChildren('Attribute')) {
-      const nameNode = attr.getChild('AttrName');
-      const valueNode = childNodes(attr).find((c) => VALUE_NODE_NAMES.has(c.name));
-      if (!nameNode || !valueNode) continue;
-      const name = sliceOf(this.text, nameNode);
-
-      const type = Object.hasOwn(schema, name) ? schema[name] : undefined;
-      if (!type) {
-        this.report('unknown-attribute', 'warning', nameNode, { name, owner });
-        continue;
-      }
-      if (seen.has(name)) {
-        this.report('duplicate-attribute', 'warning', nameNode, { name });
-      }
-      seen.add(name);
-
-      const value = this.convertValue(name, type, valueNode);
-      if (value !== undefined) result.set(name, { value, node: valueNode });
-    }
-    return result;
-  }
-
-  private convertValue(
-    name: string,
-    type: AttrType,
-    node: SyntaxNode,
-  ): string | boolean | undefined {
-    const raw = sliceOf(this.text, node);
-    const invalid = () => {
-      this.report('invalid-attribute-value', 'error', node, {
-        name,
-        expected: EXPECTED_BY_TYPE[type],
-      });
-      return undefined;
-    };
-
-    switch (type) {
-      case 'string':
-        return node.name === 'String' ? this.readString(node) : invalid();
-      case 'bool':
-        return node.name === 'Boolean' ? raw === 'true' : invalid();
-      case 'ident':
-        return node.name === 'Identifier' ? raw : invalid();
-      case 'color':
-      case 'stateColor': {
-        if (node.name !== 'Identifier' && node.name !== 'Color') return invalid();
-        const colorName = raw.toLowerCase();
-        if ((COLOR_NAMES as readonly string[]).includes(colorName)) return colorName;
-        const allowsReset = type === 'stateColor';
-        if (allowsReset && colorName === COLOR_RESET) return COLOR_RESET;
-        const suggestion = node.name === 'Color' ? undefined : closestMatch(raw, COLOR_NAMES);
-        this.report('invalid-color', 'error', node, {
-          value: raw,
-          suggestion: suggestion ?? '',
-          names: (allowsReset ? [...COLOR_NAMES, COLOR_RESET] : COLOR_NAMES).join(', '),
-        });
-        return undefined;
-      }
-      case 'icon': {
-        if (node.name !== 'Identifier') return invalid();
-        const iconName = raw.toLowerCase();
-        if (!(ICON_NAMES as readonly string[]).includes(iconName)) {
-          this.report('unknown-icon', 'error', node, {
-            icon: raw,
-            suggestion: closestMatch(raw, ICON_NAMES) ?? '',
-          });
-          return undefined;
-        }
-        return iconName;
+  private readDescList(container: SyntaxNode | null): string[] {
+    if (!container) return [];
+    const out: string[] = [];
+    for (const child of childNodes(container)) {
+      if (child.name === 'Desc') {
+        const desc = this.readChildString(child);
+        if (desc !== undefined) out.push(desc);
       }
     }
+    return out;
+  }
+
+  private readAttributes<O extends AttrOwner>(node: SyntaxNode | null, owner: O): ParsedAttrs<O> {
+    return readAttributes(this.text, node, owner, this.reportFn);
   }
 
   // ---------------------------------------------------------------------------
@@ -605,79 +554,4 @@ class Analyzer {
   ): void {
     this.diagnostics.push({ code, severity, from: range.from, to: range.to, args });
   }
-}
-
-function rangeOf(node: SourceRange): SourceRange {
-  return { from: node.from, to: node.to };
-}
-
-function assignString<K extends string>(
-  target: Partial<Record<K, string>>,
-  key: K,
-  attrs: Map<string, ValidAttr>,
-): void {
-  const value = attrs.get(key)?.value;
-  if (typeof value === 'string') target[key] = value;
-}
-
-/** Returns the closest candidate within an edit distance of 2 (or 1 for <=3-char names), if any. */
-export function closestMatch(input: string, candidates: readonly string[]): string | undefined {
-  let best: string | undefined;
-  let bestDistance = 3;
-  const normalized = input.toLowerCase();
-  for (const candidate of candidates) {
-    const maxDistance = candidate.length <= 3 ? 1 : 2;
-    const d = levenshtein(normalized, candidate);
-    if (d <= maxDistance && d < bestDistance) {
-      best = candidate;
-      bestDistance = d;
-    }
-  }
-  return best;
-}
-
-function levenshtein(a: string, b: string): number {
-  const prev = Array.from({ length: b.length + 1 }, (_, i) => i);
-  for (let i = 1; i <= a.length; i++) {
-    let diag = prev[0] ?? 0;
-    prev[0] = i;
-    for (let j = 1; j <= b.length; j++) {
-      const temp = prev[j] ?? 0;
-      prev[j] = Math.min(
-        (prev[j] ?? 0) + 1,
-        (prev[j - 1] ?? 0) + 1,
-        diag + (a[i - 1] === b[j - 1] ? 0 : 1),
-      );
-      diag = temp;
-    }
-  }
-  return prev[b.length] ?? 0;
-}
-
-/**
- * Resolves a character offset in DSL text to the innermost element (`node`, `group`, or `edge`)
- * and/or the enclosing `step` index.
- */
-export function findAtOffset(
-  sourceMap: SourceMap,
-  offset: number,
-): { elementId: string | null; stepIndex: number | null } {
-  let stepIndex: number | null = null;
-  for (let i = 0; i < sourceMap.steps.length; i++) {
-    const r = sourceMap.steps[i];
-    if (r && r.from <= offset && offset <= r.to) {
-      stepIndex = i;
-      break;
-    }
-  }
-
-  let best: ElementSource | null = null;
-  for (const el of sourceMap.elements.values()) {
-    if (el.from <= offset && offset <= el.to) {
-      if (!best || el.to - el.from < best.to - best.from) {
-        best = el;
-      }
-    }
-  }
-  return { elementId: best?.id ?? null, stepIndex };
 }

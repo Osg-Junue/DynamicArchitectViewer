@@ -1,18 +1,49 @@
+export { BUBBLE_HEADROOM, boundsOf } from './bounds';
 export {
   activeLabelFill,
-  boundsOf,
   buildDefs,
   buildPacket,
   buildScene,
-  packetBubblePath,
-  packetPosition,
-  SCENE_PADDING,
+  dimClass,
   sceneBounds,
 } from './build';
-export { calloutRect, computePacketCalloutBox, type PacketCalloutBox } from './callout';
-export { type Bezier, connect, type Point, pointAt, reverse, svgPath } from './geometry';
+export {
+  type CalloutPlacement,
+  calloutOutline,
+  calloutRect,
+  computePacketCalloutBox,
+  estimateCalloutTextWidth,
+  type PacketCalloutBox,
+  type PacketCalloutCodeBox,
+} from './callout';
+export {
+  calmFrame,
+  clampZoom,
+  type Frame,
+  fitZoom,
+  followFrame,
+  framePose,
+  MAX_FIT_ZOOM,
+  type Pose,
+  packetsOnScreen,
+  type Size,
+  stepFrame,
+  visibleWorld,
+  wholeDiagramFrame,
+} from './framing';
+export {
+  type Bezier,
+  clamp,
+  cornerShares,
+  type Point,
+  pointAt,
+  type Rail,
+  type Route,
+  reverse,
+  round,
+} from './geometry';
 export type { IconShapes } from './icons';
-export { paint } from './paint';
+export { paint, THEME_COLOR } from './paint';
 export {
   DEFAULT_FLOW_COLOR,
   flowColors,
@@ -23,7 +54,21 @@ export {
   type ResolvedView,
   resolveView,
 } from './resolve';
-export { estimateTextWidth, fitText } from './text';
-export { MIN_PACKET_MS, PHASE_MS } from './timing';
+export { estimateTextWidth, fitText, wrapText } from './text';
+export { HOLD_MS, MIN_PACKET_MS, PHASE_MS, packetPosition, packetShare } from './timing';
 export { h, type VElement, type VNode } from './vnode';
-export { ZONE_LABEL, type ZoneMove, type ZonePlace, zoneColor, zoneMoves } from './zones';
+export {
+  MAX_ZONE_MOVES,
+  MINIMAP_OUTSIDE_FILL,
+  MINIMAP_ZONE_ATTRS,
+  type MinimapZone,
+  minimapZones,
+  placeZoneLabels,
+  ZONE_LABEL,
+  type ZoneLabelEntry,
+  type ZoneMove,
+  type ZonePlace,
+  zoneColor,
+  zoneLabelRoom,
+  zoneMoves,
+} from './zones';

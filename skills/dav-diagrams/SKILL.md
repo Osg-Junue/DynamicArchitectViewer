@@ -60,7 +60,9 @@ api ..> backup : "Failover" [id: e_backup, visible: false, color: orange]
 step "Place an order" {
   desc "The API stores the order, then charges the primary provider."
   state db [badge: "PENDING"]
-  animate browser --> api : "POST /orders" [icon: file, desc: "The customer submits the order"]
+  animate browser --> api : "POST /orders" [icon: file, desc: "The customer submits the order"] {
+    code json "{ \"orderId\": \"ord_104\", \"amount\": 4200 }"
+  }
   animate api --> db : "Insert" [desc: "The order is stored as pending"]
   animate api --> primary : "Charge" [icon: payment]
 }
@@ -99,9 +101,9 @@ Reserved words, which cannot be IDs: `dav`, `title`, `group`, `node`, `step`, `d
 | Node | `node id "Label" [...]` | `icon`, `sub`, `badge`, `color`, `visible` |
 | Edge | `a --> b : "Label" [...]` | `id`, `color`, `visible` |
 | State | `state id [...]` | Node: `badge`, `color`, `visible`. Group: `color`. Edge: `color`, `visible` |
-| Animate | `animate a --> b : "Label" [...]` | `icon`, `color`, `parallel`, `desc` |
+| Animate | `animate a --> b : "Label" [...] { ... }` | `icon`, `color`, `parallel`, `desc`, `code` |
 
-The `:` before an edge or `animate` label is required. Attribute blocks are `[key: value, key: value]`.
+The `:` before an edge or `animate` label is required. Attribute blocks are `[key: value, key: value]`. `code` is contextual inside `animate { ... }`, so `node code` remains a valid ID.
 
 | Arrow | Line | Direction | In `animate` |
 | :--- | :--- | :--- | :--- |
@@ -142,11 +144,23 @@ Without `icon`, a node uses `server`.
 | `animate` | This step | Move a packet between two nodes |
 
 - **Clean up `state`.** Badges and colors carry over. To end one, write `badge: ""` or `color: none`, or a badge from step 2 will still be showing in step 8.
-- **Let `animate` and `state` set the emphasis.** Their targets are emphasized automatically, so add `focus` only for nodes that have neither. Any of the three dims the rest of the diagram.
+- **Let `animate` and `state` set the emphasis.** Their targets are emphasized automatically, so add `focus` only for nodes that have neither. Any of the three dims the other nodes and hides the edges that do not join two emphasized nodes, so `focus` on both ends of an edge is also how to keep that edge on screen.
 - **Reveal things that appear later.** Declare them with `visible: false`, then use `state` with `visible: true`. To target an edge from `state`, the edge needs `[id: name]`.
 - **Run packets along declared edges.** A packet can travel without an edge, but the diagram reads better when the rail exists. For replies, use a `<->` edge or a separate reverse edge. Two edges in opposite directions do not need an `id`, but a second edge in the same direction does.
 - **Order phases deliberately.** Each `animate` is one phase, played in order. `[parallel: true]` joins the preceding one, for work that really is concurrent.
 - **Show what is moving.** Give a packet an `icon`, such as `key` for a token, `file` for a document or `mail` for an event.
+- **Attach `code` snippets selectively.** An `animate` can show a payload, query or status snippet inside its callout — via `[code: "{ \"status\": 201 }"]`, `code json "{ \"ok\": true }"`, or a multi-line fence inside `{ ... }` (both language and title are optional; common indentation is stripped):
+
+      animate browser --> api : "POST /orders" [desc: "The customer submits the order"] {
+        code json "Order Request" ```
+          {
+            "orderId": "ord_104",
+            "amount": 4200
+          }
+        ```
+      }
+
+  Keep snippets concise (2–6 key fields or lines) so callouts stay readable, omit `code` when the label and `desc` already say enough, and give at most one `code` per `animate` (`duplicate-code`).
 - **Keep each step to one idea,** usually one to five phases. The player numbers steps, so titles do not need numbers.
 - **Use self-loops for internal work,** such as retries or state transitions: `order --> order : "Retry"`, then `animate order --> order`. Self-loops cannot use `<->` or `<.>`.
 
@@ -164,6 +178,7 @@ Without `icon`, a node uses `server`.
 | `node step "Step"` | `node step_1 "Step"` | `syntax-error` |
 | `state group_id [badge: "x"]` | Groups accept only `color` | `attribute-not-applicable` |
 | `[color: none]` on a node | Omit `color` | `invalid-color` |
+| Two `code` entries on one `animate` | Combine into a single `code` block | `duplicate-code` |
 
 ## More detail
 

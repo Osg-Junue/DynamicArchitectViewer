@@ -52,7 +52,7 @@ The type checker catches a missing step 2 or 3, and tests catch steps 4 and 6. C
 
 **Add a sample**
 
-1. Add the file to `examples/`, and the same text to `src/samples/index.ts`. A test compares them.
+1. Add the file to `examples/`, then import it with `?raw` and list it in `SAMPLE_TEMPLATES` in `src/samples/index.ts`. A test fails when a file in `examples/` is not listed.
 2. Add its limit to `CROSSING_BUDGET` in `src/layout/__tests__/layout.test.ts`, once for each.
 
 **Add an attribute**

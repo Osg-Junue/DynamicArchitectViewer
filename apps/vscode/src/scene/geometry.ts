@@ -10,72 +10,15 @@ export interface Bezier {
   p3: Point;
 }
 
-/** Cubic Bézier between the facing sides of two rectangles. */
-export function connect(from: Rect, to: Rect): Bezier {
-  const fromCx = from.x + from.width / 2;
-  const fromCy = from.y + from.height / 2;
-  const toCx = to.x + to.width / 2;
-  const toCy = to.y + to.height / 2;
-  const dx = toCx - fromCx;
-  const dy = toCy - fromCy;
-
-  if (Math.abs(dx) >= Math.abs(dy) * 0.85) {
-    const sign = dx >= 0 ? 1 : -1;
-    const p0 = { x: sign > 0 ? from.x + from.width : from.x, y: fromCy };
-    const p3 = { x: sign > 0 ? to.x : to.x + to.width, y: toCy };
-    const offset = clamp(Math.abs(p3.x - p0.x) * 0.45, 48, 160);
-    return {
-      p0,
-      p1: { x: p0.x + offset * sign, y: p0.y },
-      p2: { x: p3.x - offset * sign, y: p3.y },
-      p3,
-    };
-  }
-  return connectVertical(from, to);
+/** A rail of straight stretches: its start, its corners and its end. The corners are drawn rounded. */
+export interface Route {
+  points: readonly Point[];
 }
 
-/** Cubic Bézier between the facing top and bottom of two rectangles. */
-export function connectVertical(from: Rect, to: Rect): Bezier {
-  const fromCx = from.x + from.width / 2;
-  const toCx = to.x + to.width / 2;
-  const dy = to.y + to.height / 2 - (from.y + from.height / 2);
-  const sign = dy >= 0 ? 1 : -1;
-  const p0 = { x: fromCx, y: sign > 0 ? from.y + from.height : from.y };
-  const p3 = { x: toCx, y: sign > 0 ? to.y : to.y + to.height };
-  const offset = clamp(Math.abs(p3.y - p0.y) * 0.45, 40, 140);
-  return {
-    p0,
-    p1: { x: p0.x, y: p0.y + offset * sign },
-    p2: { x: p3.x, y: p3.y - offset * sign },
-    p3,
-  };
-}
+/** The line a rail is drawn along: a route, or a single curve for a loop back to its own station. */
+export type Rail = Bezier | Route;
 
-const MAX_STATION_ANGLE = (35 * Math.PI) / 180;
-
-/**
- * Cubic Bézier between two stations. Rails leave and enter along the direction of travel,
- * so they meet a station's outline squarely instead of running along its edge.
- */
-export function connectStations(from: Rect, to: Rect): Bezier {
-  const a = { x: from.x + from.width / 2, y: from.y + from.height / 2 };
-  const b = { x: to.x + to.width / 2, y: to.y + to.height / 2 };
-  const angle = clamp(
-    Math.atan2(b.y - a.y, Math.abs(b.x - a.x)),
-    -MAX_STATION_ANGLE,
-    MAX_STATION_ANGLE,
-  );
-  const unit = { x: Math.cos(angle) * (b.x >= a.x ? 1 : -1), y: Math.sin(angle) };
-  const p0 = onOutline(from, a, unit, 1);
-  const p3 = onOutline(to, b, unit, -1);
-  const offset = clamp(Math.hypot(p3.x - p0.x, p3.y - p0.y) * 0.35, 24, 120);
-  return {
-    p0,
-    p1: { x: p0.x + unit.x * offset, y: p0.y + unit.y * offset },
-    p2: { x: p3.x - unit.x * offset, y: p3.y - unit.y * offset },
-    p3,
-  };
-}
+const isRoute = (rail: Rail): rail is Route => 'points' in rail;
 
 /** Directions a self-loop leaves and re-enters its station, in degrees counter-clockwise. */
 const SELF_LOOP_LEAVE = 82;
@@ -116,59 +59,148 @@ function onOutline(station: Rect, center: Point, unit: Point, sign: number): Poi
   return { x: center.x + unit.x * reach * sign, y: center.y + unit.y * reach * sign };
 }
 
-const DETOUR_STEPS = [56, 112, 168, 224];
-const CROSSING_SAMPLES = 32;
+/** Radius of the corners of a route. */
+const ROUTE_CORNER = 9;
 
-function crosses(b: Bezier, area: Rect): boolean {
-  for (let i = 1; i < CROSSING_SAMPLES; i++) {
-    const p = pointAt(b, i / CROSSING_SAMPLES);
-    const insideX = p.x >= area.x && p.x <= area.x + area.width;
-    if (insideX && p.y >= area.y && p.y <= area.y + area.height) return true;
-  }
-  return false;
+/** A part of a route as it is drawn: a straight line, or the curve round a corner (`via`). */
+interface Piece {
+  from: Point;
+  via?: Point;
+  to: Point;
+  length: number;
 }
 
-/** Bows a curve away from the given areas, trying the smallest detour first. */
-export function routeAround(b: Bezier, areas: readonly Rect[]): Bezier {
-  if (!areas.some((area) => crosses(b, area))) return b;
-  const horizontal = Math.abs(b.p3.x - b.p0.x) >= Math.abs(b.p3.y - b.p0.y);
-  const bow = (amount: number): Bezier => {
-    const move = (p: Point): Point =>
-      horizontal ? { x: p.x, y: p.y + amount } : { x: p.x + amount, y: p.y };
-    return { ...b, p1: move(b.p1), p2: move(b.p2) };
+const distance = (a: Point, b: Point): number => Math.hypot(b.x - a.x, b.y - a.y);
+
+function towards(a: Point, b: Point, by: number): Point {
+  const d = distance(a, b) || 1;
+  return { x: a.x + ((b.x - a.x) / d) * by, y: a.y + ((b.y - a.y) / d) * by };
+}
+
+function onCorner(piece: Piece, via: Point, u: number): Point {
+  const v = 1 - u;
+  return {
+    x: v * v * piece.from.x + 2 * u * v * via.x + u * u * piece.to.x,
+    y: v * v * piece.from.y + 2 * u * v * via.y + u * u * piece.to.y,
   };
-  for (const step of DETOUR_STEPS) {
-    for (const candidate of [bow(-step), bow(step)]) {
-      if (!areas.some((area) => crosses(candidate, area))) return candidate;
-    }
+}
+
+const CORNER_SEGMENTS = 8;
+
+function cornerPiece(from: Point, via: Point, to: Point): Piece {
+  const piece: Piece = { from, via, to, length: 0 };
+  let previous = from;
+  for (let i = 1; i <= CORNER_SEGMENTS; i++) {
+    const point = onCorner(piece, via, i / CORNER_SEGMENTS);
+    piece.length += distance(previous, point);
+    previous = point;
   }
-  return b;
+  return piece;
 }
 
-export function reverse(b: Bezier): Bezier {
-  return { p0: b.p3, p1: b.p2, p2: b.p1, p3: b.p0 };
+/** A route is asked for its points many times over; its pieces are worked out once. */
+const piecesOfRoute = new WeakMap<Route, Piece[]>();
+
+function piecesOf(route: Route): Piece[] {
+  const known = piecesOfRoute.get(route);
+  if (known) return known;
+  const { points } = route;
+  const pieces: Piece[] = [];
+  let from = points[0];
+  for (let i = 1; from && i < points.length; i++) {
+    const corner = points[i];
+    const next = points[i + 1];
+    const previous = points[i - 1];
+    if (!corner || !previous) continue;
+    if (!next) {
+      pieces.push({ from, to: corner, length: distance(from, corner) });
+      break;
+    }
+    const radius = Math.min(
+      ROUTE_CORNER,
+      distance(previous, corner) / 2,
+      distance(corner, next) / 2,
+    );
+    const before = towards(corner, previous, radius);
+    const after = towards(corner, next, radius);
+    pieces.push({ from, to: before, length: distance(from, before) });
+    pieces.push(cornerPiece(before, corner, after));
+    from = after;
+  }
+  piecesOfRoute.set(route, pieces);
+  return pieces;
 }
 
-function leftOffset(b: Bezier, distance: number): (p: Point) => Point {
-  const dx = b.p3.x - b.p0.x;
-  const dy = b.p3.y - b.p0.y;
-  const length = Math.hypot(dx, dy) || 1;
-  return (p) => ({ x: p.x + (dy / length) * distance, y: p.y + (-dx / length) * distance });
+export function reverse<T extends Rail>(rail: T): T;
+export function reverse(rail: Rail): Rail {
+  return isRoute(rail)
+    ? { points: [...rail.points].reverse() }
+    : { p0: rail.p3, p1: rail.p2, p2: rail.p1, p3: rail.p0 };
 }
 
-/** Shifts a curve sideways, to the left of its direction of travel on screen. */
-export function shiftLeft(b: Bezier, distance: number): Bezier {
-  const move = leftOffset(b, distance);
-  return { p0: move(b.p0), p1: move(b.p1), p2: move(b.p2), p3: move(b.p3) };
+/**
+ * The shares of a route's length at which each of its corners starts, is half way round and
+ * ends. Something drawn along the route from sampled points needs these to follow the corners.
+ */
+export function cornerShares(rail: Rail): number[] {
+  if (!isRoute(rail)) return [];
+  const pieces = piecesOf(rail);
+  const total = pieces.reduce((sum, piece) => sum + piece.length, 0);
+  if (total === 0) return [];
+  const shares: number[] = [];
+  let before = 0;
+  for (const piece of pieces) {
+    if (piece.via) {
+      shares.push(
+        before / total,
+        (before + piece.length / 2) / total,
+        (before + piece.length) / total,
+      );
+    }
+    before += piece.length;
+  }
+  return shares;
 }
 
-/** Bends a curve to the left of its direction of travel, keeping its endpoints. */
-export function bowLeft(b: Bezier, distance: number): Bezier {
-  const move = leftOffset(b, distance);
-  return { ...b, p1: move(b.p1), p2: move(b.p2) };
+/** Where a rail starts and where it ends. */
+export function railEnds(rail: Rail): { start: Point; end: Point } {
+  if (!isRoute(rail)) return { start: rail.p0, end: rail.p3 };
+  const start = rail.points[0] ?? { x: 0, y: 0 };
+  return { start, end: rail.points[rail.points.length - 1] ?? start };
 }
 
-export function pointAt(b: Bezier, t: number): Point {
+/** A box that holds the whole rail: around a route's points, or a curve's control points. */
+export function railBox(rail: Rail): Rect {
+  const points = isRoute(rail) ? rail.points : [rail.p0, rail.p1, rail.p2, rail.p3];
+  const xs = points.map((p) => p.x);
+  const ys = points.map((p) => p.y);
+  const x = Math.min(...xs);
+  const y = Math.min(...ys);
+  return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
+}
+
+/**
+ * The point a share `t` of the way along a rail. On a route that is a share of its length, so
+ * something moving along it keeps its speed round the corners.
+ */
+export function pointAt(rail: Rail, t: number): Point {
+  return isRoute(rail) ? pointOnRoute(rail, t) : pointOnCurve(rail, t);
+}
+
+function pointOnRoute(route: Route, t: number): Point {
+  const pieces = piecesOf(route);
+  let left = clamp(t, 0, 1) * pieces.reduce((sum, piece) => sum + piece.length, 0);
+  for (const piece of pieces) {
+    if (left <= piece.length) {
+      const u = piece.length > 0 ? left / piece.length : 0;
+      return piece.via ? onCorner(piece, piece.via, u) : towards(piece.from, piece.to, left);
+    }
+    left -= piece.length;
+  }
+  return railEnds(route).end;
+}
+
+function pointOnCurve(b: Bezier, t: number): Point {
   const c = clamp(t, 0, 1);
   const u = 1 - c;
   const a = u * u * u;
@@ -181,8 +213,10 @@ export function pointAt(b: Bezier, t: number): Point {
   };
 }
 
-/** Approximate arc length of a curve. */
-export function curveLength(b: Bezier): number {
+/** The length of a rail; approximate for a curve. */
+export function railLength(rail: Rail): number {
+  if (isRoute(rail)) return piecesOf(rail).reduce((sum, piece) => sum + piece.length, 0);
+  const b = rail;
   const SEGMENTS = 24;
   let length = 0;
   let previous = b.p0;
@@ -194,15 +228,62 @@ export function curveLength(b: Bezier): number {
   return length;
 }
 
-export function svgPath(b: Bezier): string {
+export function svgPath(rail: Rail): string {
   const f = (p: Point) => `${round(p.x)} ${round(p.y)}`;
-  return `M ${f(b.p0)} C ${f(b.p1)}, ${f(b.p2)}, ${f(b.p3)}`;
+  if (!isRoute(rail)) return `M ${f(rail.p0)} C ${f(rail.p1)}, ${f(rail.p2)}, ${f(rail.p3)}`;
+  const drawn = piecesOf(rail).map((piece) =>
+    piece.via ? `Q ${f(piece.via)} ${f(piece.to)}` : `L ${f(piece.to)}`,
+  );
+  return [`M ${f(railEnds(rail).start)}`, ...drawn].join(' ');
 }
 
-function clamp(v: number, min: number, max: number): number {
+export function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v));
 }
 
-function round(v: number): number {
+export function round(v: number): number {
   return Math.round(v * 10) / 10;
+}
+
+export function expandRect(r: Rect, pad: number): Rect {
+  return {
+    x: r.x - pad,
+    y: r.y - pad,
+    width: r.width + pad * 2,
+    height: r.height + pad * 2,
+  };
+}
+
+export function pointInRect(p: Point, r: Rect): boolean {
+  return p.x >= r.x && p.x <= r.x + r.width && p.y >= r.y && p.y <= r.y + r.height;
+}
+
+/** Liang–Barsky segment-rectangle intersection test. */
+export function segmentIntersectsRect(a: Point, b: Point, r: Rect): boolean {
+  if (r.width <= 0 || r.height <= 0) return false;
+  let tMin = 0;
+  let tMax = 1;
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+
+  const clip = (p: number, q: number): boolean => {
+    if (Math.abs(p) < 1e-9) return q >= 0;
+    const t = q / p;
+    if (p < 0) {
+      if (t > tMax) return false;
+      if (t > tMin) tMin = t;
+    } else {
+      if (t < tMin) return false;
+      if (t < tMax) tMax = t;
+    }
+    return true;
+  };
+
+  return (
+    clip(-dx, a.x - r.x) &&
+    clip(dx, r.x + r.width - a.x) &&
+    clip(-dy, a.y - r.y) &&
+    clip(dy, r.y + r.height - a.y) &&
+    tMin <= tMax
+  );
 }

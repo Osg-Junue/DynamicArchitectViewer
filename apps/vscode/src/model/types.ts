@@ -49,6 +49,10 @@ export const ICON_NAMES = [
 ] as const;
 export type IconName = (typeof ICON_NAMES)[number];
 
+export function isIconName(v: string): v is IconName {
+  return (ICON_NAMES as readonly string[]).includes(v);
+}
+
 /** The DSL's color names. Each renders as a color tuned for the active theme. */
 export const COLOR_NAMES = [
   'red',
@@ -63,11 +67,31 @@ export const COLOR_NAMES = [
 ] as const;
 export type ColorName = (typeof COLOR_NAMES)[number];
 
+export function isColorName(v: string): v is ColorName {
+  return (COLOR_NAMES as readonly string[]).includes(v);
+}
+
 /** In a `state`, removes the color set by earlier steps and restores the declared one. */
 export const COLOR_RESET = 'none';
 
+/** Reserved words of the DSL, which cannot be used as element identifiers. */
+export const KEYWORD_NAMES = [
+  'dav',
+  'title',
+  'group',
+  'node',
+  'step',
+  'desc',
+  'focus',
+  'state',
+  'animate',
+  'true',
+  'false',
+] as const;
+
 export type LineStyle = 'solid' | 'dashed';
 export type Direction = 'forward' | 'bidirectional';
+export type DavLocale = 'ja' | 'en';
 
 export interface Point {
   x: number;
@@ -77,7 +101,7 @@ export interface Point {
 export interface DavGroup {
   id: string;
   label: string;
-  color?: string;
+  color?: ColorName;
   /** Enclosing group ID (nested groups). */
   parentId?: string;
 }
@@ -89,7 +113,7 @@ export interface DavNode {
   sub?: string;
   badge?: string;
   visible: boolean;
-  color?: string;
+  color?: ColorName;
   /** Enclosing group ID. */
   parentId?: string;
 }
@@ -103,7 +127,7 @@ export interface DavEdge {
   style: LineStyle;
   direction: Direction;
   label?: string;
-  color?: string;
+  color?: ColorName;
   visible: boolean;
 }
 
@@ -111,7 +135,13 @@ export interface StateOverride {
   target: string;
   badge?: string;
   visible?: boolean;
-  color?: string;
+  color?: ColorName | typeof COLOR_RESET;
+}
+
+export interface CodeBlock {
+  lang?: string;
+  title?: string;
+  body: string;
 }
 
 export interface Animation {
@@ -120,7 +150,8 @@ export interface Animation {
   direction: Direction;
   label?: string;
   description?: string;
-  color?: string;
+  code?: CodeBlock;
+  color?: ColorName;
   /** What the packet carries; a plain dot when absent. */
   icon?: IconName;
   parallel: boolean;

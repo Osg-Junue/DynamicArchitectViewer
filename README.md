@@ -37,7 +37,8 @@ step "The payment provider fails" {
 - **Automatic layout.** No coordinates to maintain, and small diffs in Git.
 - **Live preview** that follows the editor, with playback, step-by-step navigation and speed control.
 - **Language support:** highlighting, diagnostics with Quick Fixes, completions, a formatter that keeps comments, and an outline.
-- **Standalone HTML export.** One file that works offline, with no external requests. The source can be extracted from it again.
+- **Standalone HTML export.** One file with all steps that works offline, with no external requests. The source can be extracted from it again.
+- **SVG export for READMEs.** An animated or still SVG covers every step or just the step in the preview, with the camera following the flow or keeping the whole diagram in view. It runs no script, so GitHub and GitLab play it as an image.
 - **AI-friendly.** An [agent skill](#ai-agent-skill) lets coding agents write and validate `.dav` files, and a command copies a prompt for chat assistants.
 - **Japanese and English UI**, following the VS Code display language.
 

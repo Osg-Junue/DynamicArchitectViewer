@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { KEYWORDS, parse } from '../../dsl';
 import { COLOR_NAMES, ICON_NAMES } from '../../model/types';
-import { SAMPLES } from '../../samples';
+import { SAMPLE_TEMPLATES } from '../../samples';
 
 const ROOT = resolve(__dirname, '../../../../..');
 const SKILL_DIR = join(ROOT, 'skills/dav-diagrams');
@@ -94,9 +94,12 @@ describe('dav-check', () => {
     return { status, stdout, stderr };
   };
 
-  it.each(SAMPLES.map((s) => [s.id, s.dsl] as const))('accepts the sample %s', (_id, dsl) => {
-    expect(check(fileWith(dsl)).status).toBe(0);
-  });
+  it.each(SAMPLE_TEMPLATES.map((s) => [s.id, s.dsl] as const))(
+    'accepts the sample %s',
+    (_id, dsl) => {
+      expect(check(fileWith(dsl)).status).toBe(0);
+    },
+  );
 
   it('reports diagnostics with their position, and exits with 1', () => {
     const file = fileWith('dav 1\nnode a\na --> missing\n');

@@ -8,5 +8,4 @@ const rootEl = document.getElementById('root');
 if (!rootEl) throw new Error('Missing #root');
 
 if (import.meta.env.DEV) installDevHost();
-
 mountApp(rootEl);

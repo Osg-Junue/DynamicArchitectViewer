@@ -1,7 +1,9 @@
 import type { Layout, Rect } from '../layout';
-import { estimateTextWidth } from '../model/text';
+import { GROUP_HEADER, GROUP_PADDING, selfLoopRoom } from '../layout/metrics';
 import {
   COLOR_RESET,
+  type CodeBlock,
+  type ColorName,
   type DavDocument,
   type DavEdge,
   type DavStep,
@@ -9,15 +11,23 @@ import {
   type IconName,
   type LineStyle,
 } from '../model/types';
-import { ancestorIds, zoneOfGroups } from '../model/zones';
-import { separatePhaseCallouts } from './callout';
-import { type Bezier, reverse } from './geometry';
-import { RailRouter } from './rails';
+import { ancestorIds, parentMap, zoneOfNodes } from '../model/zones';
+import { type CalloutPlacement, separatePhaseCallouts } from './callout';
+import { placePhaseCallouts } from './calloutPlace';
+import { expandRect, type Point, pointAt, type Rail, railEnds, reverse } from './geometry';
+import { THEME_COLOR } from './paint';
+import {
+  badgeArea,
+  type EdgeLabelSpot,
+  edgeLabelArea,
+  nodeBody,
+  RailRouter,
+  stationArea,
+} from './rails';
 import { PHASE_MS, pacePhase } from './timing';
-import { ZONE_LABEL, zoneLabelRoom } from './zones';
 
-export const DEFAULT_FLOW_COLOR = 'var(--dav-accent)';
-const DEFAULT_EDGE_COLOR = 'var(--dav-edge)';
+export const DEFAULT_FLOW_COLOR = THEME_COLOR.accent;
+const DEFAULT_EDGE_COLOR = THEME_COLOR.edge;
 
 export interface ResolvedNode {
   id: string;
@@ -26,7 +36,7 @@ export interface ResolvedNode {
   icon: IconName;
   badge?: string;
   /** Author-specified color; absent when the station follows the theme. */
-  accent?: string;
+  accent?: ColorName;
   rect: Rect;
   visible: boolean;
   focused: boolean;
@@ -36,7 +46,7 @@ export interface ResolvedNode {
 export interface ResolvedGroup {
   id: string;
   label: string;
-  color?: string;
+  color?: ColorName;
   rect: Rect;
   depth: number;
   dimmed: boolean;
@@ -47,17 +57,16 @@ export interface ResolvedEdge {
   from: string;
   to: string;
   label?: string;
-  /** The lower of two parallel tracks: its label goes under the rail. */
-  labelBelow: boolean;
   style: LineStyle;
   direction: Direction;
   color: string;
   /** Color of the flow overlay; present when `active`. */
   flowColor?: string;
-  path: Bezier;
+  path: Rail;
+  /** Where the label is written; present when the edge has one. */
+  labelAt?: EdgeLabelSpot;
   /** Packets flow along this edge in the current step. */
   active: boolean;
-  dimmed: boolean;
 }
 
 export interface Packet {
@@ -69,18 +78,44 @@ export interface Packet {
   toLabel: string;
   label?: string;
   description?: string;
+  code?: CodeBlock;
   color: string;
   /** What the packet carries; a plain dot when absent. */
   icon?: IconName;
-  /** Sideways move of the callout, set when it would cover another one of its phase. */
+  /** Sideways move of the callout, set when nudged around an obstacle or separated from a sibling. */
   calloutShift?: number;
-  path: Bezier;
+  /** Which side of its rail the callout sits on; defaults to `'above'`. */
+  calloutPlacement?: CalloutPlacement;
+  /** Top-left corner of the callout, where the last pass found it a place (see `placePhaseCallouts`). */
+  calloutAt?: Point;
+  /**
+   * The number on this packet's stop and callout: its phase, with a letter when the phase runs
+   * several packets (`5a`, `5b`). Absent in a step with a single phase, which draws no stops.
+   */
+  stopLabel?: string;
+  /** Shared baseline bottom y when aligned with parallel `'above'` sibling callouts. */
+  calloutBottom?: number;
+  /** Shared top-edge shelf y when aligned with parallel `'below'` sibling callouts. */
+  calloutTop?: number;
+  path: Rail;
   /** Written as `<->` in the `animate`: the packet goes to the end and comes back. */
   roundTrip: boolean;
-  /** Top edge of the two endpoint nodes; the callout stays above it to keep them visible. */
+  /** Top edge of the two endpoint nodes; `'above'` callouts stay above it to keep them visible. */
   clearTop: number;
-  /** Zone names on the canvas, which the callout must not cover. */
+  /** Bottom clearance of the endpoint nodes for `'below'` callouts. */
+  clearBottom?: number;
+  /** Zone areas and focused stations on the canvas, which the callout must not cover. */
   labelAreas: readonly Rect[];
+  /** Dimmed visible stations avoided when within reasonable lift/push distance. */
+  dimmedNodeAreas?: readonly Rect[];
+  /** Core rects of all visible nodes for scoring leader-line station/label crossings at midpoint. */
+  nodeCores?: readonly Rect[];
+  /** Core rects of non-endpoint visible nodes for scoring pointer sweep crossings along the rail. */
+  otherNodeCores?: readonly Rect[];
+  /** Bounding rects of all groups for penalizing full top-to-bottom leader traversals across zones. */
+  groupRects?: readonly Rect[];
+  /** True when the packet rides a lower reverse track or downward-bowed curve. */
+  preferBelow?: boolean;
   /** How long this packet travels at 1x. */
   durationMs: number;
   /** The top-level group each endpoint belongs to, if any. */
@@ -103,15 +138,27 @@ export interface ResolvedView {
   phaseDurations: number[];
 }
 
-/** Where a zone's name is drawn (see groupLabelElement). */
-function zoneLabelArea(group: ResolvedGroup): Rect {
-  const { x, y, width } = group.rect;
-  return {
-    x: x + ZONE_LABEL.inset,
-    y: y + 6,
-    width: Math.min(estimateTextWidth(group.label, ZONE_LABEL.size), zoneLabelRoom(width)),
-    height: ZONE_LABEL.height,
-  };
+/** The strip across the top of a zone that its name moves along. */
+const ZONE_NAME_STRIP = GROUP_PADDING + GROUP_HEADER;
+/** Kept around what is drawn of a node: its station, its badge and its labels. */
+const CALLOUT_NODE_CLEARANCE = 4;
+/** Kept around the cell of a node a step is about, and around a dimmed node's station and labels. */
+const CALLOUT_NODE_CELL_CLEARANCE = 6;
+const CALLOUT_DIMMED_NODE_CLEARANCE = 14;
+
+/** Max height of a normal 1–3 row zone treated as a solid obstacle on all four sides. */
+const MAX_SOLID_GROUP_HEIGHT = 468;
+
+/** Solid full-zone obstacle for 1–3 row zones, or top/bottom border bands for giant outer containers. */
+function groupObstacleBands(group: ResolvedGroup): Rect[] {
+  const outer = expandRect(group.rect, 10);
+  if (group.rect.height <= MAX_SOLID_GROUP_HEIGHT) return [outer];
+  return [
+    { ...outer, height: GROUP_PADDING + GROUP_HEADER + 10 },
+    { x: outer.x, y: group.rect.y + group.rect.height - 10, width: outer.width, height: 20 },
+    { x: outer.x, y: outer.y, width: 20, height: outer.height },
+    { x: group.rect.x + group.rect.width - 10, y: outer.y, width: 20, height: outer.height },
+  ];
 }
 
 /** The flow color of each edge the packets ride; the first packet on an edge decides. */
@@ -126,7 +173,7 @@ export function flowColors(packets: readonly Packet[]): Map<string, string> {
 type Override = Partial<{
   badge: string;
   visible: boolean;
-  color: string;
+  color: ColorName;
 }>;
 
 /** What every stage of resolving a step needs to know. */
@@ -148,10 +195,11 @@ function accumulateOverrides(doc: DavDocument, index: number | null): Map<string
   if (index === null) return overrides;
   for (const s of doc.steps.slice(0, index + 1)) {
     for (const st of s.states) {
-      const { target, ...rest } = st;
-      const merged = { ...overrides.get(target), ...rest };
-      if (merged.color === COLOR_RESET) delete merged.color;
-      overrides.set(target, merged);
+      const { target, color, ...rest } = st;
+      const next: Override = { ...overrides.get(target), ...rest };
+      if (color === COLOR_RESET) delete next.color;
+      else if (color !== undefined) next.color = color;
+      overrides.set(target, next);
     }
   }
   return overrides;
@@ -219,8 +267,7 @@ function resolveGroups(ctx: StepContext, nodes: readonly ResolvedNode[]): Resolv
   }
   for (const id of focus) {
     if (!groupParent.has(id)) continue;
-    focusedGroups.add(id);
-    for (const g of ancestorIds(groupParent, groupParent.get(id))) focusedGroups.add(g);
+    for (const g of ancestorIds(groupParent, id)) focusedGroups.add(g);
   }
   return doc.groups.flatMap((g) => {
     const rect = layout.groups[g.id];
@@ -249,6 +296,146 @@ function edgeForPacket(ctx: StepContext, from: string, to: string): DavEdge | un
   return candidates.find((e) => ctx.overrides.get(e.id)?.visible ?? e.visible) ?? candidates[0];
 }
 
+const NODE_CORE_INSET_X = 16;
+const NODE_CORE_INSET_TOP = 10;
+const NODE_CORE_INSET_BOTTOM = 4;
+
+function nodeCoreRect(rect: Rect): Rect {
+  return {
+    x: rect.x + NODE_CORE_INSET_X,
+    y: rect.y + NODE_CORE_INSET_TOP,
+    width: Math.max(0, rect.width - NODE_CORE_INSET_X * 2),
+    height: Math.max(0, rect.height - (NODE_CORE_INSET_TOP + NODE_CORE_INSET_BOTTOM)),
+  };
+}
+
+/** Whether a flow from `from` to `to` travels right-to-left along a lower return track. */
+function isReturnTrack(
+  rails: RailRouter,
+  from: ResolvedNode,
+  to: ResolvedNode,
+  oneWayOnBidirectionalEdge = false,
+): boolean {
+  return (
+    to.rect.x < from.rect.x && (rails.hasReverseTrack(from.id, to.id) || oneWayOnBidirectionalEdge)
+  );
+}
+
+interface CalloutSceneContext {
+  zoneOf: ReadonlyMap<string, string | undefined>;
+  topOf: (node: ResolvedNode) => number;
+  labelAreas: Rect[];
+  dimmedNodeAreas: Rect[];
+  nodeCoreEntries: ReadonlyArray<{ id: string; core: Rect }>;
+  nodeCores: Rect[];
+  groupRects: Rect[];
+}
+
+function buildCalloutSceneContext(
+  doc: DavDocument,
+  groups: readonly ResolvedGroup[],
+  nodes: readonly ResolvedNode[],
+): CalloutSceneContext {
+  const loopRoom = selfLoopRoom(doc);
+  const topOf = (n: ResolvedNode): number => n.rect.y - (loopRoom.get(n.id) ?? 0);
+  const nodeObstacle = (n: ResolvedNode): Rect => {
+    const top = topOf(n) - 10;
+    return {
+      x: n.rect.x - 4,
+      y: top,
+      width: n.rect.width + 8,
+      height: n.rect.y + n.rect.height + 10 - top,
+    };
+  };
+  const visibleNodes = nodes.filter((n) => n.visible);
+  const nodeCoreEntries = visibleNodes.map((n) => ({ id: n.id, core: nodeCoreRect(n.rect) }));
+  return {
+    zoneOf: zoneOfNodes(doc),
+    topOf,
+    labelAreas: [
+      ...groups.flatMap(groupObstacleBands),
+      ...visibleNodes.filter((n) => !n.dimmed).map(nodeObstacle),
+    ],
+    dimmedNodeAreas: visibleNodes.filter((n) => n.dimmed).map(nodeObstacle),
+    nodeCoreEntries,
+    nodeCores: nodeCoreEntries.map((e) => e.core),
+    groupRects: groups.map((g) => g.rect),
+  };
+}
+
+function createPhasePackets(
+  ctx: StepContext,
+  nodeById: ReadonlyMap<string, ResolvedNode>,
+  rails: RailRouter,
+  scene: CalloutSceneContext,
+): Packet[][] {
+  const phases: Packet[][] = [];
+  for (const a of ctx.step?.animations ?? []) {
+    const fromNode = nodeById.get(a.from);
+    const toNode = nodeById.get(a.to);
+    if (!fromNode || !toNode) continue;
+
+    const edge = edgeForPacket(ctx, a.from, a.to);
+    const edgeFrom = edge && nodeById.get(edge.from);
+    const edgeTo = edge && nodeById.get(edge.to);
+    let path: Rail;
+    if (edge && edgeFrom && edgeTo) {
+      const edgePath = rails.ofEdge(edge, edgeFrom, edgeTo);
+      path = edge.from === a.from ? edgePath : reverse(edgePath);
+    } else {
+      path = rails.between(fromNode, toNode);
+    }
+    const ends = railEnds(path);
+
+    const fromBottom = fromNode.rect.y + fromNode.rect.height;
+    const toBottom = toNode.rect.y + toNode.rect.height;
+    const clearBottom =
+      Math.abs(fromNode.rect.y - toNode.rect.y) < 40
+        ? Math.max(fromBottom, toBottom)
+        : Math.min(fromBottom, toBottom);
+    const oneWayOnBidi = edge?.direction === 'bidirectional' && a.direction !== 'bidirectional';
+    const preferBelow =
+      isReturnTrack(rails, fromNode, toNode, oneWayOnBidi) ||
+      pointAt(path, 0.5).y > Math.max(ends.start.y, ends.end.y) + 18;
+    const otherNodeCores = scene.nodeCoreEntries
+      .filter((e) => e.id !== a.from && e.id !== a.to)
+      .map((e) => e.core);
+
+    const packet: Packet = {
+      from: a.from,
+      to: a.to,
+      fromLabel: fromNode.label,
+      toLabel: toNode.label,
+      color: a.color ?? DEFAULT_FLOW_COLOR,
+      path,
+      roundTrip: a.direction === 'bidirectional',
+      clearTop: Math.min(scene.topOf(fromNode), scene.topOf(toNode)),
+      clearBottom,
+      labelAreas: scene.labelAreas,
+      otherNodeCores,
+      durationMs: PHASE_MS,
+    };
+    if (scene.dimmedNodeAreas.length > 0) packet.dimmedNodeAreas = scene.dimmedNodeAreas;
+    if (scene.nodeCores.length > 0) packet.nodeCores = scene.nodeCores;
+    if (scene.groupRects.length > 0) packet.groupRects = scene.groupRects;
+    if (preferBelow) packet.preferBelow = true;
+    const fromZone = scene.zoneOf.get(a.from);
+    const toZone = scene.zoneOf.get(a.to);
+    if (fromZone !== undefined) packet.fromZone = fromZone;
+    if (toZone !== undefined) packet.toZone = toZone;
+    if (edge) packet.edgeId = edge.id;
+    if (a.label !== undefined) packet.label = a.label;
+    if (a.description !== undefined) packet.description = a.description;
+    if (a.code !== undefined && a.code.body.trim().length > 0) packet.code = a.code;
+    if (a.icon !== undefined) packet.icon = a.icon;
+
+    const current = phases[phases.length - 1];
+    if (a.parallel && current) current.push(packet);
+    else phases.push([packet]);
+  }
+  return phases;
+}
+
 interface ResolvedPhases {
   phases: Packet[][];
   phaseDurations: number[];
@@ -260,57 +447,24 @@ function resolvePhases(
   ctx: StepContext,
   nodeById: ReadonlyMap<string, ResolvedNode>,
   rails: RailRouter,
-  labelAreas: readonly Rect[],
+  groups: readonly ResolvedGroup[],
+  nodes: readonly ResolvedNode[],
 ): ResolvedPhases {
-  const zoneOfGroup = zoneOfGroups(ctx.doc.groups);
-  const zoneOf = (nodeId: string) => {
-    const parent = ctx.nodeParent.get(nodeId);
-    return parent === undefined ? undefined : zoneOfGroup.get(parent);
-  };
-  const phases: Packet[][] = [];
-  const activeEdges = new Map<string, string>();
-  for (const a of ctx.step?.animations ?? []) {
-    const fromNode = nodeById.get(a.from);
-    const toNode = nodeById.get(a.to);
-    if (!fromNode || !toNode) continue;
-    const edge = edgeForPacket(ctx, a.from, a.to);
-    const color = a.color ?? DEFAULT_FLOW_COLOR;
-    let path = rails.between(fromNode, toNode);
-    if (edge) {
-      const edgeFrom = nodeById.get(edge.from);
-      const edgeTo = nodeById.get(edge.to);
-      if (edgeFrom && edgeTo) {
-        const edgePath = rails.ofEdge(edge, edgeFrom, edgeTo);
-        path = edge.from === a.from ? edgePath : reverse(edgePath);
-      }
-      if (!activeEdges.has(edge.id)) activeEdges.set(edge.id, color);
-    }
-    const packet: Packet = {
-      from: a.from,
-      to: a.to,
-      fromLabel: fromNode.label,
-      toLabel: toNode.label,
-      color,
-      path,
-      roundTrip: a.direction === 'bidirectional',
-      clearTop: Math.min(fromNode.rect.y, toNode.rect.y),
-      labelAreas,
-      durationMs: PHASE_MS,
-    };
-    const fromZone = zoneOf(a.from);
-    const toZone = zoneOf(a.to);
-    if (fromZone !== undefined) packet.fromZone = fromZone;
-    if (toZone !== undefined) packet.toZone = toZone;
-    if (edge) packet.edgeId = edge.id;
-    if (a.label !== undefined) packet.label = a.label;
-    if (a.description !== undefined) packet.description = a.description;
-    if (a.icon !== undefined) packet.icon = a.icon;
-    const current = phases[phases.length - 1];
-    if (a.parallel && current) current.push(packet);
-    else phases.push([packet]);
+  const scene = buildCalloutSceneContext(ctx.doc, groups, nodes);
+  const phases = createPhasePackets(ctx, nodeById, rails, scene);
+  if (phases.length > 1) {
+    phases.forEach((phase, index) => {
+      phase.forEach((packet, i) => {
+        packet.stopLabel = `${index + 1}${phase.length > 1 ? String.fromCharCode(97 + i) : ''}`;
+      });
+    });
   }
   for (const phase of phases) separatePhaseCallouts(phase);
-  return { phases, phaseDurations: phases.map(pacePhase), activeEdges };
+  return {
+    phases,
+    phaseDurations: phases.map(pacePhase),
+    activeEdges: flowColors(phases.flat()),
+  };
 }
 
 function resolveEdges(
@@ -327,24 +481,42 @@ function resolveEdges(
     const activeColor = activeEdges.get(e.id);
     const visible = activeColor !== undefined || (ov.visible ?? e.visible);
     if (!visible || !from.visible || !to.visible) return [];
+    // A step that focuses on something draws only the edges it is about: the ones it runs
+    // packets on or sets the state of, and those between two focused nodes. The rest would
+    // only be a tangle behind them.
     const focused =
       activeColor !== undefined || ctx.focus.has(e.id) || (from.focused && to.focused);
+    if (ctx.filtering && !focused) return [];
     const edge: ResolvedEdge = {
       id: e.id,
       from: e.from,
       to: e.to,
-      labelBelow: rails.hasReverseTrack(e.from, e.to) && to.rect.x < from.rect.x,
       style: e.style,
       direction: e.direction,
       color: ov.color ?? e.color ?? DEFAULT_EDGE_COLOR,
       path: rails.ofEdge(e, from, to),
       active: activeColor !== undefined,
-      dimmed: ctx.filtering && !focused,
     };
     if (activeColor !== undefined) edge.flowColor = activeColor;
     if (e.label) edge.label = e.label;
+    const labelAt = rails.labelOf(e, from, to);
+    if (labelAt) edge.labelAt = labelAt;
     return [edge];
   });
+}
+
+/**
+ * The rails of a diagram depend on where its nodes are, not on the step, so one router serves
+ * every step of a layout. That also keeps each rail on the same course from step to step.
+ */
+const routers = new WeakMap<Layout, { doc: DavDocument; rails: RailRouter }>();
+
+function railsOf(doc: DavDocument, layout: Layout, nodes: readonly ResolvedNode[]): RailRouter {
+  const cached = routers.get(layout);
+  if (cached?.doc === doc) return cached.rails;
+  const rails = new RailRouter(doc, layout, nodes);
+  routers.set(layout, { doc, rails });
+  return rails;
 }
 
 /**
@@ -361,7 +533,7 @@ export function resolveView(
     stepIndex !== null && stepIndex >= 0 && stepIndex < doc.steps.length
       ? doc.steps[stepIndex]
       : undefined;
-  const index = step ? (stepIndex as number) : null;
+  const index = step !== undefined && stepIndex !== null ? stepIndex : null;
   const focus = focusOf(doc, step);
   const ctx: StepContext = {
     doc,
@@ -370,27 +542,56 @@ export function resolveView(
     overrides: accumulateOverrides(doc, index),
     focus,
     filtering: step !== undefined && focus.size > 0,
-    groupParent: new Map(doc.groups.map((g) => [g.id, g.parentId])),
-    nodeParent: new Map(doc.nodes.map((n) => [n.id, n.parentId])),
+    groupParent: parentMap(doc.groups),
+    nodeParent: parentMap(doc.nodes),
   };
 
   const nodes = resolveNodes(ctx);
   const nodeById = new Map(nodes.map((n) => [n.id, n]));
   const groups = resolveGroups(ctx, nodes);
-  const rails = new RailRouter(doc, nodes);
+  const rails = railsOf(doc, layout, nodes);
   const { phases, phaseDurations, activeEdges } = resolvePhases(
     ctx,
     nodeById,
     rails,
-    groups.map(zoneLabelArea),
+    groups,
+    nodes,
   );
+
+  const visibleNodes = nodes.filter((n) => n.visible);
+  const edges = resolveEdges(ctx, nodeById, rails, activeEdges);
+  if (phases.length > 0) {
+    const stepRails = edges.map((e) => e.path);
+    const closed = [
+      ...visibleNodes
+        .flatMap((n) => [...nodeBody(n), ...badgeArea(n)])
+        .map((part) => expandRect(part, CALLOUT_NODE_CLEARANCE)),
+      // A zone's name follows the camera along the strip at the top of its zone.
+      ...groups.map((g) => ({ ...g.rect, height: ZONE_NAME_STRIP })),
+      ...edges.flatMap((e) => (e.label && e.labelAt ? [edgeLabelArea(e.label, e.labelAt)] : [])),
+    ];
+    const cells = visibleNodes.map((n) =>
+      n.dimmed
+        ? expandRect(stationArea(n), CALLOUT_DIMMED_NODE_CLEARANCE)
+        : expandRect(n.rect, CALLOUT_NODE_CELL_CLEARANCE),
+    );
+    const zones = groups.map((g) => g.rect);
+    for (const phase of phases) {
+      placePhaseCallouts(phase, {
+        closed,
+        cells,
+        zones,
+        rails: [...stepRails, ...phase.map((p) => p.path)],
+      });
+    }
+  }
 
   const view: ResolvedView = {
     title: doc.title,
     stepIndex: index,
     groups,
-    nodes: nodes.filter((n) => n.visible),
-    edges: resolveEdges(ctx, nodeById, rails, activeEdges),
+    nodes: visibleNodes,
+    edges,
     phases,
     phaseDurations,
   };

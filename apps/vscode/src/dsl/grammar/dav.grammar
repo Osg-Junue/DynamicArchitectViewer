@@ -29,7 +29,9 @@ Desc { kw<"desc"> String }
 Focus { kw<"focus"> Identifier ("," Identifier)* }
 State { kw<"state"> Identifier Attributes }
 Animate { kw<"animate"> Identifier Arrow Identifier EdgeLabel? Attributes? AnimateBody? }
-AnimateBody { "{" Desc* "}" }
+AnimateBody { "{" (Desc | Code)* "}" }
+Code { ckw<"code"> CodeLang? (String CodeFence | CodeFence | String) }
+CodeLang { Identifier | kw<"dav"> }
 
 Attributes { "[" (Attribute ("," Attribute)* ","?)? "]" }
 Attribute { AttrName ":" value }
@@ -38,6 +40,7 @@ value { String | Number | Color | Identifier | Boolean }
 Boolean { kw<"true"> | kw<"false"> }
 
 kw<term> { @specialize[@name={term}]<Identifier, term> }
+ckw<term> { @extend[@name={term}]<Identifier, term> }
 
 @tokens {
   space { @whitespace+ }
@@ -46,6 +49,7 @@ kw<term> { @specialize[@name={term}]<Identifier, term> }
   Number { "-"? @digit+ ("." @digit+)? }
   Color { "#" $[0-9a-zA-Z]+ }
   String { '"' (!["\\\n] | "\\" _)* '"' }
+  CodeFence { "```" (![`] | "`" (![`] | "`" ![`]))* "```" }
   Arrow { "-->" | "..>" | "<->" | "<.>" }
   "{" "}" "[" "]" "," ":"
 }

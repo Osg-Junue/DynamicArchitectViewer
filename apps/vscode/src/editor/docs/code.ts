@@ -1,8 +1,10 @@
-import { KEYWORDS, parse, parseTree } from '../../dsl';
-import { COLOR_NAMES, ICON_NAMES } from '../../model/types';
+import { KEYWORDS, type ParseResult, parse, parseTree } from '../../dsl';
+import { lineAtOffset } from '../../model/text';
+import { isColorName, isIconName } from '../../model/types';
 import { html } from '../../runtime/dom';
 import { paint } from '../../scene';
 
+type SyntaxTree = ReturnType<typeof parseTree>;
 type TokenKind = 'keyword' | 'string' | 'comment' | 'arrow' | 'attr' | 'color' | 'icon';
 
 interface Token {
@@ -13,20 +15,24 @@ interface Token {
 
 const SIMPLE_TOKENS: Readonly<Record<string, TokenKind>> = {
   String: 'string',
+  CodeFence: 'string',
   LineComment: 'comment',
   Arrow: 'arrow',
 };
 
-function tokenize(dsl: string): Token[] {
+function tokenize(dsl: string, tree: SyntaxTree): Token[] {
   const tokens: Token[] = [];
-  parseTree(dsl).iterate({
+  tree.iterate({
     enter(node) {
       const { from, to, name } = node;
       if (name === 'AttrName') {
         tokens.push({ from, to, kind: 'attr' });
         return false;
       }
-      if (KEYWORDS.has(name)) {
+      if (name === 'CodeLang') {
+        return false;
+      }
+      if (KEYWORDS.has(name) || name === 'code') {
         tokens.push({ from, to, kind: 'keyword' });
         return false;
       }
@@ -38,9 +44,9 @@ function tokenize(dsl: string): Token[] {
         if (previous?.kind === 'attr') {
           const attrName = dsl.slice(previous.from, previous.to);
           const value = dsl.slice(from, to).toLowerCase();
-          if (attrName === 'color' && (COLOR_NAMES as readonly string[]).includes(value)) {
+          if (attrName === 'color' && isColorName(value)) {
             tokens.push({ from, to, kind: 'color' });
-          } else if (attrName === 'icon' && (ICON_NAMES as readonly string[]).includes(value)) {
+          } else if (attrName === 'icon' && isIconName(value)) {
             tokens.push({ from, to, kind: 'icon' });
           }
         }
@@ -58,7 +64,7 @@ function tokenSpan(text: string, kind: TokenKind): HTMLElement {
 }
 
 /** Renders DSL as one element per source line, with syntax coloring from the real grammar. */
-export function renderCodeLines(dsl: string): HTMLElement[] {
+export function renderCodeLines(dsl: string, tree: SyntaxTree = parseTree(dsl)): HTMLElement[] {
   const lines: HTMLElement[] = [];
   let line = html('span', { class: 'doc-line' });
   const flush = () => {
@@ -76,7 +82,7 @@ export function renderCodeLines(dsl: string): HTMLElement[] {
   };
 
   let pos = 0;
-  for (const token of tokenize(dsl)) {
+  for (const token of tokenize(dsl, tree)) {
     appendText(pos, token.from);
     appendText(token.from, token.to, token.kind);
     pos = token.to;
@@ -90,7 +96,7 @@ export function codeBlock(dsl: string): HTMLElement {
   return html('pre', { class: 'doc-code' }, ...renderCodeLines(dsl));
 }
 
-export interface StepLines {
+interface StepLines {
   /** Inclusive line range of the `step` statement. */
   from: number;
   to: number;
@@ -99,10 +105,14 @@ export interface StepLines {
 }
 
 /** Maps each step and animation phase to the source lines that declare it. */
-export function mapStepLines(dsl: string): StepLines[] {
-  const { document, sourceMap } = parse(dsl);
-  const lineOf = (offset: number) => dsl.slice(0, offset).split('\n').length - 1;
-  const stepNodes = parseTree(dsl).topNode.getChildren('Step');
+export function mapStepLines(
+  dsl: string,
+  parsed: ParseResult = parse(dsl),
+  tree: SyntaxTree = parseTree(dsl),
+): StepLines[] {
+  const { document, sourceMap } = parsed;
+  const lineOf = (offset: number) => lineAtOffset(dsl, offset) - 1;
+  const stepNodes = tree.topNode.getChildren('Step');
 
   return document.steps.map((step, index) => {
     const range = sourceMap.steps[index];

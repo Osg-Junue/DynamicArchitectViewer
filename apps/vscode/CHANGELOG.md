@@ -3,6 +3,30 @@
 This project follows [Semantic Versioning](https://semver.org/). The `0.x` series is a preview.
 The `dav` language version is separate from the extension version.
 
+## Unreleased
+
+- Export SVG Image: an animated SVG that plays every step with the camera following the flow or kept on the whole diagram, or a still one of the whole diagram. It runs no script, so GitHub and GitLab show it in a README
+- The preview's Export button opens a menu: standalone HTML, animated SVG, animated SVG of the whole diagram, or still SVG
+- The Export menu can export only the step the preview shows, animated or as a still picture of that step
+- `animate` takes a `code` block: a monospace snippet with an optional language and title, shown inside the packet's callout in the preview and in exported HTML and SVG
+- Callouts sit next to their rail, on any side of it: each takes the free place nearest its rail instead of one above or below it and clear of every zone and node cell. Half of them are now within 40 units of their rail, where half used to be 100 or more away. A callout may lie across the side or bottom border of a zone and use the empty part of a node's cell when that brings it clearly closer; it never covers a station, a badge, a label, a rail or a zone's name
+- A callout has no pointer any more. It carries the number of its packet's stop on the rail, and packets that run in one phase are told apart by a letter (`5a`, `5b`)
+- The preview opens faster: its styles and the document are part of the page, and the documentation loads when first opened
+- Opening the preview leaves the focus in the editor, and the preview comes back after the window reloads
+- New Diagram from Sample Template describes each sample, in Japanese when that is the display language
+- The outline nests nodes and groups inside their group
+- Completions no longer open after every space on an empty line; `Ctrl+Space` still lists the statements
+- The minimap covers nodes outside any zone, so the camera frame stays inside it
+- Rails are drawn as level and upright stretches with rounded corners instead of curves. A rail no longer runs through another node or over a zone's name, goes round the zones it has nothing to do with, and runs beside the rails that share its way instead of on top of them
+- Edge labels are written beside a free stretch of their rail, clear of nodes, zone names, other labels and other rails
+- Stations stay level across zones: a node outside a zone lines up with the nodes inside the zone next to it, and a self-loop no longer lowers only its own zone, so the rails between them run straight
+- A long chain of zones is no longer laid out as one very wide strip: its zones are placed freely even when that costs a crossing, as long as it shortens the links by more than the crossing is worth
+- Zones that are placed freely sit closer to the zones they are linked to: the links between them are about 5% shorter, and no zone is left further from its neighbors than it has to be
+- Zones that are placed freely line up the stations they link: about three times as many links between zones run level or straight down, where they used to be a few units off
+- Zones that are placed freely fill the canvas better instead of stretching sideways, so a large diagram is shown larger when it is fitted to the preview
+- A step that emphasizes something draws only the edges it is about: those it runs packets on or sets the state of, and those between two emphasized nodes. The others used to stay as faint lines behind them
+- Nothing is exported while the text has a syntax error and nothing to draw: the preview's Export button is disabled, and the export commands say why
+
 ## 0.3.3 (2026-11-10)
 
 - Fix: a group nested in a top-level group that has no nodes was left out of the layout when zones were placed freely

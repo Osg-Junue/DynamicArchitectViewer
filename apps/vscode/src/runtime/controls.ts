@@ -4,6 +4,10 @@ import type { ViewerStrings } from './i18n';
 
 export const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
 
+export function isPlaybackSpeed(value: number): value is (typeof SPEEDS)[number] {
+  return SPEEDS.some((s) => s === value);
+}
+
 const ZOOM_STEP = 1.2;
 
 export interface ControlActions {
@@ -140,9 +144,11 @@ export function createControls(s: ViewerStrings, speed: number, on: ControlActio
       'aria-label': s.zoomControls,
       'data-testid': 'canvas-zoom-controls',
     },
-    textButton('−', s.zoomOut, () => on.zoomBy(1 / ZOOM_STEP)),
+    iconButton(CONTROL_ICONS.zoomOut, labelled(s.zoomOut, 'btn-zoom-out'), () =>
+      on.zoomBy(1 / ZOOM_STEP),
+    ),
     zoomLabel,
-    textButton('+', s.zoomIn, () => on.zoomBy(ZOOM_STEP)),
+    iconButton(CONTROL_ICONS.zoomIn, labelled(s.zoomIn, 'btn-zoom-in'), () => on.zoomBy(ZOOM_STEP)),
     separator(),
     iconButton(CONTROL_ICONS.fit, labelled(s.fit, 'btn-zoom-fit'), on.fit),
     followBtn,
@@ -163,6 +169,18 @@ export function createControls(s: ViewerStrings, speed: number, on: ControlActio
   };
 }
 
+export function setButtonPressed(
+  button: HTMLButtonElement,
+  pressed: boolean,
+  label?: string,
+): void {
+  if (label !== undefined) {
+    button.title = label;
+    button.setAttribute('aria-label', label);
+  }
+  button.setAttribute('aria-pressed', String(pressed));
+}
+
 /** Makes a play button offer to pause while its mode is running. */
 export function showPlayState(
   button: HTMLButtonElement,
@@ -171,10 +189,7 @@ export function showPlayState(
   playLabel: string,
   pauseLabel: string,
 ): void {
-  const action = playing ? pauseLabel : playLabel;
   clear(button);
   button.append(controlIcon(playing ? CONTROL_ICONS.pause : icon));
-  button.title = action;
-  button.setAttribute('aria-label', action);
-  button.setAttribute('aria-pressed', String(playing));
+  setButtonPressed(button, playing, playing ? pauseLabel : playLabel);
 }
