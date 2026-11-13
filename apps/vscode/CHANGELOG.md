@@ -6,6 +6,7 @@ The `dav` language version follows the major version: every `1.x.x` release is `
 ## Unreleased
 
 - A command line, `dav`, in the npm package `dynamic-architect-viewer-cli`. `dav export` writes the SVG or the standalone HTML of a diagram without the editor, and with `--check` fails when the file there is missing or out of date, which keeps the SVG in a README up to date from CI. `dav check`, `dav format` and `dav outline` report what the editor reports, format files and print what a diagram says
+- The extension stays on in Restricted Mode: it declares that it supports workspaces that are not trusted, so a `.dav` file in a folder from someone else has its highlighting, diagnostics and preview. It runs nothing from the workspace and reads no settings
 
 ## 1.0.0 (2026-11-13)
 
