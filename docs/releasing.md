@@ -7,7 +7,7 @@ How to publish the extension in `apps/vscode` to the Visual Studio Marketplace. 
 - The extension follows [Semantic Versioning](https://semver.org/). Fixes bump the patch version, and new features bump the minor version.
 - `0.x` was a preview, marked with `"preview": true` in `package.json`.
 - Since `1.0.0` the extension is stable, and `"preview"` is gone.
-- The language version is separate. See [Compatibility](specification.md#compatibility).
+- The language version follows the major version: every `1.x.x` release is `dav 1`. A change that cannot stay compatible with `dav 1` needs a major release `n.0.0`, which introduces `dav n`. See [Compatibility](specification.md#compatibility).
 
 ## First-time setup
 
@@ -22,7 +22,7 @@ npx vsce login osg-junue
 ## Before publishing
 
 - [ ] The extension was checked in a real VS Code window.
-- [ ] For the first release: confirm that this release freezes `dav 1`.
+- [ ] For a patch or minor release: every change to the language is a [compatible change](specification.md#compatibility).
 - [ ] `version` in `apps/vscode/package.json` and `apps/vscode/CHANGELOG.md` are updated.
 - [ ] The commit to publish is on the default branch, because README images are read from GitHub's `HEAD`.
 - [ ] The animations in the READMEs and docs show the current look. [`promo/pv`](../promo/pv/README.md) renders them again.

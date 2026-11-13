@@ -26,7 +26,7 @@ Run these from the repository root.
 | `npm run lint:fix` | Fix formatting and lint errors |
 | `npm run package` | Build the `.vsix` |
 
-End-to-end tests run from `apps/vscode`, against a production build:
+End-to-end tests run from `apps/vscode`, against a production build. CI runs them too:
 
 ```bash
 npx playwright install chromium

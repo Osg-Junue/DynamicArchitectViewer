@@ -43,6 +43,11 @@
     "Formatters",
     "Linters"
   ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    }
+  },
   "activationEvents": [
     "onLanguage:dav",
     "onWebviewPanel:dav.canvasPreview"
