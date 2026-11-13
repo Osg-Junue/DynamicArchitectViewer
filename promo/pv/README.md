@@ -6,10 +6,13 @@ This folder renders the DynamicArchitectViewer promotional video and the animati
 | --- | --- |
 | Main video: Japanese (77.5 s) and English (77.2 s) | `out/pv-ja.mp4`, `out/pv-en.mp4` |
 | Short video for social media, about 26 s | `out/pv-short-ja.mp4`, `out/pv-short-en.mp4` |
-| README animation | `apps/vscode/media/demo.gif` |
-| Docs animations | `docs/media/follow.gif`, `docs/media/skill-install.gif`, `docs/media/docs-guide.gif` |
+| README animations, as SVG | `docs/media/failover.svg`, `docs/media/screen-flow.svg` |
+| Marketplace README animation | `apps/vscode/media/demo.gif` |
+| Docs animations | `docs/media/skill-install.gif`, `docs/media/docs-guide.gif` |
 
-`out/` is not committed. The videos can be rendered again from this folder; the GIFs are committed where the READMEs use them.
+`out/` is not committed. The videos can be rendered again from this folder; the SVGs and GIFs are committed where the READMEs use them.
+
+An animation of a diagram alone is an SVG from the extension's own exporter: it stays sharp, follows the reader's light or dark theme, and is a tenth of the size of a GIF. The GIFs that remain show what an SVG export cannot: the editor and VS Code itself. The README on the Marketplace keeps a GIF as well, because `vsce` refuses SVG images in an extension's README.
 
 ## What is real and what is rebuilt
 
@@ -47,9 +50,12 @@ node assemble.mjs short
 The README and docs animations (English screen and diagram, no captions):
 
 ```bash
-node capture.mjs c04_skill,c06_cursor,c07_follow,c08_docs x --docs
+node svg.mjs
+node capture.mjs c04_skill,c06_cursor,c08_docs x --docs
 node assemble.mjs gifs
 ```
+
+Render them again when the look of a diagram changes. `svg.mjs` exports the files listed at its top from `examples/`; with a file, a target and optionally a camera and a step, it exports that one instead, to try an image out.
 
 `capture.mjs` takes a comma-separated list of cuts from `cuts.mjs`; rendering one cut takes 10 to 60 seconds.
 
@@ -63,6 +69,7 @@ node assemble.mjs gifs
 | `build-rec.mjs` | Trims, speeds up and frames the recording of each language for cut 5, and overlays captions |
 | `sfx.mjs` | Synthesizes the sound track (no samples) |
 | `assemble.mjs` | Joins cuts, adds sound, makes the GIFs |
+| `svg.mjs` | Exports the SVG animations of the READMEs with `exportSvg` |
 | `variant.mjs` | Screen language, diagram and captions: `ja`, `en`, or `--docs` (English, no captions) |
 | `recording-guide.md` | How the recordings were made |
 

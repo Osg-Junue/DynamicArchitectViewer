@@ -308,7 +308,7 @@
         docs: 'The docs live inside the preview.',
         export: 'Share one HTML file. It works offline.',
         rec3: 'Create an empty .dav and open the preview.',
-        rec4: 'Install the AI agent skill with one command.',
+        rec4: 'Install the AI agent skills with one command.',
         rec5: 'Just ask Claude Code. It reads the code and draws it.',
       },
     },
@@ -502,9 +502,12 @@
       `<span class="chev">${chev}</span>${icon}<span style="color:${opts.color ?? '#cccccc'}">${label}</span>` +
       (opts.badge ? `<span class="badge" style="color:${opts.badgeColor ?? '#73c991'}">${opts.badge}</span>` : '') + '</div>');
     if (skill) {
-      row(1, '&#x2304;', ICON.folder, '.claude \\ skills \\ dav-diagrams', { id: 'skill', color: '#73c991', sel: selected === 'skill', badge: '&#x25CF;', hover: hover === 'skill' });
-      for (const f of ['assets', 'references', 'scripts']) row(2, '&#x203A;', ICON.folder, f, { color: '#73c991', badge: '&#x25CF;' });
-      row(2, '', ICON.skill, 'SKILL.md', { color: '#73c991', badge: 'U' });
+      // The command installs both skills. The first is shown open, as in the recording.
+      row(1, '&#x2304;', ICON.folder, '.claude \\ skills', { id: 'skill', color: '#73c991', sel: selected === 'skill', badge: '&#x25CF;', hover: hover === 'skill' });
+      row(2, '&#x2304;', ICON.folder, 'dav-diagrams', { color: '#73c991', badge: '&#x25CF;' });
+      for (const f of ['assets', 'references', 'scripts']) row(3, '&#x203A;', ICON.folder, f, { color: '#73c991', badge: '&#x25CF;' });
+      row(3, '', ICON.skill, 'SKILL.md', { color: '#73c991', badge: 'U' });
+      row(2, '&#x203A;', ICON.folder, 'dav-reading', { color: '#73c991', badge: '&#x25CF;' });
     }
     for (const f of ['api', 'db', 'web', 'worker']) row(1, '&#x203A;', ICON.folder, f);
     if (newName !== null) rows.push(`<div class="row" data-row="new" style="padding-left:22px"><span class="chev"></span>${ICON.file}<input value="${newName}" /></div>`);

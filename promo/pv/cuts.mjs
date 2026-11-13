@@ -133,7 +133,7 @@ const SKILL_STRINGS = {
     all: 'すべてのプロジェクト',
     placeholder: 'スキルをインストールする場所を選択',
     installed:
-      'スキルをインストールしました: .claude/skills/dav-diagrams。エージェントの新しいセッションで使えます。',
+      'スキル（dav-diagrams, dav-reading）を .claude/skills にインストールしました。エージェントの新しいセッションで使えます。',
   },
   en: {
     command: 'DynamicArchitectViewer: Install AI Agent Skill...',
@@ -141,9 +141,9 @@ const SKILL_STRINGS = {
     recent: 'recently used',
     workspace: 'This workspace',
     all: 'All projects',
-    placeholder: 'Choose where to install the skill',
+    placeholder: 'Choose where to install the skills',
     installed:
-      'Installed the skill to .claude/skills/dav-diagrams. It is available in new agent sessions.',
+      'Installed the skills (dav-diagrams, dav-reading) to .claude/skills. They are available in new agent sessions.',
   },
 };
 
