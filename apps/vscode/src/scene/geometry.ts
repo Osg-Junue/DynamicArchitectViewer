@@ -254,10 +254,6 @@ export function expandRect(r: Rect, pad: number): Rect {
   };
 }
 
-export function pointInRect(p: Point, r: Rect): boolean {
-  return p.x >= r.x && p.x <= r.x + r.width && p.y >= r.y && p.y <= r.y + r.height;
-}
-
 /** Liang–Barsky segment-rectangle intersection test. */
 export function segmentIntersectsRect(a: Point, b: Point, r: Rect): boolean {
   if (r.width <= 0 || r.height <= 0) return false;

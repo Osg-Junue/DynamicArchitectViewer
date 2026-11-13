@@ -107,7 +107,7 @@ export function readAttributes<O extends AttrOwner>(
   };
 }
 
-export function convertValue(
+function convertValue(
   text: string,
   name: string,
   type: AttrType,

@@ -4,6 +4,7 @@ import {
   buildDefs,
   buildScene,
   calmFrame,
+  clamp,
   followFrame,
   HOLD_MS,
   type IconShapes,
@@ -70,8 +71,6 @@ export interface PlayerOptions {
   /** Always frame the whole diagram instead of each step's focus. */
   fixedFrame?: boolean;
 }
-
-const clamp = (v: number, min: number, max: number): number => Math.max(min, Math.min(max, v));
 
 function phasesWhere(phases: readonly Packet[][], pred: (p: Packet) => boolean): number[] {
   return phases.flatMap((pkts, idx) => (pkts.some(pred) ? [idx] : []));

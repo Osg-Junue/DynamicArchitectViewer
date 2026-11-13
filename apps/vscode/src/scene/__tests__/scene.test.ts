@@ -20,10 +20,10 @@ import {
   resolveView,
   round,
   type VElement,
-  type VNode,
   wrapText,
 } from '../index';
 import { nodeBody } from '../rails';
+import { collectAttrs, collectText, findAll, overlap } from './helpers';
 
 const buildScene = (view: ResolvedView) => buildSceneWith(view, ICON_SHAPES);
 const buildPacket = (packet: Packet, t?: number) => buildPacketWith(packet, ICON_SHAPES, t);
@@ -145,24 +145,6 @@ describe('resolveView', () => {
     expect(JSON.stringify(document)).toBe(source);
   });
 });
-
-function collectText(node: VNode): string[] {
-  if (typeof node === 'string') return [node];
-  return node.children.flatMap(collectText);
-}
-
-function collectAttrs(node: VNode): string[] {
-  if (typeof node === 'string') return [];
-  return [
-    ...Object.entries(node.attrs).map(([k, v]) => `${k}=${v}`),
-    ...node.children.flatMap(collectAttrs),
-  ];
-}
-
-function findAll(node: VNode, pred: (e: VElement) => boolean): VElement[] {
-  if (typeof node === 'string') return [];
-  return [...(pred(node) ? [node] : []), ...node.children.flatMap((c) => findAll(c, pred))];
-}
 
 describe('buildScene', () => {
   it('renders every visible node, group and edge', () => {
@@ -387,12 +369,7 @@ step "S" {
         const boxes = phase.flatMap((p) => computePacketCalloutBox(p) ?? []);
         boxes.forEach((a, ai) => {
           for (const b of boxes.slice(ai + 1)) {
-            const overlaps =
-              a.cx - a.halfW < b.cx + b.halfW &&
-              a.cx + a.halfW > b.cx - b.halfW &&
-              a.boxTop < b.boxBottom &&
-              a.boxBottom > b.boxTop;
-            expect(overlaps).toBe(false);
+            expect(overlap(a, b)).toBe(false);
           }
         });
       }
