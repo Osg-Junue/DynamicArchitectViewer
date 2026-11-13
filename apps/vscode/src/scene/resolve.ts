@@ -493,6 +493,20 @@ function resolveEdges(
 }
 
 /**
+ * The rails of a diagram depend on where its nodes are, not on the step, so one router serves
+ * every step of a layout. That also keeps each rail on the same course from step to step.
+ */
+const routers = new WeakMap<Layout, { doc: DavDocument; rails: RailRouter }>();
+
+function railsOf(doc: DavDocument, layout: Layout, nodes: readonly ResolvedNode[]): RailRouter {
+  const cached = routers.get(layout);
+  if (cached?.doc === doc) return cached.rails;
+  const rails = new RailRouter(doc, nodes);
+  routers.set(layout, { doc, rails });
+  return rails;
+}
+
+/**
  * Resolves what the diagram looks like at a step (spec §4.5).
  * `state` overrides accumulate over steps 1..k; `focus` and `animate` apply to step k only.
  * Pure and deterministic: jumping to any step gives the same result.
@@ -522,7 +536,7 @@ export function resolveView(
   const nodes = resolveNodes(ctx);
   const nodeById = new Map(nodes.map((n) => [n.id, n]));
   const groups = resolveGroups(ctx, nodes);
-  const rails = new RailRouter(doc, nodes);
+  const rails = railsOf(doc, layout, nodes);
   const { phases, phaseDurations, activeEdges } = resolvePhases(
     ctx,
     nodeById,

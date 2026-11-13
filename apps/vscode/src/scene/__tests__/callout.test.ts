@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
 import { computeLayout, type Rect, rectContains } from '../../layout';
-import type { CodeBlock } from '../../model/types';
+import type { CodeBlock, DavDocument, DavEdge } from '../../model/types';
 import { SAMPLE_TEMPLATES } from '../../samples';
 import {
   CALLOUT_CODE_HEADER_HEIGHT,
@@ -21,7 +21,14 @@ import {
   calloutOutline,
   separatePhaseCallouts,
 } from '../callout';
-import { expandRect, pointAt, pointInRect, segmentIntersectsRect } from '../geometry';
+import {
+  type Bezier,
+  expandRect,
+  pointAt,
+  pointInRect,
+  routeAround,
+  segmentIntersectsRect,
+} from '../geometry';
 import { ICON_SHAPES } from '../icons';
 import {
   buildPacket as buildPacketWith,
@@ -34,6 +41,7 @@ import {
   framePose,
   type Packet,
   packetsOnScreen,
+  type ResolvedNode,
   resolveView,
   type VElement,
   type VNode,
@@ -41,6 +49,7 @@ import {
   wholeDiagramFrame,
   wrapText,
 } from '../index';
+import { RailRouter } from '../rails';
 
 const REPO_ROOT = resolve(__dirname, '../../../../..');
 const readExample = (file: string): string =>
@@ -141,6 +150,207 @@ describe('2D rectangle and segment geometry helpers', () => {
         { x: 90, y: 200, width: 20, height: 0 },
       ),
     ).toBe(false);
+  });
+});
+
+describe('routing a rail around what is in its way', () => {
+  const straight: Bezier = {
+    p0: { x: 0, y: 0 },
+    p1: { x: 200, y: 0 },
+    p2: { x: 400, y: 0 },
+    p3: { x: 600, y: 0 },
+  };
+  const clears = (path: Bezier, areas: readonly Rect[]): boolean => {
+    for (let i = 1; i < 200; i++) {
+      const p = pointAt(path, i / 200);
+      if (areas.some((area) => pointInRect(p, area))) return false;
+    }
+    return true;
+  };
+
+  it('leaves a rail alone when nothing is in its way', () => {
+    expect(routeAround(straight, [{ x: 250, y: 40, width: 100, height: 100 }])).toBe(straight);
+  });
+
+  it('takes the smallest bow that clears a small obstacle', () => {
+    const areas = [{ x: 250, y: -20, width: 100, height: 60 }];
+    const routed = routeAround(straight, areas);
+    expect(clears(routed, areas)).toBe(true);
+    // Up is the shorter way round, and one step is enough.
+    expect(routed.p1).toEqual({ x: 200, y: -56 });
+    expect(routed.p2).toEqual({ x: 400, y: -56 });
+  });
+
+  it('bows as wide as a tall obstacle needs', () => {
+    const areas = [{ x: 250, y: -260, width: 100, height: 520 }];
+    const routed = routeAround(straight, areas);
+    expect(clears(routed, areas)).toBe(true);
+    expect(Math.abs(routed.p1.y)).toBeGreaterThan(224);
+    expect(routed.p1.y).toBe(routed.p2.y);
+    expect(routed.p0).toEqual(straight.p0);
+    expect(routed.p3).toEqual(straight.p3);
+  });
+
+  it('snakes between two obstacles that block opposite sides', () => {
+    const areas = [
+      { x: 150, y: -400, width: 100, height: 410 },
+      { x: 350, y: -10, width: 100, height: 410 },
+    ];
+    const routed = routeAround(straight, areas);
+    expect(clears(routed, areas)).toBe(true);
+    // Under the first, over the second.
+    expect(routed.p1.y).toBeGreaterThan(0);
+    expect(routed.p2.y).toBeLessThan(0);
+  });
+
+  it('does not miss an obstacle that the rail only clips', () => {
+    // Narrower than the gap between two samples of a coarse test.
+    const areas = [{ x: 296, y: -4, width: 8, height: 8 }];
+    const routed = routeAround(straight, areas);
+    expect(routed).not.toBe(straight);
+    expect(clears(routed, areas)).toBe(true);
+  });
+
+  it('lets the caller choose among detours of one size, and keeps the first on a tie', () => {
+    const areas = [{ x: 250, y: -20, width: 100, height: 40 }];
+    // Both bows of the smallest size clear this obstacle.
+    const up = routeAround(straight, areas);
+    expect(up.p1.y).toBe(-56);
+    const down = routeAround(straight, areas, (candidate) => (candidate.p1.y < 0 ? 1 : 0));
+    expect(down.p1.y).toBe(56);
+    expect(down.p2.y).toBe(56);
+    expect(routeAround(straight, areas, () => 0)).toEqual(up);
+  });
+
+  it.each(SAMPLE_TEMPLATES.map((sample) => [sample.id, sample.dsl] as const))(
+    '%s: a rail keeps its course from the overview into every step',
+    (_, dsl) => {
+      const doc = parse(dsl).document;
+      const layout = computeLayout(doc);
+      const overview = new Map(
+        resolveView(doc, layout, null).edges.map((e) => [e.id, e.path] as const),
+      );
+      doc.steps.forEach((_step, index) => {
+        for (const edge of resolveView(doc, layout, index).edges) {
+          const before = overview.get(edge.id);
+          // An edge that a step reveals has no course on the overview to compare with.
+          if (before) expect(edge.path).toEqual(before);
+        }
+      });
+    },
+  );
+
+  it('bends a rail to the side where it crosses fewer rails', () => {
+    // a, b and c stand in one column, so the rail from a to c must pass b on its left or on
+    // its right; both are equally short. f stands to the left of b.
+    const node = (id: string, x: number, y: number): ResolvedNode => ({
+      id,
+      label: id,
+      icon: 'server',
+      rect: { x, y, width: 176, height: 118 },
+      visible: true,
+      focused: false,
+      dimmed: false,
+    });
+    const a = node('a', 600, 0);
+    const b = node('b', 600, 300);
+    const c = node('c', 600, 600);
+    const f = node('f', 0, 300);
+    const edge = (from: string, to: string): DavEdge => ({
+      id: `${from}->${to}`,
+      explicitId: false,
+      from,
+      to,
+      style: 'solid',
+      direction: 'forward',
+      visible: true,
+    });
+    const through = edge('a', 'c');
+    const docOf = (edges: DavEdge[]): DavDocument => ({
+      version: 1,
+      title: '',
+      groups: [],
+      nodes: [],
+      edges,
+      steps: [],
+    });
+    const centerX = a.rect.x + a.rect.width / 2;
+
+    // Alone, it takes the first of the two: the left.
+    const alone = new RailRouter(docOf([through]), [a, b, c, f]).ofEdge(through, a, c);
+    expect(alone.p1.x).toBeLessThan(centerX);
+
+    // With a rail from f into b's left side, the left would cross it: it goes right instead,
+    // although it is declared before that rail.
+    const crowded = new RailRouter(docOf([through, edge('f', 'b')]), [a, b, c, f]).ofEdge(
+      through,
+      a,
+      c,
+    );
+    expect(crowded.p1.x).toBeGreaterThan(centerX);
+    expect(Math.abs(crowded.p1.x - centerX)).toBe(Math.abs(alone.p1.x - centerX));
+  });
+
+  it('sets rails side by side where they would leave a station from one point', () => {
+    const node = (id: string, x: number, y: number): ResolvedNode => ({
+      id,
+      label: id,
+      icon: 'server',
+      rect: { x, y, width: 176, height: 118 },
+      visible: true,
+      focused: false,
+      dimmed: false,
+    });
+    const edge = (from: string, to: string): DavEdge => ({
+      id: `${from}->${to}`,
+      explicitId: false,
+      from,
+      to,
+      style: 'solid',
+      direction: 'forward',
+      visible: true,
+    });
+    const docOf = (edges: DavEdge[]): DavDocument => ({
+      version: 1,
+      title: '',
+      groups: [],
+      nodes: [],
+      edges,
+      steps: [],
+    });
+    // Three nodes below the hub, steep enough that each rail leaves it straight down.
+    const hub = node('hub', 600, 0);
+    const left = node('left', 400, 500);
+    const middle = node('middle', 600, 500);
+    const right = node('right', 800, 500);
+    const nodes = [hub, left, middle, right];
+    const centerX = hub.rect.x + hub.rect.width / 2;
+
+    // One rail alone leaves from the middle.
+    const toMiddle = edge('hub', 'middle');
+    const alone = new RailRouter(docOf([toMiddle]), nodes).ofEdge(toMiddle, hub, middle);
+    expect(alone.p0.x).toBe(centerX);
+
+    // Three of them share that point, so they spread out, in the order of where they go,
+    // whatever order they are declared in.
+    const toLeft = edge('hub', 'left');
+    const toRight = edge('hub', 'right');
+    const router = new RailRouter(docOf([toRight, toMiddle, toLeft]), nodes);
+    const starts = [
+      router.ofEdge(toLeft, hub, left),
+      router.ofEdge(toMiddle, hub, middle),
+      router.ofEdge(toRight, hub, right),
+    ].map((path) => path.p0);
+    expect(starts.map((p) => p.x)).toEqual([centerX - 9, centerX, centerX + 9]);
+    expect(new Set(starts.map((p) => p.y)).size).toBe(1);
+
+    // Each still arrives at the middle of its own node: nothing else comes in there.
+    expect(router.ofEdge(toLeft, hub, left).p3.x).toBe(left.rect.x + left.rect.width / 2);
+  });
+
+  it('gives up, unchanged, when no detour clears the way', () => {
+    const areas = [{ x: 250, y: -2000, width: 100, height: 4000 }];
+    expect(routeAround(straight, areas)).toBe(straight);
   });
 });
 

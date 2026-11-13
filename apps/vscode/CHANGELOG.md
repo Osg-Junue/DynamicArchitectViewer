@@ -17,6 +17,8 @@ The `dav` language version is separate from the extension version.
 - The outline nests nodes and groups inside their group
 - Completions no longer open after every space on an empty line; `Ctrl+Space` still lists the statements
 - The minimap covers nodes outside any zone, so the camera frame stays inside it
+- Rails find their way round nodes more often: they try wider bows and S-shaped bends, and no longer miss a node they only clip. Where several bends are possible, a rail takes the one that crosses the fewest other rails
+- Rails that would leave a node from the same point, such as several going straight down, are set side by side instead of running on top of each other
 - Edge labels sit a little further from their rail, clear of the numbered stops
 - A step that emphasizes something draws only the edges it is about: those it runs packets on or sets the state of, and those between two emphasized nodes. The others used to stay as faint lines behind them
 - Nothing is exported while the text has a syntax error and nothing to draw: the preview's Export button is disabled, and the export commands say why

@@ -116,7 +116,7 @@ lb --> db
 
 **There is no syntax to pin a node.** This is deliberate. See [Design decisions](https://github.com/Osg-Junue/DynamicArchitectViewer/blob/HEAD/docs/design-decisions.md).
 
-**Lines avoid nodes, but may cross a group.** Crossings between rails are reduced automatically. A rail can still pass through the area of an unrelated group.
+**Lines avoid nodes, but may cross a group.** Crossings between rails are reduced automatically. A rail bends round the nodes in its way, as a bow or as an S, to the side where it crosses the fewest other rails; a long rail with several nodes in its way may still run through one. A rail can also pass through the area of an unrelated group. Rails that would leave a node from one point are set side by side.
 
 ## Exact rules
 

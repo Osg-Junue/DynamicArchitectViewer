@@ -92,29 +92,105 @@ function onOutline(station: Rect, center: Point, unit: Point, sign: number): Poi
   return { x: center.x + unit.x * reach * sign, y: center.y + unit.y * reach * sign };
 }
 
-const DETOUR_STEPS = [56, 112, 168, 224];
-const CROSSING_SAMPLES = 32;
+const DETOUR_STEPS = [56, 112, 168, 224, 280, 336, 392, 448];
+/** Fine enough that a rail cannot slip past the corner of a node between two samples. */
+const CROSSING_SAMPLES = 96;
 
-function crosses(b: Bezier, area: Rect): boolean {
-  for (let i = 1; i < CROSSING_SAMPLES; i++) {
-    if (pointInRect(pointAt(b, i / CROSSING_SAMPLES), area)) return true;
+/** Points along a curve, ends left out: a rail always touches its own two stations. */
+function innerPoints(b: Bezier): Point[] {
+  const points: Point[] = [];
+  for (let i = 1; i < CROSSING_SAMPLES; i++) points.push(pointAt(b, i / CROSSING_SAMPLES));
+  return points;
+}
+
+function hitsAny(b: Bezier, areas: readonly Rect[]): boolean {
+  if (areas.length === 0) return false;
+  const points = innerPoints(b);
+  let left = Number.POSITIVE_INFINITY;
+  let right = Number.NEGATIVE_INFINITY;
+  let top = Number.POSITIVE_INFINITY;
+  let bottom = Number.NEGATIVE_INFINITY;
+  for (const p of points) {
+    left = Math.min(left, p.x);
+    right = Math.max(right, p.x);
+    top = Math.min(top, p.y);
+    bottom = Math.max(bottom, p.y);
+  }
+  for (const area of areas) {
+    // Most areas are nowhere near the curve.
+    if (
+      area.x > right ||
+      area.x + area.width < left ||
+      area.y > bottom ||
+      area.y + area.height < top
+    ) {
+      continue;
+    }
+    for (const p of points) {
+      if (pointInRect(p, area)) return true;
+    }
   }
   return false;
 }
 
-/** Bows a curve away from the given areas, trying the smallest detour first. */
-export function routeAround(b: Bezier, areas: readonly Rect[]): Bezier {
-  if (!areas.some((area) => crosses(b, area))) return b;
+/**
+ * Bends a curve away from the given areas, trying the smallest detour first: at each size, a
+ * bow to either side, then an S that passes one area on one side and the next on the other.
+ * A curve that no detour clears is left as it was.
+ *
+ * Several detours of one size may clear the way. `cost` then picks among them, such as by
+ * the rails each would cross; without it, or on a tie, the first one wins.
+ */
+export function routeAround(
+  b: Bezier,
+  areas: readonly Rect[],
+  cost?: (candidate: Bezier) => number,
+): Bezier {
+  // No detour reaches further than the largest step from the curve's own box.
+  const reach = (DETOUR_STEPS[DETOUR_STEPS.length - 1] ?? 0) + 1;
+  const xs = [b.p0.x, b.p1.x, b.p2.x, b.p3.x];
+  const ys = [b.p0.y, b.p1.y, b.p2.y, b.p3.y];
+  const left = Math.min(...xs) - reach;
+  const right = Math.max(...xs) + reach;
+  const top = Math.min(...ys) - reach;
+  const bottom = Math.max(...ys) + reach;
+  const near = areas.filter(
+    (area) =>
+      area.x <= right &&
+      area.x + area.width >= left &&
+      area.y <= bottom &&
+      area.y + area.height >= top,
+  );
+  if (!hitsAny(b, near)) return b;
+
   const horizontal = Math.abs(b.p3.x - b.p0.x) >= Math.abs(b.p3.y - b.p0.y);
-  const bow = (amount: number): Bezier => {
-    const move = (p: Point): Point =>
-      horizontal ? { x: p.x, y: p.y + amount } : { x: p.x + amount, y: p.y };
-    return { ...b, p1: move(b.p1), p2: move(b.p2) };
-  };
+  const move = (p: Point, amount: number): Point =>
+    horizontal ? { x: p.x, y: p.y + amount } : { x: p.x + amount, y: p.y };
+  const bend = (first: number, second: number): Bezier => ({
+    ...b,
+    p1: move(b.p1, first),
+    p2: move(b.p2, second),
+  });
   for (const step of DETOUR_STEPS) {
-    for (const candidate of [bow(-step), bow(step)]) {
-      if (!areas.some((area) => crosses(candidate, area))) return candidate;
+    const clear = [
+      bend(-step, -step),
+      bend(step, step),
+      bend(-step, step),
+      bend(step, -step),
+    ].filter((candidate) => !hitsAny(candidate, near));
+    const [first] = clear;
+    if (!first) continue;
+    if (!cost || clear.length === 1) return first;
+    let best = first;
+    let bestCost = cost(first);
+    for (const candidate of clear.slice(1)) {
+      const c = cost(candidate);
+      if (c < bestCost) {
+        best = candidate;
+        bestCost = c;
+      }
     }
+    return best;
   }
   return b;
 }
