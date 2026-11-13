@@ -7,7 +7,7 @@ DynamicArchitectViewer is a VS Code extension in `apps/vscode`. It turns a `.dav
 1. **The text is the source of truth.** There is no diagram state apart from the `.dav` file.
 2. **One renderer.** The preview and exported HTML run the same layout, scene and player code. The SVG export draws the same scene and frames it with the same camera rules.
 3. **Exported HTML stands alone.** It makes no network requests and keeps working from `file://`.
-4. **Input is untrusted.** Opening a `.dav` or HTML file from someone else must be safe.
+4. **Input is untrusted.** Opening a `.dav` or HTML file from someone else must be safe. The extension runs nothing from the workspace and reads no settings, so it declares itself supported in an untrusted workspace and stays on in Restricted Mode.
 5. **Easy to write, including for AI agents.** No coordinates, and errors say what to fix.
 6. **Small enough for one person to maintain.** Few dependencies and no framework.
 
