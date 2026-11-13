@@ -1,6 +1,3 @@
-import { findAtOffset, hasFatalError, parse, type SourceMap } from '../dsl';
-import { computeLayout, type Layout } from '../layout';
-import type { DavDocument } from '../model/types';
 import {
   INITIAL_DOC_ELEMENT_ID,
   type InitialDocPayload,
@@ -13,6 +10,7 @@ import { clear, html, svg } from '../runtime/dom';
 import { detectLocale } from '../runtime/i18n';
 import { Player } from '../runtime/player';
 import { ICON_SHAPES } from '../scene/icons';
+import { DocumentSession, type ValidState } from './documentSession';
 import { ExportMenu } from './ExportMenu';
 import type { HelpModal } from './HelpModal';
 import { type SearchWorker, ZonePlanner } from './zonePlanner';
@@ -30,13 +28,6 @@ declare global {
   }
 }
 
-interface ValidState {
-  dsl: string;
-  document: DavDocument;
-  layout: Layout;
-  sourceMap: SourceMap;
-}
-
 function readInitialDoc(): InitialDocPayload | null {
   const el = document.getElementById(INITIAL_DOC_ELEMENT_ID);
   const raw = el?.textContent;
@@ -49,43 +40,64 @@ function readInitialDoc(): InitialDocPayload | null {
   }
 }
 
+/**
+ * The page of the preview webview: the toolbar, the player and the documentation. What it
+ * shows of which document is decided by a `DocumentSession`; this draws it.
+ */
 export function mountApp(container: HTMLElement): void {
   if (!window.acquireVsCodeApi) throw new Error('This page only runs inside a VS Code webview');
   const vscodeApi = window.acquireVsCodeApi();
   const locale = detectLocale();
   const helpTitle = locale === 'ja' ? 'ドキュメントを開く' : 'Open documentation';
 
-  let documentUri: string | undefined;
-  let documentVersion: number | undefined;
   let cursorTargetId: string | null = null;
   let lastStepIndex: number | null = null;
-  let currentDsl = '';
-  // The search for where the zones go can take a second on a large diagram; a worker keeps the
-  // preview moving meanwhile. Inlined, because a webview may only start a worker from a blob.
-  const zonePlanner = new ZonePlanner(() => new ZoneSearchWorker() as SearchWorker);
-  /** A cursor position that arrived for a document whose layout is still being worked out. */
-  let heldCursorOffset: number | null = null;
-  let awaitingLayout = false;
+  let player: Player | null = null;
+  let helpModal: HelpModal | null = null;
+  let helpModalLoading: Promise<HelpModal> | null = null;
 
-  let cachedEmptyState: ValidState | null = null;
-  const getEmptyState = (): ValidState => {
-    if (!cachedEmptyState) {
-      const empty = parse('');
-      cachedEmptyState = {
-        dsl: '',
-        document: empty.document,
-        layout: computeLayout(empty.document),
-        sourceMap: empty.sourceMap,
-      };
-    }
-    return cachedEmptyState;
-  };
-
-  let lastValid: ValidState | null = null;
-  const currentValid = (): ValidState => {
-    lastValid ??= getEmptyState();
-    return lastValid;
-  };
+  const session = new DocumentSession(
+    // The search for where the zones go can take a second on a large diagram; a worker keeps
+    // the preview moving meanwhile. Inlined, because a webview may only start one from a blob.
+    new ZonePlanner(() => new ZoneSearchWorker() as SearchWorker),
+    {
+      switched(uri) {
+        if (uri !== undefined) vscodeApi.setState?.({ uri });
+        cursorTargetId = null;
+        lastStepIndex = null;
+        exportMenu.reset();
+        player?.destroy();
+        player = null;
+      },
+      textChanged(dsl, fatal) {
+        exportMenu.setBlocked(fatal);
+        helpModal?.update(dsl);
+      },
+      show(valid) {
+        if (player) {
+          player.update({ document: valid.document, layout: valid.layout, icons: ICON_SHAPES });
+        } else {
+          player = createPlayer(valid);
+        }
+        lastStepIndex = player.getStepIndex();
+        exportMenu.sync();
+        renderHighlight();
+      },
+      cursorAt(elementId, stepIndex) {
+        cursorTargetId = elementId;
+        renderHighlight();
+        // Only a move into another step navigates; otherwise playback would restart on every keystroke.
+        if (
+          player &&
+          stepIndex !== null &&
+          stepIndex !== player.getStepIndex() &&
+          !player.isPlaying()
+        ) {
+          player.goTo(stepIndex);
+        }
+      },
+    },
+  );
 
   const helpBtn = html(
     'button',
@@ -102,7 +114,7 @@ export function mountApp(container: HTMLElement): void {
   const exportMenu = new ExportMenu(
     locale,
     () => {
-      const { steps } = currentValid().document;
+      const { steps } = session.valid.document;
       const index = player?.getStepIndex() ?? null;
       const step = index === null ? undefined : steps[index];
       return {
@@ -118,7 +130,7 @@ export function mountApp(container: HTMLElement): void {
       };
     },
     (format, step) => {
-      const exportDsl = currentValid().dsl;
+      const exportDsl = session.valid.dsl;
       vscodeApi.postMessage(
         format === 'html'
           ? { type: 'exportHtml', dsl: exportDsl }
@@ -157,15 +169,12 @@ export function mountApp(container: HTMLElement): void {
   clear(container);
   container.append(shell);
 
-  let player: Player | null = null;
-  let helpModal: HelpModal | null = null;
-  let helpModalLoading: Promise<HelpModal> | null = null;
-
+  /** Outlines the element the editor's cursor is on. */
   function renderHighlight(): void {
     clear(highlightLayer);
     if (!cursorTargetId) return;
-    const valid = currentValid();
-    const rect = valid.layout.nodes[cursorTargetId] ?? valid.layout.groups[cursorTargetId] ?? null;
+    const { layout } = session.valid;
+    const rect = layout.nodes[cursorTargetId] ?? layout.groups[cursorTargetId] ?? null;
     if (!rect) return;
     highlightLayer.append(
       svg('rect', {
@@ -202,73 +211,13 @@ export function mountApp(container: HTMLElement): void {
         e.target instanceof Element
           ? e.target.closest('[data-id]')?.getAttribute('data-id')
           : undefined;
-      const span = id ? currentValid().sourceMap.elements.get(id) : undefined;
+      const span = id ? session.valid.sourceMap.elements.get(id) : undefined;
       if (span) vscodeApi.postMessage({ type: 'revealRange', from: span.from, to: span.to });
     });
     return created;
   }
 
-  function applyDsl(dsl: string): void {
-    currentDsl = dsl;
-    const parsed = parse(dsl);
-    const fatal = hasFatalError(parsed);
-    exportMenu.setBlocked(fatal);
-    helpModal?.update(dsl);
-    if (fatal) {
-      showValid();
-      return;
-    }
-    // Until the layout is known, the preview keeps showing the document before this one.
-    awaitingLayout = true;
-    zonePlanner.whenPlanned(parsed.document, () => {
-      awaitingLayout = false;
-      lastValid = {
-        dsl,
-        document: parsed.document,
-        layout: computeLayout(parsed.document),
-        sourceMap: parsed.sourceMap,
-      };
-      showValid();
-      if (heldCursorOffset !== null) {
-        const offset = heldCursorOffset;
-        heldCursorOffset = null;
-        syncCursorOffset(offset);
-      }
-    });
-  }
-
-  function showValid(): void {
-    const valid = currentValid();
-    if (player) {
-      player.update({ document: valid.document, layout: valid.layout, icons: ICON_SHAPES });
-    } else {
-      player = createPlayer(valid);
-    }
-    lastStepIndex = player.getStepIndex();
-    exportMenu.sync();
-    renderHighlight();
-  }
-
-  function syncCursorOffset(offset: number): void {
-    if (awaitingLayout) {
-      // The offset belongs to text the preview does not show yet.
-      heldCursorOffset = offset;
-      return;
-    }
-    const hit = findAtOffset(currentValid().sourceMap, offset);
-    cursorTargetId = hit.elementId;
-    renderHighlight();
-    // Only a move into another step navigates; otherwise playback would restart on every keystroke.
-    if (
-      player &&
-      hit.stepIndex !== null &&
-      hit.stepIndex !== player.getStepIndex() &&
-      !player.isPlaying()
-    ) {
-      player.goTo(hit.stepIndex);
-    }
-  }
-
+  // The documentation is loaded when first opened.
   helpBtn.addEventListener('click', () => {
     if (helpModal) {
       helpModal.open();
@@ -277,7 +226,7 @@ export function mountApp(container: HTMLElement): void {
     helpModalLoading ??= import('./HelpModal')
       .then(({ HelpModal: Modal }) => {
         const instance = new Modal(locale);
-        instance.update(currentDsl);
+        instance.update(session.dsl);
         shell.append(instance.element);
         helpModal = instance;
         return instance;
@@ -292,54 +241,20 @@ export function mountApp(container: HTMLElement): void {
     );
   });
 
-  const rememberDocument = (uri: string | undefined): void => {
-    if (uri !== undefined) vscodeApi.setState?.({ uri });
-  };
-
+  // The host puts the document into the page, so that it is drawn before any message arrives.
   const initialDoc = readInitialDoc();
-  if (initialDoc) {
-    documentUri = initialDoc.uri;
-    rememberDocument(documentUri);
-    documentVersion = initialDoc.version;
-    applyDsl(initialDoc.dsl);
-  }
+  if (initialDoc) session.docChanged(initialDoc);
 
   window.addEventListener('message', (event: MessageEvent<unknown>) => {
     const msg = event.data;
     if (!isHostToWebviewMessage(msg)) return;
-    if (msg.type === 'docChanged') {
-      if (
-        msg.uri !== undefined &&
-        msg.uri === documentUri &&
-        msg.version !== undefined &&
-        msg.version === documentVersion
-      ) {
-        return;
-      }
-      if (msg.uri !== documentUri) {
-        // Nothing of the previous document may survive into another one.
-        documentUri = msg.uri;
-        rememberDocument(documentUri);
-        zonePlanner.cancel();
-        awaitingLayout = false;
-        heldCursorOffset = null;
-        lastValid = null;
-        cursorTargetId = null;
-        lastStepIndex = null;
-        exportMenu.reset();
-        player?.destroy();
-        player = null;
-      }
-      documentVersion = msg.version;
-      applyDsl(msg.dsl);
-    } else if (msg.type === 'cursorMoved') {
-      syncCursorOffset(msg.offset);
-    }
+    if (msg.type === 'docChanged') session.docChanged(msg);
+    else if (msg.type === 'cursorMoved') session.cursorMoved(msg.offset);
   });
 
   vscodeApi.postMessage({
     type: 'ready',
-    ...(documentUri !== undefined ? { uri: documentUri } : {}),
-    ...(documentVersion !== undefined ? { version: documentVersion } : {}),
+    ...(session.uri !== undefined ? { uri: session.uri } : {}),
+    ...(session.version !== undefined ? { version: session.version } : {}),
   });
 }

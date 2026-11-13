@@ -2,44 +2,16 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
-import {
-  adoptZonePlan,
-  computeLayout,
-  pendingZoneSearch,
-  searchZones,
-  type ZoneSearch,
-} from '../../layout';
+import { adoptZonePlan, computeLayout, pendingZoneSearch } from '../../layout';
 import type { DavDocument } from '../../model/types';
-import { type SearchWorker, ZonePlanner } from '../zonePlanner';
+import { ZonePlanner } from '../zonePlanner';
+import { FakeWorker } from './fakeWorker';
 
 const REPO = resolve(__dirname, '../../../../..');
 /** A diagram with links long enough that its zones are searched for a better place. */
 const SEARCHED = readFileSync(resolve(REPO, 'promo/pv/architecture-en.dav'), 'utf8');
 const searched = (extra = ''): DavDocument => parse(`${SEARCHED}\n${extra}`).document;
 const plain = parse('dav 1\nnode a "A"\nnode b "B"\na --> b : "x"').document;
-
-/** A worker that answers when the test says so. */
-class FakeWorker implements SearchWorker {
-  onmessage: SearchWorker['onmessage'] = null;
-  onerror: SearchWorker['onerror'] = null;
-  posted: ZoneSearch[] = [];
-  terminated = false;
-
-  postMessage(search: ZoneSearch): void {
-    this.posted.push(search);
-  }
-
-  /** Answers the search posted last, as the real worker does. */
-  answer(): void {
-    const search = this.posted.at(-1);
-    if (!search) throw new Error('nothing was posted');
-    this.onmessage?.({ data: { key: search.key, placement: searchZones(search.doc) } });
-  }
-
-  terminate(): void {
-    this.terminated = true;
-  }
-}
 
 const setup = () => {
   const worker = new FakeWorker();
