@@ -1,4 +1,4 @@
-// Generated from apps/vscode/src/skill/outline.ts. Do not edit.
+// Generated from apps/vscode/src/skill/outlineEntry.ts. Do not edit.
 import { readFileSync as e } from "node:fs";
 // src/model/types.ts
 var t = /* @__PURE__ */ "server.container.function.runtime.database.cache.queue.storage.lb.firewall.cdn.cloud.building.router.hub.wifi.external.auth.ai.api.mail.monitor.schedule.search.logic.webhook.payment.key.screen.modal.browser.desktop.mobile.terminal.device.printer.chat.sheet.file.user.users.bot".split(".");
@@ -2563,20 +2563,21 @@ function $e(e, t, n) {
 	}
 	return (n.neverInAStep.length > 0 || n.edgesWithoutPackets.length > 0) && (o.push("", "## Not part of any step", ""), d("Nodes no step touches", n.neverInAStep), d("Edges no packet rides", n.edgesWithoutPackets, (e) => e)), `${o.join("\n")}\n`;
 }
-function et(t) {
-	if (t.includes("--help") || t.includes("-h")) return console.log(Je), Z;
-	let n = t.filter((e) => e !== "--json"), [r] = n;
-	if (n.length !== 1 || !r || r.startsWith("-")) return console.error(Je), Xe;
-	let i;
+function et(t, n = Je) {
+	if (t.includes("--help") || t.includes("-h")) return console.log(n), Z;
+	let r = t.filter((e) => e !== "--json"), [i] = r;
+	if (r.length !== 1 || !i || i.startsWith("-")) return console.error(n), Xe;
+	let a;
 	try {
-		i = e(r, "utf8").replace(/^﻿/, "");
+		a = e(i, "utf8").replace(/^﻿/, "");
 	} catch (e) {
-		return console.error(`${r}: ${e instanceof Error ? e.message : String(e)}`), Xe;
+		return console.error(`${i}: ${e instanceof Error ? e.message : String(e)}`), Xe;
 	}
-	let { document: a, diagnostics: o } = Be(i), s = Qe(a);
-	console.log(t.includes("--json") ? JSON.stringify(s, null, 2) : $e(r, a, s));
-	let c = o.filter((e) => e.severity === "error");
-	for (let e of c) console.error(`${r}: error ${e.code}: ${Ke(e)}`);
-	return c.length > 0 ? Ye : Z;
+	let { document: o, diagnostics: s } = Be(a), c = Qe(o);
+	console.log(t.includes("--json") ? JSON.stringify(c, null, 2) : $e(i, o, c));
+	let l = s.filter((e) => e.severity === "error");
+	for (let e of l) console.error(`${i}: error ${e.code}: ${Ke(e)}`);
+	return l.length > 0 ? Ye : Z;
 }
+// src/skill/outlineEntry.ts
 process.exitCode = et(process.argv.slice(2));

@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync } from 'node:fs';
-import { format, formatDiagnostic, parse } from '../dsl';
+import { type Diagnostic, format, formatDiagnostic, parse } from '../dsl';
 import { lineAtOffset } from '../model/text';
 import { layoutReport } from './layoutReport';
 import { reviewDetail } from './review';
@@ -23,6 +23,11 @@ function location(text: string, offset: number): string {
   return `${lineAtOffset(text, clamped)}:${column}`;
 }
 
+/** A diagnostic as one line that names its place: `file:line:column: severity code: message`. */
+export function diagnosticLine(file: string, text: string, d: Diagnostic): string {
+  return `${file}:${location(text, d.from)}: ${d.severity} ${d.code}: ${formatDiagnostic(d)}`;
+}
+
 /** Prints the result for one file, and returns whether nothing was reported. */
 function checkFile(file: string, write: boolean, detail: boolean): boolean {
   // VS Code ignores a byte order mark, and some shells write one.
@@ -36,11 +41,7 @@ function checkFile(file: string, write: boolean, detail: boolean): boolean {
   }
 
   const { document, diagnostics } = parse(text);
-  for (const d of diagnostics) {
-    console.log(
-      `${file}:${location(text, d.from)}: ${d.severity} ${d.code}: ${formatDiagnostic(d)}`,
-    );
-  }
+  for (const d of diagnostics) console.log(diagnosticLine(file, text, d));
   // Hints describe the diagram, so they wait until it compiles.
   const hints = detail && diagnostics.length === 0 ? reviewDetail(document) : [];
   for (const hint of hints) console.log(`${file}: hint ${hint.code}: ${hint.message}`);
@@ -60,14 +61,15 @@ function checkFile(file: string, write: boolean, detail: boolean): boolean {
   return diagnostics.length === 0 && hints.length === 0;
 }
 
-function main(args: readonly string[]): number {
+/** Runs the checker on its arguments and returns the exit code. `usage` names the command. */
+export function runCheck(args: readonly string[], usage = USAGE): number {
   if (args.includes('--help') || args.includes('-h')) {
-    console.log(USAGE);
+    console.log(usage);
     return EXIT_OK;
   }
   const files = args.filter((arg) => !FLAGS.includes(arg));
   if (files.length === 0 || files.some((file) => file.startsWith('-'))) {
-    console.error(USAGE);
+    console.error(usage);
     return EXIT_USAGE;
   }
 
@@ -82,5 +84,3 @@ function main(args: readonly string[]): number {
   }
   return clean ? EXIT_OK : EXIT_DIAGNOSTICS;
 }
-
-process.exitCode = main(process.argv.slice(2));

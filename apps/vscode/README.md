@@ -48,6 +48,7 @@ The Export menu in the preview toolbar saves the whole diagram as a standalone H
 - **Language support:** highlighting, diagnostics with Quick Fixes, completions for names, attributes and the 42 built-in icons, a formatter that keeps comments, and an outline.
 - **Standalone HTML export.** One file that works offline, with a strict Content Security Policy. The source can be extracted from it again.
 - **SVG export for READMEs.** An animated SVG plays every step — or just the step in the preview — with the camera following the flow or kept on the whole diagram, and needs no script, so it plays as an image on GitHub and GitLab. A still SVG shows the whole diagram, either as an overview or at a single step.
+- **Command line.** The [`dav` command](https://github.com/Osg-Junue/DynamicArchitectViewer#command-line) exports, checks and formats diagrams in a terminal, and keeps the SVG in a README up to date from CI.
 - **AI-friendly.** Install agent skills that let Claude Code, GitHub Copilot and Codex write, validate and explain `.dav` files, or copy a prompt for chat assistants.
 - **Japanese and English UI**, following the VS Code display language.
 

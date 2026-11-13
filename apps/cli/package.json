@@ -1,0 +1,36 @@
+{
+  "name": "dynamic-architect-viewer-cli",
+  "version": "1.0.0",
+  "description": "Command line for DynamicArchitectViewer: export .dav diagrams as animated SVG or standalone HTML, and check, format and outline them.",
+  "license": "MIT",
+  "keywords": [
+    "DynamicArchitectViewer",
+    "dav",
+    "diagram",
+    "architecture",
+    "diagram-as-code",
+    "animation",
+    "svg",
+    "cli"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Osg-Junue/DynamicArchitectViewer.git",
+    "directory": "apps/cli"
+  },
+  "homepage": "https://github.com/Osg-Junue/DynamicArchitectViewer#command-line",
+  "bugs": "https://github.com/Osg-Junue/DynamicArchitectViewer/issues",
+  "type": "module",
+  "bin": {
+    "dav": "dist/dav.mjs"
+  },
+  "files": [
+    "dist/dav.mjs"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "prepack": "npm --prefix ../vscode run build:runtime && npm --prefix ../vscode run build:cli"
+  }
+}

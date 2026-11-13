@@ -41,6 +41,7 @@ step "The payment provider fails" {
 - **Language support:** highlighting, diagnostics with Quick Fixes, completions, a formatter that keeps comments, and an outline.
 - **Standalone HTML export.** One file with all steps that works offline, with no external requests. The source can be extracted from it again.
 - **SVG export for READMEs.** An animated or still SVG covers every step or just the step in the preview, with the camera following the flow or keeping the whole diagram in view. It runs no script, so GitHub and GitLab play it as an image.
+- **Command line.** [`dav`](#command-line) exports, checks and formats diagrams in a terminal, and keeps the SVG in a README up to date from CI.
 - **AI-friendly.** [Agent skills](#ai-agent-skills) let coding agents write, validate and explain `.dav` files, and a command copies a prompt for chat assistants.
 - **Japanese and English UI**, following the VS Code display language.
 
@@ -61,6 +62,27 @@ code --install-extension apps/vscode/dist/dynamic-architect-viewer.vsix
 ```
 
 Then open a `.dav` file, or run **DynamicArchitectViewer: New Diagram from Sample Template...** from the Command Palette, and press `Ctrl+Shift+V` (`⌘⇧V` on macOS) for the preview. More examples are in [`examples/`](examples/), and [docs/examples.md](docs/examples.md) plays each of them.
+
+## Command line
+
+The `dav` command does what the extension does with a `.dav` file, without the editor: in a terminal or in CI. It is the npm package [`dynamic-architect-viewer-cli`](apps/cli/README.md), which needs Node.js 20 or later and has no dependencies.
+
+```bash
+npx dynamic-architect-viewer-cli export docs/checkout.dav
+```
+
+| Command | Does |
+| :--- | :--- |
+| `dav export` | Writes an animated or still SVG, or a standalone HTML file, next to each diagram |
+| `dav check` | Reports what the editor reports. `--detail` adds hints and describes the layout |
+| `dav format` | Formats files in place. `--check` fails when a file is not formatted |
+| `dav outline` | Prints what a diagram says, with every reference resolved |
+
+`dav export --check` writes nothing and fails when a file is missing or is not what its diagram exports now. In CI, this keeps the SVG in a README up to date:
+
+```yaml
+- run: npx dynamic-architect-viewer-cli@1.0.0 export --check docs/*.dav
+```
 
 ## AI agent skills
 

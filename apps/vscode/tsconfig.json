@@ -25,6 +25,7 @@
     "vite.runtime.config.ts",
     "vite.extension.config.ts",
     "vite.skill.config.ts",
+    "vite.cli.config.ts",
     "playwright.config.ts"
   ]
 }

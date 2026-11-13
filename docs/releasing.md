@@ -28,6 +28,7 @@ npx vsce login osg-junue
 - [ ] The animations in the READMEs and docs show the current look. [`promo/pv`](../promo/pv/README.md) renders them again.
 - [ ] `npm run check` passes at the repository root.
 - [ ] `npx playwright test` passes in `apps/vscode`.
+- [ ] `version` in `apps/cli/package.json` is the version of the extension. A test fails when the two differ.
 
 ## Package and inspect
 
@@ -60,3 +61,19 @@ npx vsce publish --packagePath dist/dynamic-architect-viewer.vsix
 ```
 
 Then check that README images appear on the Marketplace page, and tag the commit `v<version>`.
+
+## Publish the command line
+
+The npm package `dynamic-architect-viewer-cli` in `apps/cli` is released with the extension, under the same version. The first time, log in with `npm login`. From `apps/cli`, look at what the package holds:
+
+```bash
+npm pack --dry-run
+```
+
+It should list only `package.json`, `README.md`, `LICENSE` and `dist/dav.mjs`. `prepack` builds `dist/dav.mjs` first. Then publish:
+
+```bash
+npm publish
+```
+
+The READMEs give the version in the line for CI (`dynamic-architect-viewer-cli@<version>`). Update it in `README.md` and `apps/cli/README.md`.

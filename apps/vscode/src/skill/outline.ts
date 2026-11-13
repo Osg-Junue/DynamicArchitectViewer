@@ -354,15 +354,16 @@ function render(file: string, doc: DavDocument, outline: Outline): string {
   return `${lines.join('\n')}\n`;
 }
 
-function main(args: readonly string[]): number {
+/** Prints the outline of the file in its arguments and returns the exit code. `usage` names the command. */
+export function runOutline(args: readonly string[], usage = USAGE): number {
   if (args.includes('--help') || args.includes('-h')) {
-    console.log(USAGE);
+    console.log(usage);
     return EXIT_OK;
   }
   const files = args.filter((arg) => arg !== '--json');
   const [file] = files;
   if (files.length !== 1 || !file || file.startsWith('-')) {
-    console.error(USAGE);
+    console.error(usage);
     return EXIT_USAGE;
   }
 
@@ -385,5 +386,3 @@ function main(args: readonly string[]): number {
   for (const d of errors) console.error(`${file}: error ${d.code}: ${formatDiagnostic(d)}`);
   return errors.length > 0 ? EXIT_ERRORS : EXIT_OK;
 }
-
-process.exitCode = main(process.argv.slice(2));

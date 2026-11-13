@@ -11,14 +11,14 @@ const SKILLS = {
   // The default mode of `vite build`.
   production: {
     name: 'dav-diagrams',
-    entry: 'src/skill/check.ts',
+    entry: 'src/skill/checkEntry.ts',
     script: 'dav-check.mjs',
     docs: ['specification.md', 'layout.md'],
     examples: true,
   },
   reading: {
     name: 'dav-reading',
-    entry: 'src/skill/outline.ts',
+    entry: 'src/skill/outlineEntry.ts',
     script: 'dav-outline.mjs',
     docs: ['specification.md'],
     examples: false,
