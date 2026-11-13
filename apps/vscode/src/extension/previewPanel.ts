@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
 import {
@@ -15,7 +15,7 @@ import { t, uiLocale } from './locale';
 const previewTitle = (doc: vscode.TextDocument): string =>
   `${t('プレビュー', 'Preview')}: ${fileBasename(doc.uri.fsPath)}`;
 
-const inlineCssCache = new Map<string, string>();
+const inlineCssCache = new Map<string, { stamp: string; css: string }>();
 
 export function clearWebviewAssetCache(): void {
   inlineCssCache.clear();
@@ -30,16 +30,28 @@ function isSafeInlineStyle(content: string): boolean {
  * before the script arrives, with one request fewer. `null` when the file cannot be read (as
  * in unit-test mocks) or is not safe to inline, and the page links to it instead.
  *
+ * The copy is kept for as long as the file is the same. Installing a build over one of the
+ * same version replaces the file while this extension host keeps running, and the script,
+ * which is always read from disk, would otherwise run with the stylesheet of the build before.
+ *
  * The script stays a file of its own. The lazy documentation chunk imports from it, and an
  * inline copy would have no URL to import from, so the browser would load and run it twice.
  */
 function readInlineWebviewCss(webviewRootFsPath: string): string | null {
+  const file = join(webviewRootFsPath, 'assets', 'webview.css');
   const cached = inlineCssCache.get(webviewRootFsPath);
-  if (cached !== undefined) return cached;
+  let stamp: string;
   try {
-    const css = readFileSync(join(webviewRootFsPath, 'assets', 'webview.css'), 'utf8');
+    const { mtimeMs, size } = statSync(file);
+    stamp = `${mtimeMs}:${size}`;
+  } catch {
+    return cached?.css ?? null;
+  }
+  if (cached?.stamp === stamp) return cached.css;
+  try {
+    const css = readFileSync(file, 'utf8');
     if (!isSafeInlineStyle(css)) return null;
-    inlineCssCache.set(webviewRootFsPath, css);
+    inlineCssCache.set(webviewRootFsPath, { stamp, css });
     return css;
   } catch {
     return null;

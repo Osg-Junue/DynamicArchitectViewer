@@ -794,11 +794,18 @@ describe('extension commands', () => {
           version: 3,
         });
 
+        // A build installed over this one replaces the stylesheet: the next preview has the new one.
+        host.disposePanel();
+        writeFileSync(join(assetsDir, 'webview.css'), 'body{margin:0;color:blue;padding:0}');
+        await run('dav.openPreview');
+        expect(host.webviewHtml).toContain('body{margin:0;color:blue;padding:0}');
+        expect(host.webviewHtml).not.toContain('color:red');
+
         // Re-opening after removing files from disk uses the in-memory asset cache until cleared.
         host.disposePanel();
         rmSync(assetsDir, { recursive: true, force: true });
         await run('dav.openPreview');
-        expect(host.webviewHtml).toContain('body{margin:0;color:red}');
+        expect(host.webviewHtml).toContain('body{margin:0;color:blue;padding:0}');
 
         host.disposePanel();
         clearWebviewAssetCache();
