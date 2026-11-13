@@ -1,0 +1,6 @@
+{
+  "name": "dynamic-architect-viewer-pv1",
+  "private": true,
+  "description": "Renders the promotional video for 1.0. Playwright and Vite come from the repository root, the highlighter from promo/pv.",
+  "type": "module"
+}
