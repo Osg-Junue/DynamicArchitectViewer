@@ -5,7 +5,6 @@ import { idPair } from '../model/zones';
 import {
   activeLabelFill,
   buildPacket,
-  computePacketCalloutBox,
   dimClass,
   estimateTextWidth,
   fitText,
@@ -13,7 +12,6 @@ import {
   h,
   type IconShapes,
   type Packet,
-  packetBubblePath,
   packetPosition,
   paint,
   placeZoneLabels,
@@ -197,20 +195,6 @@ export function animatedPacket(
           `${num(points[i]?.x ?? 0)},${num(points[i]?.y ?? 0)}`,
         ]),
         { translate: true },
-      ),
-    );
-  }
-  const bubble = childWithClass(el, 'dav-packet-bubble');
-  const box = computePacketCalloutBox(packet);
-  if (bubble && box) {
-    pushAll(
-      bubble,
-      clock.track(
-        'd',
-        times.map((ms, i) => [
-          phase.start + ms,
-          packetBubblePath(box, points[i] ?? { x: 0, y: 0 }),
-        ]),
       ),
     );
   }

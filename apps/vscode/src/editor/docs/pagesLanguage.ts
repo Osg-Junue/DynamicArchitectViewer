@@ -477,16 +477,16 @@ export const LANGUAGE_PAGES: readonly DocPage[] = [
         h2(t('順次再生', 'Sequential')),
         p(
           t(
-            '`animate` は書いた順に1フェーズずつ再生されます。フェーズが2つ以上あると、線上に順番の番号が表示されます。',
-            'Each `animate` is its own phase, in order. With two or more phases, numbered stops appear on the rails.',
+            '`animate` は書いた順に1フェーズずつ再生されます。フェーズが2つ以上あると、線上と吹き出しに同じ順番の番号が表示されます。',
+            'Each `animate` is its own phase, in order. With two or more phases, each rail gets a numbered stop, and the callout carries the same number.',
           ),
         ),
         live(ctx, SEQUENTIAL_DSL, { phases: true }),
         h2(t('同時再生', 'Parallel')),
         p(
           t(
-            '`[parallel: true]` を付けると、直前の `animate` のフェーズに合流します。次の `animate` はまた新しいフェーズです。吹き出しが重なる場合は、自動で横にずれます。',
-            '`[parallel: true]` joins the preceding statement’s phase. The next plain `animate` starts a new one. Callouts that would overlap move aside automatically.',
+            '`[parallel: true]` を付けると、直前の `animate` のフェーズに合流します。次の `animate` はまた新しいフェーズです。同じフェーズのパケットは 2a、2b のように文字つきの同じ番号になり、吹き出しはそれぞれの線のそばに置かれます。',
+            '`[parallel: true]` joins the preceding statement’s phase. The next plain `animate` starts a new one. Packets of one phase share its number with a letter each, such as 2a and 2b, and each callout is placed by its own rail.',
           ),
         ),
         live(ctx, PARALLEL_DSL, { phases: true }),

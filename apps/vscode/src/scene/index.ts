@@ -9,12 +9,12 @@ export {
 } from './build';
 export {
   type CalloutPlacement,
+  calloutOutline,
   calloutRect,
   computePacketCalloutBox,
   estimateCalloutTextWidth,
   type PacketCalloutBox,
   type PacketCalloutCodeBox,
-  packetBubblePath,
 } from './callout';
 export {
   calmFrame,

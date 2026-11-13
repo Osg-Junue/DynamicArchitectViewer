@@ -91,7 +91,7 @@ findAtOffset(sourceMap, offset): { elementId: string | null; stepIndex: number |
 `runtime/player.ts` draws the scene and plays each step's phases. `runtime/camera.ts` handles zoom and pan.
 
 - `animate` statements play in order, and `parallel: true` joins the preceding phase.
-- Callouts stay still while their pointer follows the packet. A callout sits above or below its rail, whichever scores better against the other rails, dimmed nodes and groups its leader would cross. Callouts of one phase that would still overlap are moved sideways by the smallest distance that clears them (`scene/calloutSolver.ts`).
+- A callout stays still while its packet moves, and no line joins the two: the callout carries the number of the packet's stop on the rail, in the packet's color. Packets of one phase get a letter each (`5a`, `5b`). A callout is first put above or below its rail (`scene/calloutSolver.ts`). A last pass then moves it to the nearest free spot on any side when it hides a rail of the step, sits nearer another packet's rail than its own, or can come much closer (`scene/calloutRefine.ts`). It never covers a node, a zone's name or a rail, and it lies wholly inside or wholly outside each zone.
 - With `prefers-reduced-motion`, animation stays off. Clicking a node shows the packets of a phase, parked on the rail.
 - Drawing uses `createElementNS`, `textContent`, `setAttribute` and CSSOM only: never `innerHTML` or inline `style` attributes.
 
@@ -144,7 +144,7 @@ Motion uses SMIL only, because `<img>` runs no script. Every animation lasts the
 | The step's scene, a phase's packets, flows, lit stops, emphasized labels and zone outlines | One copy per state, shown with a discrete `display` animation |
 | The camera | `viewBox` of the canvas, eased between the poses the preview's camera would head for |
 | Zone names on the canvas | Kept inside the visible `viewBox` as the camera moves, as in the preview |
-| A packet riding its rail, and the leader of its callout | Positions sampled every 66 ms, interpolated in between |
+| A packet riding its rail | Positions sampled every 66 ms, interpolated in between |
 
 With `camera: 'follow'`, the default, the camera follows the preview's rules from `scene/framing.ts`: each step starts on `stepFrame`, and a phase whose nodes are off screen moves to `calmFrame`. The preview's "follow" toggle and the reader's own panning have no counterpart, and SMIL animations in an `<img>` cannot honor `prefers-reduced-motion` (the whole-diagram or still export moves less). Each element's attributes hold its state at the start of the loop, so a viewer without SMIL shows the first moment of the first step. Colors follow the reader's system light or dark setting, which can differ from the theme of the site showing the image.
 

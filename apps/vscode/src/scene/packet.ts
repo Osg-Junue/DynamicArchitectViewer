@@ -8,16 +8,16 @@ import {
   CALLOUT_DESC_SIZE,
   CALLOUT_LABEL_SIZE,
   CALLOUT_LINE_HEIGHT,
+  calloutOutline,
   computePacketCalloutBox,
   type PacketCalloutBox,
   type PacketCalloutCodeBox,
-  packetBubblePath,
 } from './callout';
 import { highlightCodeLine } from './codeHighlight';
 import type { Point } from './geometry';
 import type { IconShapes } from './icons';
 import { activeLabelFill, paint, THEME_COLOR } from './paint';
-import type { Packet } from './resolve';
+import { DEFAULT_FLOW_COLOR, type Packet } from './resolve';
 import { packetPosition } from './timing';
 import { h, type VElement } from './vnode';
 
@@ -49,13 +49,15 @@ export function buildPacket(packet: Packet, icons: IconShapes, t = 0): VElement 
   let callout: VElement | null = null;
 
   if (box) {
-    const { cx, halfW, boxTop, padX, placement, label, descLines, code } = box;
+    const { cx, halfW, boxTop, padX, placement, label, descLines, code, numberRoom } = box;
     const alignLeft = descLines.length > 0 || code !== undefined;
+    // The content keeps its own width; the number sits in the room added on its left.
+    const contentLeft = cx - halfW + numberRoom;
     callout = h(
       'g',
       { class: 'dav-packet-callout', 'data-placement': placement },
       h('path', {
-        d: packetBubblePath(box, dot),
+        d: calloutOutline(box),
         fill: THEME_COLOR.panel,
         stroke: THEME_COLOR.borderStrong,
         'stroke-width': 1.5,
@@ -66,7 +68,7 @@ export function buildPacket(packet: Packet, icons: IconShapes, t = 0): VElement 
         ? h(
             'text',
             {
-              x: alignLeft ? cx - halfW + padX : cx,
+              x: alignLeft ? contentLeft + padX : cx + numberRoom / 2,
               y: boxTop + (alignLeft ? 24 : 21),
               ...(alignLeft ? {} : { 'text-anchor': 'middle' }),
               'font-size': CALLOUT_LABEL_SIZE,
@@ -80,7 +82,7 @@ export function buildPacket(packet: Packet, icons: IconShapes, t = 0): VElement 
         h(
           'text',
           {
-            x: cx - halfW + padX,
+            x: contentLeft + padX,
             y: boxTop + (label ? 44 : 24) + i * CALLOUT_LINE_HEIGHT,
             'font-size': CALLOUT_DESC_SIZE,
             fill: THEME_COLOR.fg,
@@ -91,6 +93,7 @@ export function buildPacket(packet: Packet, icons: IconShapes, t = 0): VElement 
         ),
       ),
       code ? packetCodeElement(packet, box, code) : null,
+      calloutNumber(packet, box),
     );
   }
 
@@ -109,12 +112,47 @@ export function buildPacket(packet: Packet, icons: IconShapes, t = 0): VElement 
   );
 }
 
+const CALLOUT_NUMBER_RADIUS = 9;
+
+/**
+ * The number a callout shares with its packet's stop on the rail, in the packet's color: it
+ * says which rail the callout describes, without a line between them.
+ */
+function calloutNumber(packet: Packet, box: PacketCalloutBox): VElement | null {
+  if (box.number === undefined) return null;
+  const x = box.cx - box.halfW + 17;
+  // On the heading's line; in a callout of one line, in its middle.
+  const y = box.boxBottom - box.boxTop <= 36 ? (box.boxTop + box.boxBottom) / 2 : box.boxTop + 19;
+  return h(
+    'g',
+    { class: 'dav-packet-number' },
+    h('circle', { cx: x, cy: y, r: CALLOUT_NUMBER_RADIUS, fill: paint(packet.color) }),
+    h(
+      'text',
+      {
+        x,
+        y: y + 3.5,
+        'text-anchor': 'middle',
+        'font-size': box.number.length > 2 ? 8.5 : 10,
+        'font-weight': 700,
+        fill: stopTextFill(packet.color),
+      },
+      box.number,
+    ),
+  );
+}
+
+/** Text color on a stop or a callout number filled with a packet's color. */
+export function stopTextFill(color: string): string {
+  return color === DEFAULT_FLOW_COLOR ? '#ffffff' : THEME_COLOR.bg;
+}
+
 function packetCodeElement(
   packet: Packet,
   box: PacketCalloutBox,
   code: PacketCalloutCodeBox,
 ): VElement {
-  const x = box.cx - box.halfW + box.padX;
+  const x = box.cx - box.halfW + box.numberRoom + box.padX;
   const y = box.boxTop + code.offsetY;
   const { width, height, header, headerHeight, lines } = code;
   const bodyTop = y + headerHeight;

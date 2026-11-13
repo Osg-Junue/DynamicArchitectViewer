@@ -12,20 +12,20 @@ import {
   CALLOUT_CODE_RADIUS,
   CALLOUT_CODE_SIZE,
   CALLOUT_DESC_SIZE,
-  CALLOUT_DOT_CLEARANCE,
   CALLOUT_GAP,
-  CALLOUT_ICON_CLEARANCE,
   CALLOUT_LABEL_SIZE,
   CALLOUT_LINE_HEIGHT,
+  CALLOUT_NUMBER_ROOM,
   CALLOUT_OUTER_PAD_X,
   CALLOUT_RADIUS,
-  packetBubblePath,
+  calloutOutline,
   separatePhaseCallouts,
 } from '../callout';
-import { expandRect, type Point, pointInRect, segmentIntersectsRect } from '../geometry';
+import { expandRect, pointAt, pointInRect, segmentIntersectsRect } from '../geometry';
 import { ICON_SHAPES } from '../icons';
 import {
   buildPacket as buildPacketWith,
+  buildScene,
   calloutRect,
   calmFrame,
   computePacketCalloutBox,
@@ -33,7 +33,6 @@ import {
   estimateCalloutTextWidth,
   framePose,
   type Packet,
-  packetPosition,
   packetsOnScreen,
   resolveView,
   type VElement,
@@ -68,11 +67,6 @@ function findAll(node: VNode, pred: (e: VElement) => boolean): VElement[] {
 }
 
 const commandsOf = (d: string): string => (d.match(/[A-Z]/g) ?? []).join(' ');
-
-function tipOf(d: string): Point {
-  const match = /L (-?\d+\.\d+) (-?\d+\.\d+) L/.exec(d);
-  return { x: Number(match?.[1] ?? 0), y: Number(match?.[2] ?? 0) };
-}
 
 function makePacket(
   opts: { x?: number; label?: string; description?: string; code?: CodeBlock; color?: string } = {},
@@ -163,8 +157,7 @@ describe('packet code callouts and overflow prevention', () => {
       CALLOUT_CODE_LINE_HEIGHT,
       CALLOUT_CODE_PAD_X,
       CALLOUT_CODE_HEADER_HEIGHT,
-      CALLOUT_DOT_CLEARANCE,
-      CALLOUT_ICON_CLEARANCE,
+      CALLOUT_NUMBER_ROOM,
     }).toEqual({
       CALLOUT_RADIUS: 10,
       CALLOUT_CODE_RADIUS: 6,
@@ -176,8 +169,7 @@ describe('packet code callouts and overflow prevention', () => {
       CALLOUT_CODE_LINE_HEIGHT: 17.5,
       CALLOUT_CODE_PAD_X: 13,
       CALLOUT_CODE_HEADER_HEIGHT: 28,
-      CALLOUT_DOT_CLEARANCE: 13,
-      CALLOUT_ICON_CLEARANCE: 21,
+      CALLOUT_NUMBER_ROOM: 24,
     });
 
     const labelOnly = computePacketCalloutBox(makePacket({ label: '201 Created' }));
@@ -592,10 +584,10 @@ step "Row1UnderRow0" {
     expect(leftBox.boxBottom).toBe(rightBox.boxBottom);
   });
 
-  it('emits identical 13-command SMIL paths across t=0,0.5,1 and pulls back farther for icon chips', () => {
+  it('draws the callout as a closed box that does not depend on where the packet is', () => {
     const p0 = { x: 120, y: 320 };
     const p3 = { x: 420, y: 320 };
-    const basePkt: Packet = {
+    const packet: Packet = {
       from: 'a',
       to: 'b',
       fromLabel: 'A',
@@ -609,30 +601,114 @@ step "Row1UnderRow0" {
       labelAreas: [],
       durationMs: 2000,
     };
-    const iconPkt: Packet = { ...basePkt, icon: 'file' };
+    const box = computePacketCalloutBox(packet);
+    expect(box).not.toBeNull();
+    if (!box) return;
 
-    const plainBox = computePacketCalloutBox(basePkt);
-    const iconBox = computePacketCalloutBox(iconPkt);
-    expect(plainBox && iconBox).toBeTruthy();
-    if (!plainBox || !iconBox) return;
+    // A rounded rectangle: no pointer reaches for the packet.
+    expect(commandsOf(calloutOutline(box))).toBe('M H Q V Q H Q V Q Z');
+    const bubbleAt = (t: number) =>
+      findAll(buildPacket(packet, t), (e) => e.attrs.class === 'dav-packet-bubble')[0]?.attrs.d;
+    expect(bubbleAt(0)).toBe(calloutOutline(box));
+    expect(bubbleAt(0.5)).toBe(bubbleAt(0));
+    expect(bubbleAt(1)).toBe(bubbleAt(0));
+    // Only the marker moves.
+    const dotAt = (t: number) =>
+      findAll(buildPacket(packet, t), (e) => e.attrs.class === 'dav-packet-dot')[0]?.attrs
+        .transform;
+    expect(dotAt(1)).not.toBe(dotAt(0));
+  });
 
-    for (const t of [0, 0.5, 1]) {
-      const dot = packetPosition(basePkt, t);
-      const dPlain = packetBubblePath(plainBox, dot);
-      const dIcon = packetBubblePath(iconBox, dot);
-      expect(commandsOf(dPlain)).toBe('M H Q V Q H L L H Q V Q Z');
-      expect(commandsOf(dIcon)).toBe('M H Q V Q H L L H Q V Q Z');
-    }
+  it('numbers a callout like its stop on the rail, with a letter for packets of one phase', () => {
+    const doc = parse(`dav 1
+node a
+node b
+node c
+a --> b
+a --> c
+step "One phase" {
+  animate a --> b : "Only"
+}
+step "Three packets" {
+  animate a --> b : "First"
+  animate a --> b : "Second"
+  animate a --> c : "Third" [parallel: true]
+}
+`).document;
+    const layout = computeLayout(doc);
+    const numberOf = (packet: Packet): string | undefined => {
+      const el = findAll(buildPacket(packet), (e) => e.attrs.class === 'dav-packet-number')[0];
+      return el ? collectText(el)[0] : undefined;
+    };
 
-    // Compare pointer tip distance from dot at t=0.5: icon chip (21px) pulls back farther than plain dot (13px)
-    const midDot = packetPosition(basePkt, 0.5);
-    const plainTip = tipOf(packetBubblePath(plainBox, midDot));
-    const iconTip = tipOf(packetBubblePath(iconBox, midDot));
-    const plainClearance = Math.hypot(midDot.x - plainTip.x, midDot.y - plainTip.y);
-    const iconClearance = Math.hypot(midDot.x - iconTip.x, midDot.y - iconTip.y);
-    expect(plainClearance).toBeCloseTo(CALLOUT_DOT_CLEARANCE, 0);
-    expect(iconClearance).toBeCloseTo(CALLOUT_ICON_CLEARANCE, 0);
-    expect(iconClearance).toBeGreaterThan(plainClearance + 7);
+    // A step with one phase draws no stops, so its callout carries no number either.
+    const [only] = resolveView(doc, layout, 0).phases.flat();
+    expect(only?.stopLabel).toBeUndefined();
+    expect(only && numberOf(only)).toBeUndefined();
+    expect(only && computePacketCalloutBox(only)?.numberRoom).toBe(0);
+
+    const view = resolveView(doc, layout, 1);
+    expect(view.phases.flat().map((p) => p.stopLabel)).toEqual(['1', '2a', '2b']);
+    expect(view.phases.flat().map(numberOf)).toEqual(['1', '2a', '2b']);
+    const stops = findAll(buildScene(view, ICON_SHAPES), (e) => e.attrs.class === 'dav-stop').map(
+      (stop) => collectText(stop)[0],
+    );
+    expect(stops).toEqual(['1', '2a', '2b']);
+
+    // The number takes room on the left; the content keeps its width.
+    const [first] = view.phases.flat();
+    if (!first) return;
+    const numbered = computePacketCalloutBox(first);
+    const { stopLabel: _dropped, ...unnumbered } = first;
+    const plain = computePacketCalloutBox(unnumbered);
+    expect(numbered?.numberRoom).toBe(CALLOUT_NUMBER_ROOM);
+    expect(numbered && plain && (numbered.halfW - plain.halfW) * 2).toBe(CALLOUT_NUMBER_ROOM);
+  });
+
+  it('moves a callout beside a steep rail instead of past both of its ends', () => {
+    const doc = parse(`dav 1
+group zone "Zone" {
+  node hub "Hub"
+  node a "A"
+  node b "B"
+  node c "C"
+  node target "Target"
+}
+hub --> a
+hub --> b
+hub --> c
+hub --> target
+a --> target
+step "Down" {
+  animate c --> target : "Replicate"
+}
+`).document;
+    const layout = computeLayout(doc);
+    const view = resolveView(doc, layout, 0);
+    const [packet] = view.phases.flat();
+    const box = packet && computePacketCalloutBox(packet);
+    expect(packet && box).toBeTruthy();
+    if (!packet || !box) return;
+    const rect = calloutRect(box);
+    const mid = pointAt(packet.path, 0.5);
+    const distance = Math.hypot(
+      Math.max(rect.x - mid.x, 0, mid.x - (rect.x + rect.width)),
+      Math.max(rect.y - mid.y, 0, mid.y - (rect.y + rect.height)),
+    );
+    // Near the rail, yet never on it.
+    expect(distance).toBeGreaterThanOrEqual(33.9);
+    expect(distance).toBeLessThan(120);
+    // Inside the zone or outside it, never across its border.
+    const zone = view.groups[0]?.rect;
+    expect(zone).toBeDefined();
+    if (!zone) return;
+    const inside = rectContains(zone, rect);
+    const outside =
+      rect.x + rect.width <= zone.x ||
+      rect.x >= zone.x + zone.width ||
+      rect.y + rect.height <= zone.y ||
+      rect.y >= zone.y + zone.height;
+    expect(inside || outside).toBe(true);
   });
 
   it('maintains >=16px zone top-border clearance and zero station/callout collisions across example 05, example 07, and JP/JSON/SQL stress steps', () => {
@@ -792,10 +868,6 @@ step "Step 4" {
       expect(exportBox.boxTop).toBeGreaterThanOrEqual(
         outputsGroup.rect.y + outputsGroup.rect.height + 16,
       );
-      const midDot = packetPosition(exportPkt, 0.5);
-      const tipY = tipOf(packetBubblePath(exportBox, midDot)).y;
-      expect(tipY).toBeLessThan(exportBox.boxTop);
-      expect(tipY).toBeGreaterThan(midDot.y);
     }
 
     // Example 07 Step 1 phase 4: dsl --> ext return rail places callout below
@@ -988,9 +1060,20 @@ step "WorkerDualShelf" {
       const [up0, up1] = shelfView.phases[0] ?? [];
       const upBox0 = up0 && computePacketCalloutBox(up0);
       const upBox1 = up1 && computePacketCalloutBox(up1);
+      // The first pass puts both above their rails, on one shelf. The last pass then brings
+      // each beside its own rail, which matters more than the shelf once no pointer joins them.
       expect(upBox0?.placement).toBe('above');
       expect(upBox1?.placement).toBe('above');
-      expect(upBox0?.boxBottom).toBe(upBox1?.boxBottom);
+      expect(upBox0 && upBox1).toBeTruthy();
+      if (!upBox0 || !upBox1) continue;
+      const r0 = calloutRect(upBox0);
+      const r1 = calloutRect(upBox1);
+      const apart =
+        r0.x + r0.width + CALLOUT_GAP <= r1.x ||
+        r1.x + r1.width + CALLOUT_GAP <= r0.x ||
+        r0.y + r0.height + CALLOUT_GAP <= r1.y ||
+        r1.y + r1.height + CALLOUT_GAP <= r0.y;
+      expect(apart).toBe(true);
     }
 
     // 4. Parallel 'below' callouts within PARALLEL_SHELF_TOLERANCE align onto shared maxTop shelf
@@ -1037,10 +1120,10 @@ step "WorkerDualShelf" {
     expect(lowBox0?.boxTop).toBe(lowBox1?.boxTop);
   });
 
-  it('builds SMIL-invariant 13-command upward pointers for below placement with marker clearance', () => {
+  it('marks which side of the rail the first pass chose', () => {
     const p0 = { x: 120, y: 200 };
     const p3 = { x: 420, y: 200 };
-    const plainPkt: Packet = {
+    const packet: Packet = {
       from: 'a',
       to: 'b',
       fromLabel: 'A',
@@ -1056,44 +1139,17 @@ step "WorkerDualShelf" {
       labelAreas: [],
       durationMs: 2000,
     };
-    const iconPkt: Packet = { ...plainPkt, icon: 'key' };
-
-    const plainBox = computePacketCalloutBox(plainPkt);
-    const iconBox = computePacketCalloutBox(iconPkt);
-    expect(plainBox?.placement).toBe('below');
-    expect(iconBox?.placement).toBe('below');
-    if (!plainBox || !iconBox) return;
-
-    const rendered = buildPacket(plainPkt, 0.5);
-    const calloutGroup = findAll(
-      rendered,
+    const box = computePacketCalloutBox(packet);
+    expect(box?.placement).toBe('below');
+    expect(box?.boxTop).toBeGreaterThan(200);
+    const group = findAll(
+      buildPacket(packet, 0.5),
       (e) => e.tag === 'g' && e.attrs.class === 'dav-packet-callout',
     )[0];
-    expect(calloutGroup?.attrs['data-placement']).toBe('below');
-
-    for (const t of [0, 0.5, 1]) {
-      const dot = packetPosition(plainPkt, t);
-      const dPlain = packetBubblePath(plainBox, dot);
-      const dIcon = packetBubblePath(iconBox, dot);
-      expect(commandsOf(dPlain)).toBe('M H L L H Q V Q H Q V Q Z');
-      expect(commandsOf(dIcon)).toBe('M H L L H Q V Q H Q V Q Z');
-      expect(tipOf(dPlain).y).toBeLessThan(plainBox.boxTop);
-    }
-
-    const midDot = packetPosition(plainPkt, 0.5);
-    const plainTip = tipOf(packetBubblePath(plainBox, midDot));
-    const iconTip = tipOf(packetBubblePath(iconBox, midDot));
-    expect(Math.hypot(midDot.x - plainTip.x, midDot.y - plainTip.y)).toBeCloseTo(
-      CALLOUT_DOT_CLEARANCE,
-      0,
-    );
-    expect(Math.hypot(midDot.x - iconTip.x, midDot.y - iconTip.y)).toBeCloseTo(
-      CALLOUT_ICON_CLEARANCE,
-      0,
-    );
+    expect(group?.attrs['data-placement']).toBe('below');
   });
 
-  it('never straddles any group border, overlaps focused nodes, or inverts pointers across all examples & templates', () => {
+  it('never straddles a group border, overlaps a focused node, hides a rail, or sits by the wrong rail across all examples & templates', () => {
     const exampleFiles = [
       '01-infra-ha-failover.dav',
       '02-screen-flow-checkout.dav',
@@ -1185,7 +1241,6 @@ step "Giant" {
                 r.y + r.height <= gr.y - 15.9 ||
                 r.y >= gr.y + gr.height + 15.9;
               const strictlyEnclosed =
-                gr.height > 468 &&
                 r.x >= gr.x + 15.9 &&
                 r.x + r.width <= gr.x + gr.width - 15.9 &&
                 r.y >= gr.y + 39.9 &&
@@ -1205,15 +1260,35 @@ step "Giant" {
               expect(hitsNode).toBe(false);
             }
 
-            // Non-inverted pointer across the full [0, 1] trajectory
-            for (const t of [0, 0.25, 0.5, 0.75, 1]) {
-              const dot = packetPosition(pkt, t);
-              const tipY = tipOf(packetBubblePath(box, dot)).y;
-              if (box.placement === 'below') {
-                expect(tipY).toBeLessThan(box.boxTop);
-              } else {
-                expect(tipY).toBeGreaterThan(box.boxBottom);
+            // No rail of the step runs under the callout.
+            const rails = [...v.edges.map((e) => e.path), ...phase.map((p) => p.path)];
+            for (const rail of rails) {
+              for (let i = 0; i <= 24; i++) {
+                const p = pointAt(rail, i / 24);
+                const inside =
+                  p.x > r.x && p.x < r.x + r.width && p.y > r.y && p.y < r.y + r.height;
+                expect(inside).toBe(false);
               }
+            }
+
+            // Among the packets of a phase, the callout is nearest its own rail.
+            const nearest = (path: Packet['path']): number => {
+              let best = Number.POSITIVE_INFINITY;
+              for (let i = 0; i <= 32; i++) {
+                const p = pointAt(path, i / 32);
+                best = Math.min(
+                  best,
+                  Math.hypot(
+                    Math.max(r.x - p.x, 0, p.x - (r.x + r.width)),
+                    Math.max(r.y - p.y, 0, p.y - (r.y + r.height)),
+                  ),
+                );
+              }
+              return best;
+            };
+            for (const other of phase) {
+              if (other === pkt || !computePacketCalloutBox(other)) continue;
+              expect(nearest(pkt.path)).toBeLessThan(nearest(other.path));
             }
           }
         }

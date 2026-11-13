@@ -204,7 +204,7 @@ describe('buildScene', () => {
     expect(findAll(dot, (e) => e.tag === 'circle' && e.attrs.r === 8)).toHaveLength(1);
   });
 
-  it('renders a stationary speech-bubble callout whose pointer tip tracks the moving dot', () => {
+  it('renders a callout that stays still while only the marker moves', () => {
     const doc = parse(
       'dav 1\nnode a "A"\nnode b "B"\na --> b\nstep "S" {\n  animate a --> b : "POST /v1/charges" [desc: "Edge WAF inspects payload and verifies mTLS before forwarding"]\n}\n',
     ).document;
@@ -219,14 +219,14 @@ describe('buildScene', () => {
     expect(texts).toContain('POST /v1/charges');
     expect(texts).toContain('Edge WAF inspects payload');
 
-    // Text elements stay stationary while bubble tail path and dot transform move from t=0 to t=1
+    // The text and the box stay where they are while the marker moves from t=0 to t=1
     const label0 = findAll(v0, (e) => e.attrs.class === 'dav-packet-label')[0];
     const label1 = findAll(v1, (e) => e.attrs.class === 'dav-packet-label')[0];
     expect(label0?.attrs).toEqual(label1?.attrs);
 
     const bubble0 = findAll(v0, (e) => e.attrs.class === 'dav-packet-bubble')[0];
     const bubble1 = findAll(v1, (e) => e.attrs.class === 'dav-packet-bubble')[0];
-    expect(bubble0?.attrs.d).not.toEqual(bubble1?.attrs.d);
+    expect(bubble0?.attrs.d).toEqual(bubble1?.attrs.d);
 
     const dot0 = findAll(v0, (e) => e.attrs.class === 'dav-packet-dot')[0];
     const dot1 = findAll(v1, (e) => e.attrs.class === 'dav-packet-dot')[0];
@@ -343,15 +343,19 @@ describe('buildScene', () => {
       const doc = parse(dsl).document;
       const l = computeLayout(doc);
       doc.steps.forEach((_step, i) => {
-        for (const packet of resolveView(doc, l, i).phases.flat()) {
+        const view = resolveView(doc, l, i);
+        for (const packet of view.phases.flat()) {
           const box = computePacketCalloutBox(packet);
           if (!box) continue;
-          for (const area of packet.labelAreas) {
+          // The strip across the top of each zone, where its name is, wherever the camera
+          // has slid the name to.
+          for (const group of view.groups) {
+            const header = { ...group.rect, height: 34 };
             const overlaps =
-              box.cx - box.halfW < area.x + area.width &&
-              box.cx + box.halfW > area.x &&
-              box.boxTop < area.y + area.height &&
-              box.boxBottom > area.y;
+              box.cx - box.halfW < header.x + header.width &&
+              box.cx + box.halfW > header.x &&
+              box.boxTop < header.y + header.height &&
+              box.boxBottom > header.y;
             expect(overlaps).toBe(false);
           }
         }

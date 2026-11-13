@@ -13,9 +13,10 @@ import {
 } from '../model/types';
 import { ancestorIds, parentMap, zoneOfNodes } from '../model/zones';
 import { type CalloutPlacement, separatePhaseCallouts } from './callout';
-import { type Bezier, expandRect, pointAt, reverse } from './geometry';
+import { refinePhaseCallouts } from './calloutRefine';
+import { type Bezier, expandRect, type Point, pointAt, reverse } from './geometry';
 import { THEME_COLOR } from './paint';
-import { RailRouter } from './rails';
+import { RailRouter, stationArea } from './rails';
 import { PHASE_MS, pacePhase } from './timing';
 
 export const DEFAULT_FLOW_COLOR = THEME_COLOR.accent;
@@ -78,6 +79,13 @@ export interface Packet {
   calloutShift?: number;
   /** Which side of its rail the callout sits on; defaults to `'above'`. */
   calloutPlacement?: CalloutPlacement;
+  /** Top-left corner of the callout, when the last pass moved it off that side (see `refinePhaseCallouts`). */
+  calloutAt?: Point;
+  /**
+   * The number on this packet's stop and callout: its phase, with a letter when the phase runs
+   * several packets (`5a`, `5b`). Absent in a step with a single phase, which draws no stops.
+   */
+  stopLabel?: string;
   /** Shared baseline bottom y when aligned with parallel `'above'` sibling callouts. */
   calloutBottom?: number;
   /** Shared top-edge shelf y when aligned with parallel `'below'` sibling callouts. */
@@ -122,6 +130,10 @@ export interface ResolvedView {
   /** Duration of each phase at 1x. */
   phaseDurations: number[];
 }
+
+/** Kept around the cell of a node a step is about, and around a dimmed node's station and labels. */
+const CALLOUT_NODE_CELL_CLEARANCE = 6;
+const CALLOUT_DIMMED_NODE_CLEARANCE = 14;
 
 /** Max height of a normal 1–3 row zone treated as a solid obstacle on all four sides. */
 const MAX_SOLID_GROUP_HEIGHT = 468;
@@ -428,6 +440,13 @@ function resolvePhases(
 ): ResolvedPhases {
   const scene = buildCalloutSceneContext(ctx.doc, groups, nodes);
   const phases = createPhasePackets(ctx, nodeById, rails, scene);
+  if (phases.length > 1) {
+    phases.forEach((phase, index) => {
+      phase.forEach((packet, i) => {
+        packet.stopLabel = `${index + 1}${phase.length > 1 ? String.fromCharCode(97 + i) : ''}`;
+      });
+    });
+  }
   for (const phase of phases) separatePhaseCallouts(phase);
   return {
     phases,
@@ -512,12 +531,31 @@ export function resolveView(
     nodes,
   );
 
+  const visibleNodes = nodes.filter((n) => n.visible);
+  const edges = resolveEdges(ctx, nodeById, rails, activeEdges);
+  if (phases.length > 0) {
+    const stepRails = edges.map((e) => e.path);
+    const nodeAreas = visibleNodes.map((n) =>
+      n.dimmed
+        ? expandRect(stationArea(n), CALLOUT_DIMMED_NODE_CLEARANCE)
+        : expandRect(n.rect, CALLOUT_NODE_CELL_CLEARANCE),
+    );
+    const zones = groups.map((g) => g.rect);
+    for (const phase of phases) {
+      refinePhaseCallouts(phase, {
+        nodeAreas,
+        zones,
+        rails: [...stepRails, ...phase.map((p) => p.path)],
+      });
+    }
+  }
+
   const view: ResolvedView = {
     title: doc.title,
     stepIndex: index,
     groups,
-    nodes: nodes.filter((n) => n.visible),
-    edges: resolveEdges(ctx, nodeById, rails, activeEdges),
+    nodes: visibleNodes,
+    edges,
     phases,
     phaseDurations,
   };

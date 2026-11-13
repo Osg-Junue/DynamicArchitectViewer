@@ -1,13 +1,12 @@
 import type { Rect } from '../layout';
 import {
-  CALLOUT_DOT_CLEARANCE,
   CALLOUT_LABEL_CLEARANCE,
   CALLOUT_NODE_CLEARANCE,
   CALLOUT_RADIUS,
   type MeasuredCalloutCard,
   measureCalloutCard,
 } from './calloutMeasure';
-import { clamp, type Point, pointAt } from './geometry';
+import { pointAt } from './geometry';
 import type { Packet } from './resolve';
 
 export {
@@ -18,11 +17,10 @@ export {
   CALLOUT_CODE_RADIUS,
   CALLOUT_CODE_SIZE,
   CALLOUT_DESC_SIZE,
-  CALLOUT_DOT_CLEARANCE,
   CALLOUT_GAP,
-  CALLOUT_ICON_CLEARANCE,
   CALLOUT_LABEL_SIZE,
   CALLOUT_LINE_HEIGHT,
+  CALLOUT_NUMBER_ROOM,
   CALLOUT_OUTER_PAD_X,
   CALLOUT_RADIUS,
   estimateCalloutTextWidth,
@@ -50,7 +48,10 @@ export interface PacketCalloutBox {
   label: string;
   descLines: string[];
   code?: PacketCalloutCodeBox;
-  markerClearance?: number;
+  /** Width at the left that holds the stop number; the text and code start after it. */
+  numberRoom: number;
+  /** The number shared with the packet's stop on its rail, such as `2` or `5a`. */
+  number?: string;
 }
 
 const DIMMED_OBSTACLE_MAX_LIFT = 280;
@@ -62,7 +63,7 @@ export function placeCalloutBox(
 ): PacketCalloutBox {
   const placement: CalloutPlacement = packet.calloutPlacement ?? 'above';
   const isAbove = placement === 'above';
-  const { halfW, height, padX, label, descLines, code, markerClearance } = card;
+  const { halfW, height, padX, label, descLines, code, numberRoom } = card;
   const cx = mid.x + (packet.calloutShift ?? 0);
 
   const ys = [packet.path.p0.y, packet.path.p1.y, packet.path.p2.y, packet.path.p3.y, mid.y];
@@ -119,21 +120,28 @@ export function placeCalloutBox(
     placement,
     label,
     descLines,
-    markerClearance,
+    numberRoom,
   };
   if (code) box.code = code;
+  if (packet.stopLabel !== undefined) box.number = packet.stopLabel;
   return box;
 }
 
 /**
- * Computes the stationary speech-bubble box positioned above or below the packet's edge path.
- * Keeping the bubble body stationary while only its pointer tip tracks the moving dot
- * eliminates eye-tracking fatigue when reading multi-line descriptions and code blocks.
+ * The box of a packet's callout. It stays still while the packet moves, so that a description
+ * or a code block can be read without following anything.
+ *
+ * `separatePhaseCallouts` puts it above or below the rail; `refinePhaseCallouts` may then move
+ * it to a free spot on any side (`calloutAt`).
  */
 export function computePacketCalloutBox(packet: Packet): PacketCalloutBox | null {
   const card = measureCalloutCard(packet);
   if (!card) return null;
-  return placeCalloutBox(packet, card);
+  const box = placeCalloutBox(packet, card);
+  const at = packet.calloutAt;
+  if (!at) return box;
+  const height = box.boxBottom - box.boxTop;
+  return { ...box, cx: at.x + box.halfW, boxTop: at.y, boxBottom: at.y + height };
 }
 
 export function calloutRect(box: PacketCalloutBox): Rect {
@@ -145,67 +153,19 @@ export function calloutRect(box: PacketCalloutBox): Rect {
   };
 }
 
-/**
- * Builds the path of the stationary annotation box and its leader pointer, whose tip
- * dynamically follows `dot` along the edge path while keeping a constant 13-command
- * clockwise path structure for SMIL `<animate attributeName="d">` interpolation.
- */
-export function packetBubblePath(
-  box: PacketCalloutBox,
-  dot: Point,
-  markerClearance = box.markerClearance ?? CALLOUT_DOT_CLEARANCE,
-): string {
-  const { cx, halfW, boxTop, boxBottom, placement } = box;
-  const isBelow = placement === 'below';
+/** The outline of a callout: a rounded box. Nothing ties it to the packet but its number. */
+export function calloutOutline(box: PacketCalloutBox): string {
+  const { cx, halfW, boxTop, boxBottom } = box;
   const left = cx - halfW;
   const right = cx + halfW;
   const r = Math.min(CALLOUT_RADIUS, halfW, (boxBottom - boxTop) / 2);
   const n = (value: number) => value.toFixed(1);
-
-  const dy = isBelow ? Math.min(-14, dot.y - boxTop) : Math.max(14, dot.y - boxBottom);
-  const rawDist = Math.hypot(dot.x - cx, Math.abs(dy));
-  const tailHalf = Math.min(
-    clamp(300 / Math.max(50, rawDist), 1.8, 5.5),
-    Math.max(0, halfW - r - 6),
-  );
-  const maxOffset = Math.max(0, halfW - r - tailHalf - 8);
-  const baseX = cx + clamp((dot.x - cx) * 0.3, -maxOffset, maxOffset);
-  const baseLeft = baseX - tailHalf;
-  const baseRight = baseX + tailHalf;
-  const dx = dot.x - baseX;
-  const dist = Math.hypot(dx, dy);
-  const pull = Math.min(markerClearance, dist * 0.42);
-  const tipX = dot.x - (dx / dist) * pull;
-  const rawTipY = dot.y - (dy / dist) * pull;
-  const tipY = isBelow ? Math.min(boxTop - 4, rawTipY) : Math.max(boxBottom + 4, rawTipY);
-
-  if (isBelow) {
-    return [
-      `M ${n(left + r)} ${n(boxTop)}`,
-      `H ${n(baseLeft)}`,
-      `L ${n(tipX)} ${n(tipY)}`,
-      `L ${n(baseRight)} ${n(boxTop)}`,
-      `H ${n(right - r)}`,
-      `Q ${n(right)} ${n(boxTop)} ${n(right)} ${n(boxTop + r)}`,
-      `V ${n(boxBottom - r)}`,
-      `Q ${n(right)} ${n(boxBottom)} ${n(right - r)} ${n(boxBottom)}`,
-      `H ${n(left + r)}`,
-      `Q ${n(left)} ${n(boxBottom)} ${n(left)} ${n(boxBottom - r)}`,
-      `V ${n(boxTop + r)}`,
-      `Q ${n(left)} ${n(boxTop)} ${n(left + r)} ${n(boxTop)}`,
-      'Z',
-    ].join(' ');
-  }
-
   return [
     `M ${n(left + r)} ${n(boxTop)}`,
     `H ${n(right - r)}`,
     `Q ${n(right)} ${n(boxTop)} ${n(right)} ${n(boxTop + r)}`,
     `V ${n(boxBottom - r)}`,
     `Q ${n(right)} ${n(boxBottom)} ${n(right - r)} ${n(boxBottom)}`,
-    `H ${n(baseRight)}`,
-    `L ${n(tipX)} ${n(tipY)}`,
-    `L ${n(baseLeft)} ${n(boxBottom)}`,
     `H ${n(left + r)}`,
     `Q ${n(left)} ${n(boxBottom)} ${n(left)} ${n(boxBottom - r)}`,
     `V ${n(boxTop + r)}`,

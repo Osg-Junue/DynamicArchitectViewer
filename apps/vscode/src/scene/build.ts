@@ -3,7 +3,7 @@ import { EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH, pushToMap } from '../model/
 import { BUBBLE_HEADROOM, boundsOf } from './bounds';
 import { type Bezier, curveLength, type Point, pointAt, svgPath } from './geometry';
 import type { IconShapes } from './icons';
-import { buildPacket, iconGlyph } from './packet';
+import { buildPacket, iconGlyph, stopTextFill } from './packet';
 import { activeLabelFill, paint, THEME_COLOR } from './paint';
 import {
   DEFAULT_FLOW_COLOR,
@@ -224,6 +224,8 @@ function stopPoints(path: Bezier, count: number): Point[] {
 }
 
 function stopElement(packet: Packet, phase: number, { x, y }: Point): VElement {
+  // The same number as on the packet's callout; a letter tells apart the packets of one phase.
+  const label = packet.stopLabel ?? String(phase + 1);
   return h(
     'g',
     {
@@ -231,13 +233,20 @@ function stopElement(packet: Packet, phase: number, { x, y }: Point): VElement {
       'data-phase': phase,
       // Read by syncPhaseHighlights while this phase is running.
       'data-active-fill': paint(packet.color),
-      'data-active-text': packet.color === DEFAULT_FLOW_COLOR ? '#ffffff' : THEME_COLOR.bg,
+      'data-active-text': stopTextFill(packet.color),
     },
     h('circle', { cx: x, cy: y, r: 11, fill: THEME_COLOR.fg }),
     h(
       'text',
-      { x, y: y + 4, 'text-anchor': 'middle', 'font-size': 11, fill: THEME_COLOR.bg },
-      String(phase + 1),
+      {
+        x,
+        y: y + 4,
+        'text-anchor': 'middle',
+        // A phase of two digits and a letter still fits the circle.
+        'font-size': label.length > 2 ? 9 : 11,
+        fill: THEME_COLOR.bg,
+      },
+      label,
     ),
   );
 }

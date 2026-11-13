@@ -26,8 +26,8 @@ const CALLOUT_CODE_MAX_LINES = 10;
 const CALLOUT_CODE_MAX_TEXT_WIDTH = 404;
 export const CALLOUT_CODE_HEADER_HEIGHT = 28;
 
-export const CALLOUT_DOT_CLEARANCE = 13;
-export const CALLOUT_ICON_CLEARANCE = 21;
+/** Room on the left of a callout for the number it shares with its stop on the rail. */
+export const CALLOUT_NUMBER_ROOM = 24;
 
 /** Keeps a callout clear of its endpoint nodes, including their badges, crop marks, and subtitles. */
 export const CALLOUT_NODE_CLEARANCE = 16;
@@ -192,7 +192,8 @@ export interface MeasuredCalloutCard {
   label: string;
   descLines: string[];
   code?: PacketCalloutCodeBox;
-  markerClearance: number;
+  /** Width added on the left for the stop number; the content starts after it. */
+  numberRoom: number;
 }
 
 export function measureCalloutCard(packet: Packet): MeasuredCalloutCard | null {
@@ -253,7 +254,8 @@ export function measureCalloutCard(packet: Packet): MeasuredCalloutCard | null {
   const phiFloorW = codeSpec ? clamp(Math.round(height * PHI), 220, 368) : 0;
   const minW = codeSpec ? phiFloorW : descLines.length > 0 ? 196 : 60;
   const width = Math.max(minW, Math.ceil(contentW + padX * 2));
-  const halfW = width / 2;
+  const numberRoom = packet.stopLabel === undefined ? 0 : CALLOUT_NUMBER_ROOM;
+  const halfW = (width + numberRoom) / 2;
 
   const card: MeasuredCalloutCard = {
     halfW,
@@ -261,7 +263,7 @@ export function measureCalloutCard(packet: Packet): MeasuredCalloutCard | null {
     padX,
     label,
     descLines,
-    markerClearance: packet.icon ? CALLOUT_ICON_CLEARANCE : CALLOUT_DOT_CLEARANCE,
+    numberRoom,
   };
   if (codeSpec) {
     card.code = {

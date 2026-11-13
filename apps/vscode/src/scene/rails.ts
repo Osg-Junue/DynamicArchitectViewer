@@ -19,7 +19,7 @@ const STATION_CLEARANCE = 12;
 const LABEL_AREA_WIDTH = 96;
 
 /** The part of a node a rail must not cross: its station and the labels below it. */
-function stationArea(node: ResolvedNode): Rect {
+export function stationArea(node: ResolvedNode): Rect {
   const station = stationRect(node.rect, node.icon);
   const width = Math.max(station.width + STATION_CLEARANCE * 2, LABEL_AREA_WIDTH);
   const top = station.y - STATION_CLEARANCE;

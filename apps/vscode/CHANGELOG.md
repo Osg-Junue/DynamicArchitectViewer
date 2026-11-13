@@ -9,7 +9,8 @@ The `dav` language version is separate from the extension version.
 - The preview's Export button opens a menu: standalone HTML, animated SVG, animated SVG of the whole diagram, or still SVG
 - The Export menu can export only the step the preview shows, animated or as a still picture of that step
 - `animate` takes a `code` block: a monospace snippet with an optional language and title, shown inside the packet's callout in the preview and in exported HTML and SVG
-- A callout is placed above or below its rail, whichever keeps it clear of other rails and nodes
+- Callouts sit next to their rail, on any side of it, instead of far above or below a steep one or outside a nest of zones. They no longer hide a rail of the step
+- A callout has no pointer any more. It carries the number of its packet's stop on the rail, and packets that run in one phase are told apart by a letter (`5a`, `5b`)
 - The preview opens faster: its styles and the document are part of the page, and the documentation loads when first opened
 - Opening the preview leaves the focus in the editor, and the preview comes back after the window reloads
 - New Diagram from Sample Template describes each sample, in Japanese when that is the display language
