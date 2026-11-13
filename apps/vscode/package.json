@@ -140,7 +140,7 @@
     "build:runtime": "vite build --config vite.runtime.config.ts --logLevel warn",
     "build:webview": "vite build --config vite.config.ts --logLevel warn",
     "build:extension": "vite build --config vite.extension.config.ts --logLevel warn",
-    "build:skill": "vite build --config vite.skill.config.ts --logLevel warn",
+    "build:skill": "vite build --config vite.skill.config.ts --logLevel warn && vite build --config vite.skill.config.ts --mode reading --logLevel warn",
     "dev": "npm run build:runtime && vite",
     "build": "npm run build:runtime && npm run build:webview && npm run build:extension && npm run build:skill",
     "package": "npm run build && vsce package --no-dependencies --baseContentUrl https://github.com/Osg-Junue/DynamicArchitectViewer/blob/HEAD/apps/vscode --baseImagesUrl https://github.com/Osg-Junue/DynamicArchitectViewer/raw/HEAD/apps/vscode -o dist/dynamic-architect-viewer.vsix",

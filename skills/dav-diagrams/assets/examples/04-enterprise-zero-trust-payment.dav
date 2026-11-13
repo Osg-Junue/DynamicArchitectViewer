@@ -61,7 +61,16 @@ step "End-to-end payment in ten animations" {
   animate bff <-> redis : "6. Lock Idempotency" [desc: "Redis atomically locks the idempotency key, preventing a double charge on retries"]
   animate bff <-> fraud_ai : "7. AI Risk Check" [desc: "The fraud engine scores device fingerprint and purchase behavior in 12 ms"]
   animate bff --> order_svc : "8. Start Order Saga" [desc: "With the risk check passed, the Order Service starts the distributed transaction"]
-  animate order_svc --> aurora : "9. INSERT Order" [desc: "The order and its outbox event are saved in a single transaction"]
+  animate order_svc --> aurora : "9. INSERT Order" [desc: "The order and its outbox event are saved in a single transaction"] {
+    code sql "Order + Outbox" ```
+      BEGIN;
+      INSERT INTO orders (id, total_cents, status)
+      VALUES ('ord_7731', 12800, 'PENDING');
+      INSERT INTO outbox (topic, order_id)
+      VALUES ('OrderCreated', 'ord_7731');
+      COMMIT;
+    ```
+  }
   animate order_svc --> pay_svc : "10. Capture & Audit" [desc: "The isolated Payment Service captures the charge and emits the audit event"]
 }
 
@@ -75,6 +84,14 @@ step "Blocking fraud with a compensating transaction" {
   animate bff <-> fraud_ai : "1. Score 0.96 ( Fraud )" [color: red, desc: "The engine detects an abnormal card pattern and returns a high risk score"]
   animate bff --> order_svc : "2. Cancel Saga" [color: red, desc: "The BFF stops the payment and tells the Order Service to compensate"]
   animate order_svc --> aurora : "3. UPDATE REJECTED" [color: red, desc: "The order is marked REJECTED and reserved stock is released"]
-  animate order_svc --> kafka : "4. FraudAlertEvent" [color: red, desc: "A fraud alert is published to the security monitoring topic"]
+  animate order_svc --> kafka : "4. FraudAlertEvent" [color: red, desc: "A fraud alert is published to the security monitoring topic"] {
+    code json "FraudAlertEvent" ```
+      {
+        "event": "fraud.alert",
+        "orderId": "ord_7731",
+        "riskScore": 0.96
+      }
+    ```
+  }
   animate kafka --> s3_audit : "5. Write Forensics" [color: red, desc: "Forensic logs are stored in the write-once audit vault"]
 }

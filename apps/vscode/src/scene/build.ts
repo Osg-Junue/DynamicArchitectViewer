@@ -13,7 +13,15 @@ import {
   type ResolvedNode,
   type ResolvedView,
 } from './resolve';
-import { estimateTextWidth, fitText } from './text';
+import {
+  BADGE_MAX_WIDTH,
+  BADGE_SIZE,
+  estimateTextWidth,
+  fitText,
+  NODE_LABEL_SIZE,
+  NODE_SUB_SIZE,
+  NODE_TEXT_INSET,
+} from './text';
 import { h, type VElement } from './vnode';
 import { ZONE_LABEL, zoneLabelRoom } from './zones';
 
@@ -103,6 +111,11 @@ function groupElement(g: ResolvedGroup): VElement {
       rx: 14,
       fill: g.color ? paint(g.color) : THEME_COLOR.fg,
       'fill-opacity': g.color ? 0.14 : 0.07,
+      // A hairline in the zone's own color: the tint alone barely differs from the background.
+      stroke: g.color ? paint(g.color) : THEME_COLOR.fg,
+      'stroke-opacity': g.color ? 0.55 : 0.28,
+      'stroke-width': 1,
+      'vector-effect': 'non-scaling-stroke',
     }),
   );
 }
@@ -286,7 +299,7 @@ function nodeElement(n: ResolvedNode, icons: IconShapes): VElement {
   };
   const iconCy = isWindow ? cy + WINDOW_BAR / 2 : cy;
   const iconSize = isWindow ? WINDOW_ICON_SIZE : ICON_SIZE;
-  const textWidth = width - 8;
+  const textWidth = width - NODE_TEXT_INSET;
 
   return h(
     'g',
@@ -314,10 +327,10 @@ function nodeElement(n: ResolvedNode, icons: IconShapes): VElement {
         y: y + NODE_LABEL_OFFSET,
         'text-anchor': 'middle',
         class: 'dav-node-label',
-        'font-size': 14,
+        'font-size': NODE_LABEL_SIZE,
         fill: THEME_COLOR.fg,
       },
-      fitText(n.label, 14, textWidth),
+      fitText(n.label, NODE_LABEL_SIZE, textWidth),
     ),
     n.sub
       ? h(
@@ -327,10 +340,10 @@ function nodeElement(n: ResolvedNode, icons: IconShapes): VElement {
             y: y + NODE_LABEL_OFFSET + 17,
             'text-anchor': 'middle',
             class: 'dav-node-sub',
-            'font-size': 11.5,
+            'font-size': NODE_SUB_SIZE,
             fill: THEME_COLOR.fg,
           },
-          fitText(n.sub, 11.5, textWidth),
+          fitText(n.sub, NODE_SUB_SIZE, textWidth),
         )
       : null,
     n.badge ? badge(cx, station.y, n.badge, accent ?? THEME_COLOR.fg) : null,
@@ -359,8 +372,8 @@ function windowBar(station: Rect, stroke: string): VElement {
 }
 
 function badge(cx: number, stationTop: number, text: string, color: string): VElement {
-  const label = fitText(text, 11, 120);
-  const width = estimateTextWidth(label, 11) + 16;
+  const label = fitText(text, BADGE_SIZE, BADGE_MAX_WIDTH);
+  const width = estimateTextWidth(label, BADGE_SIZE) + 16;
   const y = stationTop - 25;
   return h(
     'g',
@@ -368,7 +381,13 @@ function badge(cx: number, stationTop: number, text: string, color: string): VEl
     h('rect', { x: cx - width / 2, y, width, height: 20, rx: 10, fill: color }),
     h(
       'text',
-      { x: cx, y: y + 14, 'text-anchor': 'middle', 'font-size': 11, fill: THEME_COLOR.bg },
+      {
+        x: cx,
+        y: y + 14,
+        'text-anchor': 'middle',
+        'font-size': BADGE_SIZE,
+        fill: THEME_COLOR.bg,
+      },
       label,
     ),
   );

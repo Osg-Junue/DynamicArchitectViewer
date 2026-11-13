@@ -2,6 +2,7 @@
 //   pv     out/pv-ja.mp4, out/pv-en.mp4       (main cut with sound)
 //   short  out/pv-short-ja.mp4, -en.mp4       (SNS cut with sound)
 //   gifs   apps/vscode/media/demo.gif and docs/media/*.gif from the --docs renders
+//          (the animated SVGs of the READMEs come from svg.mjs)
 // Run capture.mjs, build-rec.mjs and sfx.mjs first (see README.md).
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, statSync, writeFileSync } from 'node:fs';
@@ -109,7 +110,6 @@ if (what === 'short' || what === 'all')
   for (const lang of ['ja', 'en']) video('pv-short', SHORT, lang, `sfx-short-${lang}.wav`);
 if (what === 'gifs' || what === 'all') {
   gif('c06_cursor', 'apps/vscode/media/demo.gif');
-  gif('c07_follow', 'docs/media/follow.gif');
   gif('c04_skill', 'docs/media/skill-install.gif');
   gif('c08_docs', 'docs/media/docs-guide.gif');
 }

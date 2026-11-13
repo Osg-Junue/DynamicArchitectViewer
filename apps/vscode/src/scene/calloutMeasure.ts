@@ -22,7 +22,7 @@ export const CALLOUT_CODE_SIZE = 11.5;
 export const CALLOUT_CODE_HEAD_SIZE = 11;
 export const CALLOUT_CODE_LINE_HEIGHT = 17.5;
 export const CALLOUT_CODE_PAD_X = 13;
-const CALLOUT_CODE_MAX_LINES = 10;
+export const CALLOUT_CODE_MAX_LINES = 10;
 const CALLOUT_CODE_MAX_TEXT_WIDTH = 404;
 export const CALLOUT_CODE_HEADER_HEIGHT = 28;
 
@@ -196,7 +196,39 @@ export interface MeasuredCalloutCard {
   numberRoom: number;
 }
 
-export function measureCalloutCard(packet: Packet): MeasuredCalloutCard | null {
+/** What a callout shows of a packet. */
+type CalloutText = Pick<Packet, 'label' | 'description' | 'code' | 'stopLabel'>;
+
+/** What of a callout's text does not fit, and is shown cut off with an ellipsis. */
+export interface CalloutCuts {
+  label: boolean;
+  description: boolean;
+  /** How many lines the code has, when that is more than the callout shows; otherwise 0. */
+  codeLines: number;
+  /** The lines of the code, counted from 1, that are too wide. */
+  wideCodeLines: number[];
+}
+
+/** Which parts of a packet's label, description and code a callout cuts. */
+export function calloutCuts(text: CalloutText): CalloutCuts {
+  const card = measureCalloutCard(text);
+  const lines = text.code
+    ? normalizeCodeIndent(text.code.body, { stripAllOuterBlankLines: true }).split('\n')
+    : [];
+  const shown = card?.code?.lines ?? [];
+  const tooMany = lines.length > CALLOUT_CODE_MAX_LINES;
+  return {
+    label: Boolean(text.label) && card?.label !== text.label,
+    description:
+      countEllipses((card?.descLines ?? []).join('')) > countEllipses(text.description ?? ''),
+    codeLines: tooMany ? lines.length : 0,
+    wideCodeLines: lines.flatMap((line, i) =>
+      i < shown.length - (tooMany ? 1 : 0) && shown[i] !== line ? [i + 1] : [],
+    ),
+  };
+}
+
+export function measureCalloutCard(packet: CalloutText): MeasuredCalloutCard | null {
   const codeSpec = packet.code ? prepareCodeSpec(packet.code) : undefined;
   const label = packet.label
     ? fitCalloutText(packet.label, CALLOUT_LABEL_SIZE, CALLOUT_MAX_TEXT_WIDTH, 'bold')

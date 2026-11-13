@@ -25,6 +25,7 @@ npx vsce login osg-junue
 - [ ] For the first release: confirm that this release freezes `dav 1`.
 - [ ] `version` in `apps/vscode/package.json` and `apps/vscode/CHANGELOG.md` are updated.
 - [ ] The commit to publish is on the default branch, because README images are read from GitHub's `HEAD`.
+- [ ] The animations in the READMEs and docs show the current look. [`promo/pv`](../promo/pv/README.md) renders them again.
 - [ ] `npm run check` passes at the repository root.
 - [ ] `npx playwright test` passes in `apps/vscode`.
 
@@ -42,7 +43,7 @@ This creates `apps/vscode/dist/dynamic-architect-viewer.vsix`, which is a ZIP fi
 | :--- | :--- |
 | `dist/extension.cjs` | The extension host, with its dependencies bundled |
 | `dist/webview/` | The preview webview |
-| `dist/skill/` | The agent skill for the install command |
+| `dist/skill/` | The agent skills for the install command |
 | `media/icon.png`, `media/file-icon-*.svg` | The extension icon and `.dav` file icons |
 | `syntaxes/`, `language-configuration.json` | Language definition |
 | `package.json`, `package.nls*.json` | Manifest and translations |

@@ -264,7 +264,7 @@ describe('extension commands', () => {
     const packaged = '/ext/dist/skill/dav-diagrams';
     const workspaceTarget = '/repo/.claude/skills/dav-diagrams';
 
-    it('copies the packaged skill into the workspace of the chosen agent', async () => {
+    it('copies the packaged skills into the workspace of the chosen agent', async () => {
       host.workspaceFolders = [{ uri: { fsPath: '/repo' } }];
 
       await run('dav.installAgentSkill');
@@ -277,7 +277,10 @@ describe('extension commands', () => {
         '.agents/skills',
         '~/.agents/skills',
       ]);
-      expect(host.copied).toEqual([{ from: packaged, to: workspaceTarget }]);
+      expect(host.copied).toEqual([
+        { from: packaged, to: workspaceTarget },
+        { from: '/ext/dist/skill/dav-reading', to: '/repo/.claude/skills/dav-reading' },
+      ]);
     });
 
     it('offers only personal locations without a workspace', async () => {
@@ -301,7 +304,7 @@ describe('extension commands', () => {
 
     it.each([
       [undefined, 0],
-      ['Replace', 1],
+      ['Replace', 2],
     ])('replaces an existing skill only after confirmation (%s)', async (answer, copies) => {
       host.workspaceFolders = [{ uri: { fsPath: '/repo' } }];
       host.existing.add(workspaceTarget);

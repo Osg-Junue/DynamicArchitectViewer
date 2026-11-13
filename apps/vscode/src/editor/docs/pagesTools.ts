@@ -21,8 +21,16 @@ function renderSkill(ctx: DocContext): Node[] {
         'The bundled `dav-check` runs the same parser and formatter as the editor, so the agent can fix its own diagnostics until none remain (needs Node.js 18 or later).',
       ),
       t(
+        '`--detail` を付けると、説明やコードが足りない箇所と、長すぎて途中で切れる文字も報告します。エージェントは見えない図を、指摘がなくなるまで詳しくできます。',
+        'With `--detail` it also reports missing descriptions and code, and text too long to be shown in full, so that the agent can add detail to a diagram it cannot see.',
+      ),
+      t(
         '仕様書と7つのサンプルを同梱しており、必要なときだけ参照します。',
         'It includes the specification and seven examples, which are read only when needed.',
+      ),
+      t(
+        'もう1つのスキル `dav-reading` は、`.dav` を読んで構成やデータの流れを説明するためのものです。同梱の `dav-outline` が、参照を解決した構成と、各ステップのパケットを進む順に出力します。',
+        'A second skill, `dav-reading`, is for explaining the architecture and the data flows a `.dav` file describes. Its bundled `dav-outline` prints the structure with every reference resolved, and the packets of each step in the order they travel.',
       ),
     ]),
     h2(t('VS Code からインストール', 'Install from VS Code')),
@@ -62,6 +70,7 @@ function renderSkill(ctx: DocContext): Node[] {
       'div',
       { class: 'doc-commands' },
       commandLine(t, 'npx skills add Osg-Junue/DynamicArchitectViewer --skill dav-diagrams'),
+      commandLine(t, 'npx skills add Osg-Junue/DynamicArchitectViewer --skill dav-reading'),
     ),
     h2(t('使い方', 'Using it')),
     p(
@@ -143,8 +152,8 @@ export const TOOLS_PAGES: readonly DocPage[] = [
     group: 'tools',
     title: ['AIエージェントスキル', 'AI agent skill'],
     lead: [
-      'Claude Code や GitHub Copilot などのコーディングエージェントに、`.dav` の書き方と検証方法を教えるスキルです。',
-      'A skill that teaches coding agents such as Claude Code and GitHub Copilot to write and validate `.dav` files.',
+      'Claude Code や GitHub Copilot などのコーディングエージェントに、`.dav` の書き方・検証方法と読み解き方を教えるスキルです。',
+      'Skills that teach coding agents such as Claude Code and GitHub Copilot to write, validate and explain `.dav` files.',
     ],
     render: renderSkill,
   },
