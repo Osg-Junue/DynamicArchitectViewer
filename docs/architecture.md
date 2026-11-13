@@ -62,7 +62,7 @@ All paths are under `apps/vscode/src`.
 | `runtime/` | `Player`, shared by the preview and exported HTML | `scene`, `layout`, `model` |
 | `exporter/` | Standalone HTML and SVG export, HTML import | `dsl`, `layout`, `model`, `scene`, `runtime` |
 | `prompt/` | Prompt template that teaches the language to AI agents | `model` |
-| `skill/` | The `dav-check` and `dav-outline` commands bundled with the agent skills | `dsl`, `model`, `scene` |
+| `skill/` | The `dav-check` and `dav-outline` commands bundled with the agent skills | `dsl`, `layout`, `model`, `scene` |
 | `protocol/` | Types of the messages between extension and webview | `model` |
 | `samples/` | Sample diagrams for the New Diagram command | Nothing |
 | `editor/` | The preview webview UI and its documentation | Most of the above |
@@ -195,7 +195,7 @@ The extension and webview talk through typed messages in `protocol/messages.ts`:
 | `dav-reading/scripts/dav-outline.mjs` | `src/skill/outline.ts`, bundled the same way |
 | `dav-reading/references/` | `docs/specification.md` |
 
-`dav-check` prints the diagnostics of the parser and can format the file. With `--detail` it also prints hints (`src/skill/review.ts`): an edge or packet without a label, a step or packet without a `desc`, a packet that travels where no edge is declared, a diagram without any `code`, and every text that is drawn cut off. Hints are not diagnostics of the language, so the editor does not show them. What is cut off comes from `scene/textCuts.ts`, which asks the same code that draws the text, so the checker cannot disagree with the preview.
+`dav-check` prints the diagnostics of the parser and can format the file. With `--detail` it also prints hints (`src/skill/review.ts`): an edge or packet without a label, a step or packet without a `desc`, a packet that travels where no edge is declared, a diagram without any `code`, and every text that is drawn cut off. Hints are not diagnostics of the language, so the editor does not show them. What is cut off comes from `scene/textCuts.ts`, which asks the same code that draws the text, so the checker cannot disagree with the preview. `--detail` also describes the layout (`src/skill/layoutReport.ts`): the size and proportion of the diagram, the columns and rows its nodes and zones take, and how many connections cross, with notes on a zone stacked in one column, a diagram much taller than wide, and crossings. These lines do not fail the check; they stand in for the look at the preview that an agent cannot take.
 
 `dav-outline` prints what a file says as Markdown or JSON: zones and nodes with their labels, every edge, and for each step its packets in the order they travel, what the step changes and what still shows from earlier steps.
 

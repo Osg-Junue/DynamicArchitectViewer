@@ -1,12 +1,13 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { format, formatDiagnostic, parse } from '../dsl';
 import { lineAtOffset } from '../model/text';
+import { layoutReport } from './layoutReport';
 import { reviewDetail } from './review';
 
 /**
  * The checker bundled with the agent skill: the diagnostics and formatter of the extension,
  * for agents that cannot see the editor. With `--detail` it also reports where a diagram that
- * compiles says less than it could, or shows a text cut off.
+ * compiles says less than it could, or shows a text cut off, and describes its layout.
  */
 
 const USAGE = 'Usage: node dav-check.mjs [--write] [--detail] <file.dav>...';
@@ -43,6 +44,12 @@ function checkFile(file: string, write: boolean, detail: boolean): boolean {
   // Hints describe the diagram, so they wait until it compiles.
   const hints = detail && diagnostics.length === 0 ? reviewDetail(document) : [];
   for (const hint of hints) console.log(`${file}: hint ${hint.code}: ${hint.message}`);
+  // The layout is described, not judged: its lines and notes do not fail the check.
+  if (detail && diagnostics.length === 0) {
+    const { summary, notes } = layoutReport(document);
+    for (const line of summary) console.log(`${file}: ${line}`);
+    for (const note of notes) console.log(`${file}: note ${note.code}: ${note.message}`);
+  }
 
   if (diagnostics.length === 0 && hints.length === 0) {
     const { nodes, edges, steps } = document;

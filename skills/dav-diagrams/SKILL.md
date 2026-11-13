@@ -20,7 +20,7 @@ Follow the workflow in order. Do not skip step 5: the checker is the only way to
    - for each message in a scenario: what is sent, and a realistic example of it.
 
    Do not invent components. If a fact is missing and the user cannot be asked, leave it out. When changing an existing `.dav` file, edit it in place and keep its IDs and comments.
-2. **Declare the structure:** `node`, `group`, then edges. Write edges in the direction the diagram should read, because they set the columns.
+2. **Declare the structure:** `node`, `group`, then edges. Write edges in the direction the diagram should read, because they set the columns. Declare an edge for every way a packet will go, a self-loop (`api --> api`) for a node that retries or changes state on its own included.
 3. **Script the steps,** one scene per `step`. See [Scripting steps](#scripting-steps).
 4. **Fill in the detail** until the file meets [What a detailed diagram has](#what-a-detailed-diagram-has).
 5. **Validate, format and review.** `<skill-dir>` is the directory that contains this file:
@@ -29,23 +29,25 @@ Follow the workflow in order. Do not skip step 5: the checker is the only way to
    node <skill-dir>/scripts/dav-check.mjs --write --detail path/to/diagram.dav
    ```
 
-   It uses the same parser and formatter as the VS Code extension. `--write` formats the file. `--detail` also reports where the diagram says too little and which texts are too long to be shown in full.
+   It uses the same parser and formatter as the VS Code extension. `--write` formats the file. `--detail` also reports where the diagram says too little and which texts are too long to be shown in full, and describes the layout.
 
    | Line it prints | Meaning | What to do |
    | :--- | :--- | :--- |
    | `file:line:column: error code: message` | The file does not compile | Fix it |
    | `file:line:column: warning code: message` | Part of the file is being ignored | Fix it |
    | `file: hint code: message` | Detail is missing, or a text is cut off | Do what the message says |
-   | `file: ok (...)` | Nothing left | Done |
+   | `file: layout: ...` | Where the layout puts things | Check it against what you meant. See [Reading the layout lines](#reading-the-layout-lines) |
+   | `file: note code: message` | A shape of the layout that is often not meant | Act on it if its reason applies; otherwise leave it |
+   | `file: ok (...)` | Nothing left to fix in the file. The checker never sees the code, so it does not say that the diagram is true: that comes from step 1 | Done |
 
    | Exit code | Meaning |
    | :--- | :--- |
    | `0` | Nothing was reported |
-   | `1` | At least one error, warning or hint |
+   | `1` | At least one error, warning or hint. `layout` and `note` lines do not count |
    | `2` | Bad arguments or an unreadable file |
 
    Run it again after every fix, until it exits with `0`. Leave out `--detail` only when the user asked for a minimal diagram.
-6. **Report.** Give the path, and tell the user to open the file in VS Code with the [DynamicArchitectViewer extension](https://marketplace.visualstudio.com/items?itemName=osg-junue.dynamic-architect-viewer) and press `Ctrl+Shift+V` (`⌘⇧V` on macOS). The checker does not render, so never claim to have seen the result. If Node.js is unavailable, compare the file against [the specification](references/specification.md) and the lists below by hand, and say that it was not validated.
+6. **Report.** Give the path, and tell the user to open the file in VS Code with the [DynamicArchitectViewer extension](https://marketplace.visualstudio.com/items?itemName=osg-junue.dynamic-architect-viewer) and press `Ctrl+Shift+V` (`⌘⇧V` on macOS). The checker describes the layout but does not render it, so never claim to have seen the result. If Node.js is unavailable, compare the file against [the specification](references/specification.md) and the lists below by hand, and say that it was not validated.
 
 Write titles, labels and descriptions in the user's language. IDs must stay ASCII.
 
@@ -77,6 +79,8 @@ Nothing wraps except `desc`. A longer text is cut off with `…`, and `--detail`
 | `animate` label | 44 | 27 |
 | `animate` `desc` | 170, in up to four lines | 95 |
 | `code` | 10 lines of 55 characters | 10 lines of 35 |
+
+The column to read depends on the characters, not on the language of the diagram: SQL, JSON and HTTP are Latin letters in a Japanese diagram too, so a line of `code` fits about 55 there as well.
 
 A step's own `desc` is shown above the diagram and has no such limit; keep it to one or two sentences anyway.
 
@@ -207,6 +211,26 @@ There is no icon for a product. Pick the kind, and name the product in `sub`: `[
 
 [The layout guide](references/layout.md) has recipes for moving a node.
 
+### Reading the layout lines
+
+`--detail` prints the layout the preview will draw. The layout depends on the text alone, so the numbers are exact.
+
+| In the line | Meaning |
+| :--- | :--- |
+| `1300 x 778 (1.7 : 1)` | The size of the whole diagram and its proportion. One node takes 176 x 118 |
+| `6 columns x 4 rows of nodes` | How many different places the nodes take across and down. A node with `visible: false` keeps its place and is counted |
+| `0 crossings` | Pairs of connections that cross, counted on straight lines between the nodes. The drawn rails go round nodes, so it is a guide. A `note` names the pairs |
+| `"Backend" 3 x 2` | The columns and rows the nodes of that zone take |
+
+The layout is chosen as a whole, so one more edge, even a self-loop, can move zones to other places. Read the lines again after every change to the structure.
+
+Compare them with the picture you had in mind:
+
+- **A flow should read across.** Count the nodes on the longest path from an entry point: the diagram should have about that many columns. Fewer means an edge points the wrong way or is missing.
+- **A zone of one column** holds nodes that no edge orders. That is right for peers, such as replicas or separate stores. If one of them feeds another, declare that edge.
+- **Wider than tall is usual:** the bundled examples are between 2 : 1 and 6 : 1. A diagram taller than wide usually has such a stacked zone.
+- **Crossings** often go away when two nodes of one column swap their declarations.
+
 ## Scripting steps
 
 | Statement | Lasts for | Use it to |
@@ -216,9 +240,9 @@ There is no icon for a product. Pick the kind, and name the product in `sub`: `[
 | `state` | **This step and all later ones** | Change a badge, color or visibility |
 | `animate` | This step | Move a packet between two nodes |
 
-- **Keep each step to one idea,** usually two to five packets. The player numbers steps, so titles do not need numbers.
+- **Keep each step to one idea,** usually two to five packets. Start a new step where the outcome changes: the request and the failure it meets are one scene, the reaction to it (a retry, a rollback, a fallback) is the next. A reply that returns through several nodes may take a step past five packets; do not cut a path in two to stay under a count. The player numbers steps, so titles do not need numbers.
 - **Order packets deliberately.** Each `animate` is one phase, played in order. `[parallel: true]` joins the preceding one, for work that really is concurrent.
-- **Run packets along declared edges.** A packet without an edge has no line to follow, and `--detail` reports it. For replies, make the edge `<->` or declare a separate reverse edge, and send a reply back through every node the request came through. Two edges in opposite directions do not need an `id`, but a second edge in the same direction does.
+- **Run packets along declared edges.** A packet without an edge has no line to follow, and `--detail` reports it with the hops to send instead or the edges to make two-way. For replies, make the edge `<->` or declare a separate reverse edge, and send a reply back through every node the request came through. Two edges in opposite directions do not need an `id`, but a second edge in the same direction does.
 - **Use `<->` in `animate` for a call and its answer,** when the answer needs no words of its own. Use two packets when the answer matters, such as an error.
 - **Clean up `state`.** Badges and colors carry over. To end one, write `badge: ""` or `color: none`, or a badge from step 2 will still be showing in step 8.
 - **Let `animate` and `state` set the emphasis.** Their targets are emphasized automatically, so add `focus` only for nodes that have neither. Any of the three dims the other nodes and hides the edges that do not join two emphasized nodes, so `focus` on both ends of an edge is also how to keep that edge on screen.
@@ -265,7 +289,7 @@ animate api --> cache : "GET cart" [code: "GET cart:88"]
 | An event or queue message | The event name and its key fields | `json` |
 | A command, a config or a log line | The line itself | `sh`, `yaml`, `text` |
 
-Keep it to the lines that matter, at most 10 lines of 55 characters. Never put real secrets, tokens or personal data in it: use obvious placeholders such as `tok_test_123`.
+Keep it to the lines that matter, at most 10 lines of 55 characters. Break a longer line where it reads naturally: after a comma in JSON, before a clause in SQL. Never put real secrets, tokens or personal data in it: use obvious placeholders such as `tok_test_123`.
 
 ## Common mistakes
 

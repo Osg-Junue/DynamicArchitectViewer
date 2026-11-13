@@ -21,8 +21,8 @@ function renderSkill(ctx: DocContext): Node[] {
         'The bundled `dav-check` runs the same parser and formatter as the editor, so the agent can fix its own diagnostics until none remain (needs Node.js 18 or later).',
       ),
       t(
-        '`--detail` を付けると、説明やコードが足りない箇所と、長すぎて途中で切れる文字も報告します。エージェントは見えない図を、指摘がなくなるまで詳しくできます。',
-        'With `--detail` it also reports missing descriptions and code, and text too long to be shown in full, so that the agent can add detail to a diagram it cannot see.',
+        '`--detail` を付けると、説明やコードが足りない箇所と、長すぎて途中で切れる文字も報告します。エージェントは見えない図を、指摘がなくなるまで詳しくできます。図の大きさ、列と行の数、線の交差といったレイアウトの要約も出します。',
+        'With `--detail` it also reports missing descriptions and code, and text too long to be shown in full, so that the agent can add detail to a diagram it cannot see. It describes the layout as well: the size of the diagram, its columns and rows, and connections that cross.',
       ),
       t(
         '仕様書と7つのサンプルを同梱しており、必要なときだけ参照します。',
