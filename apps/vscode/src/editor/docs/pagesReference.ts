@@ -21,8 +21,8 @@ export const REFERENCE_PAGES: readonly DocPage[] = [
     group: 'reference',
     title: ['再生と操作', 'Playback & controls'],
     lead: [
-      'ビュアーの再生の仕組みと操作の一覧です。',
-      'How playback is timed, and every viewer control.',
+      'ビュアーの再生の仕組みと、操作と書き出しの一覧です。',
+      'How playback is timed, every viewer control, and the export formats.',
     ],
     render(ctx) {
       const { t } = ctx;
@@ -86,6 +86,43 @@ export const REFERENCE_PAGES: readonly DocPage[] = [
               t(
                 '再生中のパケットへカメラを追従させます。',
                 'Keeps the camera on the running packets.',
+              ),
+            ],
+          ],
+        ),
+        h2(t('書き出し', 'Export')),
+        p(
+          t(
+            'ツールバーの「書き出す」で、図をファイルに保存します。ステップを表示している間は、すべてのステップか、そのステップだけかを選べます（HTML には常にすべてのステップが入ります）。構文エラーがある間は書き出せません。',
+            'The Export button in the toolbar saves the diagram as a file. While a step is shown, the menu offers every step or only that step (an HTML file always holds every step). Nothing is exported while the text has a syntax error.',
+          ),
+        ),
+        table(
+          [t('形式', 'Format'), t('内容', 'What it is')],
+          [
+            [
+              t('単一 HTML', 'Standalone HTML'),
+              t(
+                '操作できる 1 ファイルです。オフラインで動き、元の `.dav` を取り出せます。',
+                'One interactive file. It works offline, and the `.dav` source can be extracted from it again.',
+              ),
+            ],
+            [
+              t('アニメーション SVG', 'Animated SVG'),
+              t(
+                'カメラが流れを追いながら、繰り返し再生します。スクリプトを使わないので、GitHub や GitLab の README に画像としてそのまま載せられます。',
+                'Plays in a loop with the camera following the flow. It runs no script, so GitHub and GitLab show it as an image in a README.',
+              ),
+            ],
+            [
+              t('アニメーション SVG（全体固定）', 'Animated SVG, whole diagram'),
+              t('図全体を映したまま再生します。', 'Plays with the whole diagram in view.'),
+            ],
+            [
+              t('静止画 SVG', 'Still SVG'),
+              t(
+                '全体図、または選んだステップを 1 枚の画像にします。',
+                'One picture of the overview, or of the chosen step.',
               ),
             ],
           ],

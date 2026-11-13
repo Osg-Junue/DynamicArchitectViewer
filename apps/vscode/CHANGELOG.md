@@ -22,6 +22,7 @@ The first stable release: the extension is no longer marked as a preview.
 - Copy AI Prompt Template asks for the same detail as the agent skill: a `sub` on every node, a label on every edge, a `desc` on every step and packet, `code` where the content matters, packets that follow declared edges, and how long each text can be
 - The agent skill asks for more detail and can check it: `dav-check --detail` reports an edge or packet without a label, a step or packet without a description, a packet that travels where no edge is declared, a diagram without any `code`, and text too long to be shown in full. The skill gives the sizes that fit and shows how to write descriptions and code blocks
 - A second agent skill, `dav-reading`, explains the architecture and the data flows a `.dav` file describes. Its `dav-outline` script prints the file with every reference resolved and the packets of each step in order. Install AI Agent Skill installs both skills
+- The sample of the extension's own pipeline shows the SVG export beside the HTML export
 - The samples show a code block in every diagram, and three labels in the last sample that were cut off are shorter
 - Export SVG Image: an animated SVG that plays every step with the camera following the flow or kept on the whole diagram, or a still one of the whole diagram. It runs no script, so GitHub and GitLab show it in a README
 - The preview's Export button opens a menu: standalone HTML, animated SVG, animated SVG of the whole diagram, or still SVG

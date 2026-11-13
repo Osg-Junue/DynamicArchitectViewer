@@ -1,5 +1,5 @@
 dav 1
-title "DynamicArchitectViewer: DSL parsing, auto layout, live preview and HTML export"
+title "DynamicArchitectViewer: DSL parsing, auto layout, live preview, HTML and SVG export"
 
 group vscode_host "VS Code Extension Host" [color: teal] {
   node editor ".dav Editor" [icon: file, sub: "TextDocument"]
@@ -16,10 +16,12 @@ group scene_runtime "Scene & Runtime" [color: purple] {
   node player "SVG Player" [icon: monitor, sub: "runtime/player.ts"]
 }
 
-group outputs "Preview & HTML Output" [color: green] {
+group outputs "Preview & Exports" [color: green] {
   node webview "Preview Webview" [icon: screen, sub: "editor/App.ts"]
   node exporter "HTML Exporter" [icon: storage, sub: "exporter/ (SHA-256 CSP)"]
   node html_out "Standalone HTML" [icon: browser, sub: "#dav-data + player.js", visible: false]
+  node svg_exporter "SVG Exporter" [icon: function, sub: "exporter/svg.ts (SMIL)"]
+  node svg_out "Animated SVG" [icon: file, sub: "<img> in a README", visible: false]
 }
 
 editor <-> ext : "Edit / Diagnostics"
@@ -34,6 +36,8 @@ player <-> webview : "Render / Cursor Sync"
 player --> exporter : "player.js / CSS"
 exporter --> html_out : "exportHtml" [id: e_export, visible: false, color: green]
 html_out ..> exporter : "importContent" [id: e_import, visible: false, color: teal]
+scene --> svg_exporter : "buildScene (per step)"
+svg_exporter --> svg_out : "exportSvg" [id: e_svg, visible: false, color: orange]
 
 step "Editing a .dav file and running language diagnostics" {
   desc "When the .dav file changes in the editor, the extension host parses the syntax tree with Lezer and updates diagnostics, Quick Fixes, completions and outline symbols."
@@ -151,6 +155,25 @@ step "Re-importing the .dav source from exported HTML" {
         "version": 1,
         "dsl": "dav 1\ntitle \"...\""
       }
+    ```
+  }
+}
+
+step "Exporting an animated SVG" {
+  desc "exportSvg draws the same scene for every step and moves it with SMIL on one looping clock. The file runs no script, so it plays as an image in a README on GitHub."
+  state html_out [badge: "", color: none]
+  state exporter [badge: "", color: none]
+  state scene [badge: "EVERY STEP", color: purple]
+  state svg_exporter [badge: "SMIL", color: orange]
+  state svg_out [visible: true, badge: "EXPORTED", color: orange]
+  state e_svg [visible: true]
+  animate scene --> svg_exporter : "buildScene (per step)" [icon: function, color: purple, desc: "The scene of each step is built as the preview builds it, and the camera is planned by the same rules"]
+  animate svg_exporter --> svg_out : "exportSvg(dsl)" [icon: file, color: orange, desc: "Writes one SVG whose animations all last the whole playback and repeat"] {
+    code xml "Animated SVG" ```
+      <svg class="dav-svg" viewBox="0 0 960 680">
+        <animate attributeName="viewBox" dur="18043ms"
+          repeatCount="indefinite" calcMode="spline"/>
+      </svg>
     ```
   }
 }

@@ -1,6 +1,6 @@
 # Architecture
 
-DynamicArchitectViewer is a VS Code extension in `apps/vscode`. It turns a `.dav` file into an animated diagram, in a preview beside the editor or as a standalone HTML file.
+DynamicArchitectViewer is a VS Code extension in `apps/vscode`. It turns a `.dav` file into an animated diagram, in a preview beside the editor, as a standalone HTML file or as an SVG image.
 
 ## Principles
 
