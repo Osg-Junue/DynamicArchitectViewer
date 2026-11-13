@@ -1,10 +1,9 @@
 {
   "name": "dynamic-architect-viewer",
   "displayName": "Dynamic Architect Viewer",
-  "description": "Write architecture and screen-flow diagrams as text, play them step by step, and export them as a standalone HTML file.",
-  "version": "0.3.3",
+  "description": "Write architecture and screen-flow diagrams as text, play them step by step, and export them as a standalone HTML file or an animated SVG.",
+  "version": "1.0.0",
   "publisher": "osg-junue",
-  "preview": true,
   "icon": "media/icon.png",
   "license": "MIT",
   "keywords": [
@@ -25,6 +24,7 @@
     "dsl",
     "live-preview",
     "html-export",
+    "svg-export",
     "dynamic",
     "architect",
     "viewer"

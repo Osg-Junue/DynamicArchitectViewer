@@ -1,9 +1,11 @@
 # Changelog
 
-This project follows [Semantic Versioning](https://semver.org/). The `0.x` series is a preview.
+This project follows [Semantic Versioning](https://semver.org/). The `0.x` series was a preview.
 The `dav` language version is separate from the extension version.
 
-## Unreleased
+## 1.0.0 (2026-11-13)
+
+The first stable release: the extension is no longer marked as a preview.
 
 - In the preview and in exported HTML, a callout is exactly as wide as its text: the text is measured in the font it is drawn in instead of estimated, so no room is left beside it for fonts the reader does not have. An exported SVG, which is made without a browser, keeps the estimate
 - The preview picks up a new build's stylesheet when it is opened again, without a reload of the window
