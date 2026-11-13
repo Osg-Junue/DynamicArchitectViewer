@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
 import { computeLayout } from '../../layout';
 import {
@@ -20,6 +20,7 @@ import {
   buildScene,
   computePacketCalloutBox,
   DEFAULT_FLOW_COLOR,
+  measureCalloutsWith,
   type Packet,
   resolveView,
   textWidth,
@@ -28,6 +29,9 @@ import {
 import { buildPacket, collectAttrs, collectText, commandsOf, findAll, makePacket } from './helpers';
 
 describe('the card of a callout: its text, its code and its size', () => {
+  // One test hands in a measurement of its own; the rest go by the estimate.
+  afterEach(() => measureCalloutsWith(null));
+
   it('preserves exact heights and omits .dav-packet-code when code is absent or whitespace-only', () => {
     expect({
       CALLOUT_RADIUS,
@@ -226,15 +230,23 @@ describe('the card of a callout: its text, its code and its size', () => {
       expect(line).not.toMatch(/^[)\]}）」。…！]/);
     }
 
-    // Anti-orphan balancing: 27 CJK chars (~368px > 340px) balances into two near-equal lines instead of 24+3
-    const orphanCandidate = '注文確定イベントを発行し非同期ワーカーにて出荷開始処理';
-    const balanced = computePacketCalloutBox(makePacket({ description: orphanCandidate }));
+    // A description that fits on one line gets one: a callout widens for it.
+    const oneLine = '注文確定イベントを発行し非同期ワーカーにて出荷開始処理';
+    expect(computePacketCalloutBox(makePacket({ description: oneLine }))?.descLines).toEqual([
+      oneLine,
+    ]);
+    // One too long for that is evened out into two, not left as a long line and a few characters.
+    const twoLines = `${oneLine}を行い、完了を顧客へ通知する`;
+    const balanced = computePacketCalloutBox(makePacket({ description: twoLines }));
     expect(balanced?.descLines).toHaveLength(2);
-    expect([...(balanced?.descLines[1] ?? '')].length).toBeGreaterThanOrEqual(8);
+    expect([...(balanced?.descLines[1] ?? '')].length).toBeGreaterThanOrEqual(12);
   });
 
-  it('scales tall code cards toward Golden Ratio φ and co-sizes desc with wide code blocks', () => {
-    const phi = (1 + Math.sqrt(5)) / 2;
+  it('makes a callout as wide as what it holds, and shapes a description beside code', () => {
+    const maxLineW = (lines: string[]) =>
+      Math.max(...lines.map((l) => textWidth(l, CALLOUT_DESC_SIZE, 'normal')));
+
+    // Tall code does not widen a callout: it is as wide as its code, down to a least width.
     const tallBody = Array.from({ length: 8 }, (_, i) => `  "line_${i}": ${i}`).join(',\n');
     const tallCard = computePacketCalloutBox(
       makePacket({
@@ -244,12 +256,38 @@ describe('the card of a callout: its text, its code and its size', () => {
     );
     expect(tallCard).not.toBeNull();
     if (!tallCard) return;
-    const tallH = tallCard.boxBottom - tallCard.boxTop;
-    const tallW = tallCard.halfW * 2;
-    const expectedPhiFloor = Math.min(368, Math.max(220, Math.round(tallH * phi)));
-    expect(tallW).toBeGreaterThanOrEqual(expectedPhiFloor);
+    const widestCode = Math.max(
+      ...(tallCard.code?.lines ?? []).map((l) => textWidth(l, CALLOUT_CODE_SIZE, 'mono')),
+    );
+    expect(tallCard.halfW * 2).toBe(
+      Math.max(180, Math.ceil(widestCode + 4 + CALLOUT_CODE_PAD_X * 2 + CALLOUT_OUTER_PAD_X * 2)),
+    );
+    expect(tallCard.halfW * 2).toBeLessThan(tallCard.boxBottom - tallCard.boxTop);
 
-    // Wide single-line code widens descMaxW so medium description wraps cleanly to match code width
+    // Beside code, a description takes the number of lines that brings the callout nearest
+    // the golden ratio, and the callout is no wider than those lines: none ends early.
+    const beside = computePacketCalloutBox(
+      makePacket({
+        label: 'dblclick [data-id]',
+        description:
+          'Double-clicking a node looks up its SourceMap span and posts revealRange to the editor',
+        code: {
+          lang: 'json',
+          title: 'WebviewToHostMessage',
+          body: '{\n  "type": "revealRange",\n  "from": 128,\n  "to": 162\n}',
+        },
+      }),
+    );
+    expect(beside?.descLines).toEqual([
+      'Double-clicking a node looks up its SourceMap',
+      'span and posts revealRange to the editor',
+    ]);
+    expect(beside && beside.halfW * 2).toBe(
+      Math.ceil(maxLineW(beside?.descLines ?? []) + 2 + CALLOUT_OUTER_PAD_X * 2),
+    );
+
+    // Where the code sets the width, a description takes as few lines as fit there, evened
+    // out, and a word in katakana is not broken.
     const wideCodeDesc = '認証済みペイロードを検証してプライマリデータベースへトランザクション書込';
     const withoutCode = computePacketCalloutBox(makePacket({ description: wideCodeDesc }));
     const withWideCode = computePacketCalloutBox(
@@ -263,11 +301,13 @@ describe('the card of a callout: its text, its code and its size', () => {
     );
     expect(withoutCode && withWideCode).toBeTruthy();
     if (!withoutCode || !withWideCode) return;
-    const maxLineW = (lines: string[]) =>
-      Math.max(...lines.map((l) => textWidth(l, CALLOUT_DESC_SIZE, 'normal')));
     expect(maxLineW(withWideCode.descLines)).toBeGreaterThanOrEqual(
       maxLineW(withoutCode.descLines),
     );
+    expect(withWideCode.descLines).toHaveLength(2);
+    for (const word of ['ペイロード', 'プライマリデータベース', 'トランザクション']) {
+      expect(withWideCode.descLines.some((line) => line.includes(word))).toBe(true);
+    }
   });
 
   it('draws the callout as a closed box that does not depend on where the packet is', () => {
@@ -347,5 +387,138 @@ step "Three packets" {
     const plain = computePacketCalloutBox(unnumbered);
     expect(numbered?.numberRoom).toBe(CALLOUT_NUMBER_ROOM);
     expect(numbered && plain && (numbered.halfW - plain.halfW) * 2).toBe(CALLOUT_NUMBER_ROOM);
+  });
+
+  it('is as wide as its text when the text is measured, not estimated', () => {
+    const text = {
+      label: 'INSERT INTO orders',
+      description: 'The order transaction commits on the primary in AZ-a',
+    };
+    const estimated = computePacketCalloutBox(makePacket(text));
+
+    // What a browser hands in: here, a font in which every character is 0.4 em wide.
+    const calls: string[] = [];
+    measureCalloutsWith((t, size, style = 'normal') => {
+      calls.push(style);
+      return [...t].length * 0.4 * size;
+    });
+    const measured = computePacketCalloutBox(makePacket(text));
+    expect(measured?.descLines).toEqual([text.description]);
+    expect(measured && measured.halfW * 2).toBe(
+      Math.ceil(text.description.length * 0.4 * CALLOUT_DESC_SIZE + 2 + CALLOUT_OUTER_PAD_X * 2),
+    );
+    expect(measured && estimated && measured.halfW).toBeLessThan(estimated?.halfW ?? 0);
+    // The heading by its weight, the description by its own.
+    expect(new Set(calls)).toEqual(new Set(['bold', 'normal']));
+
+    // A wider font breaks the same description in two: the measurement decides, not the count.
+    measureCalloutsWith((t, size) => [...t].length * 0.8 * size);
+    expect(computePacketCalloutBox(makePacket(text))?.descLines).toHaveLength(2);
+
+    measureCalloutsWith(null);
+    expect(computePacketCalloutBox(makePacket(text))).toEqual(estimated);
+  });
+
+  it('breaks Japanese between phrases, not inside a word', () => {
+    // Ten characters to a line: each break falls after a particle or a comma, and neither
+    // テーブル nor 一意制約 is cut.
+    expect(
+      wrapText(
+        '出勤時刻を打刻テーブルへ書き込み、同じ日の打刻が二重に登録されないよう一意制約で守る',
+        14,
+        140,
+        6,
+      ),
+    ).toEqual([
+      '出勤時刻を打刻',
+      'テーブルへ書き込み、',
+      '同じ日の打刻が二重に',
+      '登録されないよう',
+      '一意制約で守る',
+    ]);
+    // One kana between two kanji ends a phrase when it is a particle, as in 在庫を引き; in
+    // 引き当て and 受け取り it is part of the word.
+    expect(wrapText('在庫を引き当て、荷物を受け取り次第に確認', 14, 98, 6)).toEqual([
+      '在庫を',
+      '引き当て、',
+      '荷物を',
+      '受け取り次第に',
+      '確認',
+    ]);
+    // A run with nothing to break at is still broken, so that it cannot outgrow a line.
+    const run = wrapText('あ'.repeat(30), 14, 140, 6);
+    expect(run.length).toBeGreaterThan(2);
+    expect(run.join('')).toBe('あ'.repeat(30));
+  });
+
+  it('fills the lines of a description, and leaves no word or two alone on the last', () => {
+    // A description that fits on one line is not broken, though the callout is then wider
+    // than its code.
+    const short = computePacketCalloutBox(
+      makePacket({
+        label: 'INSERT INTO orders',
+        description: 'The order transaction commits on the primary in AZ-a',
+        code: {
+          lang: 'sql',
+          body: "INSERT INTO orders (id, total_cents, status)\nVALUES ('ord_01JCK9X7', 14800, 'COMMITTED');",
+        },
+      }),
+    );
+    expect(short?.descLines).toEqual(['The order transaction commits on the primary in AZ-a']);
+
+    // Code wider than any line of the description: the lines take that width. Filled to it,
+    // the last line would be 記録する alone, so the line above gives up phrases until the
+    // last is a quarter of the width; the lines are not shortened further to even them out.
+    const box = computePacketCalloutBox(
+      makePacket({
+        label: '在庫を引き当てる',
+        description: '注文を確定する前に、在庫サービスへ引き当てを依頼し、結果を台帳へ記録する',
+        code: {
+          lang: 'sql',
+          body: 'INSERT INTO stock_reservations (order_id, sku, quantity, reserved_at) VALUES ($1, $2, $3, now());',
+        },
+      }),
+    );
+    expect(box?.descLines).toEqual([
+      '注文を確定する前に、在庫サービスへ引き当てを依頼し、',
+      '結果を台帳へ記録する',
+    ]);
+
+    // Where the description sets the width, its lines are evenly long and the callout no wider.
+    const alone = computePacketCalloutBox(
+      makePacket({
+        description:
+          'Double-clicking a node looks up its SourceMap span and posts revealRange to the editor',
+      }),
+    );
+    const widths = (alone?.descLines ?? []).map((l) => textWidth(l, CALLOUT_DESC_SIZE));
+    expect(widths).toHaveLength(2);
+    expect(Math.min(...widths) / Math.max(...widths)).toBeGreaterThan(0.8);
+    expect(alone && alone.halfW * 2).toBe(Math.ceil(Math.max(...widths) + 2 + 32));
+  });
+
+  it('starts the heading after the number, and what follows under the number', () => {
+    const texts = (packet: Packet, cls: string) =>
+      findAll(buildPacket(packet), (e) => e.attrs.class === cls).map((e) => Number(e.attrs.x));
+    const left = (packet: Packet): number => {
+      const box = computePacketCalloutBox(packet);
+      return box ? box.cx - box.halfW + box.padX : Number.NaN;
+    };
+    const code = { lang: 'sql', body: 'SELECT 1;' };
+
+    // With a heading: only the heading is moved in, so no room is lost below the number.
+    const headed = { ...makePacket({ label: 'Query', description: 'Reads one row', code }) };
+    headed.stopLabel = '2';
+    expect(computePacketCalloutBox(headed)?.bodyIndent).toBe(0);
+    expect(texts(headed, 'dav-packet-label')).toEqual([left(headed) + CALLOUT_NUMBER_ROOM]);
+    expect(texts(headed, 'dav-packet-desc')).toEqual([left(headed)]);
+    const headedBox = findAll(buildPacket(headed), (e) => e.attrs.class === 'dav-packet-code-box');
+    expect(headedBox[0]?.attrs.x).toBe(left(headed));
+
+    // Without one: the number stands before the first line, and every line starts after it.
+    const bare = { ...makePacket({ description: 'Reads one row', code }) };
+    bare.stopLabel = '2';
+    expect(computePacketCalloutBox(bare)?.bodyIndent).toBe(CALLOUT_NUMBER_ROOM);
+    expect(texts(bare, 'dav-packet-desc')).toEqual([left(bare) + CALLOUT_NUMBER_ROOM]);
   });
 });

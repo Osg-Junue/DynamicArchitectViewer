@@ -5,6 +5,12 @@ The `dav` language version is separate from the extension version.
 
 ## Unreleased
 
+- In the preview and in exported HTML, a callout is exactly as wide as its text: the text is measured in the font it is drawn in instead of estimated, so no room is left beside it for fonts the reader does not have. An exported SVG, which is made without a browser, keeps the estimate
+- The preview picks up a new build's stylesheet when it is opened again, without a reload of the window
+- Code in a callout is drawn in the editor's monospaced font in the preview and in exported HTML. A style rule had made it take the font of the interface, so its columns did not line up and its box was wider than the code
+- A callout is as wide as what it holds, and no wider: a tall one is no longer widened to keep its proportion. A description that fits on one line gets one, even where that makes the callout wider than its code; a longer one takes as few lines as fit, as long as the callout allows, and a word or two is not left alone on the last. The heading alone moves in for the number, so the description and the code use the room below it
+- Text takes the room it needs and little more: each Latin character is counted at its own width instead of an average, so a callout, a badge and the room kept for a label are about a sixth narrower, and more of a long name fits before it is cut
+- Japanese breaks between phrases: after a particle or a comma, and never inside a word in katakana or kanji
 - A callout is spaced evenly: its number stands as far from the edge as the text does on the other side, the description starts a little below the heading, the code box follows at the same distance, and the code has as much room above as below. A heading with a number before it starts right after the number
 - Every text is measured the same way, by its weight and with capitals counted as wider than small letters. A badge all in capitals is no longer tight in its pill; a node's name and sub-label may use the whole width of the node; a callout with Japanese text is a little narrower, since a CJK character is counted as exactly one em; and a label that is cut loses the space before its ellipsis
 - An exported HTML file is about 9 KB smaller: the callouts are placed in one pass instead of two, with the same result

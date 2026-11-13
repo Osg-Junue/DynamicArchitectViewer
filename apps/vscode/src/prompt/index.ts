@@ -15,13 +15,13 @@ const RESERVED_WORDS = KEYWORD_NAMES.map((w) => `\`${w}\``).join(', ');
  * Japanese. The same numbers as the table in the dav-diagrams skill; a test keeps them equal.
  */
 export const TEXT_BUDGET: ReadonlyArray<readonly [text: string, latin: string, wide: string]> = [
-  ['node label', '18', '11'],
-  ['node `sub`', '22', '13'],
-  ['`badge`', '15', '9'],
-  ['edge label', '25', '15'],
-  ['`animate` label', '38', '23'],
-  ['`animate` `desc`', '150', '85'],
-  ['`code` line, of at most 10 lines', '55', '30'],
+  ['node label', '20', '12'],
+  ['node `sub`', '26', '15'],
+  ['`badge`', '16', '10'],
+  ['edge label', '28', '16'],
+  ['`animate` label', '44', '27'],
+  ['`animate` `desc`', '170', '95'],
+  ['`code` line, of at most 10 lines', '55', '35'],
 ];
 
 export const PROMPT_EXAMPLE_DSL = `dav 1

@@ -136,6 +136,86 @@ test.describe('the preview', () => {
     expect(errors).toEqual([]);
   });
 
+  test('draws code in a monospaced font, and the rest in the font of the interface', async ({
+    page,
+  }) => {
+    // What VS Code gives a webview on Windows.
+    await page.addInitScript(() => {
+      const set = () => {
+        const root = document.documentElement.style;
+        root.setProperty('--vscode-font-family', '"Segoe WPC", "Segoe UI", sans-serif');
+        root.setProperty('--vscode-editor-font-family', "Consolas, 'Courier New', monospace");
+      };
+      if (document.documentElement) set();
+      else document.addEventListener('DOMContentLoaded', set);
+    });
+    await openWebview(
+      page,
+      [
+        'dav 1',
+        'node a "A"',
+        'node b "B"',
+        'a --> b : "x"',
+        'step "S" {',
+        '  animate a --> b : "Label" [desc: "A description"] {',
+        '    code text "Title" ```',
+        '      iiiiiiiiiiiiiiiiiiii',
+        '      WWWWWWWWWWWWWWWWWWWW',
+        '    ```',
+        '  }',
+        '}',
+        '',
+      ].join('\n'),
+    );
+    const lines = page.locator('.dav-packet-code-line');
+    await expect(lines).toHaveCount(2);
+    const fontOf = (selector: string) =>
+      page
+        .locator(selector)
+        .first()
+        .evaluate((el) => getComputedStyle(el).fontFamily);
+    expect(await fontOf('.dav-packet-code-line')).toContain('monospace');
+    expect(await fontOf('.dav-packet-code-head')).toContain('monospace');
+    expect(await fontOf('.dav-packet-desc')).toContain('Segoe');
+    // Twenty of the narrowest letter are as long as twenty of the widest.
+    const lengths = await lines.evaluateAll((els) =>
+      els.map((el) => (el as SVGTextElement).getComputedTextLength()),
+    );
+    expect(lengths[0]).toBeCloseTo(lengths[1] ?? 0, 1);
+  });
+
+  test('makes a callout as wide as its text is drawn, whatever the font', async ({ page }) => {
+    await openWebview(
+      page,
+      [
+        'dav 1',
+        'node a "A"',
+        'node b "B"',
+        'a --> b : "x"',
+        'step "S" {',
+        '  animate a --> b : "INSERT" [desc: "The order transaction commits on the primary in AZ-a"] {',
+        '    code sql ```',
+        '      SELECT 1;',
+        '    ```',
+        '  }',
+        '}',
+        '',
+      ].join('\n'),
+    );
+    await expect(page.locator('.dav-packet-desc')).toHaveCount(1);
+    // From the end of the description, which is the widest thing here, to the edge of the
+    // callout: its padding of 16 and a little room, not the fifth an estimate has to leave.
+    const gap = await page.locator('.dav-packet-callout').evaluate((callout) => {
+      const bubble = (callout.querySelector('.dav-packet-bubble') as SVGGraphicsElement).getBBox();
+      const desc = callout.querySelector('.dav-packet-desc') as SVGTextElement;
+      return (
+        bubble.x + bubble.width - (Number(desc.getAttribute('x')) + desc.getComputedTextLength())
+      );
+    });
+    expect(gap).toBeGreaterThan(16);
+    expect(gap).toBeLessThan(30);
+  });
+
   test('adapts color names to the theme', async ({ page }) => {
     await openWebview(page, 'dav 1\nnode named "N" [color: yellow]\n');
     const strokeOf = (id: string) =>

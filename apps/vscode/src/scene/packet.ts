@@ -54,12 +54,11 @@ export function buildPacket(packet: Packet, icons: IconShapes, t = 0): VElement 
   let callout: VElement | null = null;
 
   if (box) {
-    const { cx, halfW, boxTop, padX, label, descLines, code, numberRoom } = box;
+    const { cx, halfW, boxTop, padX, label, descLines, code, numberRoom, bodyIndent } = box;
     const oneLine = descLines.length === 0 && code === undefined;
     // A heading alone is centered, unless a number stands before it.
     const alignLeft = !oneLine || numberRoom > 0;
-    // The content keeps its own width; the number sits in the room added on its left.
-    const contentLeft = cx - halfW + numberRoom;
+    const left = cx - halfW + padX;
     callout = h(
       'g',
       { class: 'dav-packet-callout' },
@@ -75,7 +74,7 @@ export function buildPacket(packet: Packet, icons: IconShapes, t = 0): VElement 
         ? h(
             'text',
             {
-              x: alignLeft ? contentLeft + padX : cx + numberRoom / 2,
+              x: alignLeft ? left + numberRoom : cx,
               // Alone, the heading sits in the middle of its callout.
               y: boxTop + (oneLine ? CALLOUT_ONE_LINE_HEIGHT / 2 + 5 : CALLOUT_LABEL_BASELINE),
               ...(alignLeft ? {} : { 'text-anchor': 'middle' }),
@@ -90,7 +89,7 @@ export function buildPacket(packet: Packet, icons: IconShapes, t = 0): VElement 
         h(
           'text',
           {
-            x: contentLeft + padX,
+            x: left + bodyIndent,
             y:
               boxTop +
               (label ? CALLOUT_DESC_BASELINE.withLabel : CALLOUT_DESC_BASELINE.bare) +
@@ -172,7 +171,7 @@ function packetCodeElement(
   box: PacketCalloutBox,
   code: PacketCalloutCodeBox,
 ): VElement {
-  const x = box.cx - box.halfW + box.numberRoom + box.padX;
+  const x = box.cx - box.halfW + box.padX + box.bodyIndent;
   const y = box.boxTop + code.offsetY;
   const { width, height, header, headerHeight, lines } = code;
   const bodyTop = y + headerHeight;

@@ -22,6 +22,7 @@ export {
   CALLOUT_ONE_LINE_HEIGHT,
   CALLOUT_OUTER_PAD_X,
   CALLOUT_RADIUS,
+  measureCalloutsWith,
 } from './calloutMeasure';
 
 export interface PacketCalloutCodeBox {
@@ -42,8 +43,10 @@ export interface PacketCalloutBox {
   label: string;
   descLines: string[];
   code?: PacketCalloutCodeBox;
-  /** Width at the left that holds the stop number; the text and code start after it. */
+  /** Room before the heading for the stop number; the heading starts after it. */
   numberRoom: number;
+  /** How far in the description and the code start. */
+  bodyIndent: number;
   /** The number shared with the packet's stop on its rail, such as `2` or `5a`. */
   number?: string;
 }
@@ -61,7 +64,7 @@ const UNPLACED_GAP = 26;
 export function computePacketCalloutBox(packet: Packet): PacketCalloutBox | null {
   const card = measureCalloutCard(packet);
   if (!card) return null;
-  const { halfW, height, padX, label, descLines, code, numberRoom } = card;
+  const { halfW, height, padX, label, descLines, code, numberRoom, bodyIndent } = card;
   const at = packet.calloutAt ?? {
     x: pointAt(packet.path, 0.5).x - halfW,
     y: railBox(packet.path).y - UNPLACED_GAP - height,
@@ -75,6 +78,7 @@ export function computePacketCalloutBox(packet: Packet): PacketCalloutBox | null
     label,
     descLines,
     numberRoom,
+    bodyIndent,
   };
   if (code) box.code = code;
   if (packet.stopLabel !== undefined) box.number = packet.stopLabel;

@@ -8,6 +8,7 @@ import {
   followFrame,
   HOLD_MS,
   type IconShapes,
+  measureCalloutsWith,
   type Packet,
   PHASE_MS,
   packetsOnScreen,
@@ -31,6 +32,7 @@ import { StepDock } from './dock';
 import { clear, html, renderSvg, svg } from './dom';
 import { VIEWER_STRINGS, type ViewerLocale, type ViewerStrings } from './i18n';
 import { bindKeyboard, bindPointer } from './input';
+import { browserTextMeasure } from './measure';
 import { Minimap } from './minimap';
 import { PacketLayer } from './packets';
 import {
@@ -139,6 +141,8 @@ export class Player {
         : hasSteps
           ? 0
           : null;
+    // In a browser the callouts are sized by the text as it is drawn, not by an estimate.
+    measureCalloutsWith(browserTextMeasure());
     this.#view = resolveView(data.document, data.layout, initialStep);
     this.#stepIndex = this.#view.stepIndex;
     this.#playMode =

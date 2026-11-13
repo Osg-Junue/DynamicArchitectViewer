@@ -425,8 +425,8 @@ step "S" {
     expect(fitText('ab cdef', 10, 30)).toBe('ab…');
     expect(fitText('ab cdef', 10, 30, 'mono')).toBe('ab …');
     // Bold text is wider, so less of it fits.
-    expect(fitText('abcdefgh', 10, 40)).toBe('abcde…');
-    expect(fitText('abcdefgh', 10, 40, 'bold')).toBe('abcd…');
+    expect(fitText('abcdefghijklmnop', 10, 60)).toBe('abcdefghi…');
+    expect(fitText('abcdefghijklmnop', 10, 60, 'bold')).toBe('abcdefgh…');
     // A line may break at an arrow.
     expect(wrapText('alpha→beta→gamma', 10, 45, 3)).toEqual(['alpha→', 'beta→', 'gamma']);
     expect(clamp(-5, 0, 10)).toBe(0);

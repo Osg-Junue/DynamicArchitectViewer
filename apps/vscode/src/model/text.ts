@@ -6,37 +6,53 @@ export const EDGE_LABEL_MAX_WIDTH = 180;
 export type TextStyle = 'normal' | 'bold' | 'mono';
 
 /**
- * How wide each kind of character is taken to be, in ems. No font can be measured here, and
- * the text is drawn in whatever the reader's system has, so the figures for Latin text leave
- * room: against Segoe UI, a line comes out about 15 to 30% wider than it is drawn, and against
- * Cascadia Code 3%. Capitals count for more than the rest, since a text all in capitals, such
- * as a badge, is a fifth wider than the same letters in lower case.
+ * How wide a character is taken to be. No font can be measured here, and the text is drawn in
+ * whatever the reader's system has, so every width is a figure that holds for the fonts a
+ * diagram is likely to be drawn in, and a little more:
+ *
+ * - A printable ASCII character has the width it has in Segoe UI, at its weight, plus 12%.
+ *   That covers San Francisco, Roboto, Ubuntu and Noto Sans; in a font wider than those, such
+ *   as DejaVu Sans, a full line runs a few units into the padding beside it.
+ * - Monospaced text takes the widest of the usual code fonts, 0.605 em a character.
+ * - A CJK character is one em wide in every font and at every weight, and kana, punctuation
+ *   and signs are no wider.
+ * - An emoji is wider than its em: 1.37 in Segoe UI Emoji.
+ * - Any other letter, such as an accented one, counts as a broad small letter.
  */
-const EM: Record<TextStyle, { broad: number; capital: number; other: number }> = {
-  normal: { broad: 0.88, capital: 0.68, other: 0.6 },
-  bold: { broad: 0.92, capital: 0.72, other: 0.65 },
-  mono: { broad: 0.605, capital: 0.605, other: 0.605 },
+/** Hundredths of an em for the characters from space to `~`, room included. */
+const ASCII_EM: Record<Exclude<TextStyle, 'mono'>, readonly number[]> = {
+  // biome-ignore format: a table
+  normal: [
+    31, 32, 44, 67, 61, 92, 90, 26, 34, 34, 47, 77, 25, 45, 25, 44, 61, 61, 61,
+    61, 61, 61, 61, 61, 61, 61, 25, 25, 77, 77, 77, 51, 107, 73, 65, 70, 79, 57,
+    55, 77, 80, 30, 40, 65, 53, 101, 84, 85, 63, 85, 67, 60, 59, 77, 70, 105, 67,
+    62, 64, 34, 43, 34, 77, 47, 31, 58, 66, 52, 66, 59, 36, 66, 64, 28, 28, 56,
+    28, 97, 64, 66, 66, 66, 39, 48, 38, 64, 54, 81, 52, 55, 51, 34, 27, 34, 77,
+  ],
+  // biome-ignore format: a table
+  bold: [
+    31, 37, 56, 67, 65, 98, 96, 33, 42, 42, 51, 80, 31, 46, 31, 50, 65, 65, 65,
+    65, 65, 65, 65, 65, 65, 65, 31, 31, 80, 80, 80, 50, 107, 79, 72, 70, 83, 60,
+    59, 80, 86, 36, 50, 73, 58, 108, 89, 85, 69, 85, 74, 63, 66, 81, 75, 113, 74,
+    68, 68, 42, 49, 42, 80, 47, 36, 61, 70, 54, 70, 61, 43, 70, 68, 32, 32, 63,
+    32, 103, 68, 69, 70, 70, 45, 50, 44, 68, 61, 90, 62, 61, 54, 42, 37, 42, 80,
+  ],
 };
-/**
- * A CJK character is one em wide in every font and at every weight, and kana, punctuation and
- * signs are no wider: this needs no room added.
- */
+const FIRST_ASCII = 0x20;
+const LAST_ASCII = 0x7e;
+const MONO_EM = 0.605;
+const OTHER_EM: Record<TextStyle, number> = { normal: 0.6, bold: 0.65, mono: MONO_EM };
 const FULL_WIDTH_EM = 1;
-/** An emoji is wider than the em it is set in: 1.37 in Segoe UI Emoji. */
 const EMOJI_EM = 1.4;
 const FIRST_EMOJI = 0x1f300;
 
-/** The widest letters and signs of a proportional font. */
-const BROAD = new Set(['W', 'M', '@', '%']);
-
 function emOf(ch: string, style: TextStyle): number {
-  if (takesFullWidth(ch)) {
-    return (ch.codePointAt(0) ?? 0) >= FIRST_EMOJI ? EMOJI_EM : FULL_WIDTH_EM;
+  const code = ch.codePointAt(0) ?? 0;
+  if (style !== 'mono' && code >= FIRST_ASCII && code <= LAST_ASCII) {
+    return (ASCII_EM[style][code - FIRST_ASCII] as number) / 100;
   }
-  const em = EM[style];
-  if (BROAD.has(ch)) return em.broad;
-  if ((ch >= 'A' && ch <= 'Z') || ch === '#' || ch === '&') return em.capital;
-  return em.other;
+  if (takesFullWidth(ch)) return code >= FIRST_EMOJI ? EMOJI_EM : FULL_WIDTH_EM;
+  return OTHER_EM[style];
 }
 
 /**
