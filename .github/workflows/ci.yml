@@ -24,6 +24,19 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+      - name: Install the browser for the end-to-end tests
+        run: npx playwright install --with-deps chromium
+        working-directory: apps/vscode
+      - name: End-to-end tests
+        run: npx playwright test
+        working-directory: apps/vscode
+      - name: Keep the traces of failed end-to-end tests
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-test-results
+          path: apps/vscode/test-results
+          if-no-files-found: ignore
       - run: npm run package
       - name: Verify extension, webview, skill, and VSIX package exist
         run: |
