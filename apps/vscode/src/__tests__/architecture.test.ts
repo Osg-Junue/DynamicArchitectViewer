@@ -40,7 +40,7 @@ const RULES: Record<string, { allowedLayers: string[]; forbiddenPackages: RegExp
     forbiddenPackages: /^(react|react-dom|vscode|@lezer\/)/,
   },
   skill: {
-    allowedLayers: ['skill', 'dsl', 'model', 'scene'],
+    allowedLayers: ['skill', 'dsl', 'layout', 'model', 'scene'],
     forbiddenPackages: /^(react|react-dom|vscode)/,
   },
   editor: {

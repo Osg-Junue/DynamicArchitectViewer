@@ -38,8 +38,8 @@ Switches, Wi-Fi, a printer and a file server, with a VPN and failover to LTE. So
 
 ![Traffic inside an office network, over a VPN, and over LTE when the main link fails](media/examples/06-lan-office-network.svg)
 
-## Software pipeline: DSL parsing, live preview and HTML export
+## Software pipeline: DSL parsing, live preview, HTML and SVG export
 
-How this extension turns a `.dav` file into a live preview and a standalone HTML file. Source: [`07-dynamic-architect-viewer.dav`](../examples/07-dynamic-architect-viewer.dav)
+How this extension turns a `.dav` file into a live preview, a standalone HTML file and an animated SVG. Source: [`07-dynamic-architect-viewer.dav`](../examples/07-dynamic-architect-viewer.dav)
 
-![A .dav file passing through the parser, the layout and the scene to the preview and the exporter](media/examples/07-dynamic-architect-viewer.svg)
+![A .dav file passing through the parser, the layout and the scene to the preview, the HTML exporter and the SVG exporter](media/examples/07-dynamic-architect-viewer.svg)

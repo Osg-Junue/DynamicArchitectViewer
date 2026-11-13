@@ -264,6 +264,104 @@ describe('dav-check', () => {
       expect(stdout).not.toContain(': ok');
     });
 
+    it('says which way a packet without an edge can go instead', () => {
+      const hintFor = (edges: string, packet: string) => {
+        const dsl = `dav 1\nnode browser\nnode web\nnode api\nnode mail\n${edges}\nstep "S" {\n  desc "d"\n  animate ${packet} : "x" [desc: "d"]\n}\n`;
+        const { stdout } = check('--detail', fileWith(dsl));
+        return stdout.split('\n').find((line) => line.includes('hint animate-without-edge')) ?? '';
+      };
+      const chain = 'browser --> web : "a"\nweb --> api : "b"';
+      const twoWay = 'browser <-> web : "a"\nweb <-> api : "b"';
+
+      // The request skips a node: the hops are spelled out.
+      expect(hintFor(chain, 'browser --> api')).toContain(
+        'by way of web: send animate browser --> web, then animate web --> api instead.',
+      );
+      // The reply rides two-way edges back through the same node.
+      expect(hintFor(twoWay, 'api --> browser')).toContain(
+        'send animate api --> web, then animate web --> browser instead.',
+      );
+      // One-way edges do not carry a reply: they are named, with what to make of them.
+      expect(hintFor(chain, 'api --> web')).toContain(
+        'The edge web --> api runs the other way: make it <->',
+      );
+      expect(hintFor(chain, 'api --> browser')).toContain(
+        '(web --> api, browser --> web): make each of those edges <->, then send animate api --> web, then animate web --> browser instead.',
+      );
+      // Nothing joins the two.
+      expect(hintFor(chain, 'api --> mail')).toContain(
+        'No edges join the two. If the code shows that they talk to each other directly, declare api --> mail : "..."',
+      );
+      // A packet that rides an edge is not reported.
+      expect(hintFor(chain, 'browser --> web')).toBe('');
+    });
+
+    describe('the layout', () => {
+      const good = (body: string) =>
+        `dav 1\n${body}\nstep "S" {\n  desc "d"\n  animate a --> b : "x" [desc: "d"] {\n    code text "x"\n  }\n}\n`;
+      const lines = (dsl: string) => check('--detail', fileWith(dsl));
+
+      it('is described for a file that compiles, and does not fail the check', () => {
+        const { status, stdout } = lines(
+          good('node a "A"\nnode b "B"\nnode c "C"\na --> b : "x"\nb --> c : "y"'),
+        );
+        expect(stdout).toMatch(
+          /: layout: \d+ x \d+ \(\d+\.\d : 1\), 3 columns x 1 rows of nodes, 0 crossings/,
+        );
+        expect(stdout).not.toContain(': note ');
+        expect(stdout).toContain(': ok (3 nodes, 2 edges, 1 steps)');
+        expect(status).toBe(0);
+      });
+
+      it('lists the zones with the columns and rows their nodes take', () => {
+        const { stdout } = lines(
+          good(
+            'group g "Front" {\n  node a "A"\n  node b "B"\n}\ngroup h "Back" {\n  node c "C"\n}\na --> b : "x"\nb --> c : "y"',
+          ),
+        );
+        expect(stdout).toContain(
+          'layout: zones, as columns x rows of nodes: "Front" 2 x 1, "Back" 1 x 1',
+        );
+      });
+
+      it('notes a zone whose nodes are stacked, and a diagram much taller than wide', () => {
+        const stores = ['s1', 's2', 's3', 's4', 's5']
+          .map((id) => `  node ${id} "${id}"`)
+          .join('\n');
+        const { status, stdout } = lines(
+          good(`node a "A"\nnode b "B"\na --> b : "x"\ngroup data "Data stores" {\n${stores}\n}`),
+        );
+        expect(stdout).toContain(
+          'note stacked-zone: Zone "Data stores" stacks its 5 nodes in one column',
+        );
+        expect(stdout).toContain('note tall-diagram: The diagram is');
+        // Notes are for judgment: the file is still in order.
+        expect(stdout).toContain(': ok (');
+        expect(status).toBe(0);
+      });
+
+      it('notes connections that cross', () => {
+        // Two columns of two, joined crosswise; b and d have nothing that could reorder them.
+        const { stdout } = lines(
+          good(
+            'node a "A"\nnode c "C"\nnode b "B"\nnode d "D"\na --> b : "x"\na --> d : "y"\nc --> b : "z"\nc --> d : "w"',
+          ),
+        );
+        const crossings = Number(/, (\d+) crossings?/.exec(stdout)?.[1]);
+        expect(stdout.includes('note crossings:')).toBe(crossings > 0);
+        // A crossing is named by the two connections that cross.
+        if (crossings > 0)
+          expect(stdout).toMatch(/note crossings: .*: \w+ --> \w+ and \w+ --> \w+/);
+      });
+
+      it('is left out while the file does not compile, and without --detail', () => {
+        expect(lines('dav 1\nnode a\na --> missing\n').stdout).not.toContain('layout:');
+        expect(check(fileWith(good('node a "A"\nnode b "B"\na --> b : "x"'))).stdout).not.toContain(
+          'layout:',
+        );
+      });
+    });
+
     it('reports a text that is drawn cut off', () => {
       const long = 'A very long label that cannot fit under a station';
       const { status, stdout } = check('--detail', fileWith(`dav 1\nnode a "${long}"\n`));

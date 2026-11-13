@@ -93,12 +93,12 @@ export const SAMPLE_TEMPLATES: readonly SampleTemplate[] = [
   {
     id: 'dynamic-architect-viewer',
     name: [
-      'ソフトウェアの処理の流れ: DSL の解析、ライブプレビュー、HTML 書き出し',
-      'Software pipeline: DSL parsing, live preview and HTML export',
+      'ソフトウェアの処理の流れ: DSL の解析、ライブプレビュー、HTML と SVG の書き出し',
+      'Software pipeline: DSL parsing, live preview, HTML and SVG export',
     ],
     description: [
-      'この拡張機能が .dav ファイルをプレビューと単一 HTML にするまで',
-      'How this extension turns a .dav file into a live preview and a standalone HTML file',
+      'この拡張機能が .dav ファイルをプレビュー、単一 HTML、アニメーション SVG にするまで',
+      'How this extension turns a .dav file into a live preview, a standalone HTML file and an animated SVG',
     ],
     dsl: dynamicArchitectViewer,
   },

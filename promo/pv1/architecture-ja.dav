@@ -1,0 +1,128 @@
+dav 1
+title "tiny-orders: 注文から決済まで"
+
+node browser "ブラウザ" [icon: browser, sub: "顧客"]
+
+group app "docker compose" [color: blue] {
+  node web "Web" [icon: lb, sub: "nginx :8080"]
+  node api "Order API" [icon: api, sub: "Node.js :3000"]
+  node worker "メールWorker" [icon: function, sub: "Node.js"]
+  node postgres "Postgres" [icon: database, sub: "orders DB"]
+  node redis "Redis" [icon: cache, sub: "商品キャッシュ"]
+  node rabbit "RabbitMQ" [icon: queue, sub: "exchange: orders"]
+}
+
+group external "外部サービス" [color: purple] {
+  node psp "決済プロバイダー" [icon: payment, sub: "payments.example.com"]
+  node smtp "SMTPサーバー" [icon: mail, sub: "smtp.example.com"]
+}
+
+browser <-> web : "HTTP"
+web <-> api : "proxy /api/"
+api --> postgres : "SQL"
+api --> redis : "DEL / SET"
+api <-> psp : "HTTPS /charges"
+api --> rabbit : "publish"
+rabbit --> worker : "consume"
+worker --> smtp : "SMTP"
+api --> api : "リトライ待ち" [id: e_wait]
+
+step "注文を受けて在庫を確保する" {
+  desc "APIは1つのトランザクションで在庫を引き当て、注文を pending で保存する。その後キャッシュを無効化する。"
+  state postgres [badge: "pending", color: yellow]
+  animate browser --> web : "POST /api/orders" [icon: file, desc: "顧客がメールアドレスと商品を送信する"]
+  animate web --> api : "POST /orders" [icon: file, desc: "nginxが /api/ を外して API に転送する"] {
+    code http "Request" ```
+      POST /orders
+      content-type: application/json
+
+      { "email": "a@example.com",
+        "items": [{ "productId": 1, "quantity": 2 }] }
+    ```
+  }
+  animate api --> postgres : "在庫引当 + INSERT" [desc: "在庫不足なら409で終わる。足りれば注文を保存する"] {
+    code sql ```
+      UPDATE products SET stock = stock - 2
+      WHERE id = 1 AND stock >= 2;
+      INSERT INTO orders (id, email, total_cents, status)
+      VALUES ('ord_104', 'a@example.com', 4200, 'pending');
+    ```
+  }
+  animate api --> redis : "DEL catalog:products" [desc: "在庫が変わったので商品一覧のキャッシュを捨てる"]
+}
+
+step "決済プロバイダーに課金する" {
+  desc "注文IDを idempotency-key にして課金する。タイムアウトは3秒で、同じキーなので再送しても二重課金にならない。"
+  animate api <-> psp : "POST /charges" [icon: payment, color: green, desc: "課金が成功し、決済IDが返る"] {
+    code http "Request / Response" ```
+      POST /v1/charges
+      idempotency-key: ord_104
+
+      { "amount": 4200, "currency": "usd" }
+      -> 200 { "id": "ch_552" }
+    ```
+  }
+}
+
+step "注文を確定して応答する" {
+  desc "注文を paid に更新し、order.confirmed を発行する。ブローカーの確認を待ってから201を返す。"
+  state postgres [badge: "paid", color: green]
+  animate api --> postgres : "UPDATE status=paid" [desc: "決済IDを保存して注文を支払い済みにする"] {
+    code sql ```
+      UPDATE orders SET status = 'paid', payment_id = 'ch_552'
+      WHERE id = 'ord_104';
+    ```
+  }
+  animate api --> rabbit : "order.confirmed" [icon: file, desc: "永続メッセージとして発行し、ブローカーの confirm を待つ"] {
+    code json "Event" ```
+      { "id": "ord_104", "email": "a@example.com",
+        "totalCents": 4200 }
+    ```
+  }
+  animate api --> web : "201 Created" [color: green, desc: "確定した注文を返す"]
+  animate web --> browser : "201 Created" [color: green, desc: "顧客に注文完了が表示される"]
+}
+
+step "確認メールを送る" {
+  desc "Workerは order-emails キューを購読していて、イベントごとにメールを送る。応答とは非同期に動く。"
+  state postgres [badge: "", color: none]
+  animate rabbit --> worker : "order.confirmed" [icon: file, desc: "キューから取り出す。失敗時は dead-letter キューへ送る"]
+  animate worker --> smtp : "確認メール" [icon: mail, desc: "メールを送ってから ack する"] {
+    code text "Mail" ```
+      To: a@example.com
+      Subject: Order ord_104 confirmed
+    ```
+  }
+}
+
+step "決済プロバイダー障害: リトライ" {
+  desc "別の注文 ord_105 で、プロバイダーが落ちている。5xxとタイムアウトは最大3回まで、指数バックオフで再試行する。"
+  state postgres [badge: "pending", color: yellow]
+  state psp [badge: "503", color: red]
+  animate api --> psp : "POST /charges (1回目)" [icon: payment, color: red, desc: "stock引当と pending 保存は済んでいる"]
+  animate psp --> api : "503 Unavailable" [color: red, desc: "5xxなのでリトライ対象になる"]
+  animate api --> api : "約200ms待つ" [color: orange, desc: "200ms x 2^(n-1) にジッターを足して待つ"]
+  animate api --> psp : "POST /charges (2回目)" [icon: payment, color: red, desc: "同じ idempotency-key で再送する"]
+  animate psp --> api : "503 Unavailable" [color: red, desc: "2回目も失敗する。約400ms待つ"]
+  animate api --> psp : "POST /charges (3回目)" [icon: payment, color: red, desc: "最後の試行。成功しなければ諦める"]
+  animate psp --> api : "503 Unavailable" [color: red, desc: "3回失敗し、PaymentUnavailableError になる"]
+}
+
+step "注文を失敗にして在庫を戻す" {
+  desc "リトライを使い切ったので注文を payment_failed にし、引き当てた在庫を戻す。顧客には503を返す。メールは送られない。"
+  state postgres [badge: "payment_failed", color: red]
+  animate api --> postgres : "failed + 在庫を戻す" [color: red, desc: "1つのトランザクションで状態更新と在庫戻しを行う"] {
+    code sql ```
+      UPDATE orders SET status = 'payment_failed'
+      WHERE id = 'ord_105';
+      UPDATE products p SET stock = p.stock + i.quantity
+      FROM order_items i
+      WHERE i.order_id = 'ord_105' AND i.product_id = p.id;
+    ```
+  }
+  animate api --> redis : "DEL catalog:products" [desc: "戻した在庫が見えるようにキャッシュを捨てる"]
+  animate api --> web : "503" [color: red, desc: "payment provider unavailable を返す"] {
+    code json "{ \"error\": \"payment provider unavailable\" }"
+  }
+  animate web --> browser : "503" [color: red, desc: "顧客には決済失敗が伝わる。カードは課金されていない"]
+}

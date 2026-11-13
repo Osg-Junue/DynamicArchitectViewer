@@ -19,6 +19,70 @@ const stepName = (step: DavStep): string => `step ${step.index + 1} "${step.titl
 const packetName = (a: Animation): string =>
   `animate ${a.from} ${a.direction === 'bidirectional' ? '<->' : '-->'} ${a.to}`;
 
+/** A way longer than this is no advice: the packet was not meant to go that far round. */
+const WAY_MAX_HOPS = 4;
+
+/**
+ * The fewest nodes that lead from `from` to `to` over declared edges, both ends included. With
+ * `eitherWay`, a one-way edge may also be taken against its direction.
+ */
+function wayBetween(
+  doc: DavDocument,
+  from: string,
+  to: string,
+  eitherWay: boolean,
+): string[] | undefined {
+  const cameFrom = new Map<string, string>([[from, from]]);
+  const queue = [from];
+  for (let at = queue.shift(); at !== undefined; at = queue.shift()) {
+    if (at === to) break;
+    for (const e of doc.edges) {
+      if (e.from === e.to) continue;
+      const next =
+        e.from === at
+          ? e.to
+          : e.to === at && (eitherWay || e.direction === 'bidirectional')
+            ? e.from
+            : undefined;
+      if (next === undefined || cameFrom.has(next)) continue;
+      cameFrom.set(next, at);
+      queue.push(next);
+    }
+  }
+  if (!cameFrom.has(to)) return undefined;
+  const way = [to];
+  while (way[0] !== from) way.unshift(cameFrom.get(way[0] ?? from) ?? from);
+  return way.length - 1 <= WAY_MAX_HOPS ? way : undefined;
+}
+
+/** What to write instead of a packet that travels where no edge is declared. */
+function wayAdvice(doc: DavDocument, a: Animation): string {
+  const hops = (way: readonly string[]) =>
+    way
+      .slice(1)
+      .map((node, i) => `animate ${way[i]} --> ${node}`)
+      .join(', then ');
+  const back = a.direction === 'bidirectional' ? ', and the answer back the same way' : '';
+
+  const way = wayBetween(doc, a.from, a.to, false);
+  if (way) {
+    return `The edges join them by way of ${way.slice(1, -1).join(', ')}: send ${hops(way)} instead${back}.`;
+  }
+  const against = wayBetween(doc, a.from, a.to, true);
+  if (against) {
+    // The edges of that way that a packet cannot ride in this direction.
+    const oneWay = against
+      .slice(1)
+      .map((node, i) => ({ from: against[i] ?? '', to: node }))
+      .filter((hop) => !doc.edges.some((e) => carries(e, hop)))
+      .map((hop) => `${hop.to} --> ${hop.from}`);
+    return against.length === 2
+      ? `The edge ${oneWay[0]} runs the other way: make it <-> so that the packet can ride it back.`
+      : `The edges on the way run the other way (${oneWay.join(', ')}): make each of those edges <->, then send ${hops(against)} instead${back}.`;
+  }
+  return `No edges join the two. If the code shows that they talk to each other directly, declare ${a.from} --> ${a.to} : "..."; if it does not, leave the packet out.`;
+}
+
 function cutHint(cut: TextCut, doc: DavDocument): string {
   const step = 'step' in cut ? doc.steps[cut.step] : undefined;
   const where = step ? `${stepName(step)}: ` : '';
@@ -74,7 +138,7 @@ export function reviewDetail(doc: DavDocument): Hint[] {
           'animate-without-edge',
           a.from === a.to
             ? `${stepName(step)}: ${packetName(a)} loops on a node that has no loop edge. Declare it: ${a.from} --> ${a.to} : "...".`
-            : `${stepName(step)}: ${packetName(a)} travels where no edge is declared, so it has no line to follow. Declare ${a.from} --> ${a.to}, or make the edge between them <->, or send the packet by way of the nodes that are connected.`,
+            : `${stepName(step)}: ${packetName(a)} travels where no edge is declared, so it has no line to follow. ${wayAdvice(doc, a)}`,
         );
       }
       if (!a.label) {

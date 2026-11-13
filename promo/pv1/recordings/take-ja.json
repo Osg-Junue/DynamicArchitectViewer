@@ -1,0 +1,30 @@
+{
+  "lang": "ja",
+  "prompt": "このリポジトリの構成を architecture.dav に図にして。注文から決済までの正常な流れと、決済プロバイダーが落ちてリトライした末に注文が失敗する流れをステップで見せて。",
+  "duration": 92,
+  "frames": 1907,
+  "marks": {
+    "paletteOpen": 1.21,
+    "paletteType": 2.14,
+    "palettePicks": 4.23,
+    "palettePick": 5.94,
+    "skillInstalled": 6.05,
+    "claudeOpen": 9.25,
+    "promptType": 11.96,
+    "promptTyped": 15.39,
+    "promptSent": 16.36,
+    "skill": 17.91,
+    "read": 19.14,
+    "write": 47.4,
+    "allowed": 48.82,
+    "check": 53.88,
+    "done": 66.05,
+    "play": 67.69,
+    "playEnd": 91.84
+  },
+  "boxes": {
+    "window": [0, 0, 2560, 1391],
+    "claude": [1221, 101, 664, 1233],
+    "preview": [1885, 107, 668, 1233]
+  }
+}

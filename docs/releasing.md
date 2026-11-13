@@ -5,8 +5,8 @@ How to publish the extension in `apps/vscode` to the Visual Studio Marketplace. 
 ## Versioning
 
 - The extension follows [Semantic Versioning](https://semver.org/). Fixes bump the patch version, and new features bump the minor version.
-- `0.x` is a preview, marked with `"preview": true` in `package.json`.
-- `1.0.0` comes when the extension is considered stable, and removes `"preview"`.
+- `0.x` was a preview, marked with `"preview": true` in `package.json`.
+- Since `1.0.0` the extension is stable, and `"preview"` is gone.
 - The language version is separate. See [Compatibility](specification.md#compatibility).
 
 ## First-time setup

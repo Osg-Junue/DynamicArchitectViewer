@@ -1,0 +1,30 @@
+{
+  "lang": "en",
+  "prompt": "Diagram this repository’s architecture in architecture.dav. Show the normal flow from order to payment, and the flow where the payment provider is down, retries fail and the order fails, as steps.",
+  "duration": 266.12,
+  "frames": 2827,
+  "marks": {
+    "paletteOpen": 1.21,
+    "paletteType": 2.14,
+    "palettePicks": 4.1,
+    "palettePick": 5.82,
+    "skillInstalled": 5.93,
+    "claudeOpen": 9.13,
+    "promptType": 11.82,
+    "promptTyped": 16.76,
+    "promptSent": 17.68,
+    "skill": 200.13,
+    "read": 201.66,
+    "write": 222.27,
+    "allowed": 223.43,
+    "check": 228.71,
+    "done": 240.2,
+    "play": 241.82,
+    "playEnd": 265.99
+  },
+  "boxes": {
+    "window": [0, 0, 2560, 1391],
+    "claude": [1221, 107, 664, 1233],
+    "preview": [1885, 107, 668, 1233]
+  }
+}

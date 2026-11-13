@@ -1,9 +1,11 @@
 # Changelog
 
-This project follows [Semantic Versioning](https://semver.org/). The `0.x` series is a preview.
+This project follows [Semantic Versioning](https://semver.org/). The `0.x` series was a preview.
 The `dav` language version is separate from the extension version.
 
-## Unreleased
+## 1.0.0 (2026-11-13)
+
+The first stable release: the extension is no longer marked as a preview.
 
 - In the preview and in exported HTML, a callout is exactly as wide as its text: the text is measured in the font it is drawn in instead of estimated, so no room is left beside it for fonts the reader does not have. An exported SVG, which is made without a browser, keeps the estimate
 - The preview picks up a new build's stylesheet when it is opened again, without a reload of the window
@@ -18,8 +20,9 @@ The `dav` language version is separate from the extension version.
 - The button that stops the animation shows a square, the usual sign for stop, instead of a dot on a line
 - The preview stays responsive on large diagrams: the search for where to place the zones, which takes over a second on three hundred nodes, runs in a worker, and the preview shows the diagram it has until the new layout is ready
 - Copy AI Prompt Template asks for the same detail as the agent skill: a `sub` on every node, a label on every edge, a `desc` on every step and packet, `code` where the content matters, packets that follow declared edges, and how long each text can be
-- The agent skill asks for more detail and can check it: `dav-check --detail` reports an edge or packet without a label, a step or packet without a description, a packet that travels where no edge is declared, a diagram without any `code`, and text too long to be shown in full. The skill gives the sizes that fit and shows how to write descriptions and code blocks
-- A second agent skill, `dav-reading`, explains the architecture and the data flows a `.dav` file describes. Its `dav-outline` script prints the file with every reference resolved and the packets of each step in order. Install AI Agent Skill installs both skills
+- The agent skill asks for more detail and can check it: `dav-check --detail` reports an edge or packet without a label, a step or packet without a description, a packet that travels where no edge is declared, a diagram without any `code`, and text too long to be shown in full. For a packet without an edge it names the nodes to send it through instead, or the edges to make two-way. It also describes the layout the preview will draw, for an agent that cannot see it: the size and proportion of the diagram, the columns and rows of its nodes and zones, and connections that cross. The skill gives the sizes that fit and shows how to write descriptions and code blocks
+- A second agent skill, `dav-reading`, explains the architecture and the data flows a `.dav` file describes. Its `dav-outline` script prints the file with every reference resolved and the packets of each step in order. To compare a diagram with code, it says where the code shows each thing the diagram claims, and tells what contradicts the code from what the diagram only leaves out. Install AI Agent Skill installs both skills
+- The sample of the extension's own pipeline shows the SVG export beside the HTML export
 - The samples show a code block in every diagram, and three labels in the last sample that were cut off are shorter
 - Export SVG Image: an animated SVG that plays every step with the camera following the flow or kept on the whole diagram, or a still one of the whole diagram. It runs no script, so GitHub and GitLab show it in a README
 - The preview's Export button opens a menu: standalone HTML, animated SVG, animated SVG of the whole diagram, or still SVG

@@ -1,0 +1,125 @@
+dav 1
+title "tiny-orders architecture"
+
+node browser "Browser" [icon: browser, sub: "Customer"]
+
+group stack "docker compose" [color: blue] {
+  node web "Web" [icon: server, sub: "nginx 1.27"]
+  node api "Order API" [icon: api, sub: "Node.js"]
+  node db "Orders DB" [icon: database, sub: "PostgreSQL 17"]
+  node cache "Product cache" [icon: cache, sub: "Redis 7"]
+  node mq "Event broker" [icon: queue, sub: "RabbitMQ"]
+  node worker "Email worker" [icon: function, sub: "Node.js"]
+}
+
+group external "External services" [color: purple] {
+  node psp "Payment provider" [icon: payment, sub: "payments.example.com"]
+  node smtp "SMTP server" [icon: mail, sub: "smtp.example.com"]
+}
+
+browser <-> web : "HTTP :8080"
+web <-> api : "Proxy /api/"
+api <-> db : "SQL"
+api --> cache : "Invalidate products"
+api <-> psp : "POST /charges"
+api --> mq : "order.confirmed"
+mq --> worker : "order-emails queue"
+worker --> smtp : "SMTP :587"
+
+step "Place the order" {
+  desc "The API reserves stock and records the order as pending in one transaction, before any money moves."
+  state db [badge: "PENDING", color: yellow]
+  animate browser --> web : "POST /api/orders" [icon: file, desc: "The customer submits the cart"] {
+    code http "Request" ```
+      POST /api/orders
+      Content-Type: application/json
+
+      { "email": "ann@example.com",
+        "items": [{ "productId": 1, "quantity": 2 }] }
+    ```
+  }
+  animate web --> api : "POST /orders" [desc: "nginx strips the /api/ prefix and proxies to port 3000"]
+  animate api --> db : "Reserve stock, insert" [desc: "Stock is decremented only if enough remains; otherwise the API answers 409"] {
+    code sql ```
+      UPDATE products SET stock = stock - 2
+      WHERE id = 1 AND stock >= 2;
+      INSERT INTO orders (id, email, total_cents, status)
+      VALUES ('ord_104', 'ann@example.com', 4200, 'pending');
+    ```
+  }
+  animate api --> cache : "Invalidate products" [desc: "The cached product list is stale now that stock changed"]
+}
+
+step "Charge the payment" {
+  desc "The API charges the provider, using the order id as the idempotency key so a retry can never charge twice."
+  animate api <-> psp : "POST /charges 4200" [icon: payment, desc: "The provider authorizes the card and returns a charge id"] {
+    code http "Request" ```
+      POST /v1/charges
+      Idempotency-Key: ord_104
+
+      { "amount": 4200, "currency": "usd" }
+    ```
+  }
+}
+
+step "Confirm and notify" {
+  desc "The order is marked paid, the event is published, and the customer gets the answer. The email is sent asynchronously."
+  state db [badge: "PAID", color: green]
+  animate api --> db : "UPDATE order" [desc: "The order moves from pending to paid and stores the payment id"] {
+    code sql ```
+      UPDATE orders SET status = 'paid', payment_id = 'ch_552'
+      WHERE id = 'ord_104';
+    ```
+  }
+  animate api --> mq : "order.confirmed" [icon: webhook, desc: "The broker confirms the persistent message before the API continues"] {
+    code json "Event" ```
+      { "id": "ord_104", "email": "ann@example.com",
+        "totalCents": 4200 }
+    ```
+  }
+  animate api --> web : "201 Created" [color: green, desc: "The API returns the order"]
+  animate web --> browser : "201 Created" [color: green, desc: "The customer sees the confirmation"]
+  animate mq --> worker : "order.confirmed" [desc: "The worker consumes the message from the order-emails queue"]
+  animate worker --> smtp : "Send confirmation" [icon: mail, desc: "On success the worker acks; on failure it nacks and the message goes to the dead-letter queue"]
+}
+
+step "Payment provider is down" {
+  desc "The provider times out or answers 5xx. Because this is not a decline, the API retries with exponential backoff."
+  state db [badge: "PENDING", color: yellow]
+  state psp [badge: "503", color: red]
+  animate api <-> psp : "Attempt 1: 503" [color: red, desc: "Nothing was charged; the API waits about 200 ms plus jitter"] {
+    code text "Log" ```
+      payment attempt 1 failed with 503
+    ```
+  }
+}
+
+step "Retries fail" {
+  desc "Two more attempts follow, after about 400 ms and with a 3 s timeout each. All three attempts fail."
+  state psp [badge: "DOWN", color: red]
+  animate api <-> psp : "Attempt 2: timeout" [color: red, desc: "No response within 3 seconds; the API backs off about 400 ms"]
+  animate api <-> psp : "Attempt 3: timeout" [color: red, desc: "The last attempt fails, so the API gives up with PaymentUnavailableError"] {
+    code text "Log" ```
+      payment attempt 3 failed: The operation was aborted
+    ```
+  }
+}
+
+step "The order fails" {
+  desc "The API marks the order payment_failed, returns the reserved stock, and tells the customer to try again later."
+  state db [badge: "FAILED", color: red]
+  animate api --> db : "Release order" [color: red, desc: "The status changes and the reserved items go back into stock in one transaction"] {
+    code sql ```
+      UPDATE orders SET status = 'payment_failed'
+      WHERE id = 'ord_104';
+      UPDATE products p SET stock = p.stock + i.quantity
+      FROM order_items i
+      WHERE i.order_id = 'ord_104' AND i.product_id = p.id;
+    ```
+  }
+  animate api --> cache : "Invalidate products" [desc: "The restored stock must show up in the product list"]
+  animate api --> web : "503 Unavailable" [color: red, desc: "No order.confirmed event is published, so no email is sent"] {
+    code json "{ \"error\": \"payment provider unavailable\" }"
+  }
+  animate web --> browser : "503 Unavailable" [color: red, desc: "The customer sees that the payment could not be taken"]
+}
