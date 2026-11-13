@@ -3,7 +3,6 @@ import { parse } from '../../dsl';
 import { computeLayout, type Rect, rectOverlaps, stationRect } from '../../layout';
 import { ICON_NAMES } from '../../model/types';
 import { SAMPLE_TEMPLATES } from '../../samples';
-import { CALLOUT_GAP, separatePhaseCallouts } from '../callout';
 import { type Bezier, pointAt, type Rail, type Route, railEnds } from '../geometry';
 import { ICON_SHAPES } from '../icons';
 import {
@@ -400,52 +399,6 @@ step "S" {
     });
   });
 
-  /** A packet parked at x, so that its callout sits at a chosen place. */
-  const packetAt = (x: number): Packet => {
-    const point = { x, y: 0 };
-    return {
-      from: 'a',
-      to: 'b',
-      fromLabel: 'A',
-      toLabel: 'B',
-      label: 'Callout',
-      color: 'red',
-      path: { p0: point, p1: point, p2: point, p3: point },
-      roundTrip: false,
-      clearTop: 0,
-      labelAreas: [],
-      durationMs: 2000,
-    };
-  };
-
-  it('shifts clashing callouts symmetrically and leaves far ones in place', () => {
-    const [first, far, clashing] = [packetAt(0), packetAt(1000), packetAt(0)] as const;
-    separatePhaseCallouts([first, far, clashing]);
-    expect(far).not.toHaveProperty('calloutShift');
-    expect(first.calloutShift).toBeLessThan(0);
-    expect(clashing.calloutShift).toBeGreaterThan(0);
-    expect((first.calloutShift ?? 0) + (clashing.calloutShift ?? 0)).toBeCloseTo(0);
-  });
-
-  it('moves clashing callouts apart by the smallest symmetric distance', () => {
-    const [first, second] = [packetAt(100), packetAt(100)] as const;
-    separatePhaseCallouts([first, second]);
-    const halfW = computePacketCalloutBox(first)?.halfW ?? 0;
-    const expectedSpan = halfW * 2 + CALLOUT_GAP + 1;
-    expect(first.calloutShift).toBeCloseTo(-expectedSpan / 2);
-    expect(second.calloutShift).toBeCloseTo(expectedSpan / 2);
-    expect((second.calloutShift ?? 0) - (first.calloutShift ?? 0)).toBeCloseTo(expectedSpan);
-  });
-
-  it('does not move callouts of packets that play one after another', () => {
-    const doc = parse(
-      'dav 1\nnode a\nnode b\na --> b\nstep "S" {\n  animate a --> b : "One"\n  animate a --> b : "Two"\n}\n',
-    ).document;
-    for (const phase of resolveView(doc, computeLayout(doc), 0).phases) {
-      expect(phase[0]).not.toHaveProperty('calloutShift');
-    }
-  });
-
   it('marks only active edge labels for emphasis', () => {
     const doc = parse(
       'dav 1\nnode a\nnode b\nnode c\na --> b : "on"\nb --> c : "off"\nstep "S" {\n  animate a --> b\n}\n',
@@ -585,7 +538,7 @@ step "S" {
     };
     for (const part of stepView.nodes.flatMap(nodeBody))
       expect(rectOverlaps(rect, part)).toBe(false);
-    // Just above the rail, where the first pass alone would leave it above both nodes' cells.
+    // Just above the rail, not above the cells of both nodes.
     const railY = pointAt(packet.path, 0.5).y;
     expect(railY - box.boxBottom).toBeGreaterThanOrEqual(21.9);
     expect(railY - box.boxBottom).toBeLessThan(40);

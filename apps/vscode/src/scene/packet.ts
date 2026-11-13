@@ -51,13 +51,13 @@ export function buildPacket(packet: Packet, icons: IconShapes, t = 0): VElement 
   let callout: VElement | null = null;
 
   if (box) {
-    const { cx, halfW, boxTop, padX, placement, label, descLines, code, numberRoom } = box;
+    const { cx, halfW, boxTop, padX, label, descLines, code, numberRoom } = box;
     const alignLeft = descLines.length > 0 || code !== undefined;
     // The content keeps its own width; the number sits in the room added on its left.
     const contentLeft = cx - halfW + numberRoom;
     callout = h(
       'g',
-      { class: 'dav-packet-callout', 'data-placement': placement },
+      { class: 'dav-packet-callout' },
       h('path', {
         d: calloutOutline(box),
         fill: THEME_COLOR.panel,

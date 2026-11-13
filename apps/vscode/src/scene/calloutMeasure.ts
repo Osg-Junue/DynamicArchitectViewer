@@ -36,9 +36,6 @@ export const CALLOUT_CODE_HEADER_HEIGHT = 30;
 /** Room on the left of a callout for the number it shares with its stop on the rail. */
 export const CALLOUT_NUMBER_ROOM = 24;
 
-/** Keeps a callout clear of its endpoint nodes, including their badges, crop marks, and subtitles. */
-export const CALLOUT_NODE_CLEARANCE = 16;
-export const CALLOUT_LABEL_CLEARANCE = 6;
 export const CALLOUT_GAP = 16;
 
 type CalloutTextStyle = 'normal' | 'bold' | 'mono';

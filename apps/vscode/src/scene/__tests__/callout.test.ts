@@ -19,7 +19,6 @@ import {
   CALLOUT_OUTER_PAD_X,
   CALLOUT_RADIUS,
   calloutOutline,
-  separatePhaseCallouts,
 } from '../callout';
 import { expandRect, pointAt, pointInRect, segmentIntersectsRect } from '../geometry';
 import { ICON_SHAPES } from '../icons';
@@ -94,8 +93,6 @@ function makePacket(
     color: opts.color ?? DEFAULT_FLOW_COLOR,
     path: { p0: pt, p1: pt, p2: pt, p3: pt },
     roundTrip: false,
-    clearTop: 260,
-    labelAreas: [],
     durationMs: 2000,
   };
   if (opts.label !== undefined) pkt.label = opts.label;
@@ -529,56 +526,6 @@ step "Row1UnderRow0" {
     if (row1Box) expect(covers(row1Box, closedAreas(row1View))).toBe(false);
   });
 
-  it('keeps parallel callouts uncrossed in mid.x order and aligned on a shared boxBottom shelf', () => {
-    const ptLeft = { x: 260, y: 310 };
-    const ptRight = { x: 300, y: 334 };
-    const pktRightDeclaredFirst: Packet = {
-      from: 'b',
-      to: 'c',
-      fromLabel: 'B',
-      toLabel: 'C',
-      label: 'Right Rail',
-      description: 'Declared first but sits to the right',
-      color: 'purple',
-      path: { p0: ptRight, p1: ptRight, p2: ptRight, p3: ptRight },
-      roundTrip: false,
-      clearTop: 294,
-      labelAreas: [],
-      durationMs: 2000,
-    };
-    const pktLeftDeclaredSecond: Packet = {
-      from: 'a',
-      to: 'b',
-      fromLabel: 'A',
-      toLabel: 'B',
-      label: 'Left Rail',
-      description: 'Declared second but sits to the left',
-      color: 'green',
-      path: { p0: ptLeft, p1: ptLeft, p2: ptLeft, p3: ptLeft },
-      roundTrip: false,
-      clearTop: 270,
-      labelAreas: [],
-      durationMs: 2000,
-    };
-
-    separatePhaseCallouts([pktRightDeclaredFirst, pktLeftDeclaredSecond]);
-    const leftBox = computePacketCalloutBox(pktLeftDeclaredSecond);
-    const rightBox = computePacketCalloutBox(pktRightDeclaredFirst);
-    expect(leftBox && rightBox).toBeTruthy();
-    if (!leftBox || !rightBox) return;
-
-    // Uncrossed left-to-right order (left rail stays left of right rail)
-    expect(leftBox.cx).toBeLessThan(rightBox.cx);
-    // Symmetric opposite shifts around their natural midpoints
-    expect(pktLeftDeclaredSecond.calloutShift).toBeLessThan(0);
-    expect(pktRightDeclaredFirst.calloutShift).toBeGreaterThan(0);
-    expect(
-      (pktLeftDeclaredSecond.calloutShift ?? 0) + (pktRightDeclaredFirst.calloutShift ?? 0),
-    ).toBeCloseTo(0);
-    // Shared horizontal baseline shelf (`boxBottom` difference was 24px <= 48px)
-    expect(leftBox.boxBottom).toBe(rightBox.boxBottom);
-  });
-
   it('draws the callout as a closed box that does not depend on where the packet is', () => {
     const p0 = { x: 120, y: 320 };
     const p3 = { x: 420, y: 320 };
@@ -592,8 +539,6 @@ step "Row1UnderRow0" {
       color: DEFAULT_FLOW_COLOR,
       path: { p0, p1: { x: 200, y: 320 }, p2: { x: 340, y: 320 }, p3 },
       roundTrip: false,
-      clearTop: 280,
-      labelAreas: [],
       durationMs: 2000,
     };
     const box = computePacketCalloutBox(packet);
@@ -816,66 +761,7 @@ step "Step 4" {
     }
   });
 
-  // Which side the first pass picks. The last pass decides where the callout ends up, and
-  // takes over this side only when it finds no free place.
-  it('first picks the side below for bottom-row flows under upper obstacles (examples 05 & 07)', () => {
-    const ex07Dsl = readExample('07-dynamic-architect-viewer.dav');
-    const ex07Doc = parse(ex07Dsl).document;
-    const ex07Layout = computeLayout(ex07Doc);
-
-    // Example 07 Step 5: exporter --> html_out sits on Row 1 under Preview Webview (Row 0)
-    const ex07Step5 = resolveView(ex07Doc, ex07Layout, 4);
-    const outputsGroup = ex07Step5.groups.find((g) => g.id === 'outputs');
-    const exportPkt = ex07Step5.phases[1]?.[0];
-    const exportBox = exportPkt && computePacketCalloutBox(exportPkt);
-    expect(outputsGroup && exportPkt && exportBox).toBeTruthy();
-    if (outputsGroup && exportPkt && exportBox) expect(exportBox.placement).toBe('below');
-
-    // Example 07 Step 1 phase 4: dsl --> ext return rail places callout below
-    const ex07Step1 = resolveView(ex07Doc, ex07Layout, 0);
-    const diagPkt = ex07Step1.phases[3]?.[0];
-    const diagBox = diagPkt && computePacketCalloutBox(diagPkt);
-    expect(diagBox?.placement).toBe('below');
-
-    // Example 07 Steps 2 & 3: unobstructed Row-0 forward flows stay 'above'
-    const ex07Step2 = resolveView(ex07Doc, ex07Layout, 1);
-    for (const pkt of ex07Step2.phases.flat()) {
-      expect(computePacketCalloutBox(pkt)?.placement).toBe('above');
-    }
-    const ex07Step3 = resolveView(ex07Doc, ex07Layout, 2);
-    for (const pkt of ex07Step3.phases.flat()) {
-      expect(computePacketCalloutBox(pkt)?.placement).toBe('above');
-    }
-
-    // Example 05 Step 6 parallel response + event, and Steps 7-8 bottom Async processing
-    const ex05Dsl = readExample('05-sequence-payment-retry.dav');
-    const ex05Doc = parse(ex05Dsl).document;
-    const ex05Layout = computeLayout(ex05Doc);
-    const ex05Step6 = resolveView(ex05Doc, ex05Layout, 5);
-    const asyncGroup6 = ex05Step6.groups.find((g) => g.id === 'async');
-    const [createdPkt, confirmedPkt] = ex05Step6.phases[2] ?? [];
-    const createdBox = createdPkt && computePacketCalloutBox(createdPkt);
-    const confirmedBox = confirmedPkt && computePacketCalloutBox(confirmedPkt);
-    expect(createdBox?.placement).toBe('above');
-    expect(confirmedBox?.placement).toBe('below');
-    expect(asyncGroup6 && confirmedBox).toBeTruthy();
-
-    const ex05Step7 = resolveView(ex05Doc, ex05Layout, 6);
-    const asyncGroup7 = ex05Step7.groups.find((g) => g.id === 'async');
-    const deliverPkt = ex05Step7.phases[0]?.[0];
-    const deliverBox = deliverPkt && computePacketCalloutBox(deliverPkt);
-    expect(asyncGroup7 && deliverBox).toBeTruthy();
-    if (asyncGroup7 && deliverBox) expect(deliverBox.placement).toBe('below');
-
-    const ex05Step8 = resolveView(ex05Doc, ex05Layout, 7);
-    const asyncGroup8 = ex05Step8.groups.find((g) => g.id === 'async');
-    const quarantinePkt = ex05Step8.phases[0]?.[0];
-    const quarantineBox = quarantinePkt && computePacketCalloutBox(quarantinePkt);
-    expect(asyncGroup8 && quarantineBox).toBeTruthy();
-    if (asyncGroup8 && quarantineBox) expect(quarantineBox.placement).toBe('below');
-  });
-
-  it('optimizes parallel flows cleanly across bidirectional, mixed fan-out, and shelf alignment patterns', () => {
+  it('keeps the callouts of parallel flows apart: there and back, fanning out, and side by side', () => {
     // 1a. Dual-edge bidirectional parallel (a --> b + b --> a [parallel: true]) splits into above + below
     const bidiDoc = parse(`dav 1
 node a "Client" [icon: browser]
@@ -891,10 +777,9 @@ step "Bidi" {
     const [fwdPkt, revPkt] = bidiView.phases[0] ?? [];
     const fwdBox = fwdPkt && computePacketCalloutBox(fwdPkt);
     const revBox = revPkt && computePacketCalloutBox(revPkt);
-    expect(fwdBox?.placement).toBe('above');
-    expect(revBox?.placement).toBe('below');
-    expect(Math.abs(fwdPkt?.calloutShift ?? 0)).toBeLessThanOrEqual(1);
-    expect(Math.abs(revPkt?.calloutShift ?? 0)).toBeLessThanOrEqual(1);
+    // The request and its reply run between the same two stations: each callout has a place
+    // of its own beside them.
+    expect(fwdBox && revBox && rectOverlaps(calloutRect(fwdBox), calloutRect(revBox))).toBe(false);
 
     // 1b. Single <-> edge parallel request + response with code blocks also splits into above + below
     const sharedBidiDoc = parse(`dav 1
@@ -916,8 +801,9 @@ step "BidiCode" {
 `).document;
     const sharedBidiView = resolveView(sharedBidiDoc, computeLayout(sharedBidiDoc), 0);
     const [reqPkt, resPkt] = sharedBidiView.phases[0] ?? [];
-    expect(reqPkt && computePacketCalloutBox(reqPkt)?.placement).toBe('above');
-    expect(resPkt && computePacketCalloutBox(resPkt)?.placement).toBe('below');
+    const reqBox = reqPkt && computePacketCalloutBox(reqPkt);
+    const resBox = resPkt && computePacketCalloutBox(resPkt);
+    expect(reqBox && resBox && rectOverlaps(calloutRect(reqBox), calloutRect(resBox))).toBe(false);
 
     // 2 & 3. Mixed upper+lower fan-out (Step 1) and side-by-side upper flows blocked below (Step 2)
     const stressDoc = parse(`dav 1
@@ -989,8 +875,7 @@ step "WorkerDualShelf" {
     const dbBox = dbPkt && computePacketCalloutBox(dbPkt);
     const cacheBox = cachePkt && computePacketCalloutBox(cachePkt);
     // Both rails leave the API downwards, side by side, and turn off to the right one below
-    // the other. Which side of its rail the first pass picks no longer decides where these
-    // callouts go: the last pass finds each a place beside its own rail.
+    // the other. Each callout has a place beside its own rail.
     expect(dbBox && cacheBox && rectOverlaps(calloutRect(dbBox), calloutRect(cacheBox))).toBe(
       false,
     );
@@ -1010,8 +895,8 @@ step "WorkerDualShelf" {
       const [up0, up1] = shelfView.phases[0] ?? [];
       const upBox0 = up0 && computePacketCalloutBox(up0);
       const upBox1 = up1 && computePacketCalloutBox(up1);
-      // The last pass brings each callout beside its own rail, whichever side the first pass
-      // picked: that matters more than a shared shelf once no pointer joins them.
+      // Each callout is beside its own rail: that matters more than a shared shelf, now that
+      // no pointer joins a callout to its packet.
       expect(upBox0 && upBox1).toBeTruthy();
       if (!upBox0 || !upBox1) continue;
       const r0 = calloutRect(upBox0);
@@ -1023,78 +908,6 @@ step "WorkerDualShelf" {
         r1.y + r1.height + CALLOUT_GAP <= r0.y;
       expect(apart).toBe(true);
     }
-
-    // 4. Parallel 'below' callouts within PARALLEL_SHELF_TOLERANCE align onto shared maxTop shelf
-    const lowLeft: Packet = {
-      from: 'b',
-      to: 'a',
-      fromLabel: 'B',
-      toLabel: 'A',
-      label: 'Ack 1',
-      description: 'First lower return acknowledgment',
-      color: DEFAULT_FLOW_COLOR,
-      path: {
-        p0: { x: 420, y: 200 },
-        p1: { x: 340, y: 200 },
-        p2: { x: 200, y: 200 },
-        p3: { x: 120, y: 200 },
-      },
-      roundTrip: false,
-      clearTop: 100,
-      clearBottom: 230,
-      preferBelow: true,
-      labelAreas: [{ x: 80, y: -200, width: 800, height: 300 }],
-      durationMs: 2000,
-    };
-    const lowRight: Packet = {
-      ...lowLeft,
-      from: 'c',
-      to: 'b',
-      label: 'Ack 2',
-      description: 'Second lower return acknowledgment\nwith an extra wrapped detail line',
-      path: {
-        p0: { x: 760, y: 224 },
-        p1: { x: 680, y: 224 },
-        p2: { x: 540, y: 224 },
-        p3: { x: 460, y: 224 },
-      },
-      clearBottom: 254,
-    };
-    separatePhaseCallouts([lowLeft, lowRight]);
-    const lowBox0 = computePacketCalloutBox(lowLeft);
-    const lowBox1 = computePacketCalloutBox(lowRight);
-    expect(lowBox0?.placement).toBe('below');
-    expect(lowBox1?.placement).toBe('below');
-    expect(lowBox0?.boxTop).toBe(lowBox1?.boxTop);
-  });
-
-  it('marks which side of the rail the first pass chose', () => {
-    const p0 = { x: 120, y: 200 };
-    const p3 = { x: 420, y: 200 };
-    const packet: Packet = {
-      from: 'a',
-      to: 'b',
-      fromLabel: 'A',
-      toLabel: 'B',
-      label: '200 OK',
-      description: 'Below rail response',
-      color: DEFAULT_FLOW_COLOR,
-      calloutPlacement: 'below',
-      path: { p0, p1: { x: 200, y: 200 }, p2: { x: 340, y: 200 }, p3 },
-      roundTrip: false,
-      clearTop: 160,
-      clearBottom: 248,
-      labelAreas: [],
-      durationMs: 2000,
-    };
-    const box = computePacketCalloutBox(packet);
-    expect(box?.placement).toBe('below');
-    expect(box?.boxTop).toBeGreaterThan(200);
-    const group = findAll(
-      buildPacket(packet, 0.5),
-      (e) => e.tag === 'g' && e.attrs.class === 'dav-packet-callout',
-    )[0];
-    expect(group?.attrs['data-placement']).toBe('below');
   });
 
   it('never covers a zone name, a node, an edge label or a rail, or sits by the wrong rail across all examples & templates', () => {

@@ -4,16 +4,15 @@ import { expandRect, type Point, pointAt, type Rail, railBox, railLength } from 
 import type { Packet } from './resolve';
 
 /**
- * Where the callouts of a phase go. `separatePhaseCallouts` first puts each one above or below
- * the middle of its rail, clear of everything; that is far from the rail more often than not.
- * Here each callout takes the free place nearest its own rail, a little in favor of the middle
- * of the rail, where its numbered stop is.
+ * Where the callouts of a phase go: each takes the free place nearest its own rail, a little in
+ * favor of the middle of the rail, where its numbered stop is.
  *
  * Two things a callout would rather not do, and does only where that brings it clearly closer:
  * lie across the border of a zone, and use the cell of a node. The strip across the top of a
  * zone is closed altogether, so of a zone's borders only its sides and its bottom are crossed.
  *
- * A callout with no free place keeps the one the first pass gave it.
+ * A callout with no free place within reach sits above the middle of its rail, whatever is
+ * there (see `computePacketCalloutBox`). No sample or stress diagram has one.
  */
 
 /** What the callouts of one step have around them. */
@@ -59,9 +58,9 @@ const MIDDLE_WEIGHT = 0.2;
 const CENTER_WEIGHT = 0.01;
 /**
  * How far from its rail a place is looked for: nearby first, since that is where most callouts
- * end up, and all the way only when nothing nearby is free.
+ * end up, and further out only when nothing nearer is free.
  */
-const SEARCH_REACHES = [120, 300];
+const SEARCH_REACHES = [120, 300, 600];
 const SEARCH_STEP = 10;
 /** The most two samples of a rail lie apart: a callout is not to slip between them. */
 const SAMPLE_SPACING = 10;
@@ -86,6 +85,12 @@ function nearest(rect: Rect, points: readonly Point[]): number {
   let best = Number.POSITIVE_INFINITY;
   for (const p of points) best = Math.min(best, reach(rect, p));
   return best;
+}
+
+/** Whether two rails run together all the way: the shorter never leaves the side of the longer. */
+function alongside(a: readonly Point[], b: readonly Point[]): boolean {
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+  return short.every((p) => long.some((q) => Math.hypot(p.x - q.x, p.y - q.y) < OWN_RAIL_MARGIN));
 }
 
 /** The callout is clear of the zone, or wholly inside it below its name. */
@@ -113,7 +118,11 @@ export function placePhaseCallouts(phase: readonly Packet[], around: CalloutSurr
   const taken: Rect[] = [];
 
   for (const { packet, size, own } of entries) {
-    const rivals = entries.filter((e) => e.packet !== packet).map((e) => e.own);
+    // A packet on the same rail, such as a reply in the same phase, is no rival: nothing can be
+    // nearer the one than the other. Their callouts only keep clear of each other.
+    const rivals = entries
+      .filter((e) => e.packet !== packet && !alongside(e.own, own))
+      .map((e) => e.own);
     const middle = pointAt(packet.path, 0.5);
     const acrossBorder = (rect: Rect) => zones.some((zone) => !respectsZone(rect, zone));
     const inCell = (rect: Rect) => cells.some((cell) => rectOverlaps(rect, cell));

@@ -5,6 +5,7 @@ The `dav` language version is separate from the extension version.
 
 ## Unreleased
 
+- An exported HTML file is about 9 KB smaller: the callouts are placed in one pass instead of two, with the same result
 - Callouts are easier to read: the heading, the description and the code are each set a size larger, and a callout holds as many characters as before. In an exported SVG the step title and description above the diagram are larger too
 - The button that stops the animation shows a square, the usual sign for stop, instead of a dot on a line
 - The preview stays responsive on large diagrams: the search for where to place the zones, which takes over a second on three hundred nodes, runs in a worker, and the preview shows the diagram it has until the new layout is ready

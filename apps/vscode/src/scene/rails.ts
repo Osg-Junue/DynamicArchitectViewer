@@ -41,21 +41,6 @@ export function stationArea(node: ResolvedNode): Rect {
   };
 }
 
-/** Directions between stations that have a rail of their own, not shared with the reverse. */
-function separateTracks(doc: DavDocument): Set<string> {
-  const sharedRail = new Set(
-    doc.edges
-      .filter((e) => e.direction === 'bidirectional')
-      .flatMap((e) => [idPair(e.from, e.to), idPair(e.to, e.from)]),
-  );
-  return new Set(
-    [...doc.edges, ...doc.steps.flatMap((s) => s.animations)]
-      .filter((r) => r.from !== r.to)
-      .map((r) => idPair(r.from, r.to))
-      .filter((key) => !sharedRail.has(key)),
-  );
-}
-
 /** Loops on one station are told apart by their position among them: each nests outside the last. */
 function loopOrdinals(doc: DavDocument): Map<DavEdge, number> {
   const loops = new Map<string, number>();
@@ -367,21 +352,14 @@ function routedFor(doc: DavDocument, layout: Layout, nodes: readonly ResolvedNod
  * course from step to step.
  */
 export class RailRouter {
-  readonly #tracks: Set<string>;
   readonly #loops: Map<DavEdge, number>;
   readonly #indexOf: Map<DavEdge, number>;
   readonly #routed: Routed;
 
   constructor(doc: DavDocument, layout: Layout, nodes: readonly ResolvedNode[]) {
-    this.#tracks = separateTracks(doc);
     this.#loops = loopOrdinals(doc);
     this.#indexOf = new Map(doc.edges.map((e, i) => [e, i]));
     this.#routed = routedFor(doc, layout, nodes);
-  }
-
-  /** Whether something also runs from `to` back to `from` on a track of its own. */
-  hasReverseTrack(from: string, to: string): boolean {
-    return this.#tracks.has(idPair(to, from));
   }
 
   /** A rail between two stations that no edge joins, such as the path of a lone packet. */
