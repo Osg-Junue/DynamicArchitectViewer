@@ -16,11 +16,10 @@ import {
 import {
   BADGE_MAX_WIDTH,
   BADGE_SIZE,
-  estimateTextWidth,
   fitText,
   NODE_LABEL_SIZE,
   NODE_SUB_SIZE,
-  NODE_TEXT_INSET,
+  textWidth,
 } from './text';
 import { h, type VElement } from './vnode';
 import { ZONE_LABEL, zoneLabelRoom } from './zones';
@@ -299,7 +298,6 @@ function nodeElement(n: ResolvedNode, icons: IconShapes): VElement {
   };
   const iconCy = isWindow ? cy + WINDOW_BAR / 2 : cy;
   const iconSize = isWindow ? WINDOW_ICON_SIZE : ICON_SIZE;
-  const textWidth = width - NODE_TEXT_INSET;
 
   return h(
     'g',
@@ -330,7 +328,7 @@ function nodeElement(n: ResolvedNode, icons: IconShapes): VElement {
         'font-size': NODE_LABEL_SIZE,
         fill: THEME_COLOR.fg,
       },
-      fitText(n.label, NODE_LABEL_SIZE, textWidth),
+      fitText(n.label, NODE_LABEL_SIZE, width, 'bold'),
     ),
     n.sub
       ? h(
@@ -343,7 +341,7 @@ function nodeElement(n: ResolvedNode, icons: IconShapes): VElement {
             'font-size': NODE_SUB_SIZE,
             fill: THEME_COLOR.fg,
           },
-          fitText(n.sub, NODE_SUB_SIZE, textWidth),
+          fitText(n.sub, NODE_SUB_SIZE, width),
         )
       : null,
     n.badge ? badge(cx, station.y, n.badge, accent ?? THEME_COLOR.fg) : null,
@@ -372,8 +370,8 @@ function windowBar(station: Rect, stroke: string): VElement {
 }
 
 function badge(cx: number, stationTop: number, text: string, color: string): VElement {
-  const label = fitText(text, BADGE_SIZE, BADGE_MAX_WIDTH);
-  const width = estimateTextWidth(label, BADGE_SIZE) + 16;
+  const label = fitText(text, BADGE_SIZE, BADGE_MAX_WIDTH, 'bold');
+  const width = textWidth(label, BADGE_SIZE, 'bold') + 16;
   const y = stationTop - 25;
   return h(
     'g',

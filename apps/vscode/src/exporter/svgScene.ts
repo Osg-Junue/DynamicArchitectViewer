@@ -7,7 +7,6 @@ import {
   buildPacket,
   cornerShares,
   dimClass,
-  estimateTextWidth,
   fitText,
   flowColors,
   h,
@@ -19,6 +18,7 @@ import {
   placeZoneLabels,
   type ResolvedView,
   THEME_COLOR,
+  textWidth,
   type VElement,
   ZONE_LABEL,
   type ZoneLabelEntry,
@@ -258,7 +258,7 @@ export function zoneLabelLayer(
       id: g.id,
       text,
       rect,
-      width: estimateTextWidth(text, ZONE_LABEL.size),
+      width: textWidth(text, ZONE_LABEL.size),
       parentIndex: g.parentId === undefined ? -1 : (indices.get(g.parentId) ?? -1),
     });
   }

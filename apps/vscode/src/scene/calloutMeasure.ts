@@ -1,9 +1,9 @@
-import { isWide, normalizeCodeIndent } from '../model/text';
+import { normalizeCodeIndent } from '../model/text';
 import type { CodeBlock } from '../model/types';
 import type { PacketCalloutCodeBox } from './callout';
 import { clamp } from './geometry';
 import type { Packet } from './resolve';
-import { fitText, type WrapTextOptions, wrapText } from './text';
+import { fitText, textWidth, wrapText } from './text';
 
 const PHI = (1 + Math.sqrt(5)) / 2;
 
@@ -20,6 +20,8 @@ const CALLOUT_CODE_TEXT_WIDTH = { min: 254, max: CALLOUT_MAX_TEXT_WIDTH } as con
 export const CALLOUT_LABEL_SIZE = 15;
 export const CALLOUT_DESC_SIZE = 14;
 export const CALLOUT_LINE_HEIGHT = 22;
+/** A description is cut after this many lines. */
+const DESC_MAX_LINES = 4;
 /** From the top of a callout to where its description starts, with and without a heading. */
 export const CALLOUT_HEAD = { withLabel: 42, bare: 21 } as const;
 /** The height of a callout that is one heading and nothing else. */
@@ -37,88 +39,6 @@ export const CALLOUT_CODE_HEADER_HEIGHT = 30;
 export const CALLOUT_NUMBER_ROOM = 24;
 
 export const CALLOUT_GAP = 16;
-
-type CalloutTextStyle = 'normal' | 'bold' | 'mono';
-
-/**
- * CJK characters, fullwidth forms, and general punctuation/symbols/arrows (`—`, `…`, `→`, `●`,
- * `①`..`⑳`, `¥`, `·`) render at ~1.0em in UI/CJK fonts even when outside `model/text.ts` `isWide`.
- */
-function isCalloutWide(ch: string): boolean {
-  if (isWide(ch)) return true;
-  const code = ch.codePointAt(0) ?? 0;
-  return (
-    code === 0x00a5 ||
-    code === 0x00b7 ||
-    code === 0x00d7 ||
-    code === 0x00f7 ||
-    (code >= 0x2000 && code <= 0x2bff) ||
-    (code >= 0x3000 && code <= 0x303f) ||
-    (code >= 0xfe00 && code <= 0xfe6f)
-  );
-}
-
-function charEm(ch: string, style: CalloutTextStyle): number {
-  if (isCalloutWide(ch)) {
-    return style === 'normal' ? 1.05 : 1.08;
-  }
-  if (style === 'mono') {
-    return 0.605;
-  }
-  if (ch === 'W' || ch === 'M' || ch === '@' || ch === '%') {
-    return style === 'bold' ? 0.92 : 0.88;
-  }
-  if ((ch >= 'A' && ch <= 'Z') || ch === '#' || ch === '&') {
-    return style === 'bold' ? 0.72 : 0.68;
-  }
-  return style === 'bold' ? 0.65 : 0.6;
-}
-
-/** Conservative DOM-free width estimator so callout text never overflows its bubble or code box. */
-export function estimateCalloutTextWidth(
-  text: string,
-  fontSize: number,
-  style: CalloutTextStyle = 'normal',
-): number {
-  let em = 0;
-  for (const ch of text) em += charEm(ch, style);
-  return em * fontSize;
-}
-
-function fitCalloutText(
-  text: string,
-  fontSize: number,
-  maxWidth: number,
-  style: CalloutTextStyle,
-): string {
-  return fitText(text, fontSize, maxWidth, {
-    measure: (s, size) => estimateCalloutTextWidth(s, size, style),
-    trimBeforeEllipsis: style !== 'mono',
-  });
-}
-
-function isBreakableToken(ch: string): boolean {
-  return (
-    ch === ' ' ||
-    ch === '\n' ||
-    isWide(ch) ||
-    ch === '—' ||
-    ch === '→' ||
-    ch === '←' ||
-    ch === '↔' ||
-    ch === '・'
-  );
-}
-
-const CALLOUT_WRAP_OPTIONS: WrapTextOptions = {
-  measure: (s, size) => estimateCalloutTextWidth(s, size, 'normal'),
-  isBreakable: isBreakableToken,
-  trimBeforeEllipsis: true,
-};
-
-function wrapCalloutText(text: string, fontSize: number, maxWidth: number, maxLines = 4): string[] {
-  return wrapText(text, fontSize, maxWidth, maxLines, CALLOUT_WRAP_OPTIONS);
-}
 
 interface PreparedCodeSpec {
   header: string;
@@ -138,18 +58,18 @@ function prepareCodeSpec(code: CodeBlock): PreparedCodeSpec | undefined {
       ? [...dedented.slice(0, CALLOUT_CODE_MAX_LINES - 1), '…']
       : dedented;
   const lines = capped.map((line) =>
-    fitCalloutText(line, CALLOUT_CODE_SIZE, CALLOUT_CODE_MAX_TEXT_WIDTH, 'mono'),
+    fitText(line, CALLOUT_CODE_SIZE, CALLOUT_CODE_MAX_TEXT_WIDTH, 'mono'),
   );
 
   const lang = code.lang?.trim() ?? '';
   const title = code.title?.trim() ?? '';
   const rawHeader = lang && title ? `${lang} · ${title}` : lang || title;
   const header = rawHeader
-    ? fitCalloutText(rawHeader, CALLOUT_CODE_SIZE, CALLOUT_CODE_MAX_TEXT_WIDTH - 28, 'mono')
+    ? fitText(rawHeader, CALLOUT_CODE_SIZE, CALLOUT_CODE_MAX_TEXT_WIDTH - 28, 'mono')
     : '';
   const headerHeight = header ? CALLOUT_CODE_HEADER_HEIGHT : 0;
 
-  const monoW = (s: string) => estimateCalloutTextWidth(s, CALLOUT_CODE_SIZE, 'mono');
+  const monoW = (s: string) => textWidth(s, CALLOUT_CODE_SIZE, 'mono');
   const codeTextW = Math.max(header ? monoW(`{ } ${header}`) : 0, ...lines.map(monoW)) + 8;
   const minBoxW = codeTextW + CALLOUT_CODE_PAD_X * 2;
   const height = headerHeight + lines.length * CALLOUT_CODE_LINE_HEIGHT + 14;
@@ -166,7 +86,7 @@ function countEllipses(text: string): number {
 }
 
 function balanceCalloutLines(text: string, descMaxW: number, minBalanceW: number): string[] {
-  const lines = wrapCalloutText(text, CALLOUT_DESC_SIZE, descMaxW, 4);
+  const lines = wrapText(text, CALLOUT_DESC_SIZE, descMaxW, DESC_MAX_LINES);
   const k = lines.length;
   if (text.includes('\n') || k < 2) return lines;
   const baseEllipses = countEllipses(text);
@@ -178,7 +98,7 @@ function balanceCalloutLines(text: string, descMaxW: number, minBalanceW: number
   let hi = descMaxW;
   for (let iter = 0; iter < 8; iter++) {
     const midW = (lo + hi) / 2;
-    const cand = wrapCalloutText(text, CALLOUT_DESC_SIZE, midW, 4);
+    const cand = wrapText(text, CALLOUT_DESC_SIZE, midW, DESC_MAX_LINES);
     if (cand.length <= k && countEllipses(cand.join('')) <= baseEllipses) {
       best = cand;
       hi = midW;
@@ -235,9 +155,9 @@ export function calloutCuts(text: CalloutText): CalloutCuts {
 export function measureCalloutCard(packet: CalloutText): MeasuredCalloutCard | null {
   const codeSpec = packet.code ? prepareCodeSpec(packet.code) : undefined;
   const label = packet.label
-    ? fitCalloutText(packet.label, CALLOUT_LABEL_SIZE, CALLOUT_MAX_TEXT_WIDTH, 'bold')
+    ? fitText(packet.label, CALLOUT_LABEL_SIZE, CALLOUT_MAX_TEXT_WIDTH, 'bold')
     : '';
-  const labelW = label ? estimateCalloutTextWidth(label, CALLOUT_LABEL_SIZE, 'bold') : 0;
+  const labelW = label ? textWidth(label, CALLOUT_LABEL_SIZE, 'bold') : 0;
 
   let phiInnerW = 0;
   let descMaxW = CALLOUT_NO_CODE_DESC_MAX_WIDTH;
@@ -266,7 +186,7 @@ export function measureCalloutCard(packet: CalloutText): MeasuredCalloutCard | n
   if (!label && descLines.length === 0 && !codeSpec) return null;
 
   const descW = descLines.reduce(
-    (m, line) => Math.max(m, estimateCalloutTextWidth(line, CALLOUT_DESC_SIZE, 'normal')),
+    (m, line) => Math.max(m, textWidth(line, CALLOUT_DESC_SIZE, 'normal')),
     0,
   );
   const padX =

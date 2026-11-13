@@ -14,7 +14,7 @@ import {
   segmentIntersectsRect,
   svgPath,
 } from '../geometry';
-import { estimateTextWidth, fitText, type ResolvedView, resolveView } from '../index';
+import { fitText, type ResolvedView, resolveView, textWidth } from '../index';
 import { nodeBody, stationArea } from '../rails';
 import { type RouteEdge, type RouteNode, routeEdges } from '../route';
 
@@ -222,7 +222,7 @@ describe('the rails of a diagram', () => {
           }
         }
         if (!edge.label || !edge.labelAt) continue;
-        const width = estimateTextWidth(
+        const width = textWidth(
           fitText(edge.label, EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH),
           EDGE_LABEL_FONT_SIZE,
         );

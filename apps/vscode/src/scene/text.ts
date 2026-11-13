@@ -1,24 +1,23 @@
-import { estimateTextWidth, isWide } from '../model/text';
+import { isWide, type TextStyle, textWidth } from '../model/text';
 
-export { estimateTextWidth };
+export { type TextStyle, textWidth };
 
-/** Sizes of the text a node carries, and how much of its cell's width its labels may take. */
+/** Sizes of the text a node carries. Its labels may take the width of its cell. */
 export const NODE_LABEL_SIZE = 14;
 export const NODE_SUB_SIZE = 11.5;
-export const NODE_TEXT_INSET = 8;
 export const BADGE_SIZE = 11;
 export const BADGE_MAX_WIDTH = 120;
 
-export interface FitTextOptions {
-  measure?: (text: string, fontSize: number) => number;
-  trimBeforeEllipsis?: boolean;
-}
-
-export interface WrapTextOptions extends FitTextOptions {
-  isBreakable?: (ch: string) => boolean;
-}
-
-const defaultIsBreakable = (ch: string): boolean => ch === ' ' || ch === '\n' || isWide(ch);
+/** Where a line may break: at a space, and before or after a CJK character, a dash or an arrow. */
+const isBreakable = (ch: string): boolean =>
+  ch === ' ' ||
+  ch === '\n' ||
+  isWide(ch) ||
+  ch === '—' ||
+  ch === '→' ||
+  ch === '←' ||
+  ch === '↔' ||
+  ch === '・';
 
 const KINSOKU_OPEN_RE = /^[([{（「『【〈《〔]+$/;
 const KINSOKU_TRAILING_OPEN_RE = /^(.+?)([([{（「『【〈《〔]+)$/;
@@ -77,21 +76,23 @@ function coalesceKinsokuTokens(raw: readonly string[]): string[] {
   return out;
 }
 
-/** Truncates text with an ellipsis so it fits within maxWidth. */
+/**
+ * Cuts a text with an ellipsis so that it fits within `maxWidth`. A space before the ellipsis
+ * is dropped, except in code, where every column counts.
+ */
 export function fitText(
   text: string,
   fontSize: number,
   maxWidth: number,
-  options: FitTextOptions = {},
+  style: TextStyle = 'normal',
 ): string {
-  const measure = options.measure ?? estimateTextWidth;
-  if (measure(text, fontSize) <= maxWidth) return text;
+  if (textWidth(text, fontSize, style) <= maxWidth) return text;
   let out = '';
   for (const ch of text) {
-    if (measure(`${out + ch}…`, fontSize) > maxWidth) break;
+    if (textWidth(`${out + ch}…`, fontSize, style) > maxWidth) break;
     out += ch;
   }
-  return `${options.trimBeforeEllipsis ? out.trimEnd() : out}…`;
+  return `${style === 'mono' ? out : out.trimEnd()}…`;
 }
 
 /**
@@ -103,16 +104,13 @@ export function wrapText(
   fontSize: number,
   maxWidth: number,
   maxLines = 3,
-  options: WrapTextOptions = {},
+  style: TextStyle = 'normal',
 ): string[] {
   const clean = text
     .trim()
     .replace(/\s*\n\s*/g, '\n')
     .replace(/[^\S\n]+/g, ' ');
   if (!clean) return [];
-
-  const isBreakable = options.isBreakable ?? defaultIsBreakable;
-  const measure = options.measure ?? estimateTextWidth;
 
   const rawTokens: string[] = [];
   let word = '';
@@ -136,20 +134,20 @@ export function wrapText(
     const tok = tokens[i] ?? '';
     if (!current && tok === ' ') continue;
     const candidate = current + tok;
-    if (tok === '\n' || (current && measure(candidate, fontSize) > maxWidth)) {
+    if (tok === '\n' || (current && textWidth(candidate, fontSize, style) > maxWidth)) {
       if (lines.length + 1 >= maxLines) {
         const rest = (current + tokens.slice(i).join('')).trim().replace(/\n/g, ' ');
-        lines.push(fitText(rest, fontSize, maxWidth, options));
+        lines.push(fitText(rest, fontSize, maxWidth, style));
         return lines;
       }
-      lines.push(fitText(current.trimEnd(), fontSize, maxWidth, options));
+      lines.push(fitText(current.trimEnd(), fontSize, maxWidth, style));
       current = tok === ' ' || tok === '\n' ? '' : tok;
     } else {
       current = candidate;
     }
   }
   if (current.trim()) {
-    lines.push(fitText(current.trim(), fontSize, maxWidth, options));
+    lines.push(fitText(current.trim(), fontSize, maxWidth, style));
   }
   return lines;
 }

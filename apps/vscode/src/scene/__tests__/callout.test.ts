@@ -29,13 +29,13 @@ import {
   calmFrame,
   computePacketCalloutBox,
   DEFAULT_FLOW_COLOR,
-  estimateCalloutTextWidth,
   framePose,
   type Packet,
   type PacketCalloutBox,
   packetsOnScreen,
   type ResolvedView,
   resolveView,
+  textWidth,
   type VElement,
   type VNode,
   visibleWorld,
@@ -264,14 +264,12 @@ describe('packet code callouts and overflow prevention', () => {
     const wide = computePacketCalloutBox(makePacket({ code: { body: longLine } }));
     const fittedLine = wide?.code?.lines[0] ?? '';
     expect(fittedLine.endsWith('…')).toBe(true);
-    expect(estimateCalloutTextWidth(fittedLine, CALLOUT_CODE_SIZE, 'mono')).toBeLessThanOrEqual(
-      440,
-    );
+    expect(textWidth(fittedLine, CALLOUT_CODE_SIZE, 'mono')).toBeLessThanOrEqual(440);
   });
 
-  it('estimates Unicode symbols/CJK conservatively so Japanese + symbol descriptions never overflow', () => {
+  it('counts signs and CJK as a full em, so that a Japanese description never overflows', () => {
     for (const sym of ['—', '…', '→', '●', '①', '¥']) {
-      expect(estimateCalloutTextWidth(sym, 13, 'normal')).toBeGreaterThanOrEqual(13 * 1.04);
+      expect(textWidth(sym, 13, 'normal')).toBeGreaterThanOrEqual(13);
     }
     const jpDesc =
       'エッジWAFでmTLS検証 → Primary DBへ書込 — 決済金額 ¥14,800 を確定し ①監査ログへ記録…さらにレプリカへ非同期転送を実施';
@@ -290,8 +288,8 @@ describe('packet code callouts and overflow prevention', () => {
     if (!box) return;
     const innerW = box.halfW * 2 - box.padX * 2;
     for (const line of box.descLines) {
-      expect(estimateCalloutTextWidth(line, CALLOUT_DESC_SIZE, 'normal')).toBeLessThanOrEqual(384);
-      expect(estimateCalloutTextWidth(line, CALLOUT_DESC_SIZE, 'normal')).toBeLessThan(innerW);
+      expect(textWidth(line, CALLOUT_DESC_SIZE, 'normal')).toBeLessThanOrEqual(414);
+      expect(textWidth(line, CALLOUT_DESC_SIZE, 'normal')).toBeLessThan(innerW);
     }
     expect(box.boxTop + (box.code?.offsetY ?? 0) + (box.code?.height ?? 0) + 14).toBe(
       box.boxBottom,
@@ -418,22 +416,15 @@ describe('packet code callouts and overflow prevention', () => {
   });
 
   it('enforces kinsoku line wrapping rules and eliminates 2-3 char trailing orphans', () => {
-    const fixedMeasure = (s: string) => [...s].length * 10;
     // Opening brackets attach forward (no dangling '（' or '(' at line end)
-    const openWrapped = wrapText('注文処理（税込計算）を実行', 10, 55, 4, {
-      measure: fixedMeasure,
-      trimBeforeEllipsis: true,
-    });
+    const openWrapped = wrapText('注文処理（税込計算）を実行', 10, 55, 4);
     for (const line of openWrapped) {
       expect(line).not.toMatch(/[([{（「『【〈《〔]$/);
       expect(line).not.toMatch(/^[)\]}）」』】〉》〕。、，．・：；！？…‥ーっッ]/);
     }
 
     // ASCII '(' after Latin identifier before CJK also avoids dangling '(' at line end
-    const asciiOpenWrapped = wrapText('WAF(検証)を実行。次の処理…開始！', 10, 50, 5, {
-      measure: fixedMeasure,
-      trimBeforeEllipsis: true,
-    });
+    const asciiOpenWrapped = wrapText('WAF(検証)を実行。次の処理…開始！', 10, 50, 5);
     for (const line of asciiOpenWrapped) {
       expect(line).not.toMatch(/[([{（「]$/);
       expect(line).not.toMatch(/^[)\]}）」。…！]/);
@@ -477,7 +468,7 @@ describe('packet code callouts and overflow prevention', () => {
     expect(withoutCode && withWideCode).toBeTruthy();
     if (!withoutCode || !withWideCode) return;
     const maxLineW = (lines: string[]) =>
-      Math.max(...lines.map((l) => estimateCalloutTextWidth(l, CALLOUT_DESC_SIZE, 'normal')));
+      Math.max(...lines.map((l) => textWidth(l, CALLOUT_DESC_SIZE, 'normal')));
     expect(maxLineW(withWideCode.descLines)).toBeGreaterThanOrEqual(
       maxLineW(withoutCode.descLines),
     );

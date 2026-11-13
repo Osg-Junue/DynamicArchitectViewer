@@ -443,20 +443,15 @@ step "S" {
     expect(last).toMatch(/^b x+…$/);
   });
 
-  it('supports custom fitText/wrapText options and geometry helpers without changing defaults', () => {
-    const fixedMeasure = (s: string) => s.length * 10;
-    // Default keeps trailing space before ellipsis (`trimBeforeEllipsis` false); opt-in trims it.
-    expect(fitText('abc def', 10, 50, { measure: fixedMeasure })).toBe('abc …');
-    expect(fitText('abc def', 10, 50, { measure: fixedMeasure, trimBeforeEllipsis: true })).toBe(
-      'abc…',
-    );
-    expect(
-      wrapText('alpha→beta→gamma', 10, 70, 3, {
-        measure: fixedMeasure,
-        isBreakable: (ch) => ch === '→',
-        trimBeforeEllipsis: true,
-      }),
-    ).toEqual(['alpha→', 'beta→', 'gamma']);
+  it('cuts and wraps a text by the style it is set in, and offers geometry helpers', () => {
+    // A space before the ellipsis is dropped, except in code, where every column counts.
+    expect(fitText('ab cdef', 10, 30)).toBe('ab…');
+    expect(fitText('ab cdef', 10, 30, 'mono')).toBe('ab …');
+    // Bold text is wider, so less of it fits.
+    expect(fitText('abcdefgh', 10, 40)).toBe('abcde…');
+    expect(fitText('abcdefgh', 10, 40, 'bold')).toBe('abcd…');
+    // A line may break at an arrow.
+    expect(wrapText('alpha→beta→gamma', 10, 45, 3)).toEqual(['alpha→', 'beta→', 'gamma']);
     expect(clamp(-5, 0, 10)).toBe(0);
     expect(clamp(15, 0, 10)).toBe(10);
     expect(clamp(4, 0, 10)).toBe(4);

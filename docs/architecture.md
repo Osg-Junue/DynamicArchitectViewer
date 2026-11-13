@@ -30,6 +30,8 @@ flowchart LR
 
 `resolveView` works out the state of the diagram at a step. `buildScene` turns that into a tree of virtual SVG elements, and `Player` renders the tree and runs the animation. Everything before `Player` is free of the DOM.
 
+**Text without a DOM.** With no DOM, no text can be measured, and it is drawn in whatever font the reader's system has. Every width therefore comes from one estimate, `textWidth(text, size, style)` in `model/text.ts`, for text set normal, bold or monospaced: the room the layout keeps for an edge label, where a label is cut with an ellipsis (`fitText`), how a description wraps (`wrapText`), and the size of a badge or a callout. Its figures leave room for Latin text, about 15 to 30% against Segoe UI, and count a CJK character as exactly one em, which it is in every font. `dav-check --detail` reports a cut with the same estimate.
+
 ## Repository layout
 
 ```text
@@ -209,7 +211,7 @@ The generated files are committed, because the marketplace and the `skills` CLI 
 | `src/layout/__tests__/` | Layout invariants and a crossing budget for each sample |
 | `src/scene/__tests__/` | Step state, rails, callouts and rendering |
 | `src/samples/__tests__/` | Sample templates match `examples/` |
-| `src/model/__tests__/` | Text width estimates, code indentation and other shared helpers |
+| `src/model/__tests__/` | The text width estimate, code indentation and other shared helpers |
 | `src/exporter/__tests__/` | Exported HTML and its import, the SVG export and its camera plan |
 | `src/extension/__tests__/` | Commands, language features and the preview panel, against a mocked `vscode` |
 | `src/editor/__tests__/` | Every example in the in-app documentation compiles and plays; what the preview shows as texts, cursor positions and other documents arrive; and the zone search is handed to a worker and taken back correctly |

@@ -5,6 +5,7 @@ The `dav` language version is separate from the extension version.
 
 ## Unreleased
 
+- Every text is measured the same way, by its weight and with capitals counted as wider than small letters. A badge all in capitals is no longer tight in its pill; a node's name and sub-label may use the whole width of the node; a callout with Japanese text is a little narrower, since a CJK character is counted as exactly one em; and a label that is cut loses the space before its ellipsis
 - An exported HTML file is about 9 KB smaller: the callouts are placed in one pass instead of two, with the same result
 - Callouts are easier to read: the heading, the description and the code are each set a size larger, and a callout holds as many characters as before. In an exported SVG the step title and description above the diagram are larger too
 - The button that stops the animation shows a square, the usual sign for stop, instead of a dot on a line

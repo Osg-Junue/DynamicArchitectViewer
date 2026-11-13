@@ -2,9 +2,9 @@ import type { Rect } from '../layout';
 import type { DavGroup } from '../model/types';
 import { parentMap } from '../model/zones';
 import {
-  estimateTextWidth,
   placeZoneLabels,
   type ResolvedView,
+  textWidth,
   ZONE_LABEL,
   type ZoneLabelEntry,
 } from '../scene';
@@ -43,7 +43,7 @@ export class ZoneLabels {
       labels.push({
         el,
         rect,
-        width: estimateTextWidth(el.textContent ?? '', ZONE_LABEL.size),
+        width: textWidth(el.textContent ?? '', ZONE_LABEL.size),
         parentIndex: parentId === undefined ? -1 : (indices.get(parentId) ?? -1),
         hidden: false,
       });

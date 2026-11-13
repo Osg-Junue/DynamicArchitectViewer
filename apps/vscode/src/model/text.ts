@@ -2,16 +2,73 @@
 export const EDGE_LABEL_FONT_SIZE = 11;
 export const EDGE_LABEL_MAX_WIDTH = 180;
 
+/** How a text is set: at its regular weight, bold, or in the monospaced font of code. */
+export type TextStyle = 'normal' | 'bold' | 'mono';
+
 /**
- * Approximate text width without a DOM (deterministic across environments).
- * Full-width characters (CJK, kana, full-width forms) count as one em, others as ~0.58 em.
+ * How wide each kind of character is taken to be, in ems. No font can be measured here, and
+ * the text is drawn in whatever the reader's system has, so the figures for Latin text leave
+ * room: against Segoe UI, a line comes out about 15 to 30% wider than it is drawn, and against
+ * Cascadia Code 3%. Capitals count for more than the rest, since a text all in capitals, such
+ * as a badge, is a fifth wider than the same letters in lower case.
  */
-export function estimateTextWidth(text: string, fontSize: number): number {
+const EM: Record<TextStyle, { broad: number; capital: number; other: number }> = {
+  normal: { broad: 0.88, capital: 0.68, other: 0.6 },
+  bold: { broad: 0.92, capital: 0.72, other: 0.65 },
+  mono: { broad: 0.605, capital: 0.605, other: 0.605 },
+};
+/**
+ * A CJK character is one em wide in every font and at every weight, and kana, punctuation and
+ * signs are no wider: this needs no room added.
+ */
+const FULL_WIDTH_EM = 1;
+/** An emoji is wider than the em it is set in: 1.37 in Segoe UI Emoji. */
+const EMOJI_EM = 1.4;
+const FIRST_EMOJI = 0x1f300;
+
+/** The widest letters and signs of a proportional font. */
+const BROAD = new Set(['W', 'M', '@', '%']);
+
+function emOf(ch: string, style: TextStyle): number {
+  if (takesFullWidth(ch)) {
+    return (ch.codePointAt(0) ?? 0) >= FIRST_EMOJI ? EMOJI_EM : FULL_WIDTH_EM;
+  }
+  const em = EM[style];
+  if (BROAD.has(ch)) return em.broad;
+  if ((ch >= 'A' && ch <= 'Z') || ch === '#' || ch === '&') return em.capital;
+  return em.other;
+}
+
+/**
+ * The width a text is given, without a DOM and the same in every environment. It is the one
+ * estimate behind every text of a diagram: what is cut to fit a place, what a box is drawn
+ * around, and the room the layout keeps for a label.
+ */
+export function textWidth(text: string, fontSize: number, style: TextStyle = 'normal'): number {
   let em = 0;
-  for (const ch of text) em += isWide(ch) ? 1 : 0.58;
+  for (const ch of text) em += emOf(ch, style);
   return em * fontSize;
 }
 
+/**
+ * Drawn about one em wide: what `isWide` covers, and the punctuation, arrows and signs that
+ * the fonts of a CJK system draw at full width too (`—`, `…`, `→`, `●`, `①`, `¥`, `·`).
+ */
+function takesFullWidth(ch: string): boolean {
+  if (isWide(ch)) return true;
+  const code = ch.codePointAt(0) ?? 0;
+  return (
+    code === 0x00a5 ||
+    code === 0x00b7 ||
+    code === 0x00d7 ||
+    code === 0x00f7 ||
+    (code >= 0x2000 && code <= 0x2bff) ||
+    (code >= 0x3000 && code <= 0x303f) ||
+    (code >= 0xfe00 && code <= 0xfe6f)
+  );
+}
+
+/** A CJK character, kana or full-width form: a line may break before or after it. */
 export function isWide(ch: string): boolean {
   const code = ch.codePointAt(0) ?? 0;
   return (

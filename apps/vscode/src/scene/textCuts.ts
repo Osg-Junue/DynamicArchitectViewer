@@ -8,7 +8,7 @@ import {
   fitText,
   NODE_LABEL_SIZE,
   NODE_SUB_SIZE,
-  NODE_TEXT_INSET,
+  type TextStyle,
 } from './text';
 
 /**
@@ -26,21 +26,21 @@ export type TextCut =
 /** How many lines of code a callout shows before it cuts the rest. */
 export { CALLOUT_CODE_MAX_LINES } from './calloutMeasure';
 
-const isCut = (text: string, size: number, width: number): boolean =>
-  fitText(text, size, width) !== text;
+const isCut = (text: string, size: number, width: number, style?: TextStyle): boolean =>
+  fitText(text, size, width, style) !== text;
 
 /** Every text of the document that is drawn cut off. Zone names are left out: their room depends on the layout. */
 export function textCuts(doc: DavDocument): TextCut[] {
   const cuts: TextCut[] = [];
-  const nodeText = NODE_SIZE.width - NODE_TEXT_INSET;
+  const nodeText = NODE_SIZE.width;
   for (const n of doc.nodes) {
-    if (isCut(n.label, NODE_LABEL_SIZE, nodeText)) {
+    if (isCut(n.label, NODE_LABEL_SIZE, nodeText, 'bold')) {
       cuts.push({ kind: 'node-label', node: n.id, text: n.label });
     }
     if (n.sub && isCut(n.sub, NODE_SUB_SIZE, nodeText)) {
       cuts.push({ kind: 'node-sub', node: n.id, text: n.sub });
     }
-    if (n.badge && isCut(n.badge, BADGE_SIZE, BADGE_MAX_WIDTH)) {
+    if (n.badge && isCut(n.badge, BADGE_SIZE, BADGE_MAX_WIDTH, 'bold')) {
       cuts.push({ kind: 'node-badge', node: n.id, text: n.badge });
     }
   }
@@ -51,7 +51,7 @@ export function textCuts(doc: DavDocument): TextCut[] {
   }
   for (const step of doc.steps) {
     for (const state of step.states) {
-      if (state.badge && isCut(state.badge, BADGE_SIZE, BADGE_MAX_WIDTH)) {
+      if (state.badge && isCut(state.badge, BADGE_SIZE, BADGE_MAX_WIDTH, 'bold')) {
         cuts.push({
           kind: 'state-badge',
           step: step.index,

@@ -19,7 +19,6 @@ export {
   CALLOUT_ONE_LINE_HEIGHT,
   CALLOUT_OUTER_PAD_X,
   CALLOUT_RADIUS,
-  estimateCalloutTextWidth,
 } from './calloutMeasure';
 
 export interface PacketCalloutCodeBox {
