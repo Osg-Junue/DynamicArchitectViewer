@@ -214,9 +214,7 @@ Common leading indentation inside ```` ``` ... ``` ```` is stripped automaticall
 
 ## Compatibility
 
-`dav 1` is frozen by the first Marketplace release. Until then it may change without a migration path.
-
-After that, a change stays in `dav 1` only if existing files keep their meaning:
+The language version follows the major version of the extension: the language of every `1.x.x` release is `dav 1`. It has been frozen since extension `1.0.0`, and a `1.x.x` release changes it only if existing files keep their meaning:
 
 | Change | Allowed in `dav 1` | Reason |
 | :--- | :--- | :--- |
@@ -229,6 +227,6 @@ After that, a change stays in `dav 1` only if existing files keep their meaning:
 | Rejecting syntax that was accepted | No | Existing files would stop loading |
 | Changing a default or the meaning of an attribute or arrow | No | Existing files would silently render differently |
 
-Changes in the last group require `dav 2`. The extension will keep reading `dav 1` files, and old syntax will get migration diagnostics and Quick Fixes.
+A change in the last group is made only when there is no way to stay compatible with `dav 1`. It needs a new major release of the extension, `n.0.0`, and the language that release introduces is `dav n`. The extension will keep reading `dav 1` files, and old syntax will get migration diagnostics and Quick Fixes. A major release that leaves the language as it is keeps the `dav` version it has.
 
-The `dav` version covers the language only. The extension version (`package.json`) and the format of data embedded in exported HTML (`EXPORT_FORMAT_VERSION`) are versioned separately.
+The format of data embedded in exported HTML (`EXPORT_FORMAT_VERSION`) is versioned separately.

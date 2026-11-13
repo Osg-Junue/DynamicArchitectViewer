@@ -1,7 +1,7 @@
 # Changelog
 
 This project follows [Semantic Versioning](https://semver.org/). The `0.x` series was a preview.
-The `dav` language version is separate from the extension version.
+The `dav` language version follows the major version: every `1.x.x` release is `dav 1`.
 
 ## Unreleased
 
