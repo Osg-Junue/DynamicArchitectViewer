@@ -53,6 +53,8 @@ const END_TEMPERATURE = 1.5;
  * rarely wider than this, and an arrangement much wider than its canvas is shown small.
  */
 const CANVAS_ASPECT = 1.6;
+/** Sizes of the steps a zone takes towards its neighbors, largest first. */
+const TIGHTEN_STEPS = [128, 64, 32, 16, 8, 4];
 const ALIGN_REACH = 140;
 const ALIGN_TOLERANCE = 30;
 
@@ -98,7 +100,9 @@ function shapeCost(l: BlockLink): number {
   const dx = l.bx - l.ax;
   const length = Math.hypot(dx, l.by - l.ay);
   return (
-    length * 0.06 + Math.max(0, length * l.weight - LONG_LINK) + (dx < -60 ? 260 - dx * 0.3 : 0)
+    // Every unit of a link counts, and counts again past a comfortable length. Counting only
+    // the part past that length left the search with no reason to bring zones together.
+    length * l.weight + Math.max(0, length * l.weight - LONG_LINK) + (dx < -60 ? 260 - dx * 0.3 : 0)
   );
 }
 
@@ -399,6 +403,63 @@ function alignEdges(links: readonly BlockLink[], placed: readonly Placed[]): voi
   }
 }
 
+/**
+ * Slides each zone towards the zones it is linked to, for as long as that lowers the cost
+ * and keeps the clearances. The search leaves a zone wherever a random move last helped;
+ * this closes the gaps it left, so that linked neighbors end up one clearance apart.
+ */
+function tighten(links: readonly BlockLink[], placed: readonly Placed[]): void {
+  for (let round = 0; round < 10; round++) {
+    let moved = false;
+    for (const a of placed) {
+      // Where its links would have no length at all.
+      let sumX = 0;
+      let sumY = 0;
+      let count = 0;
+      for (const l of links) {
+        if (l.source === a) {
+          sumX += l.bx - l.sourceX;
+          sumY += l.by - l.sourceY[a.flip];
+          count++;
+        } else if (l.target === a) {
+          sumX += l.ax - l.targetX;
+          sumY += l.ay - l.targetY[a.flip];
+          count++;
+        }
+      }
+      if (count === 0) continue;
+      const target = { x: sumX / count, y: sumY / count };
+      for (const axis of ['x', 'y'] as const) {
+        for (const step of TIGHTEN_STEPS) {
+          for (;;) {
+            const toGo = target[axis] - a[axis];
+            if (Math.abs(toGo) < step) break;
+            const before = a[axis];
+            const next = before + Math.sign(toGo) * step;
+            const change = evaluateMove(
+              links,
+              placed,
+              a,
+              axis === 'x' ? next : a.x,
+              axis === 'y' ? next : a.y,
+              a.flip,
+            );
+            if (Number.isNaN(change)) break;
+            if (change < 0) {
+              moved = true;
+            } else {
+              a[axis] = before;
+              refreshTouchingSegments(links, a, undefined);
+              break;
+            }
+          }
+        }
+      }
+    }
+    if (!moved) break;
+  }
+}
+
 function snapshot(placed: readonly Placed[]): ZonePlacement {
   return new Map(placed.map((p) => [p.block.id, { x: p.x, y: p.y, flip: p.flip }]));
 }
@@ -460,7 +521,10 @@ export function searchZonePlacement(doc: DavDocument, columnLayout: ColumnLayout
       p.flip = 0;
     }
     anneal(links, placed, seededRandom(seed * 104729));
+    tighten(links, placed);
     alignEdges(links, placed);
+    // Lining up edges moves zones a little; close what that opened.
+    tighten(links, placed);
     const score = linkCost(links, placed) + countCrossings(doc, toLayout(placed)) * 150;
     if (score < bestScore) {
       bestScore = score;

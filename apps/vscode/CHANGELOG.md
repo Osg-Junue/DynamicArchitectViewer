@@ -20,6 +20,7 @@ The `dav` language version is separate from the extension version.
 - Rails find their way round nodes more often: they try wider bows and S-shaped bends, and no longer miss a node they only clip. Where several bends are possible, a rail takes the one that crosses the fewest other rails
 - Rails that would leave a node from the same point, such as several going straight down, are set side by side instead of running on top of each other
 - A long chain of zones is no longer laid out as one very wide strip: its zones are placed freely even when that costs a crossing, as long as it shortens the links by more than the crossing is worth
+- Zones that are placed freely sit closer to the zones they are linked to: the links between them are about 5% shorter, and no zone is left further from its neighbors than it has to be
 - Zones that are placed freely fill the canvas better instead of stretching sideways, so a large diagram is shown larger when it is fitted to the preview
 - Edge labels sit a little further from their rail, clear of the numbered stops
 - A step that emphasizes something draws only the edges it is about: those it runs packets on or sets the state of, and those between two emphasized nodes. The others used to stay as faint lines behind them

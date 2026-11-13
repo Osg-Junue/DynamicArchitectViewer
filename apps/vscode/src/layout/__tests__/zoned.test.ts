@@ -37,8 +37,9 @@ describe('zoned placement', () => {
     const width = Math.max(...rects.map((r) => r.x + r.width)) - Math.min(...rects.map((r) => r.x));
     const height =
       Math.max(...rects.map((r) => r.y + r.height)) - Math.min(...rects.map((r) => r.y));
-    // The column layout of this diagram is 60 times as wide as it is high.
-    expect(width / height).toBeLessThan(2.5);
+    // The column layout of this diagram is 60 times as wide as it is high. How close to the
+    // canvas's own 1.6 the zones come is a balance against the length of their links.
+    expect(width / height).toBeLessThan(3.5);
     expect(width / height).toBeGreaterThan(1);
   });
 
@@ -59,6 +60,22 @@ describe('zoned placement', () => {
       Math.max(...rects.map((r) => r.y + r.height)) - Math.min(...rects.map((r) => r.y));
     expect(width / height).toBeLessThan(5);
     expect(countCrossings(doc, placed)).toBeLessThanOrEqual(2);
+  });
+
+  it('leaves no zone further from the others than its clearance asks for', () => {
+    // Every zone of this diagram is linked to another, so each is pulled next to one.
+    const rects = Object.values(layout.groups);
+    const gapTo = (a: Rect, b: Rect): number =>
+      Math.hypot(
+        Math.max(0, a.x - (b.x + b.width), b.x - (a.x + a.width)),
+        Math.max(0, a.y - (b.y + b.height), b.y - (a.y + a.height)),
+      );
+    for (const a of rects) {
+      const nearest = Math.min(...rects.filter((b) => b !== a).map((b) => gapTo(a, b)));
+      // 60 across and 34 down are the clearances; a diagonal neighbor is a little further.
+      expect(nearest).toBeLessThanOrEqual(70);
+      expect(nearest).toBeGreaterThanOrEqual(34);
+    }
   });
 
   it('keeps shared columns when no link is too long', () => {
