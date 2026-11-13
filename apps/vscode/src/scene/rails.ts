@@ -15,6 +15,14 @@ import { type RouteEdge, routeEdges } from './route';
 import { estimateTextWidth, fitText } from './text';
 import { ZONE_LABEL, zoneLabelRoom } from './zones';
 
+/** Sizes of a node's name, of the line below it and of its badge, as `build.ts` draws them. */
+const NODE_LABEL_SIZE = 14;
+const NODE_SUB_SIZE = 11.5;
+const BADGE_SIZE = 11;
+const BADGE_MAX_WIDTH = 120;
+/** How far above the middle of its curve a loop's label is written, clear of a numbered stop. */
+const LOOP_LABEL_LIFT = 20;
+
 const STATION_CLEARANCE = 12;
 const LABEL_AREA_WIDTH = 96;
 
@@ -89,9 +97,23 @@ export function nodeBody(node: ResolvedNode): Rect[] {
   const station = stationRect(node.rect, node.icon);
   const area = stationArea(node);
   const bottom = station.y + station.height;
+  // A long name or sub-label is wider than the area a rail keeps clear of.
+  const text = Math.min(
+    node.rect.width,
+    Math.max(
+      area.width,
+      estimateTextWidth(node.label, NODE_LABEL_SIZE) + 8,
+      node.sub ? estimateTextWidth(node.sub, NODE_SUB_SIZE) + 8 : 0,
+    ),
+  );
   return [
     { x: station.x - 4, y: station.y - 4, width: station.width + 8, height: station.height + 8 },
-    { x: area.x, y: bottom, width: area.width, height: area.y + area.height - bottom },
+    {
+      x: station.x + station.width / 2 - text / 2,
+      y: bottom,
+      width: text,
+      height: area.y + area.height - bottom,
+    },
   ];
 }
 
@@ -109,21 +131,51 @@ function direct(from: ResolvedNode, to: ResolvedNode): Route {
   return { points: [along(start, a.width / 2 + 2), along(end, -(b.width / 2 + 2))] };
 }
 
-/** The room a zone's name takes up, which no rail and no label is drawn over. */
+/** The room a zone's name takes up, which no rail, label or callout is drawn over. */
+function zoneNameArea(label: string, zone: Rect): Rect {
+  const width = Math.min(estimateTextWidth(label, ZONE_LABEL.size), zoneLabelRoom(zone.width));
+  return {
+    x: zone.x + ZONE_LABEL.inset - 4,
+    y: zone.y + ZONE_LABEL.baseline - ZONE_LABEL.size - 2,
+    width: width + 8,
+    height: ZONE_LABEL.size + 10,
+  };
+}
+
 function zoneNameAreas(doc: DavDocument, layout: Layout): Rect[] {
   return doc.groups.flatMap((g) => {
     const rect = layout.groups[g.id];
-    if (!rect) return [];
-    const width = Math.min(estimateTextWidth(g.label, ZONE_LABEL.size), zoneLabelRoom(rect.width));
-    return [
-      {
-        x: rect.x + ZONE_LABEL.inset - 4,
-        y: rect.y + ZONE_LABEL.baseline - ZONE_LABEL.size - 2,
-        width: width + 8,
-        height: ZONE_LABEL.size + 10,
-      },
-    ];
+    return rect ? [zoneNameArea(g.label, rect)] : [];
   });
+}
+
+/** The room the badge above a node's station takes up; none without a badge. */
+export function badgeArea(node: ResolvedNode): Rect[] {
+  if (!node.badge) return [];
+  const station = stationRect(node.rect, node.icon);
+  const width =
+    estimateTextWidth(fitText(node.badge, BADGE_SIZE, BADGE_MAX_WIDTH), BADGE_SIZE) + 16;
+  return [{ x: station.x + station.width / 2 - width / 2, y: station.y - 25, width, height: 20 }];
+}
+
+/** The room an edge's label takes up where it is written. */
+export function edgeLabelArea(label: string, spot: EdgeLabelSpot): Rect {
+  const width = estimateTextWidth(
+    fitText(label, EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH),
+    EDGE_LABEL_FONT_SIZE,
+  );
+  const left =
+    spot.anchor === 'middle'
+      ? spot.x - width / 2
+      : spot.anchor === 'start'
+        ? spot.x
+        : spot.x - width;
+  return {
+    x: left - 2,
+    y: spot.y - EDGE_LABEL_FONT_SIZE,
+    width: width + 4,
+    height: EDGE_LABEL_FONT_SIZE * 1.3,
+  };
 }
 
 /** Gap between a label and the stretch of rail it is written beside. */
@@ -344,8 +396,13 @@ export class RailRouter {
     return this.#routed.ofEdges[this.#indexOf.get(edge) ?? -1] ?? direct(from, to);
   }
 
-  /** Where the edge's label goes; none for a loop, whose label follows its curve. */
-  labelOf(edge: DavEdge): EdgeLabelSpot | undefined {
+  /** Where the edge's label goes; a loop's is written above the middle of its curve. */
+  labelOf(edge: DavEdge, from: ResolvedNode, to: ResolvedNode): EdgeLabelSpot | undefined {
+    if (!edge.label) return undefined;
+    if (from.id === to.id) {
+      const middle = pointAt(this.ofEdge(edge, from, to), 0.5);
+      return { x: middle.x, y: middle.y - LOOP_LABEL_LIFT, anchor: 'middle' };
+    }
     return this.#routed.labels[this.#indexOf.get(edge) ?? -1];
   }
 }

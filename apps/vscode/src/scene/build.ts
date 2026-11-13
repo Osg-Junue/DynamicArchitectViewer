@@ -170,14 +170,8 @@ function flowElement(e: ResolvedEdge): VElement | null {
 
 function edgeLabelElement(e: ResolvedEdge): VElement | null {
   if (!e.label) return null;
-  const mid = pointAt(e.path, 0.5);
-  // A loop's label goes by the middle of its curve, clear of the numbered stop there, also
-  // while that is the larger current one.
-  const at = e.labelAt ?? {
-    x: mid.x,
-    y: e.labelBelow ? mid.y + 28 : mid.y - 20,
-    anchor: 'middle',
-  };
+  const at = e.labelAt;
+  if (!at) return null;
   return h(
     'g',
     { class: 'dav-edge-label' },

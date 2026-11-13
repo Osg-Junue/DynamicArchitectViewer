@@ -33,7 +33,9 @@ import {
   estimateCalloutTextWidth,
   framePose,
   type Packet,
+  type PacketCalloutBox,
   packetsOnScreen,
+  type ResolvedView,
   resolveView,
   type VElement,
   type VNode,
@@ -41,12 +43,24 @@ import {
   wholeDiagramFrame,
   wrapText,
 } from '../index';
+import { badgeArea, edgeLabelArea, nodeBody } from '../rails';
 
 const REPO_ROOT = resolve(__dirname, '../../../../..');
 const readExample = (file: string): string =>
   readFileSync(resolve(REPO_ROOT, 'examples', file), 'utf8');
 
 const buildPacket = (packet: Packet, t?: number) => buildPacketWith(packet, ICON_SHAPES, t);
+
+/** The strip across the top of each zone, which its name moves along with the camera. */
+const nameStrips = (view: ResolvedView): Rect[] =>
+  view.groups.map((g) => ({ ...g.rect, height: 34 }));
+/** What is drawn of each node: its station, its badge and its labels. */
+const nodeParts = (view: ResolvedView): Rect[] =>
+  view.nodes.flatMap((n) => [...nodeBody(n), ...badgeArea(n)]);
+/** What no callout may cover in a view. */
+const closedAreas = (view: ResolvedView): Rect[] => [...nameStrips(view), ...nodeParts(view)];
+const covers = (box: PacketCalloutBox, areas: readonly Rect[]): boolean =>
+  areas.some((area) => rectOverlaps(calloutRect(box), area));
 
 function collectText(node: VNode): string[] {
   if (typeof node === 'string') return [node];
@@ -472,7 +486,7 @@ describe('packet code callouts and overflow prevention', () => {
     );
   });
 
-  it('clears full-width group top borders by >=16px and lifts Row-1 callouts above Row-0 stations', () => {
+  it('keeps callouts off the strip a zone name moves along and off the stations of the row above', () => {
     const dsl = `dav 1
 node src "Source"
 group g "Z" {
@@ -499,39 +513,20 @@ step "Row1UnderRow0" {
 `;
     const { document: doc } = parse(dsl);
     const l = computeLayout(doc);
-    const groupRect = l.groups.g;
-    const r0Rect = l.nodes.r0;
-    expect(groupRect && r0Rect).toBeDefined();
-    if (!groupRect || !r0Rect) return;
-
-    // Step 0: right-half callout clears group top border by >= 16px (never 0px tangent or slicing)
-    const rightPkt = resolveView(doc, l, 0).phases[0]?.[0];
+    // Step 0: the rail runs along the top row of the zone, right under the strip its name
+    // moves along. The strip is closed along its whole width, not only where the name stands.
+    const rightView = resolveView(doc, l, 0);
+    const rightPkt = rightView.phases[0]?.[0];
     const rightBox = rightPkt && computePacketCalloutBox(rightPkt);
     expect(rightBox).toBeDefined();
-    if (rightBox) {
-      expect(rightBox.cx).toBeGreaterThan(groupRect.x + 80);
-      expect(rightBox.boxBottom).toBeLessThanOrEqual(groupRect.y - 16);
-    }
+    if (rightBox) expect(covers(rightBox, closedAreas(rightView))).toBe(false);
 
-    // Step 1: Row-1 code callout lifts past Row-0 node AND enclosing group top border
-    const row1Pkt = resolveView(doc, l, 1).phases[0]?.[0];
+    // Step 1: the callout of a row-1 rail covers neither the row-0 station above it nor the strip.
+    const row1View = resolveView(doc, l, 1);
+    const row1Pkt = row1View.phases[0]?.[0];
     const row1Box = row1Pkt && computePacketCalloutBox(row1Pkt);
     expect(row1Box).toBeDefined();
-    if (row1Box) {
-      const overlapsR0 =
-        row1Box.cx - row1Box.halfW < r0Rect.x + r0Rect.width &&
-        row1Box.cx + row1Box.halfW > r0Rect.x &&
-        row1Box.boxTop < r0Rect.y + r0Rect.height &&
-        row1Box.boxBottom > r0Rect.y;
-      expect(overlapsR0).toBe(false);
-      if (
-        row1Box.cx - row1Box.halfW < groupRect.x + groupRect.width &&
-        row1Box.cx + row1Box.halfW > groupRect.x &&
-        row1Box.boxTop < groupRect.y + 34
-      ) {
-        expect(row1Box.boxBottom).toBeLessThanOrEqual(groupRect.y - 16);
-      }
-    }
+    if (row1Box) expect(covers(row1Box, closedAreas(row1View))).toBe(false);
   });
 
   it('keeps parallel callouts uncrossed in mid.x order and aligned on a shared boxBottom shelf', () => {
@@ -695,23 +690,13 @@ step "Down" {
       Math.max(rect.x - mid.x, 0, mid.x - (rect.x + rect.width)),
       Math.max(rect.y - mid.y, 0, mid.y - (rect.y + rect.height)),
     );
-    // Near the rail, yet never on it.
-    expect(distance).toBeGreaterThanOrEqual(33.9);
+    // Near the rail, yet never on it: the packet passes between them.
+    expect(distance).toBeGreaterThanOrEqual(21.9);
     expect(distance).toBeLessThan(120);
-    // Inside the zone or outside it, never across its border.
-    const zone = view.groups[0]?.rect;
-    expect(zone).toBeDefined();
-    if (!zone) return;
-    const inside = rectContains(zone, rect);
-    const outside =
-      rect.x + rect.width <= zone.x ||
-      rect.x >= zone.x + zone.width ||
-      rect.y + rect.height <= zone.y ||
-      rect.y >= zone.y + zone.height;
-    expect(inside || outside).toBe(true);
+    expect(covers(box, closedAreas(view))).toBe(false);
   });
 
-  it('maintains >=16px zone top-border clearance and zero station/callout collisions across example 05, example 07, and JP/JSON/SQL stress steps', () => {
+  it('keeps callouts off zone names, stations and each other across example 05, example 07, and JP/JSON/SQL stress steps', () => {
     const stressDsl = `dav 1
 title "Order Pipeline Stress"
 node browser "Browser" [icon: browser]
@@ -799,29 +784,8 @@ step "Step 4" {
               expect(clash).toBe(false);
             }
           });
-          for (const box of boxes) {
-            // Zero zone top-border collision or < 15px proximity
-            for (const g of v.groups) {
-              const overlapsX =
-                box.cx - box.halfW < g.rect.x + g.rect.width && box.cx + box.halfW > g.rect.x;
-              if (!overlapsX) continue;
-              const slicesTop = box.boxTop < g.rect.y && box.boxBottom > g.rect.y;
-              expect(slicesTop).toBe(false);
-              if (box.boxBottom <= g.rect.y + 34) {
-                expect(box.boxBottom).toBeLessThanOrEqual(g.rect.y - 16);
-              }
-            }
-            // Zero focused visible node occlusion
-            for (const n of v.nodes) {
-              if (!n.focused) continue;
-              const overlapsNode =
-                box.cx - box.halfW < n.rect.x + n.rect.width &&
-                box.cx + box.halfW > n.rect.x &&
-                box.boxTop < n.rect.y + n.rect.height &&
-                box.boxBottom > n.rect.y;
-              expect(overlapsNode).toBe(false);
-            }
-          }
+          // No callout over a zone's name strip, or over a station, badge or node label.
+          for (const box of boxes) expect(covers(box, closedAreas(v))).toBe(false);
         }
       });
     }
@@ -852,7 +816,9 @@ step "Step 4" {
     }
   });
 
-  it('selects below placement for bottom-row flows under upper obstacles (examples 05 & 07)', () => {
+  // Which side the first pass picks. The last pass decides where the callout ends up, and
+  // takes over this side only when it finds no free place.
+  it('first picks the side below for bottom-row flows under upper obstacles (examples 05 & 07)', () => {
     const ex07Dsl = readExample('07-dynamic-architect-viewer.dav');
     const ex07Doc = parse(ex07Dsl).document;
     const ex07Layout = computeLayout(ex07Doc);
@@ -863,12 +829,7 @@ step "Step 4" {
     const exportPkt = ex07Step5.phases[1]?.[0];
     const exportBox = exportPkt && computePacketCalloutBox(exportPkt);
     expect(outputsGroup && exportPkt && exportBox).toBeTruthy();
-    if (outputsGroup && exportPkt && exportBox) {
-      expect(exportBox.placement).toBe('below');
-      expect(exportBox.boxTop).toBeGreaterThanOrEqual(
-        outputsGroup.rect.y + outputsGroup.rect.height + 16,
-      );
-    }
+    if (outputsGroup && exportPkt && exportBox) expect(exportBox.placement).toBe('below');
 
     // Example 07 Step 1 phase 4: dsl --> ext return rail places callout below
     const ex07Step1 = resolveView(ex07Doc, ex07Layout, 0);
@@ -898,35 +859,20 @@ step "Step 4" {
     expect(createdBox?.placement).toBe('above');
     expect(confirmedBox?.placement).toBe('below');
     expect(asyncGroup6 && confirmedBox).toBeTruthy();
-    if (asyncGroup6 && confirmedBox) {
-      // Tucks cleanly into the pocket left of Async processing rather than dropping below it
-      expect(confirmedBox.cx + confirmedBox.halfW).toBeLessThanOrEqual(asyncGroup6.rect.x - 16);
-      expect(confirmedBox.boxTop).toBeLessThan(asyncGroup6.rect.y + asyncGroup6.rect.height);
-    }
 
     const ex05Step7 = resolveView(ex05Doc, ex05Layout, 6);
     const asyncGroup7 = ex05Step7.groups.find((g) => g.id === 'async');
     const deliverPkt = ex05Step7.phases[0]?.[0];
     const deliverBox = deliverPkt && computePacketCalloutBox(deliverPkt);
     expect(asyncGroup7 && deliverBox).toBeTruthy();
-    if (asyncGroup7 && deliverBox) {
-      expect(deliverBox.placement).toBe('below');
-      expect(deliverBox.boxTop).toBeGreaterThanOrEqual(
-        asyncGroup7.rect.y + asyncGroup7.rect.height + 16,
-      );
-    }
+    if (asyncGroup7 && deliverBox) expect(deliverBox.placement).toBe('below');
 
     const ex05Step8 = resolveView(ex05Doc, ex05Layout, 7);
     const asyncGroup8 = ex05Step8.groups.find((g) => g.id === 'async');
     const quarantinePkt = ex05Step8.phases[0]?.[0];
     const quarantineBox = quarantinePkt && computePacketCalloutBox(quarantinePkt);
     expect(asyncGroup8 && quarantineBox).toBeTruthy();
-    if (asyncGroup8 && quarantineBox) {
-      expect(quarantineBox.placement).toBe('below');
-      expect(quarantineBox.boxTop).toBeGreaterThanOrEqual(
-        asyncGroup8.rect.y + asyncGroup8.rect.height + 16,
-      );
-    }
+    if (asyncGroup8 && quarantineBox) expect(quarantineBox.placement).toBe('below');
   });
 
   it('optimizes parallel flows cleanly across bidirectional, mixed fan-out, and shelf alignment patterns', () => {
@@ -1151,7 +1097,7 @@ step "WorkerDualShelf" {
     expect(group?.attrs['data-placement']).toBe('below');
   });
 
-  it('never straddles a group border, overlaps a focused node, hides a rail, or sits by the wrong rail across all examples & templates', () => {
+  it('never covers a zone name, a node, an edge label or a rail, or sits by the wrong rail across all examples & templates', () => {
     const exampleFiles = [
       '01-infra-ha-failover.dav',
       '02-screen-flow-checkout.dav',
@@ -1195,13 +1141,9 @@ step "Giant" {
     const giantView = resolveView(giantDoc, giantLayout, 0);
     const internalPkt = giantView.phases[1]?.[0];
     const internalBox = internalPkt && computePacketCalloutBox(internalPkt);
-    if (cloudRect && internalBox) {
-      const ir = calloutRect(internalBox);
-      expect(ir.x).toBeGreaterThanOrEqual(cloudRect.x + 15.9);
-      expect(ir.x + ir.width).toBeLessThanOrEqual(cloudRect.x + cloudRect.width - 15.9);
-      expect(ir.y).toBeGreaterThanOrEqual(cloudRect.y + 39.9);
-      expect(ir.y + ir.height).toBeLessThanOrEqual(cloudRect.y + cloudRect.height - 15.9);
-    }
+    // A rail deep inside a very tall zone has room beside it: its callout stays inside.
+    if (cloudRect && internalBox)
+      expect(rectContains(cloudRect, calloutRect(internalBox))).toBe(true);
 
     for (const dsl of dsls) {
       const { document: doc } = parse(dsl);
@@ -1234,36 +1176,17 @@ step "Giant" {
 
           for (const { pkt, box } of boxes) {
             const r = calloutRect(box);
-            // Zero group-border straddling across ALL groups (both normal 1-3 row and giant > 468 containers)
-            for (const g of v.groups) {
-              const gr = g.rect;
-              const strictlyOutside =
-                r.x + r.width <= gr.x - 15.9 ||
-                r.x >= gr.x + gr.width + 15.9 ||
-                r.y + r.height <= gr.y - 15.9 ||
-                r.y >= gr.y + gr.height + 15.9;
-              const strictlyEnclosed =
-                r.x >= gr.x + 15.9 &&
-                r.x + r.width <= gr.x + gr.width - 15.9 &&
-                r.y >= gr.y + 39.9 &&
-                r.y + r.height <= gr.y + gr.height - 15.9;
-              expect(
-                strictlyOutside || strictlyEnclosed,
-                `step ${sIdx}: callout of ${pkt.from} > ${pkt.to} straddles ${g.id} ${JSON.stringify({ r, gr, at: pkt.calloutAt, placement: box.placement })}`,
-              ).toBe(true);
-            }
-
-            // Zero focused-node overlap
-            for (const n of v.nodes) {
-              if (!n.focused) continue;
-              const nr = n.rect;
-              const hitsNode =
-                r.x < nr.x + nr.width &&
-                r.x + r.width > nr.x &&
-                r.y < nr.y + nr.height &&
-                r.y + r.height > nr.y;
-              expect(hitsNode).toBe(false);
-            }
+            const where = `step ${sIdx}: callout of ${pkt.from} > ${pkt.to}`;
+            // Not over the strip a zone's name moves along, though it may lie across the
+            // other borders of a zone.
+            expect(covers(box, nameStrips(v)), `${where} over a zone name`).toBe(false);
+            // Not over a station, a badge or a node's labels.
+            expect(covers(box, nodeParts(v)), `${where} over a node`).toBe(false);
+            // Not over the label of an edge of the step.
+            const labels = v.edges.flatMap((e) =>
+              e.label && e.labelAt ? [edgeLabelArea(e.label, e.labelAt)] : [],
+            );
+            expect(covers(box, labels), `${where} over an edge label`).toBe(false);
 
             // No rail of the step runs under the callout.
             const rails = [...v.edges.map((e) => e.path), ...phase.map((p) => p.path)];

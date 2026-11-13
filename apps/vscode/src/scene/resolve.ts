@@ -13,10 +13,17 @@ import {
 } from '../model/types';
 import { ancestorIds, parentMap, zoneOfNodes } from '../model/zones';
 import { type CalloutPlacement, separatePhaseCallouts } from './callout';
-import { refinePhaseCallouts } from './calloutRefine';
+import { placePhaseCallouts } from './calloutPlace';
 import { expandRect, type Point, pointAt, type Rail, railEnds, reverse } from './geometry';
 import { THEME_COLOR } from './paint';
-import { type EdgeLabelSpot, RailRouter, stationArea } from './rails';
+import {
+  badgeArea,
+  type EdgeLabelSpot,
+  edgeLabelArea,
+  nodeBody,
+  RailRouter,
+  stationArea,
+} from './rails';
 import { PHASE_MS, pacePhase } from './timing';
 
 export const DEFAULT_FLOW_COLOR = THEME_COLOR.accent;
@@ -50,15 +57,13 @@ export interface ResolvedEdge {
   from: string;
   to: string;
   label?: string;
-  /** The lower of two parallel tracks: its label goes under the rail. */
-  labelBelow: boolean;
   style: LineStyle;
   direction: Direction;
   color: string;
   /** Color of the flow overlay; present when `active`. */
   flowColor?: string;
   path: Rail;
-  /** Where the label is written; absent for a loop, whose label goes by the middle of its curve. */
+  /** Where the label is written; present when the edge has one. */
   labelAt?: EdgeLabelSpot;
   /** Packets flow along this edge in the current step. */
   active: boolean;
@@ -81,7 +86,7 @@ export interface Packet {
   calloutShift?: number;
   /** Which side of its rail the callout sits on; defaults to `'above'`. */
   calloutPlacement?: CalloutPlacement;
-  /** Top-left corner of the callout, when the last pass moved it off that side (see `refinePhaseCallouts`). */
+  /** Top-left corner of the callout, where the last pass found it a place (see `placePhaseCallouts`). */
   calloutAt?: Point;
   /**
    * The number on this packet's stop and callout: its phase, with a letter when the phase runs
@@ -133,6 +138,10 @@ export interface ResolvedView {
   phaseDurations: number[];
 }
 
+/** The strip across the top of a zone that its name moves along. */
+const ZONE_NAME_STRIP = GROUP_PADDING + GROUP_HEADER;
+/** Kept around what is drawn of a node: its station, its badge and its labels. */
+const CALLOUT_NODE_CLEARANCE = 4;
 /** Kept around the cell of a node a step is about, and around a dimmed node's station and labels. */
 const CALLOUT_NODE_CELL_CLEARANCE = 6;
 const CALLOUT_DIMMED_NODE_CLEARANCE = 14;
@@ -482,7 +491,6 @@ function resolveEdges(
       id: e.id,
       from: e.from,
       to: e.to,
-      labelBelow: isReturnTrack(rails, from, to),
       style: e.style,
       direction: e.direction,
       color: ov.color ?? e.color ?? DEFAULT_EDGE_COLOR,
@@ -491,7 +499,7 @@ function resolveEdges(
     };
     if (activeColor !== undefined) edge.flowColor = activeColor;
     if (e.label) edge.label = e.label;
-    const labelAt = rails.labelOf(e);
+    const labelAt = rails.labelOf(e, from, to);
     if (labelAt) edge.labelAt = labelAt;
     return [edge];
   });
@@ -554,15 +562,24 @@ export function resolveView(
   const edges = resolveEdges(ctx, nodeById, rails, activeEdges);
   if (phases.length > 0) {
     const stepRails = edges.map((e) => e.path);
-    const nodeAreas = visibleNodes.map((n) =>
+    const closed = [
+      ...visibleNodes
+        .flatMap((n) => [...nodeBody(n), ...badgeArea(n)])
+        .map((part) => expandRect(part, CALLOUT_NODE_CLEARANCE)),
+      // A zone's name follows the camera along the strip at the top of its zone.
+      ...groups.map((g) => ({ ...g.rect, height: ZONE_NAME_STRIP })),
+      ...edges.flatMap((e) => (e.label && e.labelAt ? [edgeLabelArea(e.label, e.labelAt)] : [])),
+    ];
+    const cells = visibleNodes.map((n) =>
       n.dimmed
         ? expandRect(stationArea(n), CALLOUT_DIMMED_NODE_CLEARANCE)
         : expandRect(n.rect, CALLOUT_NODE_CELL_CLEARANCE),
     );
     const zones = groups.map((g) => g.rect);
     for (const phase of phases) {
-      refinePhaseCallouts(phase, {
-        nodeAreas,
+      placePhaseCallouts(phase, {
+        closed,
+        cells,
         zones,
         rails: [...stepRails, ...phase.map((p) => p.path)],
       });

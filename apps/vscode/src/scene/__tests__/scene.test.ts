@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
-import { computeLayout, type Rect, stationRect } from '../../layout';
+import { computeLayout, type Rect, rectOverlaps, stationRect } from '../../layout';
 import { ICON_NAMES } from '../../model/types';
 import { SAMPLE_TEMPLATES } from '../../samples';
 import { CALLOUT_GAP, separatePhaseCallouts } from '../callout';
@@ -24,6 +24,7 @@ import {
   type VNode,
   wrapText,
 } from '../index';
+import { nodeBody } from '../rails';
 
 const buildScene = (view: ResolvedView) => buildSceneWith(view, ICON_SHAPES);
 const buildPacket = (packet: Packet, t?: number) => buildPacketWith(packet, ICON_SHAPES, t);
@@ -564,15 +565,27 @@ step "S" {
     expect(findAll(buildScene(view(2)), (e) => e.attrs.class === 'dav-stop')).toEqual([]);
   });
 
-  it('keeps callouts above their endpoint nodes', () => {
+  it('puts a callout next to its rail, off the stations and labels at its ends', () => {
     const doc = parse(
       'dav 1\nnode a "A"\nnode b [icon: modal]\na --> b\nstep "S" {\n  animate a --> b : "x" [desc: "long description"]\n}\n',
     ).document;
     const layout = computeLayout(doc);
-    const packet = resolveView(doc, layout, 0).phases[0]?.[0];
+    const stepView = resolveView(doc, layout, 0);
+    const packet = stepView.phases[0]?.[0];
     const box = packet && computePacketCalloutBox(packet);
-    const top = Math.min(layout.nodes.a?.y ?? 0, layout.nodes.b?.y ?? 0);
-    expect(box?.boxBottom).toBeLessThanOrEqual(top - 8);
+    if (!packet || !box) throw new Error('missing callout');
+    const rect = {
+      x: box.cx - box.halfW,
+      y: box.boxTop,
+      width: box.halfW * 2,
+      height: box.boxBottom - box.boxTop,
+    };
+    for (const part of stepView.nodes.flatMap(nodeBody))
+      expect(rectOverlaps(rect, part)).toBe(false);
+    // Just above the rail, where the first pass alone would leave it above both nodes' cells.
+    const railY = pointAt(packet.path, 0.5).y;
+    expect(railY - box.boxBottom).toBeGreaterThanOrEqual(21.9);
+    expect(railY - box.boxBottom).toBeLessThan(40);
   });
 
   it.each(SAMPLE_TEMPLATES.map((s) => [s.id, s.dsl] as const))(

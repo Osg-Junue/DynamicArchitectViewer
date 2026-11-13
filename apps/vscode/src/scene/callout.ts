@@ -132,8 +132,8 @@ export function placeCalloutBox(
  * The box of a packet's callout. It stays still while the packet moves, so that a description
  * or a code block can be read without following anything.
  *
- * `separatePhaseCallouts` puts it above or below the rail; `refinePhaseCallouts` may then move
- * it to a free spot on any side (`calloutAt`).
+ * `separatePhaseCallouts` puts it above or below the rail; `placePhaseCallouts` then finds it
+ * the free place nearest its rail, on any side (`calloutAt`).
  */
 export function computePacketCalloutBox(packet: Packet): PacketCalloutBox | null {
   const card = measureCalloutCard(packet);
