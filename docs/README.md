@@ -2,6 +2,7 @@
 
 **Using the language**
 
+- [Examples](examples.md): the diagrams in `examples/`, each played as an animated SVG
 - [Language specification](specification.md): syntax, attributes, icons, diagnostics and compatibility
 - [How diagrams are laid out](layout.md): what to write to get the arrangement you want
 

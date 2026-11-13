@@ -1,24 +1,25 @@
 // Exports the animated SVGs of the READMEs and docs with the extension's own exporter:
-//   node svg.mjs                      writes every image in IMAGES
+//   node svg.mjs                      one SVG for every file in examples/, into docs/media/examples/
 //   node svg.mjs <file.dav> <out.svg> [follow|whole] [step]   exports one file, to try things out
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createServer } from 'vite';
 
 const repo = resolve(import.meta.dirname, '../..');
+const TARGET = 'docs/media/examples';
 
 /** Paths from the repository root. `step` is 1-based, as the preview numbers steps. */
-const IMAGES = [
-  { from: 'examples/01-infra-ha-failover.dav', to: 'docs/media/failover.svg', camera: 'follow' },
-  {
-    from: 'examples/02-screen-flow-checkout.dav',
-    to: 'docs/media/screen-flow.svg',
-    camera: 'follow',
-  },
-];
-
 const [from, to, camera = 'follow', step] = process.argv.slice(2);
-const images = from ? [{ from, to, camera, step: step ? Number(step) : undefined }] : IMAGES;
+const images = from
+  ? [{ from, to, camera, step: step ? Number(step) : undefined }]
+  : readdirSync(resolve(repo, 'examples'))
+      .filter((file) => file.endsWith('.dav'))
+      .map((file) => ({
+        from: `examples/${file}`,
+        to: `${TARGET}/${file.replace(/\.dav$/, '.svg')}`,
+        camera: 'follow',
+      }));
+if (!from) mkdirSync(resolve(repo, TARGET), { recursive: true });
 
 // Vite loads the exporter as the extension build does, with the scene's CSS inlined as text.
 const vite = await createServer({
