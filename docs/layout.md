@@ -169,11 +169,11 @@ Crossings are counted on straight lines between station centers (`countCrossings
 
 ### Placing zones freely
 
-When the column layout leaves a link longer than 700 units (a link used for a round trip counts double) and there are at least two top-level zones, `layout/zoned.ts` tries another arrangement. It is kept only if it shortens the long links without adding crossings:
+When the column layout leaves a link longer than 700 units (a link used for a round trip counts double) and there are at least two top-level zones, `layout/zoned.ts` tries another arrangement. It is kept if it shortens the long links by more than the crossings it adds are worth, counting a crossing as 700 units. A chain of zones has no crossings in columns but is a strip dozens of times wider than high; freeing its zones at the price of one crossing is worth it.
 
 1. Each top-level zone is laid out on its own, with the rules above.
 2. The zones start in the columns of a graph that has one node per zone.
-3. Simulated annealing moves zones, swaps them and flips them vertically, scoring link length, crossings, links through other zones, right-to-left links and overall size. A link used for a round trip counts double, since it is traversed twice in its time.
+3. Simulated annealing moves zones, swaps them and flips them vertically, scoring link length, crossings, links through other zones, right-to-left links and overall size. The size counts as the longer side of a 16:10 canvas the zones fit in, so they fill such a canvas rather than stretch into a strip. A link used for a round trip counts double, since it is traversed twice in its time.
 4. Zone edges are aligned where that costs almost nothing. The best of six seeded runs is kept.
 
 The result is deterministic. Zones no longer share columns, so a column does not line up across the diagram. The search takes about a second at 300 nodes, so the last result is reused until the nodes, groups, edges or round trips change. Edge labels are left out of the search, so typing one never rearranges the zones. A long label can still widen its zone, and the zones to its right then move aside.

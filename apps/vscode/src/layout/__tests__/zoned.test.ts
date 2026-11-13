@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
-import { computeLayout, type Rect, rectContains, rectOverlaps } from '../index';
+import { computeLayout, countCrossings, type Rect, rectContains, rectOverlaps } from '../index';
 
 /** Zones of `size` chained nodes in a row, with links from the first zone to all the others. */
 function bigDiagram(size = 6, zones = 8): string {
@@ -30,6 +30,35 @@ describe('zoned placement', () => {
   it('moves zones off the shared columns when links are too long', () => {
     const columns = new Set(Object.values(layout.nodes).map((n) => n.x));
     expect(columns.size).toBeLessThan(document.nodes.length);
+  });
+
+  it('fills the canvas instead of stretching into a strip', () => {
+    const rects = Object.values(layout.groups);
+    const width = Math.max(...rects.map((r) => r.x + r.width)) - Math.min(...rects.map((r) => r.x));
+    const height =
+      Math.max(...rects.map((r) => r.y + r.height)) - Math.min(...rects.map((r) => r.y));
+    // The column layout of this diagram is 60 times as wide as it is high.
+    expect(width / height).toBeLessThan(2.5);
+    expect(width / height).toBeGreaterThan(1);
+  });
+
+  it.each([
+    [4, 3],
+    [4, 9],
+    [6, 5],
+    [8, 9],
+    [10, 7],
+  ])('frees %i zones of %i nodes from the strip their columns make', (zones, size) => {
+    // In columns, each of these is a single row without crossings, dozens of times wider
+    // than high. Freeing the zones costs a crossing or two and is worth it.
+    const doc = parse(bigDiagram(size, zones)).document;
+    const placed = computeLayout(doc);
+    const rects = Object.values(placed.groups);
+    const width = Math.max(...rects.map((r) => r.x + r.width)) - Math.min(...rects.map((r) => r.x));
+    const height =
+      Math.max(...rects.map((r) => r.y + r.height)) - Math.min(...rects.map((r) => r.y));
+    expect(width / height).toBeLessThan(5);
+    expect(countCrossings(doc, placed)).toBeLessThanOrEqual(2);
   });
 
   it('keeps shared columns when no link is too long', () => {

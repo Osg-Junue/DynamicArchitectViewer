@@ -5,6 +5,7 @@ import type { Layout } from './metrics';
 import {
   applyZonePlacement,
   hasZonesToPlace,
+  LONG_LINK,
   longLinkExcess,
   searchZonePlacement,
   structureKey,
@@ -36,7 +37,7 @@ export {
  *   fewer crossings, or as many with shorter rails, so refinement never makes a diagram worse.
  *
  * When that leaves links too long, placing the zones freely is tried as well, and kept only
- * if it shortens them without adding crossings (see `searchZonePlacement`).
+ * if it shortens them by more than the crossings it adds are worth (see `planZones`).
  */
 export function computeLayout(doc: DavDocument): Layout {
   if (!hasZonesToPlace(doc)) return computeColumnLayout(doc);
@@ -61,8 +62,9 @@ function planZones(doc: DavDocument): ZonePlacement | undefined {
   if (excess === 0) return undefined;
   const placement = searchZonePlacement(doc, computeColumnLayout);
   const zoned = applyZonePlacement(doc, placement, computeColumnLayout);
-  const better =
-    longLinkExcess(doc, zoned) < excess &&
-    countCrossings(doc, zoned) <= countCrossings(doc, columns);
-  return better ? placement : undefined;
+  // A crossing is worth one link that is a whole comfortable length too long: placing the
+  // zones freely may add one where it saves more than that, and not otherwise.
+  const burden = (layout: Layout): number =>
+    longLinkExcess(doc, layout) + countCrossings(doc, layout) * LONG_LINK;
+  return burden(zoned) < burden(columns) ? placement : undefined;
 }

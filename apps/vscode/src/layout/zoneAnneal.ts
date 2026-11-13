@@ -48,6 +48,11 @@ const ITERATIONS = 16000;
 const SEEDS = [11, 23, 37, 53, 71, 97];
 const START_TEMPERATURE = 500;
 const END_TEMPERATURE = 1.5;
+/**
+ * Width to height of the canvas an arrangement is fitted into. A preview beside an editor is
+ * rarely wider than this, and an arrangement much wider than its canvas is shown small.
+ */
+const CANVAS_ASPECT = 1.6;
 const ALIGN_REACH = 140;
 const ALIGN_TOLERANCE = 30;
 
@@ -121,7 +126,9 @@ function spreadCost(placed: readonly Placed[]): number {
     top = Math.min(top, p.y);
     bottom = Math.max(bottom, p.y + p.block.height);
   }
-  return (right - left + (bottom - top) * 1.4) * 0.6;
+  // The longer side of the canvas the arrangement needs: growing along the other side is
+  // free, so the search fills the canvas instead of stretching into a strip.
+  return Math.max(right - left, (bottom - top) * CANVAS_ASPECT) * 1.2;
 }
 
 /** The cost of the whole arrangement. */
