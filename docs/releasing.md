@@ -9,6 +9,14 @@ How to publish the extension in `apps/vscode` to the Visual Studio Marketplace. 
 - Since `1.0.0` the extension is stable, and `"preview"` is gone.
 - The language version follows the major version: every `1.x.x` release is `dav 1`. A change that cannot stay compatible with `dav 1` needs a major release `n.0.0`, which introduces `dav n`. See [Compatibility](specification.md#compatibility).
 
+## Branches
+
+- `develop` is the default branch. Every change reaches it by a pull request.
+- `main` holds what was released. A release is a pull request from `develop` into `main`, and the tag is put on its merge commit.
+- A fix for a released version that cannot wait for the next release goes in a pull request into `main`, and then into `develop` as well.
+- Both branches take changes only by pull request, with the `check` workflow passing.
+- The Marketplace page and the agent skills link to `main`, so they show the released documentation and images rather than what is still on `develop`.
+
 ## First-time setup
 
 1. Create a publisher with the ID `osg-junue` in the [Marketplace management page](https://marketplace.visualstudio.com/manage).
@@ -24,7 +32,7 @@ npx vsce login osg-junue
 - [ ] The extension was checked in a real VS Code window.
 - [ ] For a patch or minor release: every change to the language is a [compatible change](specification.md#compatibility).
 - [ ] `version` in `apps/vscode/package.json` and `apps/vscode/CHANGELOG.md` are updated.
-- [ ] The commit to publish is on the default branch, because README images are read from GitHub's `HEAD`.
+- [ ] The release pull request from `develop` into `main` is merged, and the package is built from `main`: README images are read from `main` on GitHub.
 - [ ] The animations in the READMEs and docs show the current look. [`promo/pv`](../promo/pv/README.md) renders them again.
 - [ ] `npm run check` passes at the repository root.
 - [ ] `npx playwright test` passes in `apps/vscode`.
@@ -126,10 +134,10 @@ The first time:
 1. In the repository's Settings, under Pages, choose "GitHub Actions" as the source.
 2. Under Environments, in `github-pages`, allow the tags `v*` to deploy. Without it only the default branch may, and the run for a tag is refused.
 
-To publish the current `main` between releases, run the workflow by hand:
+To publish the current `main` between releases, run the workflow by hand on `main`. The `github-pages` environment accepts `main` and the tags `v*`, so a run on `develop` is refused:
 
 ```bash
-gh workflow run Playground
+gh workflow run Playground --ref main
 ```
 
 To try the page locally, from `apps/vscode`:
