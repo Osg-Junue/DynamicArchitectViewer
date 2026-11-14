@@ -13,6 +13,7 @@ playwright.config.ts
 index.html
 media/screenshot.png
 media/demo.gif
+media/video.jpg
 **/*.map
 **/*.vsix
 vite.playground.config.ts

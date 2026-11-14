@@ -2,9 +2,11 @@
 
 Write architecture and screen-flow diagrams as text, then play them step by step.
 
-**[Try it in the playground](https://osg-junue.github.io/DynamicArchitectViewer/).** It plays the samples in your browser and draws what you type, with nothing to install.
+**[Try it in the playground](https://osg-junue.github.io/DynamicArchitectViewer/).** It plays the samples in your browser, draws what you type and saves it as HTML or SVG, with nothing to install.
 
 **[Watch the video](https://youtu.be/wFpWjMfTAGQ).** It shows diagrams playing step by step, a coding agent writing one from a request, and the SVG and HTML exports.
+
+<a href="https://youtu.be/wFpWjMfTAGQ"><img src="media/video.jpg" width="480" alt="The video on YouTube: Play your architecture"></a>
 
 ![Clicking into a step in the editor makes the live preview play that step: retries to a payment provider that keeps failing](media/demo.gif)
 
