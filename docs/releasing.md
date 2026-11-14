@@ -116,3 +116,24 @@ The attached file is the one that was published. If `dist/dynamic-architect-view
 ```bash
 curl -L --compressed -o dynamic-architect-viewer-<version>.vsix https://marketplace.visualstudio.com/_apis/public/gallery/publishers/osg-junue/vsextensions/dynamic-architect-viewer/<version>/vspackage
 ```
+
+## Playground
+
+The playground (`apps/vscode/src/playground`) is a page on GitHub Pages where a diagram is written and played in the browser: <https://osg-junue.github.io/DynamicArchitectViewer/>. The `Playground` workflow builds and publishes it when a tag `v*` is pushed, so that it behaves as the published extension does. After the tag is pushed, check that the workflow passed and that the page opens.
+
+The first time:
+
+1. In the repository's Settings, under Pages, choose "GitHub Actions" as the source.
+2. Under Environments, in `github-pages`, allow the tags `v*` to deploy. Without it only the default branch may, and the run for a tag is refused.
+
+To publish the current `main` between releases, run the workflow by hand:
+
+```bash
+gh workflow run Playground
+```
+
+To try the page locally, from `apps/vscode`:
+
+```bash
+npm run dev:playground
+```
