@@ -5,7 +5,7 @@ The normative definition of the `.dav` language, version 1. For a guided introdu
 ## Design goals
 
 1. **Structure and scenario in one file.** The static diagram (`group`, `node`, edges) and its behavior over time (`step`) are written separately in the same file.
-2. **No coordinates.** There is no syntax for positions or sizes. Layout comes from the edges and the group hierarchy. See [How diagrams are laid out](https://github.com/Osg-Junue/DynamicArchitectViewer/blob/HEAD/docs/layout.md).
+2. **No coordinates.** There is no syntax for positions or sizes. Layout comes from the edges and the group hierarchy. See [How diagrams are laid out](https://github.com/Osg-Junue/DynamicArchitectViewer/blob/main/docs/layout.md).
 3. **A small grammar.** One declaration per line, with a syntax that people and AI agents can both write without guessing.
 4. **Clean diffs.** The formatter normalizes a file to one text representation.
 

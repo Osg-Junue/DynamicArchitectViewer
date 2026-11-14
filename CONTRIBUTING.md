@@ -74,6 +74,7 @@ Read the [exact rules and invariants](docs/layout.md#exact-rules) first.
 
 ## Pull requests
 
+- Open pull requests against `develop`, the default branch. `main` takes only releases and urgent fixes; see [Branches](docs/releasing.md#branches).
 - Keep each pull request to one purpose.
 - Add a test for a bug fix or new behavior.
 - `npm run check` should pass, and the end-to-end tests too if the preview or export changed.
