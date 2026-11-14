@@ -257,7 +257,7 @@ test.describe('the export menu', () => {
       }
       await expect(page.getByRole('menu')).toBeVisible();
       const focusState = await page.evaluate(() => {
-        const menu = document.querySelector('[role="menu"]');
+        const menu = document.querySelector('#export-menu-list');
         const active = document.activeElement;
         return {
           insideMenu: Boolean(menu && active && menu.contains(active)),

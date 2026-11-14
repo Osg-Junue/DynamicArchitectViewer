@@ -198,25 +198,20 @@ function zoneName(
   y: number,
   anchor: 'start' | 'end',
   fill: string,
-  suffix?: string,
 ): VElement {
   return h(
     'text',
     { x: num(x), y, 'text-anchor': anchor, 'font-size': ZONE_SIZE, 'font-weight': 600, fill },
     h('tspan', { fill: zoneColor(place.color) }, '● '),
     fitText(place.label, ZONE_SIZE, ZONE_NAME_MAX, 'bold'),
-    suffix ? h('tspan', { fill: THEME_COLOR.muted, 'font-weight': 400 }, ` ${suffix}`) : null,
   );
 }
 
-/** Names the zones of the running phase, as the strip above the preview's canvas does. */
-export function zoneStrip(
-  steps: readonly StepSlot[],
-  top: number,
-  locale: ViewerLocale,
-  clock: Clock,
-): VElement | null {
-  const inside = VIEWER_STRINGS[locale].zoneInside;
+/**
+ * Names the zones of the running phase, as the chip over the preview's canvas does: a move inside
+ * one zone shows that zone's name alone.
+ */
+export function zoneStrip(steps: readonly StepSlot[], top: number, clock: Clock): VElement | null {
   const y = top + ZONE_STRIP_HEIGHT / 2 + 5;
   const lineY = top + ZONE_STRIP_HEIGHT / 2 - 1;
   const el = h(
@@ -234,7 +229,7 @@ export function zoneStrip(
       if (moves.length === 0) continue;
       const widths = moves.map(([from, to]) =>
         from === to
-          ? nameWidth(from) + textWidth(` ${inside}`, ZONE_SIZE)
+          ? nameWidth(from)
           : nameWidth(from) + ZONE_PAIR_GAP * 2 + ZONE_LINE + nameWidth(to),
       );
       const total = widths.reduce((sum, w) => sum + w, 0) + ZONE_MOVE_GAP * (moves.length - 1);
@@ -242,7 +237,7 @@ export function zoneStrip(
       const parts: VElement[] = [];
       moves.forEach(([from, to], i) => {
         if (from === to) {
-          parts.push(zoneName(from, x, y, 'start', THEME_COLOR.fg, inside));
+          parts.push(zoneName(from, x, y, 'start', THEME_COLOR.fg));
         } else {
           const lineX = x + nameWidth(from) + ZONE_PAIR_GAP;
           parts.push(

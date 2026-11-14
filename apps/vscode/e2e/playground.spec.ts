@@ -78,7 +78,6 @@ test.describe('the playground', () => {
     await page.keyboard.type('node gamma "Gamma  ray"');
     await expect(page.locator('.dav-node[data-id="gamma"]')).toBeVisible();
     await expect(page.getByTestId('btn-play')).toHaveAttribute('aria-pressed', 'false');
-    await expect(page.getByTestId('btn-play-all')).toHaveAttribute('aria-pressed', 'false');
     expect(errors).toEqual([]);
   });
 

@@ -3,9 +3,16 @@ import type { ResolvedView } from '../scene';
 import { clear, html } from './dom';
 import type { ViewerStrings } from './i18n';
 
-/** Step dock header (number, title, description) and timeline ruler with per-step progress fills. */
+/**
+ * The step's description, which goes into the playback bar under the title, and the timeline:
+ * a thin segmented line under the bar with a progress fill per step. The step's number and title
+ * are kept for screen readers only, since the bar's step list shows them.
+ */
 export class StepDock {
+  /** The timeline strip under the bar. */
   readonly element: HTMLElement;
+  /** The description, for the playback bar. */
+  readonly info: HTMLElement;
   readonly #strings: ViewerStrings;
   readonly #onSelectStep: (index: number) => void;
   readonly #stepTitleEl: HTMLElement;
@@ -17,7 +24,7 @@ export class StepDock {
   constructor(strings: ViewerStrings, onSelectStep: (index: number) => void) {
     this.#strings = strings;
     this.#onSelectStep = onSelectStep;
-    this.#stepTitleEl = html('div', { class: 'dav-step-title' });
+    this.#stepTitleEl = html('div', { class: 'dav-step-title dav-sr-only' });
     this.#stepDescEl = html('div', { class: 'dav-step-desc' });
     this.#timelineEl = html('div', {
       class: 'dav-timeline',
@@ -25,15 +32,15 @@ export class StepDock {
       'aria-label': strings.steps,
       'data-testid': 'step-timeline',
     });
+    this.info = html(
+      'div',
+      { class: 'dav-step-info', 'aria-live': 'polite' },
+      this.#stepTitleEl,
+      this.#stepDescEl,
+    );
     this.element = html(
       'div',
       { class: 'dav-dock', 'data-testid': 'top-step-dock' },
-      html(
-        'div',
-        { class: 'dav-step-info', 'aria-live': 'polite' },
-        this.#stepTitleEl,
-        this.#stepDescEl,
-      ),
       this.#timelineEl,
     );
   }
@@ -54,7 +61,6 @@ export class StepDock {
           title: step.title,
           'aria-label': `${i + 1}. ${step.title}`,
         },
-        String(i + 1).padStart(2, '0'),
         fill,
       );
       tick.addEventListener('click', () => this.#onSelectStep(i));
@@ -74,10 +80,12 @@ export class StepDock {
       clear(this.#stepTitleEl);
       this.#stepTitleEl.append(
         html('span', { class: 'dav-step-no' }, s.stepLabel(view.stepIndex + 1, stepCount)),
-        view.stepTitle ?? '',
+        ` ${view.stepTitle ?? ''}`,
       );
       this.#stepDescEl.textContent = view.description ?? '';
     }
+    // The bar shows two lines of it; the whole text is a hover away.
+    this.#stepDescEl.title = this.#stepDescEl.textContent ?? '';
 
     const current = view.stepIndex;
     this.#ticks.forEach((tick, i) => {

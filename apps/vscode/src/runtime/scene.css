@@ -84,9 +84,6 @@
   --dav-code-punc: light-dark(#57606a, #9ca5ae);
 }
 
-.dav-svg {
-  font-family: var(--dav-font);
-}
 .dav-mono {
   font-family: var(--dav-mono);
 }

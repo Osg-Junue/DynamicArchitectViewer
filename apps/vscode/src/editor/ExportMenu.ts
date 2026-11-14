@@ -111,7 +111,7 @@ export class ExportMenu {
       'button',
       {
         type: 'button',
-        class: 'btn primary export-button',
+        class: 'dav-btn export-button',
         'aria-haspopup': 'menu',
         'aria-expanded': 'false',
         'aria-controls': 'export-menu-list',

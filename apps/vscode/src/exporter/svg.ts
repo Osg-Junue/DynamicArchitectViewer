@@ -78,7 +78,9 @@ const SVG_STYLES = sceneStyles
   .replace(/([;{])(--?[\w-]+)\s*:\s*/g, '$1$2:')
   .replace(/;}/g, '}')
   .replace(/:root\b/g, '.dav-svg')
-  .trim();
+  .trim()
+  // The player's page sets its font on its own elements; an exported image has only this rule.
+  .concat('.dav-svg{font-family:var(--dav-font)}');
 
 /** Generates an SVG file that needs no script and makes no external request. */
 export function exportSvg(source: string | DavDocument, options: SvgExportOptions = {}): string {
@@ -236,7 +238,7 @@ function animatedSvg(
   const timelineTop = head.height;
   // One step has nothing to rule; a line separates the header from what follows.
   const zoneTop = timelineTop + (only === undefined ? TIMELINE_HEIGHT : 1);
-  const strip = doc.groups.length > 0 ? zoneStrip(steps, zoneTop, locale, clock) : null;
+  const strip = doc.groups.length > 0 ? zoneStrip(steps, zoneTop, clock) : null;
   const canvasTop = zoneTop + (strip ? ZONE_STRIP_HEIGHT : 0);
   const canvasBottom = canvasTop + canvas.height;
 

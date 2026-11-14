@@ -17,12 +17,12 @@ export function renderZoneHud(
   container: HTMLElement,
   moves: readonly ZoneMove[],
   durationMs: number,
-  insideLabel: string,
 ): void {
   for (const [from, to] of moves.slice(0, MAX_ZONE_MOVES)) {
     const pair = html('span', { class: 'dav-zone-pair' });
     if (from === to) {
-      pair.append(placeName(from, false), html('span', { class: 'dav-zone-inside' }, insideLabel));
+      // A move inside one zone: the zone's name alone.
+      pair.append(placeName(from, false));
     } else {
       const progress = html('i');
       progress.style.setProperty('background', zoneColor(to.color));
@@ -36,8 +36,6 @@ export function renderZoneHud(
     container.append(pair);
   }
   if (moves.length > MAX_ZONE_MOVES) {
-    container.append(
-      html('span', { class: 'dav-zone-inside' }, `+${moves.length - MAX_ZONE_MOVES}`),
-    );
+    container.append(html('span', { class: 'dav-zone-more' }, `+${moves.length - MAX_ZONE_MOVES}`));
   }
 }

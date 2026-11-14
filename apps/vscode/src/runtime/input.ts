@@ -58,6 +58,20 @@ export interface KeyboardActions {
   showOverview(): void;
 }
 
+let tracking = false;
+
+/**
+ * Marks the page while the last input came from a pointer, so that controls show their focus ring
+ * only after keyboard input. A select counts as focused for the keyboard even when it was clicked.
+ */
+export function trackInputModality(): void {
+  if (tracking) return;
+  tracking = true;
+  const root = document.documentElement;
+  document.addEventListener('pointerdown', () => root.classList.add('dav-pointer'), true);
+  document.addEventListener('keydown', () => root.classList.remove('dav-pointer'), true);
+}
+
 export function bindKeyboard(
   target: Window | HTMLElement,
   root: HTMLElement,
