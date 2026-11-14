@@ -151,7 +151,7 @@
     "dev": "npm run build:runtime && vite",
     "dev:playground": "npm run build:runtime && vite --config vite.playground.config.ts",
     "build": "npm run build:runtime && npm run build:webview && npm run build:extension && npm run build:skill && npm run build:cli",
-    "package": "npm run build && vsce package --no-dependencies --baseContentUrl https://github.com/Osg-Junue/DynamicArchitectViewer/blob/HEAD/apps/vscode --baseImagesUrl https://github.com/Osg-Junue/DynamicArchitectViewer/raw/HEAD/apps/vscode -o dist/dynamic-architect-viewer.vsix",
+    "package": "npm run build && vsce package --no-dependencies --baseContentUrl https://github.com/Osg-Junue/DynamicArchitectViewer/blob/main/apps/vscode --baseImagesUrl https://github.com/Osg-Junue/DynamicArchitectViewer/raw/main/apps/vscode -o dist/dynamic-architect-viewer.vsix",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "npm run build:runtime && npm run build:skill && npm run build:cli && vitest run --passWithNoTests"

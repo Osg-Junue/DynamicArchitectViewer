@@ -50,7 +50,7 @@ The Export menu in the preview toolbar saves the whole diagram as a standalone H
 
 ## Features
 
-- **Automatic layout.** No coordinates to maintain. [What to write to get the arrangement you want](https://github.com/Osg-Junue/DynamicArchitectViewer/blob/HEAD/docs/layout.md).
+- **Automatic layout.** No coordinates to maintain. [What to write to get the arrangement you want](https://github.com/Osg-Junue/DynamicArchitectViewer/blob/main/docs/layout.md).
 - **Live preview** that follows the editor. Move the cursor to highlight an element, and double-click an element to jump to its source.
 - **Playback** with step selection, play all, adjustable speed, and a still view of each step.
 - **Language support:** highlighting, diagnostics with Quick Fixes, completions for names, attributes and the 42 built-in icons, a formatter that keeps comments, and an outline.
@@ -75,6 +75,6 @@ The Export menu in the preview toolbar saves the whole diagram as a standalone H
 ## Learn more
 
 - [AI agent skills](https://github.com/Osg-Junue/DynamicArchitectViewer#ai-agent-skills)
-- [Language specification](https://github.com/Osg-Junue/DynamicArchitectViewer/blob/HEAD/docs/specification.md)
-- [Examples](https://github.com/Osg-Junue/DynamicArchitectViewer/blob/HEAD/docs/examples.md)
+- [Language specification](https://github.com/Osg-Junue/DynamicArchitectViewer/blob/main/docs/specification.md)
+- [Examples](https://github.com/Osg-Junue/DynamicArchitectViewer/blob/main/docs/examples.md)
 - [Report an issue](https://github.com/Osg-Junue/DynamicArchitectViewer/issues)
