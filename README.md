@@ -1,12 +1,14 @@
 # DynamicArchitectViewer
 
+<a href="https://youtu.be/wFpWjMfTAGQ"><img src="apps/vscode/media/video.jpg" alt="Play your architecture: the video on YouTube"></a>
+
 Write architecture and screen-flow diagrams as text, then play them step by step. A VS Code extension for `.dav` files.
 
 **[Try it in the playground](https://osg-junue.github.io/DynamicArchitectViewer/).** It plays the samples in your browser, draws what you type and saves it as HTML or SVG, with nothing to install.
 
 **[Watch the video](https://youtu.be/wFpWjMfTAGQ).** It shows diagrams playing step by step, a coding agent writing one from a request, and the SVG and HTML exports.
 
-<a href="https://youtu.be/wFpWjMfTAGQ"><img src="apps/vscode/media/video.jpg" width="480" alt="The video on YouTube: Play your architecture"></a>
+<br>
 
 ![A request passing the edge, a cache hit, a write with replication, and a database failover, played step by step](docs/media/examples/01-infra-ha-failover.svg)
 
