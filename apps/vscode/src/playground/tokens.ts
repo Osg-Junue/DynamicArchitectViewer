@@ -1,10 +1,28 @@
 import type { editor, languages } from 'monaco-editor/editor';
-import { KEYWORDS } from '../dsl';
+import { ATTRIBUTE_SCHEMA, KEYWORDS } from '../dsl';
+import { ARROW_TOKENS } from '../dsl/schema';
+
+const IDENT = '[A-Za-z_][A-Za-z0-9_]*';
+/** The arrows of the language, as the alternatives of a regular expression. */
+const ARROWS = ARROW_TOKENS.map((arrow) => arrow.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+/** What may follow `code`: a language or nothing, then the text. */
+const CODE_TEXT = '(?=\\s*(?:"|```))';
+
+/** The attributes of every statement; `named` keeps those whose value is a name of the language. */
+function attributes(named: boolean): string {
+  const names = Object.values(ATTRIBUTE_SCHEMA).flatMap((attrs) =>
+    Object.entries(attrs)
+      .filter(([, type]) => !named || type === 'color' || type === 'stateColor' || type === 'icon')
+      .map(([name]) => name),
+  );
+  return [...new Set(names)].join('|');
+}
 
 /**
  * Colors the text in Monaco, which reads no TextMate grammar: the rules of
- * `syntaxes/dav.tmLanguage.json` as a Monarch tokenizer. A value after `color:` or `icon:` is
- * colored whatever it is; a wrong one is underlined by its diagnostic.
+ * `syntaxes/dav.tmLanguage.json` as a Monarch tokenizer, with the words taken from the schema of
+ * the language. A value after `color:` or `icon:` is colored whatever it is; a wrong one is
+ * underlined by its diagnostic.
  */
 export const DAV_TOKENS: languages.IMonarchLanguage = {
   defaultToken: '',
@@ -13,23 +31,28 @@ export const DAV_TOKENS: languages.IMonarchLanguage = {
     root: [
       [/\/\/.*$/, 'comment'],
       [/```/, { token: 'string.fence', next: '@fence' }],
-      [/\b(color|icon)(\s*)(:)/, ['attribute.name', '', { token: 'delimiter', next: '@named' }]],
-      [/\b(sub|badge|visible|parallel|desc|code|id)(\s*)(:)/, ['attribute.name', '', 'delimiter']],
-      [/\b(code)(\s+)([A-Za-z_][A-Za-z0-9_]*)(?=\s*(?:"|```))/, ['keyword', '', 'type']],
+      [
+        new RegExp(`\\b(${attributes(true)})(\\s*)(:)(\\s*)(${IDENT})`),
+        ['attribute.name', '', 'delimiter', '', 'constant.named'],
+      ],
+      [new RegExp(`\\b(${attributes(false)})(\\s*)(:)`), ['attribute.name', '', 'delimiter']],
+      // `code` is a word of the language only where a statement starts: on its line, or after `{`.
+      [new RegExp(`^(\\s*)(code)(\\s+)(${IDENT})${CODE_TEXT}`), ['', 'keyword', '', 'type']],
+      [new RegExp(`^(\\s*)(code)${CODE_TEXT}`), ['', 'keyword']],
+      [
+        new RegExp(`(\\{)(\\s*)(code)(\\s+)(${IDENT})${CODE_TEXT}`),
+        ['@brackets', '', 'keyword', '', 'type'],
+      ],
+      [new RegExp(`(\\{)(\\s*)(code)${CODE_TEXT}`), ['@brackets', '', 'keyword']],
       [/\b(?:true|false)\b/, 'constant.language'],
-      [/<->|<\.>|-->|\.\.>/, 'operator'],
+      [new RegExp(ARROWS), 'operator'],
       [/-?\b\d+(?:\.\d+)?\b/, 'number'],
       // A string ends with its line, closed or not.
       [/"(?:[^"\\]|\\.)*$/, 'string'],
       [/"/, { token: 'string', next: '@string' }],
-      [/[A-Za-z_][A-Za-z0-9_]*/, { cases: { '@keywords': 'keyword', '@default': 'identifier' } }],
+      [new RegExp(IDENT), { cases: { '@keywords': 'keyword', '@default': 'identifier' } }],
       [/[{}[\]()]/, '@brackets'],
       [/[,:]/, 'delimiter'],
-    ],
-    named: [
-      [/\s+/, ''],
-      [/[A-Za-z_][A-Za-z0-9_]*/, { token: 'constant.named', next: '@pop' }],
-      ['', { token: '', next: '@pop' }],
     ],
     string: [
       [/\\[\\"nt]/, 'string.escape'],

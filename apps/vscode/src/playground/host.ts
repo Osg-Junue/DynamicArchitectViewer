@@ -11,6 +11,8 @@ export interface HostOptions {
   text(): string;
   /** Selects a range of the text and brings it into view. */
   reveal(from: number, to: number): void;
+  /** An export failed; the extension shows a message here. */
+  exportFailed(reason: string): void;
 }
 
 export interface Host {
@@ -26,7 +28,8 @@ function download(name: string, type: string, content: string): void {
   link.href = url;
   link.download = name;
   link.click();
-  URL.revokeObjectURL(url);
+  // Not at once: a browser that starts the download later would find the URL gone.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 /**
@@ -82,10 +85,23 @@ export function installHost(options: HostOptions): Host {
     }
   }
 
+  // The preview takes its text from any message to the window. In VS Code only the extension can
+  // send one; on a public page another window could, so only this page's own messages get through.
+  window.addEventListener(
+    'message',
+    (event) => {
+      if (event.source !== window) event.stopImmediatePropagation();
+    },
+    true,
+  );
+
   window.acquireVsCodeApi = () => ({
     postMessage(message) {
       handle(message).catch((err: unknown) => {
         console.error('DynamicArchitectViewer:', err);
+        if (message.type === 'exportHtml' || message.type === 'exportSvg') {
+          options.exportFailed(err instanceof Error ? err.message : String(err));
+        }
       });
     },
   });

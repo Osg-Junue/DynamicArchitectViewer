@@ -231,10 +231,12 @@ The page mounts the preview of `editor/` unchanged and stands in for the extensi
 
 | What differs from the extension | Why |
 | :--- | :--- |
-| Coloring is a Monarch tokenizer (`playground/tokens.ts`) | Monaco reads no TextMate grammar. It follows the rules of `syntaxes/dav.tmLanguage.json`, and a change to one needs the other |
+| Coloring is a Monarch tokenizer (`playground/tokens.ts`) | Monaco reads no TextMate grammar. It follows the rules of `syntaxes/dav.tmLanguage.json`, with the keywords, attributes and arrows taken from `dsl/schema.ts`; a change to a rule of one needs the other |
 | Brackets and folding come from `language-configuration.json` | The file the extension contributes, converted to the shape Monaco takes |
 | Keys typed in the editor stop there | The preview listens for its keys on the window, and Monaco's input is not a text field it would skip |
-| Monaco is loaded after the preview | It is about 1 MB compressed; the diagram plays meanwhile |
+| Monaco is loaded after the preview | It is about 1 MB compressed; the diagram plays meanwhile. Its own texts are loaded before it on a Japanese page |
+| Only the page's own messages reach the preview | In VS Code nothing but the extension can send the webview a message; on a public page a window that opened or framed it could, and would replace the diagram |
+| The page has a Content Security Policy of its own | It loads nothing from elsewhere. Monaco styles its lines inline, so styles may be inline; scripts may not |
 
 ## Tests
 

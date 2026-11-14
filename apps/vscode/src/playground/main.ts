@@ -23,22 +23,41 @@ const t = (ja: string, en: string): string => (locale === 'ja' ? ja : en);
 let text = DEFAULT_SAMPLE.dsl;
 let editor: PlaygroundEditor | null = null;
 
+const notice = html('p', { class: 'pg-notice', role: 'status', hidden: true });
+let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+
 const host = installHost({
   locale,
   text: () => text,
   reveal: (from, to) => editor?.reveal(from, to),
+  exportFailed(reason) {
+    notice.textContent = `${t('書き出せませんでした', 'The export failed')}: ${reason}`;
+    notice.hidden = false;
+    clearTimeout(noticeTimer);
+    noticeTimer = setTimeout(() => {
+      notice.hidden = true;
+    }, 8000);
+  },
 });
 
+// A menu rather than a state: the text is the reader's once it is edited, and a sample that is
+// picked again is loaded again.
 const sampleSelect = html(
   'select',
   { class: 'pg-sample', 'aria-label': t('サンプル', 'Sample'), 'data-testid': 'pg-sample' },
+  html(
+    'option',
+    { value: '', disabled: true, hidden: true },
+    t('サンプルを開く…', 'Open a sample…'),
+  ),
   ...SAMPLE_TEMPLATES.map((sample) =>
     html('option', { value: sample.id }, sample.name[locale === 'ja' ? 0 : 1]),
   ),
 );
-sampleSelect.value = DEFAULT_SAMPLE.id;
+sampleSelect.value = '';
 sampleSelect.addEventListener('change', () => {
   const sample = SAMPLE_TEMPLATES.find((s) => s.id === sampleSelect.value);
+  sampleSelect.value = '';
   if (!sample) return;
   if (editor) {
     editor.setText(sample.dsl);
@@ -64,6 +83,7 @@ rootEl.append(
       { class: 'pg-bar' },
       html('h1', { class: 'pg-title' }, 'DynamicArchitectViewer ', html('span', {}, 'Playground')),
       sampleSelect,
+      notice,
       html(
         'nav',
         { class: 'pg-links' },
@@ -81,8 +101,10 @@ rootEl.append(
 
 mountApp(previewPane);
 
-// The editor is large; the diagram plays while it loads.
-import('./editor')
+// The editor is large; the diagram plays while it loads. Monaco reads its own texts (menus, the
+// find box) from a bundle that has to be there before it; without one they are English.
+(locale === 'ja' ? import('monaco-editor/nls/lang/ja') : Promise.resolve())
+  .then(() => import('./editor'))
   .then(({ createEditor }) => {
     editorPane.replaceChildren();
     editor = createEditor(editorPane, text, locale, {
