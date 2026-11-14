@@ -69,6 +69,7 @@ All paths are under `apps/vscode/src`.
 | `samples/` | Sample diagrams for the New Diagram command | Nothing |
 | `editor/` | The preview webview UI and its documentation | Most of the above |
 | `extension/` | The VS Code extension host | `protocol`, `prompt`, `dsl`, `exporter`, `samples`, `model`, `layout` |
+| `playground/` | The page on GitHub Pages. See "The playground" below | `editor`, `dsl`, `exporter`, `protocol`, `runtime`, `samples` |
 
 [`__tests__/architecture.test.ts`](../apps/vscode/src/__tests__/architecture.test.ts) enforces this table and forbids React. The runtime in particular must not pull in the parser, because it is inlined into every exported file.
 
@@ -222,6 +223,19 @@ The exit code is 0, or 1 when something is reported (a diagnostic, a file that i
 
 **The same bytes.** An export depends only on the text and the options: the layout is deterministic, and the SVG sizes its text by the estimate. So `dav export --check` compares byte for byte, after setting back line endings that a checkout changed. A later version may lay out a diagram differently, and then the check fails until the files are exported again.
 
+## The playground
+
+`src/playground/` is a page where a diagram is written and played in a browser, without VS Code. It is published to GitHub Pages when a release is tagged (see [Releasing](releasing.md#playground)) and is not part of the extension: `npm run build:playground` writes it to `dist/playground`, which the VSIX leaves out.
+
+The page mounts the preview of `editor/` unchanged and stands in for the extension host. `playground/host.ts` is `window.acquireVsCodeApi`: it answers the messages of `protocol/messages.ts` as the extension does, and saves an export as a download where the extension asks for a file. The text is edited in [Monaco](https://microsoft.github.io/monaco-editor/), which `playground/language.ts` teaches the language through the same functions of `dsl/` that `extension/languageFeatures.ts` hands to VS Code, so diagnostics, Quick Fixes, completion, formatting and the outline are those of the extension.
+
+| What differs from the extension | Why |
+| :--- | :--- |
+| Coloring is a Monarch tokenizer (`playground/tokens.ts`) | Monaco reads no TextMate grammar. It follows the rules of `syntaxes/dav.tmLanguage.json`, and a change to one needs the other |
+| Brackets and folding come from `language-configuration.json` | The file the extension contributes, converted to the shape Monaco takes |
+| Keys typed in the editor stop there | The preview listens for its keys on the window, and Monaco's input is not a text field it would skip |
+| Monaco is loaded after the preview | It is about 1 MB compressed; the diagram plays meanwhile |
+
 ## Tests
 
 | Location | Covers |
@@ -238,4 +252,4 @@ The exit code is 0, or 1 when something is reported (a diagnostic, a file that i
 | `src/extension/__tests__/` | Commands, language features and the preview panel, against a mocked `vscode` |
 | `src/editor/__tests__/` | Every example in the in-app documentation compiles and plays; what the preview shows as texts, cursor positions and other documents arrive; and the zone search is handed to a worker and taken back correctly |
 | `src/prompt/__tests__/` | The AI prompt template, and that it asks for the detail and gives the text sizes of the `dav-diagrams` skill |
-| `e2e/` | The preview and exported HTML in a real browser, including that both render the same SVG |
+| `e2e/` | The preview and exported HTML in a real browser, including that both render the same SVG; and the built playground: typing, a Quick Fix, completion, formatting, the samples and the downloads |
