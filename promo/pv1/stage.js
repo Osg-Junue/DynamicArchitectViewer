@@ -1197,7 +1197,8 @@ const SCENES = new Map(
   Object.entries({ hook, title, flow, skills, svg: svgScene, html: htmlScene, end }),
 );
 const build = SCENES.get(scene);
-if (!build) throw new Error(`No scene "${scene}"; one of ${[...SCENES.keys()].join(', ')}`);
+if (typeof build !== 'function')
+  throw new Error(`No scene "${scene}"; one of ${[...SCENES.keys()].join(', ')}`);
 const grid = document.getElementById('grid');
 hud();
 await build();
