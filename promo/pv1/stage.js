@@ -1192,10 +1192,15 @@ function end() {
 
 // ---------- run ----------
 
-const SCENES = { hook, title, flow, skills, svg: svgScene, html: htmlScene, end };
+// A Map, so that a name from the URL finds a scene and nothing an object inherits.
+const SCENES = new Map(
+  Object.entries({ hook, title, flow, skills, svg: svgScene, html: htmlScene, end }),
+);
+const build = SCENES.get(scene);
+if (!build) throw new Error(`No scene "${scene}"; one of ${[...SCENES.keys()].join(', ')}`);
 const grid = document.getElementById('grid');
 hud();
-await SCENES[scene]();
+await build();
 await document.fonts.ready;
 
 async function render(t) {
