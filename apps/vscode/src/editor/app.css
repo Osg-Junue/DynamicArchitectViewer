@@ -5,6 +5,7 @@
   --raw-error: #cf222e;
   --raw-warning: #9a6700;
   --raw-ok: #1a7f37;
+  --raw-input-bg: #fffefa;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -15,6 +16,7 @@
     --raw-error: #f48771;
     --raw-warning: #e2b341;
     --raw-ok: #73c991;
+    --raw-input-bg: #2a2e34;
   }
 }
 
@@ -25,6 +27,20 @@
   --dav-error: var(--vscode-errorForeground, var(--raw-error));
   --dav-warning: var(--vscode-editorWarning-foreground, var(--raw-warning));
   --dav-ok: var(--vscode-testing-iconPassed, var(--raw-ok));
+  /* Text fields and lists of the editor's pages; the player has none. */
+  --dav-input-bg: var(--vscode-dropdown-background, var(--raw-input-bg));
+  --dav-input-fg: var(--vscode-dropdown-foreground, var(--raw-fg));
+  --dav-input-border: var(--vscode-dropdown-border, var(--raw-border));
+}
+
+/* The webview marks the theme on <body>; exported files follow the system. */
+.vscode-dark,
+.vscode-high-contrast {
+  color-scheme: dark;
+}
+.vscode-light,
+.vscode-high-contrast-light {
+  color-scheme: light;
 }
 
 *,
@@ -62,14 +78,15 @@ body {
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 6px 10px;
+  gap: 6px;
   min-width: 0;
   min-height: 38px;
   padding: 4px 12px;
   background: var(--dav-bg);
   border-bottom: 1px solid var(--dav-border);
   font-size: 12px;
-  z-index: 10;
+  /* Above the player's own bar (10), which its menus hang over. */
+  z-index: 20;
 }
 
 .toolbar-group {
@@ -79,18 +96,27 @@ body {
   gap: 8px;
   min-width: 0;
 }
+/* The bar shrinks its title and description before Export moves to a line of its own. */
 .toolbar-left {
-  flex: 1 1 auto;
+  flex: 1 1 320px;
 }
-.toolbar-left .dav-playback-bar,
-.toolbar-left .dav-step-select {
-  min-width: 0;
-  flex-shrink: 1;
+/* The step timeline under the bar is its lower edge. */
+.shell:has(.dav-timeline:not([hidden])) .toolbar {
+  border-bottom-color: transparent;
 }
+/* Export and the documentation follow the playback controls, after a divider. */
 .toolbar-right {
   flex: 0 0 auto;
+  gap: 2px;
   margin-left: auto;
   justify-content: flex-end;
+}
+.toolbar-right::before {
+  content: "";
+  width: 1px;
+  height: 16px;
+  margin-right: 4px;
+  background: var(--dav-border);
 }
 .btn {
   height: 26px;
@@ -131,14 +157,14 @@ body {
 .export-menu {
   position: relative;
 }
+/* A control of the bar like the player's own (`.dav-btn`), with the same states. */
 .export-button {
-  display: inline-flex;
-  align-items: center;
   gap: 6px;
+  padding: 0 6px;
 }
 .export-button[aria-disabled="true"],
 .export-button[aria-disabled="true"]:hover {
-  background: var(--dav-primary-bg);
+  background: transparent;
   opacity: 0.45;
   cursor: default;
 }

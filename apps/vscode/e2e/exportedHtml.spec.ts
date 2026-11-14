@@ -65,10 +65,7 @@ test.describe('exported HTML', () => {
     const file = info.outputPath('ja.html');
     await writeExport(file, DEFAULT_DSL, 'ja');
     await page.goto(pathToFileURL(file).href);
-    await expect(page.getByTestId('btn-play-all')).toHaveAttribute(
-      'aria-label',
-      'すべてのステップを再生',
-    );
+    await expect(page.getByTestId('btn-play')).toHaveAttribute('aria-label', 'このステップを再生');
     await expect(page.locator('html')).toHaveAttribute('lang', 'ja');
   });
 

@@ -32,7 +32,7 @@ test.describe('the documentation inside the preview', () => {
     const figurePlay = dialog.getByTestId('btn-play');
     await expect(figurePlay).toBeVisible();
     await expect(figurePlay).toHaveAttribute('aria-pressed', 'true');
-    await expect(dialog.getByTestId('btn-play-all')).toBeHidden();
+    await expect(dialog.getByTestId('btn-play-mode')).toBeHidden();
     await expect(dialog.locator('.dav-step-title')).toContainText('Step 1 / 2');
     await dialog.locator('.dav-tick').nth(1).click();
     await expect(dialog.locator('.dav-step-title')).toContainText('Step 2 / 2');

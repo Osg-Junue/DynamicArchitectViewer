@@ -19,19 +19,19 @@ import {
   zoneMoves,
 } from '../scene';
 import { Camera } from './camera';
-import { CONTROL_ICONS } from './controlIcons';
 import {
   type Controls,
   createControls,
   isPlaybackSpeed,
+  type PlayMode,
   SPEEDS,
   setButtonPressed,
-  showPlayState,
+  showPlayback,
 } from './controls';
 import { StepDock } from './dock';
 import { clear, html, renderSvg, svg } from './dom';
 import { VIEWER_STRINGS, type ViewerLocale, type ViewerStrings } from './i18n';
-import { bindKeyboard, bindPointer } from './input';
+import { bindKeyboard, bindPointer, trackInputModality } from './input';
 import { browserTextMeasure } from './measure';
 import { Minimap } from './minimap';
 import { PacketLayer } from './packets';
@@ -89,6 +89,8 @@ export class Player {
 
   #stepIndex: number | null;
   #playMode: 'node' | 'step' | 'all';
+  /** What the play button and Space play, chosen in the menu beside the button. */
+  #mode: PlayMode;
   #speed = 1;
   #view: ResolvedView;
 
@@ -151,6 +153,8 @@ export class Player {
         : options.autoplay === 'step'
           ? 'step'
           : 'all';
+    // The play button plays the current step unless the page asked to run through all of them.
+    this.#mode = options.autoplay === true ? 'all' : 'step';
     if (options.speed !== undefined && isPlaybackSpeed(options.speed)) {
       this.#speed = options.speed;
     }
@@ -173,8 +177,10 @@ export class Player {
     this.#dock = new StepDock(s, (index) => this.#showStep(index));
     this.#controls = createControls(s, this.#speed, {
       selectStep: (index) => this.#showStep(index),
-      togglePlay: () => this.togglePlay(),
-      togglePlayAll: () => this.togglePlayAll(),
+      prev: () => this.prev(),
+      next: () => this.next(),
+      togglePlayback: () => this.#togglePlayback(this.#mode),
+      playIn: (mode) => this.#playIn(mode),
       toggleMotion: () => this.toggleMotion(),
       setSpeed: (speed) => {
         this.#speed = speed;
@@ -185,6 +191,7 @@ export class Player {
       toggleMinimap: () => this.toggleMinimap(),
     });
     const { playbackBar, zoomGroup } = this.#controls;
+    this.#controls.stepHead.append(this.#dock.info);
 
     if (options.playbackSlot) {
       clear(options.playbackSlot);
@@ -203,6 +210,7 @@ export class Player {
       'main',
       { class: 'dav-viewport' },
       this.#svgEl,
+      this.#zoneHud,
       this.#titleEl,
       this.#minimap.element,
       zoomGroup,
@@ -216,7 +224,6 @@ export class Player {
         !options.playbackSlot && html('div', { class: 'dav-topbar-main' }, playbackBar),
         this.#dock.element,
       ),
-      this.#zoneHud,
       viewport,
     );
     container.append(this.#root);
@@ -229,11 +236,12 @@ export class Player {
       zoomAt: (factor, x, y) => this.#zoomBy(factor, x, y),
       selectNode: (nodeId) => this.selectNodeAnimation(nodeId),
     });
+    trackInputModality();
     this.#cleanups.push(
       bindKeyboard(options.globalKeyboard ? window : this.#root, this.#root, playbackBar, {
         next: () => this.next(),
         prev: () => this.prev(),
-        togglePlay: () => this.togglePlay(),
+        togglePlay: () => this.#togglePlayback(this.#mode),
         showOverview: () => this.#showStep(null),
       }),
     );
@@ -270,6 +278,7 @@ export class Player {
 
   destroy(): void {
     cancelAnimationFrame(this.#frame);
+    this.#controls.closeMenus();
     for (const c of this.#cleanups) c();
     this.#controls.playbackBar.remove();
     this.#root.remove();
@@ -358,12 +367,19 @@ export class Player {
     return this.#motionOff || this.#reducedMotion;
   }
 
-  togglePlay(): void {
-    this.#togglePlayback('step');
-  }
-
-  togglePlayAll(): void {
-    this.#togglePlayback('all');
+  /**
+   * Plays a mode chosen in the menu, which the play button then keeps. A playback under way
+   * carries on from where it is in the new mode; a paused one resumes.
+   */
+  #playIn(mode: PlayMode): void {
+    this.#mode = mode;
+    if (this.isPlaying()) {
+      this.#playMode = mode;
+      this.#updatePlayButton();
+      this.#ensureLoop();
+    } else {
+      this.#togglePlayback(mode);
+    }
   }
 
   /** Starts a playback mode, freezes it in place if it is running, or resumes it if frozen. */
@@ -461,7 +477,7 @@ export class Player {
     this.#svgEl.setAttribute('aria-label', doc.title || this.#strings.diagram);
     const noSteps = doc.steps.length === 0;
     this.#controls.playBtn.disabled = noSteps;
-    this.#controls.playAllBtn.disabled = noSteps;
+    this.#controls.playModeBtn.disabled = noSteps;
     this.#controls.motionBtn.disabled = noSteps || this.#reducedMotion;
     this.#controls.speedSelect.disabled = noSteps;
     clear(this.#controls.stepSelect);
@@ -479,7 +495,7 @@ export class Player {
     const { document: doc, layout } = this.#data;
     const hasZones = doc.groups.length > 0;
     this.#controls.minimapBtn.hidden = !hasZones;
-    // The strip stays while the zones change, so that the canvas never resizes during playback.
+    // The moves float over the canvas, so that it never resizes during playback.
     this.#zoneHud.hidden = !hasZones;
     this.#minimap.setDiagram(doc, layout);
   }
@@ -567,7 +583,7 @@ export class Player {
     }
     const moves = zoneMoves(this.#view, packets);
     const ms = this.#phaseMs(this.#phase) / this.#speed;
-    renderZoneHud(this.#zoneHud, moves, ms, this.#strings.zoneInside);
+    renderZoneHud(this.#zoneHud, moves, ms);
     outlineZones(this.#targets, moves);
   }
 
@@ -612,10 +628,7 @@ export class Player {
 
   #updatePlayButton(): void {
     this.#zoneHud.classList.toggle('is-paused', this.#paused);
-    const { playBtn, playAllBtn } = this.#controls;
-    const s = this.#strings;
-    showPlayState(playBtn, this.#isStepRunning(), CONTROL_ICONS.play, s.play, s.pause);
-    showPlayState(playAllBtn, this.#isAllRunning(), CONTROL_ICONS.playAll, s.playAll, s.pause);
+    showPlayback(this.#controls, this.#strings, this.#mode, this.isPlaying());
   }
 
   // ---------------------------------------------------------------------------
