@@ -2,9 +2,11 @@
 
 Write architecture and screen-flow diagrams as text, then play them step by step. A VS Code extension for `.dav` files.
 
-**[Try it in the playground](https://osg-junue.github.io/DynamicArchitectViewer/).** It plays the samples in your browser and draws what you type, with nothing to install.
+**[Try it in the playground](https://osg-junue.github.io/DynamicArchitectViewer/).** It plays the samples in your browser, draws what you type and saves it as HTML or SVG, with nothing to install.
 
 **[Watch the video](https://youtu.be/wFpWjMfTAGQ).** It shows diagrams playing step by step, a coding agent writing one from a request, and the SVG and HTML exports.
+
+<a href="https://youtu.be/wFpWjMfTAGQ"><img src="apps/vscode/media/video.jpg" width="480" alt="The video on YouTube: Play your architecture"></a>
 
 ![A request passing the edge, a cache hit, a write with replication, and a database failover, played step by step](docs/media/examples/01-infra-ha-failover.svg)
 
@@ -55,7 +57,7 @@ step "The payment provider fails" {
 
 ## Install
 
-Install [DynamicArchitectViewer](https://marketplace.visualstudio.com/items?itemName=osg-junue.dynamic-architect-viewer) from the Visual Studio Marketplace. It needs VS Code 1.96 or later.
+Install [DynamicArchitectViewer](https://marketplace.visualstudio.com/items?itemName=osg-junue.dynamic-architect-viewer) from the Visual Studio Marketplace. It needs VS Code 1.96 or later. To try it first, the [playground](https://osg-junue.github.io/DynamicArchitectViewer/) runs its preview and language support in a browser.
 
 To build it from source, you also need [Node.js](https://nodejs.org/) 26:
 
