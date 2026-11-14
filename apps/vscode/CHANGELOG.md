@@ -10,6 +10,7 @@ The `dav` language version follows the major version: every `1.x.x` release is `
 - The controls of the bar, Export and the documentation button among them, look and behave alike: lit under the pointer or while their menu is open, in the pressed color while on, and outlined only after keyboard input. Choosing a speed or a step with the mouse no longer leaves an outline, the speed button keeps its width, and a long title is shortened in a narrow pane instead of running under the play buttons
 - A move inside one zone shows the zone's name alone, without "inside", in the preview, exported HTML and exported SVG
 - Export is drawn as the other controls instead of as a filled button
+- An edge's label is set at 11.5 px, the size of a node's `sub`, instead of 11 px. Its room grows with it, so a label fits the same number of characters as before
 
 ## 1.1.0 (2026-11-14)
 
