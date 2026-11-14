@@ -2,6 +2,8 @@
 
 Write architecture and screen-flow diagrams as text, then play them step by step.
 
+**[Try it in the playground](https://osg-junue.github.io/DynamicArchitectViewer/).** It plays the samples in your browser and draws what you type, with nothing to install.
+
 ![Clicking into a step in the editor makes the live preview play that step: retries to a payment provider that keeps failing](media/demo.gif)
 
 A static diagram struggles to show what happens over time. Requests, failovers and retries end up as a tangle of numbered arrows, or in a separate sequence diagram. Here, one diagram plays out in steps, while the structure stays in place.
