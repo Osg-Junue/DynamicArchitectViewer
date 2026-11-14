@@ -15,3 +15,5 @@ media/screenshot.png
 media/demo.gif
 **/*.map
 **/*.vsix
+vite.playground.config.ts
+dist/playground/**

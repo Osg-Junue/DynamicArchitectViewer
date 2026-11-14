@@ -62,6 +62,11 @@ const RULES: Record<string, { allowedLayers: string[]; forbiddenPackages: RegExp
     ],
     forbiddenPackages: /^(react|react-dom|vscode)/,
   },
+  // The page for GitHub Pages: the preview of the editor layer, hosted by a page instead of VS Code.
+  playground: {
+    allowedLayers: ['playground', 'editor', 'dsl', 'exporter', 'protocol', 'runtime', 'samples'],
+    forbiddenPackages: /^(react|react-dom|vscode)/,
+  },
   extension: {
     allowedLayers: [
       'extension',
@@ -110,7 +115,9 @@ describe('architecture: layer boundaries', () => {
             if (
               !allowed.includes(target) &&
               !target.endsWith('.grammar') &&
-              !spec.endsWith('.dav?raw')
+              !spec.endsWith('.dav?raw') &&
+              // The playground gives Monaco the brackets and folding the extension contributes.
+              !spec.endsWith('/language-configuration.json')
             ) {
               violations.push(`${relative(SRC, file)} -> ${spec}`);
             }

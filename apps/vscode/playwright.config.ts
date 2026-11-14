@@ -15,7 +15,8 @@ export default defineConfig({
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {
-    command: `npm run build && npx vite preview --port ${PORT} --strictPort`,
+    // The playground is built too; its tests serve it themselves (e2e/playground.spec.ts).
+    command: `npm run build && npm run build:playground && npx vite preview --port ${PORT} --strictPort`,
     url: `http://localhost:${PORT}`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

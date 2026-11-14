@@ -1,0 +1,113 @@
+/*
+ * The page around the editor and the preview. The colors are the diagram's own tokens
+ * (scene.css, styles.css), which follow the color scheme of the browser outside VS Code.
+ */
+#playground {
+  height: 100%;
+}
+
+.pg {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+}
+
+.pg-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  min-width: 0;
+  padding: 6px 12px;
+  background: var(--dav-panel);
+  border-bottom: 1px solid var(--dav-border);
+}
+
+.pg-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.pg-title span {
+  color: var(--dav-muted);
+  font-weight: 400;
+}
+
+.pg-sample {
+  min-width: 0;
+  max-width: 100%;
+  height: 26px;
+  padding: 0 4px;
+  background: var(--dav-input-bg);
+  border: 1px solid var(--dav-input-border);
+  border-radius: 4px;
+  color: var(--dav-input-fg);
+  font: inherit;
+  font-size: 12px;
+}
+
+.pg-sample:focus-visible {
+  outline: 1px solid var(--dav-focus);
+  outline-offset: 1px;
+}
+
+.pg-notice {
+  min-width: 0;
+  margin: 0;
+  color: var(--dav-error);
+  font-size: 12px;
+}
+
+.pg-links {
+  display: flex;
+  gap: 14px;
+  margin-left: auto;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.pg-links a {
+  color: var(--dav-accent-text);
+}
+
+.pg-panes {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  min-height: 0;
+}
+
+.pg-editor,
+.pg-preview {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.pg-editor {
+  border-right: 1px solid var(--dav-border);
+}
+
+.pg-loading {
+  margin: 0;
+  padding: 12px;
+  color: var(--dav-muted);
+}
+
+/* On a narrow screen the diagram comes first, and the text is below it. */
+@media (width <= 760px) {
+  .pg-panes {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 3fr) minmax(0, 2fr);
+  }
+
+  .pg-preview {
+    order: -1;
+  }
+
+  .pg-editor {
+    border-top: 1px solid var(--dav-border);
+    border-right: 0;
+  }
+}
