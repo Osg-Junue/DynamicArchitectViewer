@@ -5,6 +5,10 @@ The `dav` language version follows the major version: every `1.x.x` release is `
 
 ## Unreleased
 
+- A callout is placed no nearer another line of the step than its own, so it is no longer read as describing the line it sits by. Before, it kept away only from the lines of other packets in its phase. It sits nearer another line only where every place that does not is more than 200 units further away, counting what crossing a zone's border or using a node's cell adds
+- A callout may cover a dimmed node, its icon and its name, and cross the border of a dimmed zone, and it crosses the border of any other zone more readily, so it finds a place near its line more often. It still never covers a zone's name, a badge, or the icon or name of a node the step is about
+- A callout may sit in the strip across the top of a zone beside the zone's name, instead of keeping off that whole strip. A callout for a line just below the strip no longer has to leave the zone
+- Laying out the callouts of a step takes about a quarter of the time it did, with every callout where it was: summed over the 66 steps of the examples and of diagrams of 20, 100 and 300 nodes, 0.17 s instead of 0.63 s, measured outside the editor. In a 100-node diagram the slowest step takes about 17 ms instead of 51. Drawing the step is not part of this
 - The preview and exported HTML have one bar above the diagram instead of four strips: previous and next, the step's title with its description below it, then play, stop and speed. The title is also the list of steps. The steps are a thin line along the bar's lower edge, and the zones a phase moves between show as a chip over the top of the diagram, so the diagram is up to about 90 px taller
 - The play button always plays the current step, and pauses whatever plays. The arrow beside it opens a menu that plays all steps, or the step, at once. "Play step" reads "Play this step"
 - Previous and next take the whole height of the bar beside the title, so they are easier to hit
