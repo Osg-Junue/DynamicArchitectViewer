@@ -3,9 +3,9 @@
  *
  * Every route runs on a grid made of the lines that pass through each station and beside each
  * node and zone (`routeGrid.ts`). A route is the cheapest way over that grid, where turning,
- * crossing another route and passing through a zone it has nothing to do with all cost extra
- * (`routeSearch.ts`). Routes that end up on the same line are then moved apart, so each rail
- * stays a line of its own (`routeSpread.ts`).
+ * crossing another route, passing through a zone it has nothing to do with and running level
+ * through the room of a node's badge all cost extra (`routeSearch.ts`). Routes that end up on
+ * the same line are then moved apart, so each rail stays a line of its own (`routeSpread.ts`).
  */
 import type { Rect } from '../layout';
 import type { Point } from './geometry';
@@ -18,6 +18,8 @@ export interface RouteNode {
   station: Rect;
   /** The station with its labels: no other node's route may enter it. */
   area: Rect;
+  /** The room above the station that its badge is written in, whenever a step gives it one. */
+  badge: Rect;
 }
 export interface RouteGroup {
   rect: Rect;

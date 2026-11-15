@@ -83,30 +83,6 @@ export function complement(intervals: readonly Interval[], [from, to]: Interval)
   return out;
 }
 
-export function intersect(a: readonly Interval[], b: readonly Interval[]): Interval[] {
-  const out: Interval[] = [];
-  for (const [a0, a1] of a) {
-    for (const [b0, b1] of b) {
-      const lo = Math.max(a0, b0);
-      const hi = Math.min(a1, b1);
-      if (lo < hi) out.push([lo, hi]);
-    }
-  }
-  return out;
-}
-
-/** Joins adjacent positive-length intervals from an already-ordered sequence. */
-export function mergeIntervals(intervals: Iterable<Interval>): Interval[] {
-  const out: Interval[] = [];
-  for (const [a, b] of intervals) {
-    if (b <= a) continue;
-    const prev = out[out.length - 1];
-    if (prev && prev[1] === a) out[out.length - 1] = [prev[0], b];
-    else out.push([a, b]);
-  }
-  return out;
-}
-
 /** SMIL animations that all last the whole playback and repeat, so that they stay in step. */
 export class Clock {
   constructor(readonly total: number) {}

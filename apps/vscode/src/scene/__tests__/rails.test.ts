@@ -22,6 +22,7 @@ import { type RouteEdge, type RouteNode, routeEdges } from '../route';
 const node = (x: number, y: number): RouteNode => ({
   station: { x: x - 22, y: y - 22, width: 44, height: 44 },
   area: { x: x - 48, y: y - 34, width: 96, height: 102 },
+  badge: { x: x - 48, y: y - 55, width: 96, height: 28 },
 });
 const edge = (id: string, from: number, to: number, home: number[] = []): RouteEdge => ({
   id,
@@ -88,6 +89,19 @@ describe('finding routes', () => {
     const points = routeEdges(nodes, [], [], [edge('e', 0, 2)]).get('e')?.points ?? [];
     expect(points.length).toBeGreaterThan(2);
     expect(passes(points, (nodes[1] as RouteNode).area)).toBe(false);
+  });
+
+  it('runs level above the room of a badge rather than through it', () => {
+    // The node between the two closes the straight way, so the rail goes over it.
+    const nodes = [node(0, 300), node(200, 300), node(400, 300)];
+    const points = routeEdges(nodes, [], [], [edge('e', 0, 2)]).get('e')?.points ?? [];
+    const level = stretches(points).filter(([p, q]) => p.y === q.y);
+    expect(level.length).toBeGreaterThan(0);
+    for (const { badge } of nodes) {
+      expect(level.some(([p, q]) => segmentIntersectsRect(p, q, expandRect(badge, -1)))).toBe(
+        false,
+      );
+    }
   });
 
   it('keeps out of a zone it has nothing to do with, and runs through one of its own', () => {

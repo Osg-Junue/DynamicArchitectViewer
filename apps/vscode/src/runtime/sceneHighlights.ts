@@ -35,17 +35,17 @@ export interface SceneTargets {
   stops: StopTarget[];
 }
 
-/**
- * Indexes the elements of a rendered scene that change across phases.
- * Must run after `ZoneLabels.collect`, which moves `.dav-group-label` holders out of `sceneLayer`.
- */
+/** Indexes the elements of a rendered scene that change across phases. */
 export function collectSceneTargets(sceneLayer: SVGGElement): SceneTargets {
   return {
-    groups: Array.from(sceneLayer.querySelectorAll<SVGElement>('.dav-group'), (el) => ({
-      id: el.getAttribute('data-id') ?? '',
-      el,
-      rect: el.querySelector<SVGRectElement>('rect'),
-    })),
+    groups: Array.from(
+      sceneLayer.querySelectorAll<SVGElement>('.dav-layer-groups .dav-group'),
+      (el) => ({
+        id: el.getAttribute('data-id') ?? '',
+        el,
+        rect: el.querySelector<SVGRectElement>('rect'),
+      }),
+    ),
     flows: Array.from(sceneLayer.querySelectorAll<SVGElement>('.dav-flow'), (el) => ({
       edgeId: el.getAttribute('data-edge') ?? '',
       el,

@@ -224,7 +224,7 @@ describe('exportSvg', () => {
     );
   });
 
-  it('keeps zone names inside the visible viewBox as the camera zooms into a wide zone', () => {
+  it('leaves each zone name where its zone has it, however the camera moves', () => {
     const wideZone = [
       'dav 1',
       'group g "Wide Zone" {',
@@ -242,63 +242,13 @@ describe('exportSvg', () => {
     ].join('\n');
 
     const svg = exportSvg(wideZone);
-    const canvasSvg = attrs(svg, 'svg').find((a) => a.preserveAspectRatio === 'xMidYMid meet');
-    const [vx = 0, vy = 0, vw = 0, vh = 0] = (canvasSvg?.viewBox ?? '').split(' ').map(Number);
-
-    expect(svg).toContain('class="dav-layer-zone-labels"');
+    // The camera does move between the two steps.
+    expect(attrs(svg, 'animate').some((a) => a.attributeName === 'viewBox')).toBe(true);
+    // Each step draws both names, at the same place.
     const labels = attrs(svg, 'text').filter((a) => a.class === 'dav-group-label');
-    expect(labels).toHaveLength(2);
-    for (const label of labels) {
-      expect(Number(label.x)).toBeGreaterThanOrEqual(vx);
-      expect(Number(label.x)).toBeLessThanOrEqual(vx + vw);
-      expect(Number(label.y)).toBeGreaterThanOrEqual(vy);
-      expect(Number(label.y)).toBeLessThanOrEqual(vy + vh);
-    }
-    // Nested zone name stays below its enclosing zone's name, and slides horizontally between steps.
-    expect(Number(labels[1]?.y)).toBeGreaterThanOrEqual(Number(labels[0]?.y) + 24);
-    expect(svg).toContain('attributeName="x"');
-  });
-
-  it('hides exiting nested zone names before an enclosing label slides over them and omits flat tracks', () => {
-    const nestedPan = [
-      'dav 1',
-      'node hub "Hub"',
-      'group outer "Outer Zone" {',
-      '  group mid "Middle Zone" {',
-      '    group inner "Inner Zone" {',
-      '      node n1 "Top"',
-      '    }',
-      '    node n2 "Mid"',
-      '  }',
-      '  group lower "Lower Zone" {',
-      ...Array.from({ length: 6 }, (_, i) => `    node n${i + 3} "Row ${i + 3}"`),
-      '  }',
-      '}',
-      ...Array.from({ length: 8 }, (_, i) => `hub --> n${i + 1}`),
-      'step "Top" {',
-      '  focus n1',
-      '}',
-      'step "Bottom" {',
-      '  focus n8',
-      '}',
-    ].join('\n');
-
-    const svg = exportSvg(nestedPan);
-    const zoneLayer =
-      /<g class="dav-layer-zone-labels">([\s\S]*?)<\/g><g class="dav-layer-packets"/.exec(
-        svg,
-      )?.[1] ?? '';
-    expect(zoneLayer.length).toBeGreaterThan(0);
-
-    // Inner zone leaves its room as soon as the downward pan starts, so no dimmed Step 2 copy is emitted.
-    expect(zoneLayer).not.toContain('class="dav-group dav-dimmed" data-id="inner"');
-    // Branches whose visible span has a constant coordinate emit no <animate attributeName="y">.
-    expect(zoneLayer).toContain(
-      '<g class="dav-group" data-id="mid"><text x="319.3" y="246.1" class="dav-group-label" font-size="16" fill="var(--dav-fg)">Middle Zone</text>',
-    );
-    expect(zoneLayer).toContain(
-      '<g class="dav-group dav-dimmed" data-id="lower"><text x="324.7" y="572" class="dav-group-label" font-size="16" fill="var(--dav-fg)">Lower Zone</text>',
-    );
+    expect(labels).toHaveLength(4);
+    expect(new Set(labels.map((a) => `${a.x},${a.y}`)).size).toBe(2);
+    expect(svg).not.toMatch(/class="dav-group-label"[^>]*>[^<]*<animate/);
   });
 
   it('omits coordinate animations when every step shares the same zoomed-in camera pose', () => {
@@ -318,7 +268,6 @@ describe('exportSvg', () => {
 
     const svg = exportSvg(staticZoom);
     expect(svg).toContain('class="dav-minimap-view"');
-    expect(svg).toContain('class="dav-layer-zone-labels"');
     const animatedAttrs = attrs(svg, 'animate').map((a) => a.attributeName);
     expect(animatedAttrs.every((name) => name === 'display')).toBe(true);
   });

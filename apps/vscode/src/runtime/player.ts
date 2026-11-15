@@ -46,7 +46,6 @@ import {
   syncPhaseHighlights,
 } from './sceneHighlights';
 import { renderZoneHud } from './zoneHud';
-import { ZoneLabels } from './zoneLabels';
 
 export { HOLD_MS, SPEEDS };
 
@@ -119,7 +118,6 @@ export class Player {
   readonly #root: HTMLElement;
   readonly #zoneHud: HTMLElement;
   readonly #minimap: Minimap;
-  readonly #zoneLabels = new ZoneLabels();
   readonly #packets = new PacketLayer();
   readonly #dock: StepDock;
   readonly #controls: Controls;
@@ -166,7 +164,7 @@ export class Player {
     this.#world = svg('g', { class: 'dav-world' });
     this.#sceneLayer = svg('g');
     this.#svgEl.append(renderSvg(buildDefs()), this.#world);
-    this.#world.append(this.#sceneLayer, this.#zoneLabels.layer, this.#packets.layer);
+    this.#world.append(this.#sceneLayer, this.#packets.layer);
     this.#camera = new Camera(
       this.#svgEl,
       this.#world,
@@ -515,7 +513,6 @@ export class Player {
     this.#stepIndex = view.stepIndex;
     clear(this.#sceneLayer);
     this.#sceneLayer.append(renderSvg(buildScene(this.#view, this.#data.icons)));
-    this.#zoneLabels.collect(this.#sceneLayer, this.#view, this.#data.document.groups);
     this.#targets = collectSceneTargets(this.#sceneLayer);
     this.#updateCameraOverlays();
     this.#minimap.showStep(this.#view);
@@ -634,7 +631,6 @@ export class Player {
   #updateCameraOverlays(): void {
     const world = this.#camera.visibleWorld();
     if (!world) return;
-    this.#zoneLabels.follow(world);
     this.#minimap.setCamera(world);
   }
 

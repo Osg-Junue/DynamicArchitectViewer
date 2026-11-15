@@ -5,6 +5,8 @@ import { type Grid, PORT_REACH, stationCenter } from './routeGrid';
 const BEND = 36;
 /** A length inside a zone the link has nothing to do with counts this many times. */
 const THROUGH = 4;
+/** A level length through the room of a node's badge counts this many times. */
+const UNDER_BADGE = 1.25;
 /** What crossing another route costs, as a length. */
 const CROSS = 90;
 /** What leaving a node downwards costs: that route starts below the node's labels, away from its station. */
@@ -215,7 +217,11 @@ export class RouteSearch {
           : Math.abs((ys[ny] as number) - (ys[iy] as number));
         const zone = lane.zone[stretch] as number;
         const foreign = zone >= 0 && !edge.home.has(zone);
-        let step = length * (foreign ? THROUGH : 1) * (1 + crowding(lane.use[stretch] as number));
+        let step =
+          length *
+          (foreign ? THROUGH : 1) *
+          (lane.badge[stretch] === 1 ? UNDER_BADGE : 1) *
+          (1 + crowding(lane.use[stretch] as number));
         if (nd !== d) step += BEND;
         const q = ny * W + nx;
         const arrival = goals.get(q)?.[nd] ?? Number.POSITIVE_INFINITY;

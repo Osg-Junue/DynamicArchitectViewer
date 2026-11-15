@@ -35,11 +35,7 @@ export { activeLabelFill, buildPacket };
  * author-specified colors stay plain attributes that no stylesheet rule overrides.
  */
 
-export function buildScene(
-  view: ResolvedView,
-  icons: IconShapes,
-  options: { groupLabels?: boolean } = {},
-): VElement {
+export function buildScene(view: ResolvedView, icons: IconShapes): VElement {
   return h(
     'g',
     { class: 'dav-scene' },
@@ -53,7 +49,7 @@ export function buildScene(
     h(
       'g',
       { class: 'dav-layer-labels' },
-      ...(options.groupLabels === false ? [] : view.groups.map(groupLabelElement)),
+      ...view.groups.map(groupLabelElement),
       ...view.edges.map(edgeLabelElement),
     ),
     h('g', { class: 'dav-layer-stops' }, ...stopElements(view)),

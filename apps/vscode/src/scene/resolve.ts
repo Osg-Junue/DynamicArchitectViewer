@@ -113,7 +113,7 @@ export interface ResolvedView {
   phaseDurations: number[];
 }
 
-/** The strip across the top of a zone that its name moves along. */
+/** The strip across the top of a zone that holds its name. */
 const ZONE_NAME_STRIP = GROUP_PADDING + GROUP_HEADER;
 /** Kept around what is drawn of a node: its station, its badge and its labels. */
 const CALLOUT_NODE_CLEARANCE = 4;
@@ -426,7 +426,7 @@ export function resolveView(
       ...visibleNodes
         .flatMap((n) => [...nodeBody(n), ...badgeArea(n)])
         .map((part) => expandRect(part, CALLOUT_NODE_CLEARANCE)),
-      // A zone's name follows the camera along the strip at the top of its zone.
+      // The strip at the top of a zone is kept for its name, along its whole width.
       ...groups.map((g) => ({ ...g.rect, height: ZONE_NAME_STRIP })),
       ...edges.flatMap((e) => (e.label && e.labelAt ? [edgeLabelArea(e.label, e.labelAt)] : [])),
     ];
