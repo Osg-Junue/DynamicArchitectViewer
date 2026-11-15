@@ -1,6 +1,7 @@
 import type { Layout, Rect } from '../layout';
 import type { DavDocument } from '../model/types';
 import {
+  boundsOf,
   MINIMAP_OUTSIDE_FILL,
   MINIMAP_ZONE_ATTRS,
   minimapZones,
@@ -15,6 +16,8 @@ export class Minimap {
   #hasZones = false;
   #zones = new Map<string, SVGRectElement>();
   #camera: SVGRectElement | null = null;
+  /** What the minimap draws, without the room around it. */
+  #content: Rect | null = null;
 
   constructor(onPick: (x: number, y: number) => void) {
     this.element = svg('svg', {
@@ -46,11 +49,13 @@ export class Minimap {
     clear(this.element);
     this.#zones = new Map();
     this.#camera = null;
+    this.#content = null;
     this.#hasZones = doc.groups.length > 0;
     this.#syncHidden();
     if (!this.#hasZones) return;
 
     const { zones, outside, bounds: b } = minimapZones(doc, layout);
+    this.#content = boundsOf([...zones.map((zone) => zone.rect), ...outside], 0, 0);
     this.element.setAttribute('viewBox', `${b.x} ${b.y} ${b.width} ${b.height}`);
     for (const zone of zones) {
       const { x, y, width, height } = zone.rect;
@@ -87,6 +92,15 @@ export class Minimap {
 
   setCamera(world: Rect): void {
     if (!this.#on || !this.#camera) return;
+    // A camera that shows everything has no part to point out: its frame would only cross the map.
+    const c = this.#content;
+    const showsAll =
+      c !== null &&
+      world.x <= c.x &&
+      world.y <= c.y &&
+      world.x + world.width >= c.x + c.width &&
+      world.y + world.height >= c.y + c.height;
+    this.#camera.toggleAttribute('hidden', showsAll);
     this.#camera.setAttribute('x', world.x.toFixed(1));
     this.#camera.setAttribute('y', world.y.toFixed(1));
     this.#camera.setAttribute('width', world.width.toFixed(1));

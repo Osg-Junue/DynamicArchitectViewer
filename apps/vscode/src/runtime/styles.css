@@ -65,6 +65,7 @@
   padding: 4px 8px;
   background: var(--dav-bg);
   border: 1px solid var(--dav-border);
+  border-radius: 6px;
   font-family: var(--dav-mono);
   font-size: 11px;
   font-weight: 400;
@@ -344,7 +345,7 @@
   padding: 3px;
   background: var(--dav-panel);
   border: 1px solid var(--dav-border);
-  border-radius: 3px;
+  border-radius: 6px;
   box-shadow: 0 2px 8px var(--dav-shadow);
 }
 .dav-zoom-label {
@@ -445,7 +446,7 @@
   height: 140px;
   background: var(--dav-panel);
   border: 1px solid var(--dav-border);
-  border-radius: 3px;
+  border-radius: 6px;
   cursor: pointer;
 
   @media (max-width: 560px), (max-height: 420px) {
@@ -453,7 +454,10 @@
   }
 }
 
-/* The timeline: one segment per step along the bar's lower edge. Its buttons reach below the line. */
+/*
+ * The timeline: one segment per step along the bar's lower edge. Its buttons reach below the
+ * line. Every panel that floats over the canvas has the corners of the bar's lists (6px).
+ */
 .dav-timeline {
   display: flex;
   gap: 3px;
@@ -472,7 +476,8 @@
 .dav-tick {
   position: relative;
   flex: 1 1 0;
-  height: 8px;
+  /* Room to hit, in the bar's own height: over the canvas it would take clicks meant for that. */
+  height: 16px;
   padding: 0;
   border: 0;
   background: transparent;

@@ -9,6 +9,9 @@ The `dav` language version follows the major version: every `1.x.x` release is `
 - The play button always plays the current step, and pauses whatever plays. The arrow beside it opens a menu that plays all steps, or the step, at once. "Play step" reads "Play this step"
 - Previous and next take the whole height of the bar beside the title, so they are easier to hit
 - The controls of the bar, Export and the documentation button among them, look and behave alike: lit under the pointer or while their menu is open, in the pressed color while on, and outlined only after keyboard input. Choosing a speed or a step with the mouse no longer leaves an outline, the speed button keeps its width, and a long title is shortened in a narrow pane instead of running under the play buttons
+- The line of steps under the bar is easier to hit: each step takes the pointer over 16 px of height instead of 8. The line itself is as thin as before, and the diagram starts 8 px lower
+- The minimap shows no frame while the whole diagram is in view. It had drawn the frame's upper and lower edges across the map there
+- The title block, the zoom buttons and the minimap have the rounded corners of the bar's lists (6 px), instead of square corners on one and 3 px on the others
 - A move inside one zone shows the zone's name alone, without "inside", in the preview, exported HTML and exported SVG
 - Export is drawn as the other controls instead of as a filled button
 - The step list, the speed, the menu of the play button and the Export menu are one kind of dropdown: a button with a caret, and a list in the same panel, with the same items and the current choice in the pressed color. The step list and the speed were the system's own lists before, drawn differently in every theme. Each list takes the arrow keys, Home, End and Escape, and in High Contrast an outline marks the current choice
