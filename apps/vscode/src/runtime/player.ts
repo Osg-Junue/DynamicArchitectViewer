@@ -13,6 +13,7 @@ import {
   type Packet,
   PHASE_MS,
   paceView,
+  pacingZoom,
   packetsOnScreen,
   type ResolvedView,
   resolveView,
@@ -576,8 +577,8 @@ export class Player {
 
   /**
    * Times the phases from `from` on by how far their packets move on screen. The automatic
-   * camera sets the pace; a closer view the reader chose slows the packets so that they stay
-   * readable, and a view further out leaves them as they are. An `opening` step starts where the
+   * camera sets the pace; a closer view the reader chose slows the packets, by less than it
+   * enlarges them (`pacingZoom`), and a view further out leaves them as they are. An `opening` step starts where the
    * step is framed; otherwise the camera goes on from where it is heading.
    */
   #pace(from: number, opening = from === 0): void {
@@ -599,7 +600,7 @@ export class Player {
     });
     paceView(
       this.#view,
-      poses.map((pose) => Math.max(pose.zoom, chosen)),
+      poses.map((pose) => pacingZoom(pose.zoom, chosen)),
       from,
     );
   }

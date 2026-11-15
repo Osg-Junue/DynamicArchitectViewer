@@ -59,8 +59,10 @@ export { fitText, type TextMeasure, type TextStyle, textWidth, wrapText } from '
 export {
   HOLD_MS,
   MIN_PACKET_MS,
+  PHASE_GAP_MS,
   PHASE_MS,
   paceView,
+  pacingZoom,
   packetPosition,
   packetShare,
 } from './timing';

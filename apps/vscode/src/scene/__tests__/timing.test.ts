@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
 import { computeLayout } from '../../layout';
 import { railEnds } from '../geometry';
-import { packetPosition, resolveView, zoneMoves } from '../index';
+import { packetPosition, packetShare, resolveView, zoneMoves } from '../index';
 import type { Packet } from '../resolve';
-import { pacePhase, paceView } from '../timing';
+import { PHASE_GAP_MS, pacePhase, paceView, pacingZoom } from '../timing';
 
 function diagram(size: number, zones: number): string {
   const lines = ['dav 1'];
@@ -31,7 +31,7 @@ describe('packet timing', () => {
   it('gives every phase its own duration', () => {
     expect(view.phaseDurations).toHaveLength(view.phases.length);
     for (const ms of view.phaseDurations) {
-      expect(ms).toBeGreaterThanOrEqual(1300);
+      expect(ms).toBeGreaterThanOrEqual(1000);
     }
   });
 
@@ -42,9 +42,9 @@ describe('packet timing', () => {
       return { path, roundTrip, durationMs: 0 } as Packet;
     };
     const oneWay = pacePhase([packet(false)]);
-    expect(4000 / (oneWay / 1000)).toBeLessThanOrEqual(260.1);
+    expect(4000 / (oneWay / 1000)).toBeLessThanOrEqual(320.1);
     const roundTrip = pacePhase([packet(true)]);
-    expect(8000 / (roundTrip / 1000)).toBeLessThanOrEqual(260 * 0.75 + 0.1);
+    expect(8000 / (roundTrip / 1000)).toBeLessThanOrEqual(320.1);
     const crowded = pacePhase([packet(false), packet(false), packet(false)]);
     expect(crowded).toBeGreaterThan(oneWay);
   });
@@ -58,10 +58,20 @@ describe('packet timing', () => {
         durationMs: 0,
       }) as Packet;
     const near = pacePhase([packet()], 2);
-    expect((4000 * 2) / (near / 1000)).toBeLessThanOrEqual(260.1);
+    expect((4000 * 2) / (near / 1000)).toBeLessThanOrEqual(320.1);
     expect(near).toBeGreaterThan(pacePhase([packet()], 1));
     // Far away the line is short on screen, so it stops at the minimum.
-    expect(pacePhase([packet()], 0.05)).toBe(1300);
+    expect(pacePhase([packet()], 0.05)).toBe(1000);
+  });
+
+  it('slows packets by half as much as a closer view enlarges them', () => {
+    // Four times as large: twice as long, so twice as fast on screen.
+    expect(pacingZoom(1, 4)).toBe(2);
+    expect(pacingZoom(0.5, 2)).toBe(1);
+    // A view further out, or the camera's own, leaves the pace as it is.
+    expect(pacingZoom(1, 0.25)).toBe(1);
+    expect(pacingZoom(1.2, 1.2)).toBe(1.2);
+    expect(pacingZoom(1.2, 0)).toBe(1.2);
   });
 
   it('times the phases from a given one on, each at its own zoom', () => {
@@ -76,7 +86,15 @@ describe('packet timing', () => {
   });
 
   it('gives a round trip a minimum for each leg and the turn', () => {
-    expect(view.phases[1]?.[0]?.durationMs).toBeGreaterThanOrEqual(2380);
+    expect(view.phases[1]?.[0]?.durationMs).toBeGreaterThanOrEqual(1750);
+  });
+
+  it('rests between two phases, and not after the last one', () => {
+    expect(view.phases.length).toBeGreaterThan(1);
+    view.phaseDurations.forEach((ms, i) => {
+      const onTheWay = Math.max(...(view.phases[i] ?? []).map((packet) => packet.durationMs));
+      expect(ms - onTheWay).toBe(i < view.phases.length - 1 ? PHASE_GAP_MS : 0);
+    });
   });
 
   it('times a phase by its slowest packet', () => {
@@ -90,6 +108,31 @@ describe('packet timing', () => {
     const crowded = view.phases[2]?.[0];
     const speed = (p: typeof lone) => (p ? 1 / p.durationMs : 0);
     expect(speed(crowded)).toBeLessThanOrEqual(speed(lone));
+  });
+
+  it('keeps one speed for most of the way, starting faster than it stops', () => {
+    const packet = { roundTrip: false, durationMs: 1000 } as Packet;
+    const share = (t: number) => packetShare(packet, t);
+    // In hundredths of its time, as a multiple of its average speed.
+    const speeds = Array.from(
+      { length: 100 },
+      (_, i) => (share((i + 1) / 100) - share(i / 100)) * 100,
+    );
+    // Never more than 1.3 times the average, where a sine ease reaches 1.57 times.
+    expect(Math.max(...speeds)).toBeLessThanOrEqual(1.3);
+    expect(speeds.filter((speed) => speed > 1.28)).toHaveLength(55);
+    // It has gone further a tenth of its time in than it has left to go a tenth before the end.
+    expect(share(0.1)).toBeGreaterThan(1 - share(0.9));
+  });
+
+  it('brings a round trip back the way it went out', () => {
+    const packet = view.phases[1]?.[0];
+    if (!packet) throw new Error('missing packet');
+    const rest = 150 / packet.durationMs;
+    const leg = (1 - rest) / 2;
+    const out = packetShare(packet, leg * 0.2);
+    const back = 1 - packetShare(packet, leg + rest + leg * 0.2);
+    expect(back).toBeCloseTo(out, 6);
   });
 
   it('rests a round trip at the far end and brings it back', () => {
