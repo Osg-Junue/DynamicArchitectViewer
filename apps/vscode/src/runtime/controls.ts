@@ -1,7 +1,7 @@
 import { CONTROL_ICONS, type ControlIcon, controlIcon } from './controlIcons';
 import { clear, html } from './dom';
 import type { ViewerStrings } from './i18n';
-import { Menu } from './menu';
+import { Menu, type MenuItem } from './menu';
 
 export const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
 
@@ -66,12 +66,24 @@ const labelled = (title: string, testId: string) => ({
   'data-testid': testId,
 });
 
-/** A button that opens a menu, with the caret every dropdown of the bar shows. */
-function dropButton(className: string, attrs: Record<string, string>): HTMLButtonElement {
+/**
+ * A button that opens a menu, with the caret every dropdown of the bar shows. Given every label
+ * it can show, it holds them all in one place and shows the current one, so that it is as wide
+ * as the widest in the font it is drawn in and does not change size with the choice.
+ */
+function dropButton(
+  className: string,
+  attrs: Record<string, string>,
+  labels: readonly MenuItem[] = [],
+): HTMLButtonElement {
   return html(
     'button',
     { type: 'button', class: `dav-btn dav-drop ${className}`, ...attrs },
-    html('span', { class: 'dav-drop-text' }),
+    html(
+      'span',
+      { class: 'dav-drop-text' },
+      ...labels.map(({ value, label }) => html('span', { 'data-value': value }, label)),
+    ),
     controlIcon(CONTROL_ICONS.caret),
   );
 }
@@ -84,7 +96,12 @@ export function showChoice(
   value: string,
 ): void {
   const text = button.querySelector('.dav-drop-text');
-  if (text) text.textContent = label;
+  const labels = text ? [...text.children] : [];
+  if (labels.length > 0) {
+    for (const el of labels) el.classList.toggle('is-on', el.getAttribute('data-value') === value);
+  } else if (text) {
+    text.textContent = label;
+  }
   menu.setChecked(value);
 }
 
@@ -157,10 +174,12 @@ export function createControls(s: ViewerStrings, speed: number, on: ControlActio
     on.toggleMotion,
   );
 
-  const speedBtn = dropButton('dav-speed-select', {
-    title: s.speed,
-    'data-testid': 'select-speed',
-  });
+  const speedItems = SPEEDS.map((v) => ({ value: String(v), label: `${v}x` }));
+  const speedBtn = dropButton(
+    'dav-speed-select',
+    { title: s.speed, 'data-testid': 'select-speed' },
+    speedItems,
+  );
   const speedPick = html('span', { class: 'dav-pick' }, speedBtn);
   const speedMenu: Menu = new Menu(speedBtn, speedPick, {
     label: s.speed,
@@ -172,7 +191,7 @@ export function createControls(s: ViewerStrings, speed: number, on: ControlActio
       on.setSpeed(Number(value) || 1);
     },
   });
-  speedMenu.setItems(SPEEDS.map((v) => ({ value: String(v), label: `${v}x` })));
+  speedMenu.setItems(speedItems);
   showChoice(speedBtn, speedMenu, `${speed}x`, String(speed));
 
   const playbackBar = html(

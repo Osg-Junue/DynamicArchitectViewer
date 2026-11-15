@@ -729,26 +729,29 @@ test('the bar keeps its controls in place and apart', async ({ page }) => {
   await openWebview(page);
   const exportBtn = page.getByTestId('btn-export');
   const caret = page.getByTestId('select-speed').locator('svg');
-  // The middle of the speed's text, as drawn.
-  const textMiddle = () =>
-    page
-      .getByTestId('select-speed')
-      .locator('.dav-drop-text')
-      .evaluate((el) => {
-        const range = document.createRange();
-        range.selectNodeContents(el);
-        const box = range.getBoundingClientRect();
-        return Math.round((box.left + box.right) / 2);
-      });
+  // The speed shown, and where its text is drawn.
+  const shown = page.getByTestId('select-speed').locator('.dav-drop-text > .is-on');
+  const textBox = () =>
+    shown.evaluate((el) => {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const box = range.getBoundingClientRect();
+      return { left: box.left, right: box.right, middle: Math.round((box.left + box.right) / 2) };
+    });
   const before = await exportBtn.boundingBox();
   const caretBefore = await caret.boundingBox();
-  const middleBefore = await textMiddle();
+  const middleBefore = (await textBox()).middle;
   for (const value of ['0.5', '1.25', '2', '1']) {
     await choose(page, 'select-speed', value);
-    // Neither the button beside it nor the speed's own caret moves, and the speed stays centered.
+    await expect(shown).toHaveText(`${value}x`);
+    // Neither the button beside it nor the speed's own caret moves, and the speed stays centered,
+    // whole and clear of the caret.
     expect(await exportBtn.boundingBox()).toEqual(before);
     expect(await caret.boundingBox()).toEqual(caretBefore);
-    expect(Math.abs((await textMiddle()) - middleBefore)).toBeLessThanOrEqual(1);
+    const text = await textBox();
+    expect(Math.abs(text.middle - middleBefore)).toBeLessThanOrEqual(1);
+    expect(text.right).toBeLessThanOrEqual(caretBefore?.x ?? 0);
+    await expect(page.getByTestId('select-speed')).toHaveAccessibleName(`${value}x`);
   }
 
   // In a narrow pane the title gives way: it never runs under the play buttons.
