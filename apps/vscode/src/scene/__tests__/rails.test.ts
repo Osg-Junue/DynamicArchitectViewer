@@ -104,6 +104,17 @@ describe('finding routes', () => {
     }
   });
 
+  it('does not turn so near the node it ends at that its arrowhead would hide the rail', () => {
+    // The way over the node between the two is closed, so the rail goes under it. Turning up
+    // on the line right under the last node's labels would leave 6 for an arrowhead 11 long.
+    const nodes = [node(0, 0), node(150, 0), node(300, 0), node(150, 150)];
+    const wall = { x: 100, y: -200, width: 100, height: 164 };
+    const points = routeEdges(nodes, [], [wall], [edge('e', 0, 2)]).get('e')?.points ?? [];
+    const [turn, end] = points.slice(-2);
+    expect(points.length).toBeGreaterThan(2);
+    expect(turn && end && Math.hypot(turn.x - end.x, turn.y - end.y)).toBeGreaterThanOrEqual(16);
+  });
+
   it('keeps out of a zone it has nothing to do with, and runs through one of its own', () => {
     const nodes = [node(100, 100), node(700, 100)];
     const zone = { rect: { x: 300, y: 0, width: 200, height: 200 }, depth: 0 };

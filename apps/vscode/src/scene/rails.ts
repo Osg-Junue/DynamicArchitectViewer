@@ -298,14 +298,20 @@ function routeDiagram(doc: DavDocument, layout: Layout, nodes: readonly Resolved
     ancestorIds(groupParent, nodeParent.get(nodeId)).flatMap((g) => groupIndex.get(g) ?? []);
 
   const wanted: RouteEdge[] = [];
-  const want = (id: string, from: string, to: string) => {
+  const want = (id: string, from: string, to: string, bothWays = false) => {
     const a = nodeIndex.get(from);
     const b = nodeIndex.get(to);
     if (a === undefined || b === undefined || a === b) return;
-    wanted.push({ id, from: a, to: b, home: new Set([...zonesAround(from), ...zonesAround(to)]) });
+    wanted.push({
+      id,
+      from: a,
+      to: b,
+      home: new Set([...zonesAround(from), ...zonesAround(to)]),
+      bothWays,
+    });
   };
   doc.edges.forEach((e, i) => {
-    want(`e${i}`, e.from, e.to);
+    want(`e${i}`, e.from, e.to, e.direction === 'bidirectional');
   });
   const lonePairs = new Map<string, { from: string; to: string }>();
   for (const a of doc.steps.flatMap((s) => s.animations)) {

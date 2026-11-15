@@ -11,6 +11,12 @@ const UNDER_BADGE = 1.25;
 const CROSS = 90;
 /** What leaving a node downwards costs: that route starts below the node's labels, away from its station. */
 const OWN_LABELS = 30;
+/**
+ * The least a rail runs straight before the arrowhead at its end, for the head and a little of
+ * the line to show, and what a turn nearer the node than that costs.
+ */
+const ARROW_ROOM = 16;
+const SHORT_END = 60;
 /** What each unit off the middle of a station costs a route that meets it there. */
 const PORT_COST = 2;
 
@@ -147,6 +153,19 @@ export class RouteSearch {
     return Math.min(before, use[q] as number);
   }
 
+  /**
+   * Whether a rail that turns at (`x`, `y`) to head `way` straight into node `k` has less than
+   * `ARROW_ROOM` left to where it is cut: under the node's labels, or at the top of its station.
+   */
+  #turnsAtEnd(k: number, x: number, y: number, way: number): boolean {
+    const { station, area } = this.#nodes[k] as RouteNode;
+    if (x < station.x || x > station.x + station.width) return false;
+    const bottom = area.y + area.height;
+    if (way === UP) return y >= bottom && y - (bottom + 2) < ARROW_ROOM;
+    if (way === DOWN) return y <= station.y && station.y - 2 - y < ARROW_ROOM;
+    return false;
+  }
+
   /** The crossings a route passes, from its start to its end; undefined when there is no way. */
   find(edge: RouteEdge): number[] | undefined {
     const grid = this.#grid;
@@ -222,7 +241,14 @@ export class RouteSearch {
           (foreign ? THROUGH : 1) *
           (lane.badge[stretch] === 1 ? UNDER_BADGE : 1) *
           (1 + crowding(lane.use[stretch] as number));
-        if (nd !== d) step += BEND;
+        if (nd !== d) {
+          step += BEND;
+          const x = xs[ix] as number;
+          const y = ys[iy] as number;
+          // An arrowhead would hide what is left of the rail after a turn this near its end.
+          if (this.#turnsAtEnd(edge.to, x, y, nd)) step += SHORT_END;
+          if (edge.bothWays && this.#turnsAtEnd(edge.from, x, y, (d + 2) % 4)) step += SHORT_END;
+        }
         const q = ny * W + nx;
         const arrival = goals.get(q)?.[nd] ?? Number.POSITIVE_INFINITY;
         if (Number.isFinite(arrival)) step += arrival + (nd === UP ? OWN_LABELS : 0);
