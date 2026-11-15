@@ -23,7 +23,7 @@ import {
   RailRouter,
   stationArea,
 } from './rails';
-import { PHASE_MS, pacePhase } from './timing';
+import { PHASE_MS, pacePhases } from './timing';
 
 export const DEFAULT_FLOW_COLOR = THEME_COLOR.accent;
 const DEFAULT_EDGE_COLOR = THEME_COLOR.edge;
@@ -328,7 +328,7 @@ function resolvePhases(
   return {
     phases,
     // At zoom 1 until a camera says how large the diagram is drawn (see `paceView`).
-    phaseDurations: phases.map((phase) => pacePhase(phase)),
+    phaseDurations: pacePhases(phases),
     activeEdges: flowColors(phases.flat()),
   };
 }

@@ -2,7 +2,13 @@ import { type Point, pointAt, railLength } from './geometry';
 import type { Packet, ResolvedView } from './resolve';
 
 /** Pause after a step's last phase at 1x. */
-export const HOLD_MS = 1800;
+export const HOLD_MS = 1000;
+
+/**
+ * The rest between two phases of a step at 1x: a packet stays where it arrived for this long
+ * before the next one leaves, so that the two read as two moves rather than one.
+ */
+export const PHASE_GAP_MS = 150;
 
 /** A typical phase at 1x; the actual length of each one depends on what travels how far. */
 export const PHASE_MS = 2000;
@@ -25,7 +31,7 @@ const CRUISE = 1 / (1 - (LAUNCH + LANDING) / 2);
 
 /**
  * Times a phase by how far its packets travel on screen, where the diagram is drawn at `zoom`,
- * and returns its duration. There is no upper limit: a very long line takes longer rather than
+ * and returns how long the last of them is on its way. There is no upper limit: a very long line takes longer rather than
  * going too fast to follow. Packets leave together; those with less distance arrive first.
  */
 export function pacePhase(phase: Packet[], zoom = 1): number {
@@ -53,13 +59,26 @@ export function pacingZoom(automatic: number, chosen: number): number {
 }
 
 /**
+ * Times phase `i` of a step and returns how long it lasts: its packets' way, and the rest
+ * before the next phase. The last phase has no rest: the step's hold follows it.
+ */
+function pacePhaseOf(phases: Packet[][], i: number, zoom: number): number {
+  return pacePhase(phases[i] ?? [], zoom) + (i < phases.length - 1 ? PHASE_GAP_MS : 0);
+}
+
+/** Times a step's phases at zoom 1 and returns how long each lasts. */
+export function pacePhases(phases: Packet[][]): number[] {
+  return phases.map((_, i) => pacePhaseOf(phases, i, 1));
+}
+
+/**
  * Times a view's phases from `from` on, each at the zoom the camera shows it at, in order:
  * `zooms[0]` is the zoom of phase `from`. A phase without a zoom is timed at 1.
  */
 export function paceView(view: ResolvedView, zooms: readonly number[], from = 0): void {
   for (let i = from; i < view.phases.length; i++) {
     const zoom = zooms[i - from] ?? 1;
-    view.phaseDurations[i] = pacePhase(view.phases[i] ?? [], zoom > 0 ? zoom : 1);
+    view.phaseDurations[i] = pacePhaseOf(view.phases, i, zoom > 0 ? zoom : 1);
   }
 }
 

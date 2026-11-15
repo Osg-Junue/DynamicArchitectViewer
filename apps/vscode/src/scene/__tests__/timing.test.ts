@@ -4,7 +4,7 @@ import { computeLayout } from '../../layout';
 import { railEnds } from '../geometry';
 import { packetPosition, packetShare, resolveView, zoneMoves } from '../index';
 import type { Packet } from '../resolve';
-import { pacePhase, paceView, pacingZoom } from '../timing';
+import { PHASE_GAP_MS, pacePhase, paceView, pacingZoom } from '../timing';
 
 function diagram(size: number, zones: number): string {
   const lines = ['dav 1'];
@@ -87,6 +87,14 @@ describe('packet timing', () => {
 
   it('gives a round trip a minimum for each leg and the turn', () => {
     expect(view.phases[1]?.[0]?.durationMs).toBeGreaterThanOrEqual(1750);
+  });
+
+  it('rests between two phases, and not after the last one', () => {
+    expect(view.phases.length).toBeGreaterThan(1);
+    view.phaseDurations.forEach((ms, i) => {
+      const onTheWay = Math.max(...(view.phases[i] ?? []).map((packet) => packet.durationMs));
+      expect(ms - onTheWay).toBe(i < view.phases.length - 1 ? PHASE_GAP_MS : 0);
+    });
   });
 
   it('times a phase by its slowest packet', () => {
