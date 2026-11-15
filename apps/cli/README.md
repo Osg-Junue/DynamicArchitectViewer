@@ -2,7 +2,7 @@
 
 The `dav` command of [DynamicArchitectViewer](https://github.com/Osg-Junue/DynamicArchitectViewer): write architecture and screen-flow diagrams as text in `.dav` files, and play them step by step. The command does what the VS Code extension does with a `.dav` file, without the editor: in a terminal or in CI.
 
-It needs [Node.js](https://nodejs.org/) 20 or later, and has no dependencies.
+It needs [Node.js](https://nodejs.org/) 22.17 or later, and has no dependencies.
 
 ```bash
 npx dynamic-architect-viewer-cli export docs/checkout.dav
@@ -33,6 +33,8 @@ dav export --out-dir docs/media docs/*.dav  # into another directory
 dav export -o site/flow.svg checkout.dav    # under another name
 ```
 
+A pattern such as `docs/*.dav` works in every shell: where the shell does not list the files, as in PowerShell and cmd.exe, the command does.
+
 A diagram with an error is not exported; the errors are printed with their line and column. Warnings are printed and do not stop the export.
 
 ## Keeping a README up to date in CI
@@ -40,7 +42,7 @@ A diagram with an error is not exported; the errors are printed with their line 
 `--check` writes nothing. It fails when a file is missing or is not what its diagram exports now:
 
 ```yaml
-- run: npx dynamic-architect-viewer-cli@1.2.0 export --check docs/*.dav
+- run: npx dynamic-architect-viewer-cli@1.3.0 export --check docs/*.dav
 ```
 
 Give the version in full. An export depends only on the text and the options, but a later version may lay out a diagram differently, and then the check fails until the files are exported again.

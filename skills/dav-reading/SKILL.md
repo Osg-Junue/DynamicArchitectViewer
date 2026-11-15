@@ -9,7 +9,7 @@ compatibility: The bundled outline script needs Node.js 18 or later.
 
 A `.dav` file describes a system twice. Its **structure** says what exists: nodes, the zones that hold them, and the edges between them. Its **steps** say what happens: in each step, packets travel between nodes in a set order, and badges, colors and visibility change.
 
-To explain a file, get its outline, read it in order, then answer with one of the patterns below. To write or change a `.dav` file, use the `dav-diagrams` skill instead.
+To explain a file, get its outline, read it in order, then answer with one of the patterns below. To write or change a `.dav` file, use the `dav-diagrams` skill instead. To export one as an image or a page, use the `dav-cli` skill.
 
 ## Workflow
 

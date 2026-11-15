@@ -3,6 +3,15 @@
 This project follows [Semantic Versioning](https://semver.org/). The `0.x` series was a preview.
 The `dav` language version follows the major version: every `1.x.x` release is `dav 1`.
 
+## 1.3.0 (2026-11-15)
+
+- A third agent skill, `dav-cli`, has an agent run the `dav` command: it exports a diagram as an SVG or an HTML file, shows it in a README, and checks in CI that the exported files are up to date. It also checks and formats many files at once. The skill carries no script: it runs the npm package with `npx`, under the version it is released with, so that the version that checks a file is the one that wrote it. Install AI Agent Skill installs all three skills
+- `dav` names its version when it is asked for a command or an option it does not have, so that a version older than expected shows: `there is no command "render" in version 1.3.0`
+- `dav` takes a pattern such as `docs/*.dav` in PowerShell and cmd.exe, which hand the pattern over instead of the files it matches. Every command failed there with `*.dav: ENOENT`. The files are taken in the order of their names
+- `dav` needs Node.js 22.17 or later instead of 20, for the patterns
+- `dav export --out-dir` writes nothing and exits with 2 when two diagrams of one name, such as `a/x.dav` and `b/x.dav`, would be written to one file. The second replaced the first without a word, and `--check` then failed for one of them whatever was exported
+- `dav constructor`, and any other name every object has, is reported as a command there is not, with exit code 2. It ended in a stack trace with exit code 1
+
 ## 1.2.0 (2026-11-15)
 
 - A callout is placed no nearer another line of the step than its own, so it is no longer read as describing the line it sits by. Before, it kept away only from the lines of other packets in its phase. It sits nearer another line only where every place that does not is more than 200 units further away, counting what crossing a zone's border or using a node's cell adds

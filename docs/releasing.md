@@ -36,7 +36,7 @@ npx vsce login osg-junue
 - [ ] The animations in the READMEs and docs show the current look. [`promo/pv`](../promo/pv/README.md) renders them again.
 - [ ] `npm run check` passes at the repository root.
 - [ ] `npx playwright test` passes in `apps/vscode`.
-- [ ] `version` in `apps/cli/package.json` is the version of the extension. A test fails when the two differ.
+- [ ] `version` in `apps/cli/package.json` is the version of the extension, and the version in `skills/dav-cli/SKILL.md` is the same. A test fails when they differ.
 
 ## Package and inspect
 
@@ -103,7 +103,7 @@ The registry serves the new version a few minutes later. Then try it from a fold
 npx dynamic-architect-viewer-cli@<version> --version
 ```
 
-The READMEs give the version in the line for CI (`dynamic-architect-viewer-cli@<version>`). Update it in `README.md` and `apps/cli/README.md`.
+The READMEs give the version in the line for CI (`dynamic-architect-viewer-cli@<version>`). Update it in `README.md` and `apps/cli/README.md`. The `dav-cli` skill gives it in every command: update it in `skills/dav-cli/SKILL.md` as well. A test fails when it is not the version of the package.
 
 ## GitHub release
 

@@ -2,8 +2,8 @@ import { homedir } from 'node:os';
 import * as vscode from 'vscode';
 import { t } from './locale';
 
-/** The skills the extension carries: one to write diagrams, one to read them. */
-const SKILL_NAMES = ['dav-diagrams', 'dav-reading'];
+/** The skills the extension carries: to write diagrams, to read them, and to run the command line. */
+const SKILL_NAMES = ['dav-diagrams', 'dav-reading', 'dav-cli'];
 
 /** Where each agent looks for skills, relative to the workspace and to the home directory. */
 const SKILL_TARGETS: ReadonlyArray<{

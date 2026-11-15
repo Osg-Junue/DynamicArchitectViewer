@@ -68,6 +68,9 @@ Only make [compatible changes](docs/specification.md#compatibility) to `dav 1`.
 
 `npm test` and `npm run build` regenerate the files in `skills/dav-diagrams/` that come from the parser, `docs/` and `examples/`. Commit them with your change, or CI fails.
 
+**Change the command line**
+
+Update the usage texts in `src/cli/`, both READMEs and `skills/dav-cli/SKILL.md`. A test fails when the skill names an option the command does not have.
 **Change the layout**
 
 Read the [exact rules and invariants](docs/layout.md#exact-rules) first.
