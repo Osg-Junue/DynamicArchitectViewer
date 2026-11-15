@@ -32,6 +32,10 @@ function renderSkill(ctx: DocContext): Node[] {
         'もう1つのスキル `dav-reading` は、`.dav` を読んで構成やデータの流れを説明するためのものです。同梱の `dav-outline` が、参照を解決した構成と、各ステップのパケットを進む順に出力します。',
         'A second skill, `dav-reading`, is for explaining the architecture and the data flows a `.dav` file describes. Its bundled `dav-outline` prints the structure with every reference resolved, and the packets of each step in the order they travel.',
       ),
+      t(
+        '3つ目のスキル `dav-cli` は、`dav` コマンドで図を SVG や HTML に書き出し、README に載せ、CI で最新かどうかを確かめるためのものです。コマンドは npm パッケージ `dynamic-architect-viewer-cli` を `npx` で実行します（Node.js 22.17 以降とネットワークが必要）。',
+        'A third skill, `dav-cli`, is for exporting diagrams as SVG or HTML with the `dav` command, showing them in a README, and checking in CI that they are up to date. It runs the npm package `dynamic-architect-viewer-cli` with `npx` (needs Node.js 22.17 or later, and the network).',
+      ),
     ]),
     h2(t('VS Code からインストール', 'Install from VS Code')),
     p(
@@ -71,6 +75,7 @@ function renderSkill(ctx: DocContext): Node[] {
       { class: 'doc-commands' },
       commandLine(t, 'npx skills add Osg-Junue/DynamicArchitectViewer --skill dav-diagrams'),
       commandLine(t, 'npx skills add Osg-Junue/DynamicArchitectViewer --skill dav-reading'),
+      commandLine(t, 'npx skills add Osg-Junue/DynamicArchitectViewer --skill dav-cli'),
     ),
     h2(t('使い方', 'Using it')),
     p(

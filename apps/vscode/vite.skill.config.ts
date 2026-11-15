@@ -27,6 +27,16 @@ const SKILLS = {
 
 type Skill = (typeof SKILLS)[keyof typeof SKILLS];
 
+/** Skills written by hand in full: nothing is generated into them, so no mode builds them. */
+const HANDWRITTEN = ['dav-cli'];
+
+/** The VSIX contains only apps/vscode, so the install command needs its own copy of a skill. */
+function packageSkill(name: string): void {
+  const packaged = resolve(import.meta.dirname, 'dist/skill', name);
+  rmSync(packaged, { recursive: true, force: true });
+  cpSync(resolve(ROOT, 'skills', name), packaged, { recursive: true });
+}
+
 function assembleSkill(skill: Skill): Plugin {
   const dir = resolve(ROOT, 'skills', skill.name);
   // Links to a document the skill carries stay relative; the others point at GitHub.
@@ -53,10 +63,9 @@ function assembleSkill(skill: Skill): Plugin {
         if (readdirSync(examples).length === 0) throw new Error('No examples to bundle');
       }
 
-      // The VSIX contains only apps/vscode, so the install command needs its own copy.
-      const packaged = resolve(import.meta.dirname, 'dist/skill', skill.name);
-      rmSync(packaged, { recursive: true, force: true });
-      cpSync(dir, packaged, { recursive: true });
+      packageSkill(skill.name);
+      // The handwritten skills go with the first build, so that `build:skill` packages them all.
+      if (skill === SKILLS.production) HANDWRITTEN.forEach(packageSkill);
     },
   };
 }

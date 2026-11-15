@@ -280,6 +280,7 @@ describe('extension commands', () => {
       expect(host.copied).toEqual([
         { from: packaged, to: workspaceTarget },
         { from: '/ext/dist/skill/dav-reading', to: '/repo/.claude/skills/dav-reading' },
+        { from: '/ext/dist/skill/dav-cli', to: '/repo/.claude/skills/dav-cli' },
       ]);
     });
 
@@ -304,7 +305,7 @@ describe('extension commands', () => {
 
     it.each([
       [undefined, 0],
-      ['Replace', 2],
+      ['Replace', 3],
     ])('replaces an existing skill only after confirmation (%s)', async (answer, copies) => {
       host.workspaceFolders = [{ uri: { fsPath: '/repo' } }];
       host.existing.add(workspaceTarget);

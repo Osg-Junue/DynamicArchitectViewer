@@ -5,6 +5,8 @@ The `dav` language version follows the major version: every `1.x.x` release is `
 
 ## Unreleased
 
+- A third agent skill, `dav-cli`, has an agent run the `dav` command: it exports a diagram as an SVG or an HTML file, shows it in a README, and checks in CI that the exported files are up to date. It also checks and formats many files at once. The skill carries no script: it runs the npm package with `npx`, under the version it is released with, so that the version that checks a file is the one that wrote it. Install AI Agent Skill installs all three skills
+- `dav` names its version when it is asked for a command or an option it does not have, so that a version older than expected shows: `there is no command "render" in version 1.2.0`
 - `dav` takes a pattern such as `docs/*.dav` in PowerShell and cmd.exe, which hand the pattern over instead of the files it matches. Every command failed there with `*.dav: ENOENT`. The files are taken in the order of their names
 - `dav` needs Node.js 22.17 or later instead of 20, for the patterns
 - `dav export --out-dir` writes nothing and exits with 2 when two diagrams of one name, such as `a/x.dav` and `b/x.dav`, would be written to one file. The second replaced the first without a word, and `--check` then failed for one of them whatever was exported

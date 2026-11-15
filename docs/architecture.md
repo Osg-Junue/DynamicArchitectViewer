@@ -187,7 +187,7 @@ The extension and webview talk through typed messages in `protocol/messages.ts`:
 
 ## The agent skills
 
-`skills/` holds two skills in the [Agent Skills](https://agentskills.io/specification) format: `dav-diagrams` for writing diagrams and `dav-reading` for explaining them. Only each `SKILL.md` is written by hand. `npm run build:skill` generates the rest:
+`skills/` holds three skills in the [Agent Skills](https://agentskills.io/specification) format: `dav-diagrams` for writing diagrams, `dav-reading` for explaining them, and `dav-cli` for exporting them with the command line. Only each `SKILL.md` is written by hand. `npm run build:skill` generates the rest:
 
 | Path | Source |
 | :--- | :--- |
@@ -201,7 +201,9 @@ The extension and webview talk through typed messages in `protocol/messages.ts`:
 
 `dav-outline` prints what a file says as Markdown or JSON: zones and nodes with their labels, every edge, and for each step its packets in the order they travel, what the step changes and what still shows from earlier steps.
 
-The examples in `examples/` and in `dav-diagrams/SKILL.md` pass `dav-check --detail`, and the excerpts in `dav-reading/SKILL.md` are lines of a real outline; tests keep both true.
+`dav-cli` is its `SKILL.md` alone. It carries no script: it has the agent run the npm package with `npx`, under the version of `apps/cli/package.json`. The command is then the one a workflow runs, so the version that checks an exported file in CI is the version that wrote it. A copy in the skill could be another version than the one CI fetches.
+
+The examples in `examples/` and in `dav-diagrams/SKILL.md` pass `dav-check --detail`, and the excerpts in `dav-reading/SKILL.md` are lines of a real outline; tests keep both true. Tests also keep the version in `dav-cli/SKILL.md` the version of the package, and its options the ones the command has.
 
 The generated files are committed, because the marketplace and the `skills` CLI install directly from the repository. CI fails if they are out of date. The build also copies the skills to `dist/skill/`, because the VSIX contains only `apps/vscode`.
 
