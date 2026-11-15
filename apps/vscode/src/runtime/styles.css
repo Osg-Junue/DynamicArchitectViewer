@@ -294,9 +294,10 @@
   margin: 4px 2px;
   background: var(--dav-border);
 }
-/* As wide as the widest speed, so that choosing one moves nothing beside it. */
+/* As wide as the widest speed, with the caret at its right edge, so that choosing a speed moves
+   neither the caret nor anything beside it. */
 .dav-speed-select {
-  justify-content: center;
+  justify-content: space-between;
   width: 58px;
 }
 
