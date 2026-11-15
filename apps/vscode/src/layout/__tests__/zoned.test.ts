@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
 import { computeColumnLayout } from '../columns';
 import { computeLayout, countCrossings, type Rect, rectContains, rectOverlaps } from '../index';
-import { STATION_CENTER } from '../metrics';
+import { enclosingRect, STATION_CENTER } from '../metrics';
 
 /** Zones of `size` chained nodes in a row, with links from the first zone to all the others. */
 function bigDiagram(size = 6, zones = 8): string {
@@ -36,9 +36,7 @@ describe('zoned placement', () => {
 
   it('fills the canvas instead of stretching into a strip', () => {
     const rects = Object.values(layout.groups);
-    const width = Math.max(...rects.map((r) => r.x + r.width)) - Math.min(...rects.map((r) => r.x));
-    const height =
-      Math.max(...rects.map((r) => r.y + r.height)) - Math.min(...rects.map((r) => r.y));
+    const { width, height } = enclosingRect(rects);
     // The column layout of this diagram is 60 times as wide as it is high. How close to the
     // canvas's own 1.6 the zones come is a balance against the length of their links.
     expect(width / height).toBeLessThan(3.5);
@@ -57,9 +55,7 @@ describe('zoned placement', () => {
     const doc = parse(bigDiagram(size, zones)).document;
     const placed = computeLayout(doc);
     const rects = Object.values(placed.groups);
-    const width = Math.max(...rects.map((r) => r.x + r.width)) - Math.min(...rects.map((r) => r.x));
-    const height =
-      Math.max(...rects.map((r) => r.y + r.height)) - Math.min(...rects.map((r) => r.y));
+    const { width, height } = enclosingRect(rects);
     expect(width / height).toBeLessThan(5);
     expect(countCrossings(doc, placed)).toBeLessThanOrEqual(2);
   });
@@ -130,9 +126,7 @@ describe('zoned placement', () => {
       if (z > 2) lines.push(`z${z - 3}n1 --> z${z}n5`);
     }
     const rects = Object.values(computeLayout(parse(lines.join('\n')).document).groups);
-    const width = Math.max(...rects.map((r) => r.x + r.width)) - Math.min(...rects.map((r) => r.x));
-    const height =
-      Math.max(...rects.map((r) => r.y + r.height)) - Math.min(...rects.map((r) => r.y));
+    const { width, height } = enclosingRect(rects);
     const covered = rects.reduce((sum, r) => sum + r.width * r.height, 0);
     expect(covered / (width * height)).toBeGreaterThan(0.5);
     rects.forEach((a, i) => {
