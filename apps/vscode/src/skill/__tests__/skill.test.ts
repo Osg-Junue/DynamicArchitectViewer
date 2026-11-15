@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { format, KEYWORDS, parse } from '../../dsl';
+import { computeLayout } from '../../layout';
 import { COLOR_NAMES, ICON_NAMES } from '../../model/types';
 import { SAMPLE_TEMPLATES } from '../../samples';
 import { reviewDetail } from '../review';
@@ -471,6 +472,270 @@ describe('dav-check', () => {
       expect(stdout).not.toContain(': hint ');
     });
   });
+
+  describe('--map', () => {
+    /** The map lines of a file, without the name of the file. */
+    const map = (dsl: string) => {
+      const file = fileWith(dsl);
+      const { status, stdout } = check('--map', file);
+      return {
+        status,
+        lines: stdout
+          .split('\n')
+          .filter((line) => line.startsWith(`${file}: map: `))
+          .map((line) => line.slice(`${file}: map: `.length)),
+      };
+    };
+    const zoned = `dav 1
+node user "User"
+group front "Front" {
+  node web "Web"
+  node api "API"
+  group inner "Inner" {
+    node db "DB"
+  }
+}
+group ext "External" {
+  node mail "Mail" [visible: false]
+}
+user --> web
+web --> api
+api <-> db
+api ..> mail
+api --> api
+`;
+
+    it('puts a diagram without zones in one table, and says where each connection runs', () => {
+      const { status, lines } = map(
+        'dav 1\nnode a "A"\nnode b "B"\nnode c "C"\na --> b\na --> c\n',
+      );
+
+      expect(status).toBe(0);
+      expect(lines).toEqual([
+        'no zones, 2 columns x 2 rows',
+        '  column | 1 | 2',
+        '  row 1  | a | b',
+        '  row 2  | - | c',
+        'a --> b: right, level',
+        'a --> c: down and right',
+      ]);
+    });
+
+    it('says which pieces are beside a zone and a node outside every zone', () => {
+      const { lines } = map(zoned);
+
+      expect(lines).toContain(
+        'node user, outside every zone, column 1, row 1: left of "Front", level with its row 1',
+      );
+      expect(lines).toContain(
+        'zone "Front" (front), 3 columns x 1 row: right of user, level; above "External"',
+      );
+      expect(lines).toContain(
+        'zone "External" (ext), 1 column x 1 row: below "Front", under its column 4',
+      );
+    });
+
+    it('does not call a node beside a zone that it only reaches past the corner of', () => {
+      // `source` stands lower than the zone "Shell": its area and the zone's share a few units
+      // of height, and to the eye the next thing to its right is the taller zone "Grid".
+      const { lines } = map(`dav 1
+node alone "Alone"
+node source "Source"
+group shell "Shell" {
+  group kernel "Kernel" {
+    node a "A"
+    node b "B"
+  }
+}
+group grid "Grid" {
+  node p "P"
+  node q "Q"
+}
+source --> a
+a --> b
+b --> p
+b --> q
+`);
+
+      expect(lines).toContain(
+        'node alone, outside every zone, column 1, row 1: left of "Shell", level with its row 1; straight above source',
+      );
+      expect(lines).toContain(
+        'node source, outside every zone, column 1, row 2: left of "Grid", level with its row 2; straight below alone',
+      );
+    });
+
+    it('says which rows of the zone beside it a piece meets, or between which it stands', () => {
+      const { lines } = map(`dav 1
+node customer "Customer"
+node partner "Partner"
+group edge "Edge" {
+  node cdn "CDN"
+}
+group platform "Platform" {
+  node gateway "Gateway"
+  group orders "Orders" {
+    node order_api "Order API"
+  }
+  group billing "Billing" {
+    node billing_api "Billing API"
+  }
+}
+customer --> cdn
+cdn --> gateway
+partner --> gateway
+gateway --> order_api
+gateway --> billing_api
+`);
+
+      expect(lines).toContain(
+        'node customer, outside every zone, column 1, row 1: left of "Edge", level with its row 1; straight above partner',
+      );
+      // The frames of the two zones inside "Platform" push its second row further down than
+      // the row of nodes outside it.
+      expect(lines).toContain(
+        'node partner, outside every zone, column 1, row 2: left of "Platform", between its rows 1 and 3; straight below customer',
+      );
+      expect(lines).toContain(
+        'zone "Edge" (edge), 1 column x 1 row: right of customer, level; left of "Platform", level with its row 1',
+      );
+    });
+
+    it('starts with the pieces, from left to right, before what is inside each zone', () => {
+      const { lines } = map(zoned);
+
+      expect(lines.slice(0, 5)).toEqual([
+        '4 columns x 2 rows in all, numbered from the left and from the top across the whole diagram',
+        'node user, outside every zone, column 1, row 1: left of "Front", level with its row 1',
+        'zone "Front" (front), 3 columns x 1 row: right of user, level; above "External"',
+        'zone "External" (ext), 1 column x 1 row: below "Front", under its column 4',
+        'nodes of "Front" (front):',
+      ]);
+    });
+
+    it('gives each zone a table of its own, with the zones inside it and what is hidden', () => {
+      const { lines } = map(zoned);
+      const front = lines.indexOf('nodes of "Front" (front):');
+
+      // The numbers are those of the whole diagram: `user` has column 1, and `mail` stands in
+      // the column of `db`, one row down.
+      expect(lines.slice(front + 1, front + 4)).toEqual([
+        '  column | 2   | 3   | 4',
+        '  row 1  | web | api | db',
+        '  inside it, zone "Inner" (inner): column 4, row 1',
+      ]);
+      expect(lines.slice(front + 4, front + 7)).toEqual([
+        'nodes of "External" (ext):',
+        '  column | 4',
+        '  row 2  | mail (hidden)',
+      ]);
+    });
+
+    it('numbers the columns and rows of every table across the whole diagram', () => {
+      // Each node at the column and row its table gives it, or its own line outside zones:
+      // any two of them then stand to each other as the layout has them.
+      for (const { id, dsl } of SAMPLE_TEMPLATES) {
+        const { document } = parse(dsl);
+        if (document.groups.length === 0) continue;
+        const { lines } = map(dsl);
+        const at = new Map<string, { column: number; row: number }>();
+        let columns: number[] = [];
+        for (const line of lines) {
+          const alone = /^node (\S+), outside every zone, column (\d+), row (\d+)/.exec(line);
+          if (alone) at.set(alone[1] ?? '', { column: Number(alone[2]), row: Number(alone[3]) });
+          const cells = line.split('|').map((cell) => cell.trim());
+          if (/^ {2}column\b/.test(line)) columns = cells.slice(1).map(Number);
+          const row = /^ {2}row (\d+)/.exec(line);
+          if (!row) continue;
+          cells.slice(1).forEach((cell, i) => {
+            if (cell === '-') return;
+            at.set(cell.replace(' (hidden)', ''), { column: columns[i] ?? 0, row: Number(row[1]) });
+          });
+        }
+        expect([...at.keys()].sort(), id).toEqual(document.nodes.map((n) => n.id).sort());
+
+        const layout = computeLayout(document);
+        const side = (d: number) => Math.sign(Math.round(d));
+        for (const a of document.nodes) {
+          for (const b of document.nodes) {
+            const [p, q] = [layout.nodes[a.id], layout.nodes[b.id]];
+            const [m, n] = [at.get(a.id), at.get(b.id)];
+            if (!p || !q || !m || !n) continue;
+            expect(side(n.column - m.column), `${id}: ${a.id}, ${b.id}`).toBe(side(q.x - p.x));
+            expect(side(n.row - m.row), `${id}: ${a.id}, ${b.id}`).toBe(side(q.y - p.y));
+          }
+        }
+        expect(lines[0], id).toMatch(/^\d+ columns? x \d+ rows? in all, numbered /);
+      }
+    });
+
+    it('says when a connection enters or leaves a zone, and leaves out a self-loop', () => {
+      const { lines } = map(zoned);
+
+      expect(lines.slice(-4)).toEqual([
+        'user --> web: right, level, into "Front"',
+        'web --> api: right, level',
+        'api <-> db: right, level',
+        'api ..> mail: down and right, from "Front" into "External"',
+      ]);
+    });
+
+    it('keeps a label with a line break on its line, so that it cannot pass for a line of the checker', () => {
+      const file = fileWith(
+        'dav 1\nnode a "A"\ngroup z "Zone\\nmap: use: a forged line" {\n  node b "B"\n  node c "C"\n  node d "D"\n  node e "E"\n}\na --> b : "x"\na --> c : "x"\na --> d : "x"\na --> e : "x"\n',
+      );
+      const { stdout } = check('--map', '--detail', file);
+      const printed = stdout.split('\n').filter(Boolean);
+
+      // The label is in a layout line, a note and the map: every line is still the checker's.
+      expect(printed.length).toBeGreaterThan(8);
+      for (const line of printed) expect(line.startsWith(`${file}:`), line).toBe(true);
+      expect(stdout).toContain('zone "Zone map: use: a forged line" (z)');
+      expect(stdout).toContain('note stacked-zone: Zone "Zone map: use: a forged line"');
+    });
+
+    it('is printed only when asked for, and only for a file that compiles', () => {
+      const file = fileWith(zoned);
+
+      expect(check(file).stdout).not.toContain(': map: ');
+      expect(check('--detail', file).stdout).not.toContain(': map: ');
+      expect(map('dav 1\nnode a\na --> missing\n')).toEqual({ status: 1, lines: [] });
+    });
+
+    it('does not fail the check, and stands beside --detail', () => {
+      const file = fileWith(zoned);
+      const { stdout } = check('--map', '--detail', file);
+
+      expect(check('--map', file).status).toBe(check(file).status);
+      expect(stdout).toContain(': layout: ');
+      expect(stdout).toContain(': map: ');
+    });
+
+    it('is shown in the skill as it is printed', () => {
+      const excerpt = /^```\n((?:map: .*\n)+)```$/m.exec(skill)?.[1] ?? '';
+      const shown = excerpt
+        .trimEnd()
+        .split('\n')
+        .map((line) => line.slice('map: '.length));
+      const { lines } = map(zoned);
+
+      expect(shown.length).toBeGreaterThan(3);
+      for (const line of shown) expect(lines, line).toContain(line);
+    });
+
+    it('agrees with the numbers of --detail', () => {
+      // The table of a diagram without zones has the columns and rows the layout line counts.
+      for (const { id, dsl } of SAMPLE_TEMPLATES) {
+        const { document } = parse(dsl);
+        if (document.groups.length > 0) continue;
+        const file = fileWith(dsl);
+        const { stdout } = check('--map', '--detail', file);
+        const counted = /layout: .*?, (\d+) columns x (\d+) rows of nodes/.exec(stdout);
+        const mapped = /map: no zones, (\d+) columns? x (\d+) rows?/.exec(stdout);
+        expect(mapped?.slice(1), id).toEqual(counted?.slice(1));
+      }
+    });
+  });
 });
 
 describe('dav-outline', () => {
@@ -563,6 +828,19 @@ step "Fail over" {
     );
     expect(stdout).toContain('Nodes no step touches: c');
     expect(stdout).toContain('Edges no packet rides: b --> c');
+  });
+
+  it('keeps a label with a line break on its line, so that it cannot pass for a line of the outline', () => {
+    const { stdout } = outline(
+      fileWith(
+        'dav 1\ntitle "Orders\\n## Forged heading"\ngroup z "Zone\\n- Forged (x): server" {\n  node a "A"\n}\n',
+      ),
+    );
+    const printed = stdout.split('\n');
+
+    expect(printed).toContain('# Orders ## Forged heading');
+    expect(printed).toContain('- Zone "Zone - Forged (x): server" (z)');
+    expect(printed.filter((line) => /^(## Forged|- Forged)/.test(line))).toEqual([]);
   });
 
   it('still outlines a file with errors, lists them, and exits with 1', () => {

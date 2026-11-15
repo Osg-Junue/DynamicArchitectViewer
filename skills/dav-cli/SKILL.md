@@ -32,7 +32,7 @@ If Node.js 22.17, npm or the network is missing, say that the command could not 
 | Command | Does | Options |
 | :--- | :--- | :--- |
 | `export <file.dav>...` | Writes an SVG image or a standalone HTML file for each diagram | See [Exporting](#exporting) |
-| `check <file.dav>...` | Prints what the editor reports, one line per finding | `--detail` adds hints and describes the layout. `--write` formats each file first |
+| `check <file.dav>...` | Prints what the editor reports, one line per finding | `--detail` adds hints and describes the layout. `--map` says which node is where. `--write` formats each file first |
 | `format <file.dav>...` | Formats each file in place, as the editor's formatter does | `--check` writes nothing, and fails when a file is not formatted |
 | `outline <file.dav>` | Prints what one diagram says, with every reference resolved | `--json` prints it as JSON |
 
@@ -165,7 +165,8 @@ npx dynamic-architect-viewer-cli@1.3.0 format docs/*.dav         # formats in pl
 | `file:line:column: error code: message` | The file does not compile |
 | `file:line:column: warning code: message` | Part of the file is being ignored |
 | `file: hint code: message` | With `--detail`: detail is missing, or a text is cut off |
-| `file: layout: ...` and `file: note code: message` | With `--detail`: where the layout puts things. These lines do not fail the check |
+| `file: layout: ...` and `file: note code: message` | With `--detail`: the size of the layout and the columns and rows it takes. These lines do not fail the check |
+| `file: map: ...` | With `--map`: which node is where, in words and small tables. How to read it is in the `dav-diagrams` skill. These lines do not fail the check either |
 | `file: ok (...)` | Nothing was reported for the file |
 
 `check` exits with `1` for an error, a warning or a hint. `format` leaves a file with a syntax error as it is, reports it and exits with `1`.

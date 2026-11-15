@@ -415,6 +415,15 @@ describe('dav check and dav outline', () => {
     expect(stdout).toContain('layout:');
   });
 
+  it('check --map says which node is where', async () => {
+    const { status, stdout } = await dav('check', '--map', fileWith(DIAGRAM));
+
+    expect(status).toBe(0);
+    expect(stdout).toContain('map: no zones, 3 columns x 1 row');
+    expect(stdout).toContain('map: browser --> api: right, level');
+    expect((await dav('check', '--help')).stdout).toContain('[--map]');
+  });
+
   it('outline prints what the diagram says, as text or as JSON', async () => {
     const file = fileWith(DIAGRAM);
     const text = await dav('outline', file);

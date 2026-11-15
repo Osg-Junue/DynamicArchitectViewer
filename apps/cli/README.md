@@ -15,7 +15,7 @@ This writes `docs/checkout.svg`: an animated SVG that plays every step without a
 | Command | Does |
 | :--- | :--- |
 | `dav export` | Writes an SVG image or a standalone HTML file next to each diagram |
-| `dav check` | Reports what the editor reports. `--detail` adds hints and describes the layout, and `--write` formats the file first |
+| `dav check` | Reports what the editor reports. `--detail` adds hints and describes the layout, `--map` says which node is where, and `--write` formats the file first |
 | `dav format` | Formats files in place. `--check` writes nothing and fails when a file is not formatted |
 | `dav outline` | Prints what a diagram says, with every reference resolved. `--json` prints it as JSON |
 
