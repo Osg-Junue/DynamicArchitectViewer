@@ -2,22 +2,24 @@ import type { Layout, Rect } from '../layout';
 import type { DavDocument } from '../model/types';
 import {
   boundsOf,
-  calmFrame,
   clamp,
   framePose,
   MAX_FIT_ZOOM,
   type Pose,
-  packetsOnScreen,
+  paceView,
+  phasePoses,
+  type ResolvedView,
   resolveView,
   type Size,
   stepFrame,
-  visibleWorld,
   wholeDiagramFrame,
 } from '../scene';
 import { SAMPLE_MS, type StepSlot } from './svgClock';
 
 export const WIDTH = 960;
 export const CANVAS_HEIGHT = 540;
+/** The canvas of a camera that follows the packets. */
+const FOLLOW_CANVAS: Size = { width: WIDTH, height: CANVAS_HEIGHT };
 /** A fixed camera's canvas follows the diagram's proportions, within these heights. */
 const WHOLE_CANVAS_HEIGHT = { min: 240, max: 1200 } as const;
 /** The preview's camera eases with a time constant of 160 ms; this is about when it settles. */
@@ -36,21 +38,55 @@ export function planCamera(
 ): Array<[number, Pose]> {
   const events: Array<[number, Pose]> = [];
   for (const step of steps) {
-    const first = step.phases[0];
-    let pose = framePose(
-      canvas,
-      stepFrame(canvas, layout, step.view, first ? { follow: first.packets } : {}),
-    );
-    events.push([step.start, pose]);
-    for (const phase of step.phases.slice(1)) {
-      if (packetsOnScreen(layout, phase.packets, visibleWorld(canvas, pose))) continue;
-      const frame = calmFrame(canvas, layout, phase.packets);
-      if (!frame) continue;
-      pose = framePose(canvas, frame);
-      events.push([phase.start, pose]);
-    }
+    const poses = stepPoses(canvas, layout, step.view);
+    events.push([step.start, poses[0] ?? stepPose(canvas, layout, step.view)]);
+    step.phases.forEach((phase, i) => {
+      const pose = poses[i];
+      if (i > 0 && pose && pose !== poses[i - 1]) events.push([phase.start, pose]);
+    });
   }
   return events;
+}
+
+/** Where the preview's camera starts a step. */
+function stepPose(canvas: Size, layout: Layout, view: ResolvedView): Pose {
+  const first = view.phases[0];
+  return framePose(canvas, stepFrame(canvas, layout, view, first ? { follow: first } : {}));
+}
+
+/** The pose the following camera holds through each phase of a step. */
+function stepPoses(canvas: Size, layout: Layout, view: ResolvedView): Pose[] {
+  return phasePoses(canvas, layout, view.phases, stepPose(canvas, layout, view));
+}
+
+/**
+ * Times every phase by how far its packets move on the exported canvas, as the preview does:
+ * the canvas and the zooms are the ones the camera of `mode` will use.
+ */
+export function paceForCamera(
+  doc: DavDocument,
+  layout: Layout,
+  mode: 'follow' | 'whole',
+): (views: readonly ResolvedView[]) => void {
+  return (views) => {
+    if (mode === 'whole') {
+      const rect = wholeOfViews(doc, layout, views);
+      const { zoom } = wholePose(wholeCanvas(rect), rect);
+      for (const view of views) {
+        paceView(
+          view,
+          view.phases.map(() => zoom),
+        );
+      }
+      return;
+    }
+    for (const view of views) {
+      paceView(
+        view,
+        stepPoses(FOLLOW_CANVAS, layout, view).map((pose) => pose.zoom),
+      );
+    }
+  };
 }
 
 /**
@@ -130,9 +166,17 @@ export function wholeAcrossSteps(
   layout: Layout,
   steps: readonly StepSlot[],
 ): Rect {
-  const views = steps.length > 0 ? steps.map((s) => s.view) : [resolveView(doc, layout, null)];
+  return wholeOfViews(
+    doc,
+    layout,
+    steps.map((s) => s.view),
+  );
+}
+
+function wholeOfViews(doc: DavDocument, layout: Layout, views: readonly ResolvedView[]): Rect {
+  const shown = views.length > 0 ? views : [resolveView(doc, layout, null)];
   return boundsOf(
-    views.map((view) => wholeDiagramFrame(layout, view).rect),
+    shown.map((view) => wholeDiagramFrame(layout, view).rect),
     0,
     0,
   );

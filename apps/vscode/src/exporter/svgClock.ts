@@ -40,17 +40,20 @@ export interface StepSlot {
 
 /**
  * Plays every step at 1x, as "Play all" does: each phase in turn, then a hold. With `only`, plays
- * that one step, as "Play step" does.
+ * that one step, as "Play step" does. `pace` may time the phases again before they are laid
+ * out, once every step is resolved.
  */
 export function schedule(
   doc: DavDocument,
   layout: Layout,
   only?: number,
+  pace?: (views: readonly ResolvedView[]) => void,
 ): { steps: StepSlot[]; total: number } {
   let t = 0;
   const indices = only === undefined ? doc.steps.map((_, i) => i) : [only];
-  const steps = indices.map((i): StepSlot => {
-    const view = resolveView(doc, layout, i);
+  const resolved = indices.map((i) => ({ i, view: resolveView(doc, layout, i) }));
+  pace?.(resolved.map((r) => r.view));
+  const steps = resolved.map(({ i, view }): StepSlot => {
     const start = t;
     const phases = view.phases.map((packets, j): PhaseSlot => {
       const durationMs = view.phaseDurations[j] ?? PHASE_MS;

@@ -1,5 +1,5 @@
 import { type Point, pointAt, railLength } from './geometry';
-import type { Packet } from './resolve';
+import type { Packet, ResolvedView } from './resolve';
 
 /** Pause after a step's last phase at 1x. */
 export const HOLD_MS = 1800;
@@ -7,7 +7,7 @@ export const HOLD_MS = 1800;
 /** A typical phase at 1x; the actual length of each one depends on what travels how far. */
 export const PHASE_MS = 2000;
 
-/** Top average speed of a lone packet, in diagram units per second at 1x. */
+/** Top average speed of a lone packet, in screen pixels per second at 1x. */
 const MAX_SPEED = 260;
 /** Each further packet of a phase lowers the speed: the eye has to split between them. */
 const PARALLEL_SLOWDOWN = 0.3;
@@ -20,12 +20,12 @@ const TURN_PAUSE_MS = 180;
 const MAX_TURN_SHARE = 0.3;
 
 /**
- * Times a phase by how far its packets travel, and returns its duration. There is no upper
- * limit: a very long line takes longer rather than going too fast to follow.
- * Packets leave together; those with less distance arrive first.
+ * Times a phase by how far its packets travel on screen, where the diagram is drawn at `zoom`,
+ * and returns its duration. There is no upper limit: a very long line takes longer rather than
+ * going too fast to follow. Packets leave together; those with less distance arrive first.
  */
-export function pacePhase(phase: Packet[]): number {
-  const speed = MAX_SPEED / (1 + PARALLEL_SLOWDOWN * (phase.length - 1));
+export function pacePhase(phase: Packet[], zoom = 1): number {
+  const speed = MAX_SPEED / zoom / (1 + PARALLEL_SLOWDOWN * (phase.length - 1));
   for (const packet of phase) {
     const length = railLength(packet.path);
     packet.durationMs = Math.round(
@@ -38,6 +38,17 @@ export function pacePhase(phase: Packet[]): number {
     );
   }
   return Math.max(...phase.map((packet) => packet.durationMs));
+}
+
+/**
+ * Times a view's phases from `from` on, each at the zoom the camera shows it at, in order:
+ * `zooms[0]` is the zoom of phase `from`. A phase without a zoom is timed at 1.
+ */
+export function paceView(view: ResolvedView, zooms: readonly number[], from = 0): void {
+  for (let i = from; i < view.phases.length; i++) {
+    const zoom = zooms[i - from] ?? 1;
+    view.phaseDurations[i] = pacePhase(view.phases[i] ?? [], zoom > 0 ? zoom : 1);
+  }
 }
 
 const easeSine = (u: number) => 0.5 - 0.5 * Math.cos(Math.PI * u);

@@ -4,7 +4,7 @@ import { computeLayout } from '../../layout';
 import { railEnds } from '../geometry';
 import { packetPosition, resolveView, zoneMoves } from '../index';
 import type { Packet } from '../resolve';
-import { pacePhase } from '../timing';
+import { pacePhase, paceView } from '../timing';
 
 function diagram(size: number, zones: number): string {
   const lines = ['dav 1'];
@@ -47,6 +47,32 @@ describe('packet timing', () => {
     expect(8000 / (roundTrip / 1000)).toBeLessThanOrEqual(260 * 0.75 + 0.1);
     const crowded = pacePhase([packet(false), packet(false), packet(false)]);
     expect(crowded).toBeGreaterThan(oneWay);
+  });
+
+  it('keeps the top speed on screen at any zoom', () => {
+    const at = (x: number) => ({ x, y: 0 });
+    const packet = () =>
+      ({
+        path: { p0: at(0), p1: at(1000), p2: at(3000), p3: at(4000) },
+        roundTrip: false,
+        durationMs: 0,
+      }) as Packet;
+    const near = pacePhase([packet()], 2);
+    expect((4000 * 2) / (near / 1000)).toBeLessThanOrEqual(260.1);
+    expect(near).toBeGreaterThan(pacePhase([packet()], 1));
+    // Far away the line is short on screen, so it stops at the minimum.
+    expect(pacePhase([packet()], 0.05)).toBe(1300);
+  });
+
+  it('times the phases from a given one on, each at its own zoom', () => {
+    const { document } = parse(diagram(6, 8));
+    const paced = resolveView(document, computeLayout(document), 0);
+    const before = [...paced.phaseDurations];
+    paceView(paced, [10, 10], 1);
+    expect(paced.phaseDurations[0]).toBe(before[0]);
+    expect(paced.phaseDurations[1]).toBeGreaterThan(before[1] ?? 0);
+    expect(paced.phaseDurations[2]).toBeGreaterThan(before[2] ?? 0);
+    expect(paced.phaseDurations[3]).toBe(before[3]);
   });
 
   it('gives a round trip a minimum for each leg and the turn', () => {

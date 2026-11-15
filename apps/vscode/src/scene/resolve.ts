@@ -327,7 +327,8 @@ function resolvePhases(
   }
   return {
     phases,
-    phaseDurations: phases.map(pacePhase),
+    // At zoom 1 until a camera says how large the diagram is drawn (see `paceView`).
+    phaseDurations: phases.map((phase) => pacePhase(phase)),
     activeEdges: flowColors(phases.flat()),
   };
 }
