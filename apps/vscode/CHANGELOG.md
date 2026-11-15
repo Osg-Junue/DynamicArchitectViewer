@@ -3,7 +3,7 @@
 This project follows [Semantic Versioning](https://semver.org/). The `0.x` series was a preview.
 The `dav` language version follows the major version: every `1.x.x` release is `dav 1`.
 
-## Unreleased
+## 1.4.0 (2026-11-16)
 
 - `dav check`, `dav outline` and the two scripts of the skills print a label that holds a line break on one line. What followed the break started a line of its own, so a diagram could write a line that read as the script's: a heading of the outline, a line of the checker. An agent that takes those lines for facts could be told anything that way
 - `dav check --map`, and `--map` of the `dav-check` script of the `dav-diagrams` skill, says which node is where, for a reader that cannot see the diagram: which zones and nodes stand beside each zone, a table of the nodes of each zone by column and row, numbered across the whole diagram so that any two nodes compare by their numbers, and for each connection where its second node lies from its first. It is printed only when asked for, and does not change the exit code. The layout lines of `--detail` give numbers only
