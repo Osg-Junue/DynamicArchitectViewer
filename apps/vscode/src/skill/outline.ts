@@ -89,7 +89,8 @@ interface EdgeOutline {
   shownFromStep?: number;
 }
 
-const arrowOf = (e: DavEdge): string =>
+/** The arrow an edge is written with. */
+export const arrowOf = (e: DavEdge): string =>
   e.direction === 'bidirectional'
     ? e.style === 'dashed'
       ? '<.>'

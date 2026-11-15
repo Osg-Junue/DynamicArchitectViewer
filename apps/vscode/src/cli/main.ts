@@ -14,7 +14,8 @@ export const USAGE = `Usage: dav <command> [options] <file.dav>...
 
 Commands:
   export    Export diagrams as SVG images or standalone HTML files
-  check     Report what the editor reports; --detail adds hints and describes the layout
+  check     Report what the editor reports; --detail adds hints and describes the layout,
+            --map says which node is where
   format    Format files in place
   outline   Print what a diagram says, with every reference resolved
 
@@ -25,7 +26,7 @@ Options:
 const COMMANDS: Readonly<Record<string, (args: readonly string[]) => number | Promise<number>>> = {
   export: runExport,
   check: (args) =>
-    runCheck(expandFiles(args), 'Usage: dav check [--write] [--detail] <file.dav>...'),
+    runCheck(expandFiles(args), 'Usage: dav check [--write] [--detail] [--map] <file.dav>...'),
   format: runFormat,
   outline: (args) => runOutline(expandFiles(args), 'Usage: dav outline [--json] <file.dav>'),
 };

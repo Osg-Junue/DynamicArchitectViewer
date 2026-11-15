@@ -5,6 +5,7 @@ The `dav` language version follows the major version: every `1.x.x` release is `
 
 ## Unreleased
 
+- `dav check --map`, and `--map` of the `dav-check` script of the `dav-diagrams` skill, says which node is where, for a reader that cannot see the diagram: which zones and nodes stand beside each zone, a table of the nodes of each zone by column and row, numbered across the whole diagram so that any two nodes compare by their numbers, and for each connection where its second node lies from its first. It is printed only when asked for, and does not change the exit code. The layout lines of `--detail` give numbers only
 - The `dav-cli` skill gives a whole GitHub Actions workflow for checking exported files, instead of two steps of one. It says that each form a diagram is exported in needs its own `--check` line, and when to name the files instead of a pattern
 - The `dav-diagrams` skill says that the one-line form of `code` takes no title, which only the form between backticks does, and lists the mistake
 - The `dav-diagrams` skill says that the layout lines of the checker give numbers and not which node is where, and that a proportion needs acting on only with the note `tall-diagram`

@@ -1,17 +1,19 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { type Diagnostic, format, formatDiagnostic, parse } from '../dsl';
 import { lineAtOffset } from '../model/text';
+import { layoutMap } from './layoutMap';
 import { layoutReport } from './layoutReport';
 import { reviewDetail } from './review';
 
 /**
  * The checker bundled with the agent skill: the diagnostics and formatter of the extension,
  * for agents that cannot see the editor. With `--detail` it also reports where a diagram that
- * compiles says less than it could, or shows a text cut off, and describes its layout.
+ * compiles says less than it could, or shows a text cut off, and describes its layout. With
+ * `--map` it says which node is where.
  */
 
-const USAGE = 'Usage: node dav-check.mjs [--write] [--detail] <file.dav>...';
-const FLAGS = ['--write', '--detail'];
+const USAGE = 'Usage: node dav-check.mjs [--write] [--detail] [--map] <file.dav>...';
+const FLAGS = ['--write', '--detail', '--map'];
 
 const EXIT_OK = 0;
 const EXIT_DIAGNOSTICS = 1;
@@ -29,7 +31,7 @@ export function diagnosticLine(file: string, text: string, d: Diagnostic): strin
 }
 
 /** Prints the result for one file, and returns whether nothing was reported. */
-function checkFile(file: string, write: boolean, detail: boolean): boolean {
+function checkFile(file: string, write: boolean, detail: boolean, map: boolean): boolean {
   // VS Code ignores a byte order mark, and some shells write one.
   let text = readFileSync(file, 'utf8').replace(/^﻿/, '');
   if (write) {
@@ -50,6 +52,10 @@ function checkFile(file: string, write: boolean, detail: boolean): boolean {
     const { summary, notes } = layoutReport(document);
     for (const line of summary) console.log(`${file}: ${line}`);
     for (const note of notes) console.log(`${file}: note ${note.code}: ${note.message}`);
+  }
+  // The map is asked for by itself: it is long, and a file can be got right without it.
+  if (map && diagnostics.length === 0) {
+    for (const line of layoutMap(document)) console.log(`${file}: map: ${line}`);
   }
 
   if (diagnostics.length === 0 && hints.length === 0) {
@@ -76,7 +82,8 @@ export function runCheck(args: readonly string[], usage = USAGE): number {
   let clean = true;
   for (const file of files) {
     try {
-      if (!checkFile(file, args.includes('--write'), args.includes('--detail'))) clean = false;
+      const given = (flag: string) => args.includes(flag);
+      if (!checkFile(file, given('--write'), given('--detail'), given('--map'))) clean = false;
     } catch (error) {
       console.error(`${file}: ${error instanceof Error ? error.message : String(error)}`);
       return EXIT_USAGE;
