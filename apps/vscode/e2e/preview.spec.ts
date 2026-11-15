@@ -5,7 +5,14 @@ import {
   serializeInitialDoc,
   type WebviewToHostMessage,
 } from '../src/protocol/messages';
-import { openWebview, postedMessages, sendCursor, sendDsl, watchErrors } from './helpers';
+import {
+  EVENT_DRIVEN_DSL,
+  openWebview,
+  postedMessages,
+  sendCursor,
+  sendDsl,
+  watchErrors,
+} from './helpers';
 
 test.describe('the preview', () => {
   test('renders the sample diagram in the shared player with top step dropdown and playback controls', async ({
@@ -730,4 +737,27 @@ test('animation can be stopped for a still view of each step', async ({ page }) 
   await page.locator('header.toolbar').getByTestId('btn-play').click();
   await expect(motion).toHaveAttribute('aria-pressed', 'false');
   await expect(page.locator('.dav-packet')).not.toHaveCount(0);
+});
+
+test('zooming out by hand leaves the pace of the packets as it is, and zooming in slows them', async ({
+  page,
+}) => {
+  await openWebview(page, EVENT_DRIVEN_DSL);
+  const step = page.getByTestId('select-step');
+  // The first phase of step 3 is a long line, timed above the shortest a phase may last.
+  const firstPhaseMs = async () => {
+    await step.selectOption('1');
+    await step.selectOption('2');
+    const progress = page.locator('.dav-zone-line i').first();
+    const ms = await progress.evaluate((el) => (el as HTMLElement).style.animationDuration);
+    return Number.parseFloat(ms);
+  };
+  const framed = await firstPhaseMs();
+  expect(framed).toBeGreaterThan(1300);
+
+  for (let i = 0; i < 8; i++) await page.getByTestId('btn-zoom-out').click();
+  expect(await firstPhaseMs()).toBe(framed);
+
+  for (let i = 0; i < 12; i++) await page.getByTestId('btn-zoom-in').click();
+  expect(await firstPhaseMs()).toBeGreaterThan(framed);
 });

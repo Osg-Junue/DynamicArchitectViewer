@@ -1,13 +1,13 @@
 import type { Layout, Rect } from '../layout';
 import type { DavDocument } from '../model/types';
 import {
+  automaticPoses,
   boundsOf,
   clamp,
   framePose,
   MAX_FIT_ZOOM,
   type Pose,
   paceView,
-  phasePoses,
   type ResolvedView,
   resolveView,
   type Size,
@@ -38,8 +38,8 @@ export function planCamera(
 ): Array<[number, Pose]> {
   const events: Array<[number, Pose]> = [];
   for (const step of steps) {
-    const poses = stepPoses(canvas, layout, step.view);
-    events.push([step.start, poses[0] ?? stepPose(canvas, layout, step.view)]);
+    const poses = automaticPoses(canvas, layout, step.view);
+    events.push([step.start, poses[0] ?? framePose(canvas, stepFrame(canvas, layout, step.view))]);
     step.phases.forEach((phase, i) => {
       const pose = poses[i];
       if (i > 0 && pose && pose !== poses[i - 1]) events.push([phase.start, pose]);
@@ -48,20 +48,10 @@ export function planCamera(
   return events;
 }
 
-/** Where the preview's camera starts a step. */
-function stepPose(canvas: Size, layout: Layout, view: ResolvedView): Pose {
-  const first = view.phases[0];
-  return framePose(canvas, stepFrame(canvas, layout, view, first ? { follow: first } : {}));
-}
-
-/** The pose the following camera holds through each phase of a step. */
-function stepPoses(canvas: Size, layout: Layout, view: ResolvedView): Pose[] {
-  return phasePoses(canvas, layout, view.phases, stepPose(canvas, layout, view));
-}
-
 /**
- * Times every phase by how far its packets move on the exported canvas, as the preview does:
- * the canvas and the zooms are the ones the camera of `mode` will use.
+ * Times every phase by how far its packets move on screen, as the preview does: the camera that
+ * follows the flow sets the pace, and a fixed camera that shows the diagram closer slows the
+ * packets so that they stay readable, but never speeds them up from further out.
  */
 export function paceForCamera(
   doc: DavDocument,
@@ -69,21 +59,15 @@ export function paceForCamera(
   mode: 'follow' | 'whole',
 ): (views: readonly ResolvedView[]) => void {
   return (views) => {
+    let fixed = 0;
     if (mode === 'whole') {
       const rect = wholeOfViews(doc, layout, views);
-      const { zoom } = wholePose(wholeCanvas(rect), rect);
-      for (const view of views) {
-        paceView(
-          view,
-          view.phases.map(() => zoom),
-        );
-      }
-      return;
+      fixed = wholePose(wholeCanvas(rect), rect).zoom;
     }
     for (const view of views) {
       paceView(
         view,
-        stepPoses(FOLLOW_CANVAS, layout, view).map((pose) => pose.zoom),
+        automaticPoses(FOLLOW_CANVAS, layout, view).map((pose) => Math.max(pose.zoom, fixed)),
       );
     }
   };

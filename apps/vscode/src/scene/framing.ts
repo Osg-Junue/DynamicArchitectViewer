@@ -163,7 +163,7 @@ export function stepFrame(
  * for the first phase, then the same pose as long as a phase's packets are on screen, and the
  * calm frame of the ones that are not.
  */
-export function phasePoses(
+function phasePoses(
   canvas: Size,
   layout: Layout,
   phases: readonly (readonly Packet[])[],
@@ -177,6 +177,43 @@ export function phasePoses(
     }
     return pose;
   });
+}
+
+export interface AutomaticCamera {
+  /** The camera frames every phase closely (`followFrame`). */
+  follow?: boolean;
+  /** The camera keeps the whole diagram (`stepFrame` with `fixed`). */
+  fixed?: boolean;
+  /** The first phase to return the pose of. */
+  from?: number;
+  /** Where the camera is heading now, at phase `from`; without it, the step starts framed. */
+  resume?: Pose;
+}
+
+/**
+ * The pose the automatic camera holds through each phase of a step from `from` on, as the
+ * preview's camera and the exported SVG's frame it. Packets are timed by these zooms.
+ */
+export function automaticPoses(
+  canvas: Size,
+  layout: Layout,
+  view: ResolvedView,
+  { follow = false, fixed = false, from = 0, resume }: AutomaticCamera = {},
+): Pose[] {
+  const { phases } = view;
+  const rest = phases.slice(from);
+  if (follow) return rest.map((packets) => framePose(canvas, followFrame(layout, packets)));
+  if (resume) {
+    if (fixed) return rest.map(() => resume);
+    // The camera shows the phase before `from`, or nothing in particular at the start.
+    return phasePoses(canvas, layout, [phases[from - 1] ?? [], ...rest], resume).slice(1);
+  }
+  const frame = stepFrame(canvas, layout, view, {
+    fixed,
+    ...(phases[0] ? { follow: phases[0] } : {}),
+  });
+  const first = framePose(canvas, frame);
+  return (fixed ? phases.map(() => first) : phasePoses(canvas, layout, phases, first)).slice(from);
 }
 
 /** Frames the packets of one phase closely, with their callouts and rails. */
