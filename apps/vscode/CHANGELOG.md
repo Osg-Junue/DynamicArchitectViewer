@@ -6,10 +6,12 @@ The `dav` language version follows the major version: every `1.x.x` release is `
 ## Unreleased
 
 - The preview and exported HTML have one bar above the diagram instead of four strips: previous and next, the step's title with its description below it, then play, stop and speed. The title is also the list of steps. The steps are a thin line along the bar's lower edge, and the zones a phase moves between show as a chip over the top of the diagram, so the diagram is up to about 90 px taller
-- The play button plays the current step. The arrow beside it opens a menu that plays all steps, or the step, at once, and the button then plays the same. "Play step" reads "Play this step"
+- The play button always plays the current step, and pauses whatever plays. The arrow beside it opens a menu that plays all steps, or the step, at once. "Play step" reads "Play this step"
+- Previous and next take the whole height of the bar beside the title, so they are easier to hit
 - The controls of the bar, Export and the documentation button among them, look and behave alike: lit under the pointer or while their menu is open, in the pressed color while on, and outlined only after keyboard input. Choosing a speed or a step with the mouse no longer leaves an outline, the speed button keeps its width, and a long title is shortened in a narrow pane instead of running under the play buttons
 - A move inside one zone shows the zone's name alone, without "inside", in the preview, exported HTML and exported SVG
 - Export is drawn as the other controls instead of as a filled button
+- The step list, the speed, the menu of the play button and the Export menu are one kind of dropdown: a button with a caret, and a list in the same panel, with the same items and the current choice in the pressed color. The step list and the speed were the system's own lists before, drawn differently in every theme. Each list takes the arrow keys, Home, End and Escape, and in High Contrast an outline marks the current choice
 - Packets are timed by how far they move on screen as the camera frames each step, instead of in the diagram, so they keep one readable top speed: a step the camera shows close up plays slower, and one it shows from far away plays faster. Zooming in by hand slows them too, so that they stay readable; zooming out or Fit leaves their pace as it is. The exported SVG times them as the camera that follows the flow shows them, with `--camera whole` too
 - A packet keeps its pace round a rounded corner instead of speeding up by as much as 16 % there
 - An edge's label is set at 11.5 px, the size of a node's `sub`, instead of 11 px. Its room grows with it, so a label fits the same number of characters as before

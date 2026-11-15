@@ -6,6 +6,8 @@ import {
   type WebviewToHostMessage,
 } from '../src/protocol/messages';
 import {
+  choose,
+  chosen,
   EVENT_DRIVEN_DSL,
   openWebview,
   postedMessages,
@@ -73,7 +75,7 @@ test.describe('the preview', () => {
     await page.locator('.dav-node[data-id="waf"]').click();
     await expect(page.locator('.dav-packet .dav-packet-label')).toHaveText('Pass ACL');
 
-    await topStepSelect.selectOption('2');
+    await choose(page, 'select-step', '2');
     await expect(page.locator('.dav-step-title')).toContainText('Step 3 / 4');
     await expect(page.locator('.dav-packet .dav-packet-label').first()).toHaveText(
       'INSERT INTO orders',
@@ -93,19 +95,20 @@ test.describe('the preview', () => {
     await page.getByTestId('play-mode-all').click();
     await expect(topPlayBtn).toHaveAttribute('aria-pressed', 'true');
 
+    // The play button pauses whatever plays, and then offers the current step again.
     await topPlayBtn.click();
     await expect(topPlayBtn).toHaveAttribute('aria-pressed', 'false');
-    await expect(topPlayBtn).toHaveAttribute('aria-label', 'Play all steps');
+    await expect(topPlayBtn).toHaveAttribute('aria-label', 'Play this step');
 
     // Global keyboard shortcuts work from document.body and sync the top step dropdown
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await page.keyboard.press('ArrowRight');
     await expect(page.locator('.dav-step-title')).toContainText('Step 4 / 4');
-    await expect(topStepSelect).toHaveValue('3');
+    await expect(chosen(page, 'select-step')).toHaveAttribute('data-value', '3');
     await page.keyboard.press('Alt+ArrowLeft');
     await expect(page.locator('.dav-step-title')).toContainText('Step 4 / 4');
     await page.keyboard.press('Home');
-    await expect(topStepSelect).toHaveValue('overview');
+    await expect(chosen(page, 'select-step')).toHaveAttribute('data-value', 'overview');
     await expect(page.locator('.dav-step-title')).toHaveText('Overview');
 
     expect(errors).toEqual([]);
@@ -124,7 +127,7 @@ test.describe('the preview', () => {
     await expect(page.getByTestId('btn-play')).toHaveAttribute('aria-pressed', 'false');
     await expect(page.getByTestId('btn-play-mode')).toBeDisabled();
     await expect(page.getByTestId('select-speed')).toBeDisabled();
-    await expect(page.getByTestId('select-step')).toHaveValue('overview');
+    await expect(chosen(page, 'select-step')).toHaveAttribute('data-value', 'overview');
 
     await sendDsl(
       page,
@@ -249,7 +252,7 @@ test.describe('the preview', () => {
     const s2Offset = dsl.indexOf('focus db') + 2;
     await sendCursor(page, s2Offset);
     await expect(page.locator('.dav-step-title')).toContainText('Step 2 / 2');
-    await expect(page.getByTestId('select-step')).toHaveValue('1');
+    await expect(chosen(page, 'select-step')).toHaveAttribute('data-value', '1');
 
     // A cursor move within the same step must not rebuild the scene (which restarts animations)
     await page.locator('.dav-scene').evaluate((el) => el.setAttribute('data-marker', 'kept'));
@@ -473,7 +476,7 @@ test('follow mode keeps a single animation loop', async ({ page }) => {
   await openWebview(page);
   await expect(page.locator('.dav-node')).not.toHaveCount(0);
   await page.getByTestId('btn-follow-anim').click();
-  await page.getByTestId('select-speed').selectOption('2');
+  await choose(page, 'select-speed', '2');
   await page.locator('header.toolbar').getByTestId('btn-play').click();
   await page.waitForTimeout(4500);
 
@@ -524,9 +527,9 @@ test('Play step only reads as playing while there is something to play', async (
   const play = page.locator('header.toolbar').getByTestId('btn-play');
   await play.click();
   await expect(play).toHaveAttribute('aria-pressed', 'true');
-  await page.getByTestId('select-step').selectOption('overview');
+  await choose(page, 'select-step', 'overview');
   await expect(play).toHaveAttribute('aria-pressed', 'false');
-  await page.getByTestId('select-step').selectOption('1');
+  await choose(page, 'select-step', '1');
   await expect(play).toHaveAttribute('aria-pressed', 'true');
 });
 
@@ -559,7 +562,7 @@ test('a choice in the menu beside the play button plays at once', async ({ page 
   await expect(page.getByTestId('play-mode-step')).toBeFocused();
 
   // The menu is as wide as its longest item.
-  const overflow = await page.locator('header.toolbar .dav-menu').evaluate((menu) => {
+  const overflow = await page.locator('header.toolbar .dav-split .dav-menu').evaluate((menu) => {
     const box = menu.getBoundingClientRect();
     return [...menu.querySelectorAll('.dav-btn')].map(
       (item) => item.getBoundingClientRect().right - box.right,
@@ -575,7 +578,7 @@ test('a choice in the menu beside the play button plays at once', async ({ page 
   await expect(page.locator('.dav-step-title')).toContainText('Step 1 / 4');
   await expect(play).toHaveAttribute('aria-pressed', 'false');
 
-  // Choosing plays, and the play button plays the same from then on.
+  // Choosing plays at once; the play button pauses it, and plays the current step after that.
   await arrow.click();
   await page.getByTestId('play-mode-all').click();
   await expect(page.getByTestId('play-mode-all')).toBeHidden();
@@ -593,9 +596,23 @@ test('a choice in the menu beside the play button plays at once', async ({ page 
   await arrow.hover();
   expect(await arrow.evaluate(background)).toBe(pressedPart);
   await play.click();
-  await expect(play).toHaveAttribute('aria-label', 'Play all steps');
+  await expect(play).toHaveAttribute('aria-pressed', 'false');
+  await expect(play).toHaveAttribute('aria-label', 'Play this step');
   await play.click();
   await expect(play).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('previous and next fill the bar beside the title', async ({ page }) => {
+  await openWebview(page);
+  const head = await page.locator('header.toolbar .dav-step-head').boundingBox();
+  for (const id of ['btn-prev-step', 'btn-next-step']) {
+    const box = await page.getByTestId(id).boundingBox();
+    if (!head || !box) throw new Error('missing box');
+    expect(box.height).toBeCloseTo(head.height, 0);
+    expect(box.width).toBeGreaterThanOrEqual(22);
+  }
+  await page.getByTestId('btn-next-step').click({ position: { x: 4, y: 3 } });
+  await expect(page.locator('.dav-step-title')).toContainText('Step 2 / 4');
 });
 
 test('every control of the bar follows the same states', async ({ page }) => {
@@ -607,11 +624,10 @@ test('every control of the bar follows the same states', async ({ page }) => {
   const background = (el: Element) => getComputedStyle(el).backgroundColor;
   const outline = (el: Element) => getComputedStyle(el).outlineStyle;
 
-  // A mouse choice leaves no outline on a select, as on a button, though Chromium counts a clicked
-  // select as focused for the keyboard; after keyboard input the focus ring comes back.
+  // A mouse choice leaves no outline on a dropdown, as on a button; after keyboard input the focus
+  // ring comes back.
   const speed = page.getByTestId('select-speed');
-  await speed.click();
-  await speed.selectOption('0.5');
+  await choose(page, 'select-speed', '0.5');
   expect(await speed.evaluate(outline)).toBe('none');
   await page.getByTestId('btn-motion').focus();
   await page.keyboard.press('Tab');
@@ -649,27 +665,100 @@ test('every control of the bar follows the same states', async ({ page }) => {
 test('a move inside one zone shows the zone by its name alone', async ({ page }) => {
   await openWebview(page);
   // Step 2 of the sample starts inside the VPC: from the load balancer to the API.
-  await page.getByTestId('select-step').selectOption('1');
+  await choose(page, 'select-step', '1');
   const hud = page.getByTestId('zone-hud');
   await expect(hud).toHaveText('Production VPC (us-east-1)');
   await expect(hud.locator('.dav-zone-line')).toHaveCount(0);
 });
 
+test('every dropdown of the bar looks and works the same', async ({ page }) => {
+  await openWebview(page);
+  const panel = (el: Element) => {
+    const c = getComputedStyle(el);
+    return [c.backgroundColor, c.borderTopColor, c.borderRadius, c.boxShadow, c.padding].join(
+      ' | ',
+    );
+  };
+  const item = (el: Element) => {
+    const c = getComputedStyle(el);
+    return [c.paddingLeft, c.borderRadius, c.fontSize, c.justifyContent].join(' | ');
+  };
+  const looks: string[] = [];
+  const items: string[] = [];
+  for (const [toggle, list] of [
+    ['select-step', 'header.toolbar .dav-step-head .dav-menu'],
+    ['btn-play-mode', 'header.toolbar .dav-split .dav-menu'],
+    ['select-speed', 'header.toolbar .dav-play-group > .dav-pick .dav-menu'],
+    ['btn-export', '#export-menu-list'],
+  ] as const) {
+    await page.getByTestId(toggle).click();
+    const menu = page.locator(list);
+    await expect(menu).toBeVisible();
+    looks.push(await menu.evaluate(panel));
+    items.push(await menu.locator('.dav-btn').first().evaluate(item));
+    await page.keyboard.press('Escape');
+    await expect(menu).toBeHidden();
+  }
+  expect(new Set(looks).size).toBe(1);
+  expect(new Set(items).size).toBe(1);
+
+  // A choice is marked the same way in every list: the color of a button that is on.
+  await page.getByTestId('btn-export').click();
+  const exportChosen = await page
+    .locator('[data-testid^="export-scope-"][aria-checked="true"]')
+    .evaluate((el) => getComputedStyle(el).backgroundColor);
+  await page.keyboard.press('Escape');
+  await page.getByTestId('select-speed').click();
+  expect(
+    await chosen(page, 'select-speed').evaluate((el) => getComputedStyle(el).backgroundColor),
+  ).toBe(exportChosen);
+  await page.keyboard.press('Escape');
+
+  // The keys of a menu: the list opens on the current step, and Enter chooses.
+  await page.getByTestId('select-step').focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(page.getByTestId('step-option-0')).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await expect(chosen(page, 'select-step')).toHaveAttribute('data-value', '1');
+  await expect(page.locator('.dav-step-title')).toContainText('Step 2 / 4');
+  await expect(page.getByTestId('select-step')).toBeFocused();
+});
+
 test('the bar keeps its controls in place and apart', async ({ page }) => {
   await openWebview(page);
   const exportBtn = page.getByTestId('btn-export');
-  const speed = page.getByTestId('select-speed');
+  const caret = page.getByTestId('select-speed').locator('svg');
+  // The speed shown, and where its text is drawn.
+  const shown = page.getByTestId('select-speed').locator('.dav-drop-text > .is-on');
+  const textBox = () =>
+    shown.evaluate((el) => {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const box = range.getBoundingClientRect();
+      return { left: box.left, right: box.right, middle: Math.round((box.left + box.right) / 2) };
+    });
   const before = await exportBtn.boundingBox();
+  const caretBefore = await caret.boundingBox();
+  const middleBefore = (await textBox()).middle;
   for (const value of ['0.5', '1.25', '2', '1']) {
-    await speed.selectOption(value);
+    await choose(page, 'select-speed', value);
+    await expect(shown).toHaveText(`${value}x`);
+    // Neither the button beside it nor the speed's own caret moves, and the speed stays centered,
+    // whole and clear of the caret.
     expect(await exportBtn.boundingBox()).toEqual(before);
+    expect(await caret.boundingBox()).toEqual(caretBefore);
+    const text = await textBox();
+    expect(Math.abs(text.middle - middleBefore)).toBeLessThanOrEqual(1);
+    expect(text.right).toBeLessThanOrEqual(caretBefore?.x ?? 0);
+    await expect(page.getByTestId('select-speed')).toHaveAccessibleName(`${value}x`);
   }
 
   // In a narrow pane the title gives way: it never runs under the play buttons.
   await page.setViewportSize({ width: 560, height: 600 });
   const gap = async () => {
     const head = await page.locator('header.toolbar .dav-step-head').boundingBox();
-    const pick = await page.locator('header.toolbar .dav-step-pick').boundingBox();
+    const pick = await page.locator('header.toolbar .dav-step-head .dav-pick').boundingBox();
     const desc = await page.locator('header.toolbar .dav-step-desc').boundingBox();
     const play = await page.locator('header.toolbar .dav-play-group').boundingBox();
     if (!head || !pick || !desc || !play) throw new Error('missing box');
@@ -729,7 +818,7 @@ test('animation can be stopped for a still view of each step', async ({ page }) 
   await expect(page.locator('.dav-packet')).toHaveCount(0);
 
   // It stays stopped across steps, and playing turns animation back on.
-  await page.getByTestId('select-step').selectOption('1');
+  await choose(page, 'select-step', '1');
   await expect(page.locator('.dav-step-title')).toContainText('Step 2 / 4');
   await expect(motion).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.dav-packet')).toHaveCount(0);
@@ -743,11 +832,10 @@ test('zooming out by hand leaves the pace of the packets as it is, and zooming i
   page,
 }) => {
   await openWebview(page, EVENT_DRIVEN_DSL);
-  const step = page.getByTestId('select-step');
   // The first phase of step 3 is a long line, timed above the shortest a phase may last.
   const firstPhaseMs = async () => {
-    await step.selectOption('1');
-    await step.selectOption('2');
+    await choose(page, 'select-step', '1');
+    await choose(page, 'select-step', '2');
     const progress = page.locator('.dav-zone-line i').first();
     const ms = await progress.evaluate((el) => (el as HTMLElement).style.animationDuration);
     return Number.parseFloat(ms);

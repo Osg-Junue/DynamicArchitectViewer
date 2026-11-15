@@ -26,12 +26,13 @@ function token(name: string): Record<Theme, Rgb> {
   return { light: hex(match[1]), dark: hex(match[2]) };
 }
 
-/** A `--raw-*` value: the first definition is the light one, the second the dark one. */
+/** The colors a token falls back to outside VS Code: `var(--vscode-…, light-dark(#light, #dark))`. */
 function raw(name: string): Record<Theme, Rgb> {
-  const found = [...css.matchAll(new RegExp(`--raw-${name}: (#[0-9a-f]{6})`, 'g'))];
-  if (!found[0]?.[1] || !found[1]?.[1])
-    throw new Error(`no light and dark value for --raw-${name}`);
-  return { light: hex(found[0][1]), dark: hex(found[1][1]) };
+  const match = new RegExp(
+    `--dav-${name}: var\\(--vscode-[\\w-]+, light-dark\\((#[0-9a-f]{6}), (#[0-9a-f]{6})\\)\\)`,
+  ).exec(css);
+  if (!match?.[1] || !match[2]) throw new Error(`no light and dark fallback for --dav-${name}`);
+  return { light: hex(match[1]), dark: hex(match[2]) };
 }
 
 const mix = (top: Rgb, under: Rgb, share: number): Rgb =>
