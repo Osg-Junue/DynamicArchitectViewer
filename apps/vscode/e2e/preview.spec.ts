@@ -95,9 +95,10 @@ test.describe('the preview', () => {
     await page.getByTestId('play-mode-all').click();
     await expect(topPlayBtn).toHaveAttribute('aria-pressed', 'true');
 
+    // The play button pauses whatever plays, and then offers the current step again.
     await topPlayBtn.click();
     await expect(topPlayBtn).toHaveAttribute('aria-pressed', 'false');
-    await expect(topPlayBtn).toHaveAttribute('aria-label', 'Play all steps');
+    await expect(topPlayBtn).toHaveAttribute('aria-label', 'Play this step');
 
     // Global keyboard shortcuts work from document.body and sync the top step dropdown
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
@@ -577,7 +578,7 @@ test('a choice in the menu beside the play button plays at once', async ({ page 
   await expect(page.locator('.dav-step-title')).toContainText('Step 1 / 4');
   await expect(play).toHaveAttribute('aria-pressed', 'false');
 
-  // Choosing plays, and the play button plays the same from then on.
+  // Choosing plays at once; the play button pauses it, and plays the current step after that.
   await arrow.click();
   await page.getByTestId('play-mode-all').click();
   await expect(page.getByTestId('play-mode-all')).toBeHidden();
@@ -595,9 +596,23 @@ test('a choice in the menu beside the play button plays at once', async ({ page 
   await arrow.hover();
   expect(await arrow.evaluate(background)).toBe(pressedPart);
   await play.click();
-  await expect(play).toHaveAttribute('aria-label', 'Play all steps');
+  await expect(play).toHaveAttribute('aria-pressed', 'false');
+  await expect(play).toHaveAttribute('aria-label', 'Play this step');
   await play.click();
   await expect(play).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('previous and next fill the bar beside the title', async ({ page }) => {
+  await openWebview(page);
+  const head = await page.locator('header.toolbar .dav-step-head').boundingBox();
+  for (const id of ['btn-prev-step', 'btn-next-step']) {
+    const box = await page.getByTestId(id).boundingBox();
+    if (!head || !box) throw new Error('missing box');
+    expect(box.height).toBeCloseTo(head.height, 0);
+    expect(box.width).toBeGreaterThanOrEqual(22);
+  }
+  await page.getByTestId('btn-next-step').click({ position: { x: 4, y: 3 } });
+  await expect(page.locator('.dav-step-title')).toContainText('Step 2 / 4');
 });
 
 test('every control of the bar follows the same states', async ({ page }) => {

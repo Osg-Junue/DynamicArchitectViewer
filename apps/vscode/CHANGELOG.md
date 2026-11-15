@@ -6,7 +6,8 @@ The `dav` language version follows the major version: every `1.x.x` release is `
 ## Unreleased
 
 - The preview and exported HTML have one bar above the diagram instead of four strips: previous and next, the step's title with its description below it, then play, stop and speed. The title is also the list of steps. The steps are a thin line along the bar's lower edge, and the zones a phase moves between show as a chip over the top of the diagram, so the diagram is up to about 90 px taller
-- The play button plays the current step. The arrow beside it opens a menu that plays all steps, or the step, at once, and the button then plays the same. "Play step" reads "Play this step"
+- The play button always plays the current step, and pauses whatever plays. The arrow beside it opens a menu that plays all steps, or the step, at once. "Play step" reads "Play this step"
+- Previous and next take the whole height of the bar beside the title, so they are easier to hit
 - The controls of the bar, Export and the documentation button among them, look and behave alike: lit under the pointer or while their menu is open, in the pressed color while on, and outlined only after keyboard input. Choosing a speed or a step with the mouse no longer leaves an outline, the speed button keeps its width, and a long title is shortened in a narrow pane instead of running under the play buttons
 - A move inside one zone shows the zone's name alone, without "inside", in the preview, exported HTML and exported SVG
 - Export is drawn as the other controls instead of as a filled button

@@ -19,7 +19,7 @@ export interface ControlActions {
   prev(): void;
   next(): void;
   togglePlayback(): void;
-  /** Plays a mode at once, and keeps it as what the play button plays. */
+  /** Plays a mode at once; the play button itself keeps playing the current step. */
   playIn(mode: PlayMode): void;
   toggleMotion(): void;
   setSpeed(speed: number): void;
@@ -96,8 +96,8 @@ interface SplitPlay {
 }
 
 /**
- * The play button with an arrow beside it, as in Visual Studio: the button plays the last mode
- * played, and a choice in the arrow's menu plays that mode at once and becomes the button's.
+ * The play button with an arrow beside it, as in Visual Studio: the button plays the current step,
+ * and a choice in the arrow's menu plays that mode at once.
  */
 function createSplitPlay(s: ViewerStrings, on: ControlActions): SplitPlay {
   const playBtn = html('button', {
@@ -250,14 +250,9 @@ export function setButtonPressed(
   button.setAttribute('aria-pressed', String(pressed));
 }
 
-/** Names the mode the play button plays, and offers to pause while something plays. */
-export function showPlayback(
-  c: Controls,
-  s: ViewerStrings,
-  mode: PlayMode,
-  playing: boolean,
-): void {
+/** The play button plays the current step, and offers to pause while anything plays. */
+export function showPlayback(c: Controls, s: ViewerStrings, playing: boolean): void {
   clear(c.playBtn);
   c.playBtn.append(controlIcon(playing ? CONTROL_ICONS.pause : CONTROL_ICONS.play));
-  setButtonPressed(c.playBtn, playing, playing ? s.pause : mode === 'all' ? s.playAll : s.play);
+  setButtonPressed(c.playBtn, playing, playing ? s.pause : s.play);
 }

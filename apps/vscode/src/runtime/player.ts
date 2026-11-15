@@ -92,8 +92,6 @@ export class Player {
 
   #stepIndex: number | null;
   #playMode: 'node' | 'step' | 'all';
-  /** What the play button and Space play, chosen in the menu beside the button. */
-  #mode: PlayMode;
   #speed = 1;
   #view: ResolvedView;
 
@@ -158,8 +156,6 @@ export class Player {
         : options.autoplay === 'step'
           ? 'step'
           : 'all';
-    // The play button plays the current step unless the page asked to run through all of them.
-    this.#mode = options.autoplay === true ? 'all' : 'step';
     if (options.speed !== undefined && isPlaybackSpeed(options.speed)) {
       this.#speed = options.speed;
     }
@@ -184,7 +180,7 @@ export class Player {
       selectStep: (index) => this.#showStep(index),
       prev: () => this.prev(),
       next: () => this.next(),
-      togglePlayback: () => this.#togglePlayback(this.#mode),
+      togglePlayback: () => this.#togglePlayback('step'),
       playIn: (mode) => this.#playIn(mode),
       toggleMotion: () => this.toggleMotion(),
       setSpeed: (speed) => {
@@ -246,7 +242,7 @@ export class Player {
       bindKeyboard(options.globalKeyboard ? window : this.#root, this.#root, playbackBar, {
         next: () => this.next(),
         prev: () => this.prev(),
-        togglePlay: () => this.#togglePlayback(this.#mode),
+        togglePlay: () => this.#togglePlayback('step'),
         showOverview: () => this.#showStep(null),
       }),
     );
@@ -373,11 +369,10 @@ export class Player {
   }
 
   /**
-   * Plays a mode chosen in the menu, which the play button then keeps. A playback under way
-   * carries on from where it is in the new mode; a paused one resumes.
+   * Plays a mode chosen in the menu. A playback under way carries on from where it is in the new
+   * mode; a paused one resumes. The play button itself always plays the current step.
    */
   #playIn(mode: PlayMode): void {
-    this.#mode = mode;
     if (this.isPlaying()) {
       this.#playMode = mode;
       this.#updatePlayButton();
@@ -387,12 +382,14 @@ export class Player {
     }
   }
 
-  /** Starts a playback mode, freezes it in place if it is running, or resumes it if frozen. */
-  #togglePlayback(mode: 'step' | 'all'): void {
+  /**
+   * Freezes whatever plays, in place; otherwise starts `mode`, or resumes a frozen playback in
+   * `mode` from where it stopped.
+   */
+  #togglePlayback(mode: PlayMode): void {
     if (this.#data.document.steps.length === 0) return;
     this.#setMotionOff(false);
-    const running = mode === 'step' ? this.#isStepRunning() : this.#isAllRunning();
-    if (running) {
+    if (this.isPlaying()) {
       this.#paused = true;
     } else if (this.#paused) {
       this.#paused = false;
@@ -683,7 +680,7 @@ export class Player {
 
   #updatePlayButton(): void {
     this.#zoneHud.classList.toggle('is-paused', this.#paused);
-    showPlayback(this.#controls, this.#strings, this.#mode, this.isPlaying());
+    showPlayback(this.#controls, this.#strings, this.isPlaying());
   }
 
   // ---------------------------------------------------------------------------

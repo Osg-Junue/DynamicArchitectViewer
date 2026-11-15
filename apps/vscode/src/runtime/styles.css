@@ -168,6 +168,18 @@
   }
 }
 
+/* Previous and next take the whole height left of the title, so they are easy to hit. */
+.dav-step-nav {
+  align-self: stretch;
+  align-items: stretch;
+
+  & > .dav-btn {
+    min-width: 22px;
+    height: auto;
+    padding: 0 3px;
+  }
+}
+
 /*
  * Every dropdown of the bar is one of these: a button with its value and a caret, and under it a
  * list (`.dav-menu`). The step's title is one, set as a heading; Export's list looks the same.
