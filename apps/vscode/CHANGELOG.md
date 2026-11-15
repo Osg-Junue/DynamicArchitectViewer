@@ -3,6 +3,13 @@
 This project follows [Semantic Versioning](https://semver.org/). The `0.x` series was a preview.
 The `dav` language version follows the major version: every `1.x.x` release is `dav 1`.
 
+## Unreleased
+
+- The `dav-cli` skill gives a whole GitHub Actions workflow for checking exported files, instead of two steps of one. It says that each form a diagram is exported in needs its own `--check` line, and when to name the files instead of a pattern
+- The `dav-diagrams` skill says that the one-line form of `code` takes no title, which only the form between backticks does, and lists the mistake
+- The `dav-diagrams` skill says that the layout lines of the checker give numbers and not which node is where, and that a proportion needs acting on only with the note `tall-diagram`
+- The `dav-diagrams` skill says how to write a step that shows another outcome of an earlier step, such as a payment that fails where it succeeded before: named in its title and `desc`, with the badges set back. The `dav-reading` skill reads such a step as a branch, where it took every step to come after the one before
+
 ## 1.3.0 (2026-11-15)
 
 - A third agent skill, `dav-cli`, has an agent run the `dav` command: it exports a diagram as an SVG or an HTML file, shows it in a README, and checks in CI that the exported files are up to date. It also checks and formats many files at once. The skill carries no script: it runs the npm package with `npx`, under the version it is released with, so that the version that checks a file is the one that wrote it. Install AI Agent Skill installs all three skills

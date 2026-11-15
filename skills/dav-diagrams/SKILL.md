@@ -36,7 +36,7 @@ Follow the workflow in order. Do not skip step 5: the checker is the only way to
    | `file:line:column: error code: message` | The file does not compile | Fix it |
    | `file:line:column: warning code: message` | Part of the file is being ignored | Fix it |
    | `file: hint code: message` | Detail is missing, or a text is cut off | Do what the message says |
-   | `file: layout: ...` | Where the layout puts things | Check it against what you meant. See [Reading the layout lines](#reading-the-layout-lines) |
+   | `file: layout: ...` | The size of the layout, and how many columns and rows its nodes take. It does not say which node is where | Check the numbers against what you meant. See [Reading the layout lines](#reading-the-layout-lines) |
    | `file: note code: message` | A shape of the layout that is often not meant | Act on it if its reason applies; otherwise leave it |
    | `file: ok (...)` | Nothing left to fix in the file. The checker never sees the code, so it does not say that the diagram is true: that comes from step 1 | Done |
 
@@ -228,7 +228,7 @@ Compare them with the picture you had in mind:
 
 - **A flow should read across.** Count the nodes on the longest path from an entry point: the diagram should have about that many columns. Fewer means an edge points the wrong way or is missing.
 - **A zone of one column** holds nodes that no edge orders. That is right for peers, such as replicas or separate stores. If one of them feeds another, declare that edge.
-- **Wider than tall is usual:** the bundled examples are between 2 : 1 and 6 : 1. A diagram taller than wide usually has such a stacked zone.
+- **Wider than tall is usual:** the bundled examples are between 2 : 1 and 6 : 1. A diagram taller than wide usually has such a stacked zone. Act on the proportion only when the checker adds the note `tall-diagram`: without it, a diagram outside that range is in order.
 - **Crossings** often go away when two nodes of one column swap their declarations.
 
 ## Scripting steps
@@ -241,6 +241,7 @@ Compare them with the picture you had in mind:
 | `animate` | This step | Move a packet between two nodes |
 
 - **Keep each step to one idea,** usually two to five packets. Start a new step where the outcome changes: the request and the failure it meets are one scene, the reaction to it (a retry, a rollback, a fallback) is the next. A reply that returns through several nodes may take a step past five packets; do not cut a path in two to stay under a count. The player numbers steps, so titles do not need numbers.
+- **Mark a step that shows another outcome.** A failure or an alternative that replaces part of the normal flow does not come after the last step in time: it starts again where it parts from that flow. Say so in the title and the `desc` (`"Payment fails: the card is declined"`, `"The same order again, up to the charge"`), set each badge and color back to what it was at that point, and keep the same example values. Otherwise the steps read as one timeline, in which a paid order becomes pending again.
 - **Order packets deliberately.** Each `animate` is one phase, played in order. `[parallel: true]` joins the preceding one, for work that really is concurrent.
 - **Run packets along declared edges.** A packet without an edge has no line to follow, and `--detail` reports it with the hops to send instead or the edges to make two-way. For replies, make the edge `<->` or declare a separate reverse edge, and send a reply back through every node the request came through. Two edges in opposite directions do not need an `id`, but a second edge in the same direction does.
 - **Use `<->` in `animate` for a call and its answer,** when the answer needs no words of its own. Use two packets when the answer matters, such as an error.
@@ -272,7 +273,7 @@ animate api --> db : "INSERT order" [desc: "The order is saved before any money 
   ```
 }
 
-// 2. One line, as a string. Escape the double quotes.
+// 2. One line, as a string. The language is optional, and it takes no title. Escape the double quotes.
 animate api --> browser : "201 Created" {
   code json "{ \"orderId\": \"ord_104\" }"
 }
@@ -307,6 +308,7 @@ Keep it to the lines that matter, at most 10 lines of 55 characters. Break a lon
 | `[color: none]` on a node | Omit `color` | `invalid-color` |
 | Two `code` entries on one `animate` | Combine into a single `code` block | `duplicate-code` |
 | `code json "{ "id": 1 }"` | Escape the quotes, or use the backtick form | `syntax-error` |
+| `code json "Title" "{ ... }"` | Only the backtick form takes a title | `syntax-error` |
 | `animate a --> b` with no label or `desc` | `animate a --> b : "What" [desc: "Why"]` | hint `animate-without-desc` |
 | `animate api --> app` when only `app --> gw` and `gw --> api` exist | Send the reply the way it really goes: `animate api --> gw`, then `animate gw --> app`, over `<->` edges | hint `animate-without-edge` |
 | `node db "PostgreSQL primary database server"` | `node db "Orders DB" [sub: "PostgreSQL"]` | hint `text-cut` |
