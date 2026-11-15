@@ -18,13 +18,13 @@ import type { Packet } from './resolve';
 /** What the callouts of one step have around them. */
 export interface CalloutSurroundings {
   /**
-   * What no callout covers: the station and badge of every visible node, the labels of every
+   * What no callout covers: the badge of every visible node, the station and labels of every
    * node the step is about, the name of every zone, and the label of every edge of the step.
    */
   closed: readonly Rect[];
   /**
    * What a callout stays out of when a place nearly as close exists: the whole cell of a node
-   * the step is about, and the room around a dimmed node's station.
+   * the step is about.
    */
   cells: readonly Rect[];
   /**
