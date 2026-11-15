@@ -22,6 +22,7 @@ import { type RouteEdge, type RouteNode, routeEdges } from '../route';
 const node = (x: number, y: number): RouteNode => ({
   station: { x: x - 22, y: y - 22, width: 44, height: 44 },
   area: { x: x - 48, y: y - 34, width: 96, height: 102 },
+  badge: { x: x - 48, y: y - 55, width: 96, height: 28 },
 });
 const edge = (id: string, from: number, to: number, home: number[] = []): RouteEdge => ({
   id,
@@ -88,6 +89,30 @@ describe('finding routes', () => {
     const points = routeEdges(nodes, [], [], [edge('e', 0, 2)]).get('e')?.points ?? [];
     expect(points.length).toBeGreaterThan(2);
     expect(passes(points, (nodes[1] as RouteNode).area)).toBe(false);
+  });
+
+  it('runs level above the room of a badge rather than through it', () => {
+    // The node between the two closes the straight way, so the rail goes over it.
+    const nodes = [node(0, 300), node(200, 300), node(400, 300)];
+    const points = routeEdges(nodes, [], [], [edge('e', 0, 2)]).get('e')?.points ?? [];
+    const level = stretches(points).filter(([p, q]) => p.y === q.y);
+    expect(level.length).toBeGreaterThan(0);
+    for (const { badge } of nodes) {
+      expect(level.some(([p, q]) => segmentIntersectsRect(p, q, expandRect(badge, -1)))).toBe(
+        false,
+      );
+    }
+  });
+
+  it('does not turn so near the node it ends at that its arrowhead would hide the rail', () => {
+    // The way over the node between the two is closed, so the rail goes under it. Turning up
+    // on the line right under the last node's labels would leave 6 for an arrowhead 11 long.
+    const nodes = [node(0, 0), node(150, 0), node(300, 0), node(150, 150)];
+    const wall = { x: 100, y: -200, width: 100, height: 164 };
+    const points = routeEdges(nodes, [], [wall], [edge('e', 0, 2)]).get('e')?.points ?? [];
+    const [turn, end] = points.slice(-2);
+    expect(points.length).toBeGreaterThan(2);
+    expect(turn && end && Math.hypot(turn.x - end.x, turn.y - end.y)).toBeGreaterThanOrEqual(16);
   });
 
   it('keeps out of a zone it has nothing to do with, and runs through one of its own', () => {

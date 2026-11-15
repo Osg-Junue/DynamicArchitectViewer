@@ -38,7 +38,7 @@ import {
   zoneStrip,
 } from './svgChrome';
 import { Clock, num, pushAll, roundRect, type StepSlot, schedule, viewBoxOf } from './svgClock';
-import { animatedPacket, animateHighlights, stillHighlights, zoneLabelLayer } from './svgScene';
+import { animatedPacket, animateHighlights, stillHighlights } from './svgScene';
 import { toXml } from './xml';
 
 export { paceForCamera, planCamera } from './svgCamera';
@@ -253,11 +253,10 @@ function animatedSvg(
     ),
   );
   for (const step of steps) {
-    const scene = buildScene(step.view, icons, { groupLabels: false });
+    const scene = buildScene(step.view, icons);
     animateHighlights(scene, step, clock);
     world.children.push(clock.showDuring(h('g', {}, scene), [[step.start, step.end]]));
   }
-  pushAll(world, zoneLabelLayer(doc, layout, steps, camera, startWorld, clock, total));
   const packets = h('g', { class: 'dav-layer-packets' });
   for (const step of steps) {
     for (const phase of step.phases) {

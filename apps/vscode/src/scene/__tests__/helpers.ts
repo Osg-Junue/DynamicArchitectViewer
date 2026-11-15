@@ -22,7 +22,7 @@ export const readExample = (file: string): string =>
 
 export const buildPacket = (packet: Packet, t?: number) => buildPacketWith(packet, ICON_SHAPES, t);
 
-/** The strip across the top of each zone, which its name moves along with the camera. */
+/** The strip across the top of each zone, which holds its name. */
 export const nameStrips = (view: ResolvedView): Rect[] =>
   view.groups.map((g) => ({ ...g.rect, height: 34 }));
 /** What is drawn of each node: its station, its badge and its labels. */

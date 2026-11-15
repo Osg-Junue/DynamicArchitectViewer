@@ -14,7 +14,7 @@ import {
   stepFrame,
   wholeDiagramFrame,
 } from '../scene';
-import { SAMPLE_MS, type StepSlot } from './svgClock';
+import type { StepSlot } from './svgClock';
 
 export const WIDTH = 960;
 export const CANVAS_HEIGHT = 540;
@@ -89,59 +89,6 @@ export function cameraKeys(events: Array<[number, Pose]>, total: number): Array<
     current = pose;
   });
   return keys;
-}
-
-const cubicCoord = (p1: number, p2: number, s: number): number =>
-  3 * (1 - s) * (1 - s) * s * p1 + 3 * (1 - s) * s * s * p2 + s * s * s;
-
-/** Evaluates `CAMERA_SPLINE` ('0.2 0.8 0.3 1') at normalized segment time `u` in [0, 1]. */
-function cameraEase(u: number): number {
-  if (u <= 0) return 0;
-  if (u >= 1) return 1;
-  let lo = 0;
-  let hi = 1;
-  for (let i = 0; i < 20; i++) {
-    const mid = (lo + hi) / 2;
-    if (cubicCoord(0.2, 0.3, mid) < u) lo = mid;
-    else hi = mid;
-  }
-  return cubicCoord(0.8, 1, (lo + hi) / 2);
-}
-
-/** Samples the visible world rect across camera moves, staying sparse while the camera rests. */
-export function cameraSamples(
-  camera: ReadonlyArray<readonly [number, Rect]>,
-  fallback: Rect,
-  total: number,
-): Array<[number, Rect]> {
-  const start = camera[0]?.[1] ?? fallback;
-  const out: Array<[number, Rect]> = [[0, start]];
-  for (let i = 0; i < camera.length - 1; i++) {
-    const [t0, a] = camera[i] ?? [0, start];
-    const [t1, b] = camera[i + 1] ?? [t0, a];
-    if (t1 <= t0) continue;
-    if (a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height) {
-      out.push([t1, b]);
-      continue;
-    }
-    const count = Math.max(2, Math.ceil((t1 - t0) / SAMPLE_MS));
-    for (let j = 1; j <= count; j++) {
-      const u = j / count;
-      const v = cameraEase(u);
-      out.push([
-        t0 + (t1 - t0) * u,
-        {
-          x: a.x + (b.x - a.x) * v,
-          y: a.y + (b.y - a.y) * v,
-          width: a.width + (b.width - a.width) * v,
-          height: a.height + (b.height - a.height) * v,
-        },
-      ]);
-    }
-  }
-  const last = out[out.length - 1];
-  if (last && last[0] < total) out.push([total, last[1]]);
-  return out;
 }
 
 /** Everything any step draws, including packet callouts that reach past the diagram's edge. */

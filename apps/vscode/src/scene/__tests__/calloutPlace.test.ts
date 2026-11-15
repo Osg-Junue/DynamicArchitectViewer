@@ -99,7 +99,7 @@ describe('where the callouts of a step are placed', () => {
     }
   });
 
-  it('keeps callouts off the strip a zone name moves along and off the stations of the row above', () => {
+  it('keeps callouts off the strip that holds a zone name and off the stations of the row above', () => {
     const dsl = `dav 1
 node src "Source"
 group g "Z" {
@@ -126,8 +126,8 @@ step "Row1UnderRow0" {
 `;
     const { document: doc } = parse(dsl);
     const l = computeLayout(doc);
-    // Step 0: the rail runs along the top row of the zone, right under the strip its name
-    // moves along. The strip is closed along its whole width, not only where the name stands.
+    // Step 0: the rail runs along the top row of the zone, right under the strip that holds
+    // its name. The strip is closed along its whole width, not only where the name stands.
     const rightView = resolveView(doc, l, 0);
     const rightPkt = rightView.phases[0]?.[0];
     const rightBox = rightPkt && computePacketCalloutBox(rightPkt);
@@ -522,7 +522,7 @@ step "Giant" {
           for (const { pkt, box } of boxes) {
             const r = calloutRect(box);
             const where = `step ${sIdx}: callout of ${pkt.from} > ${pkt.to}`;
-            // Not over the strip a zone's name moves along, though it may lie across the
+            // Not over the strip that holds a zone's name, though it may lie across the
             // other borders of a zone.
             expect(covers(box, nameStrips(v)), `${where} over a zone name`).toBe(false);
             // Not over a station, a badge or a node's labels.

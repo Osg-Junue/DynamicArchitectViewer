@@ -19,7 +19,7 @@ import type { Packet } from './resolve';
 export interface CalloutSurroundings {
   /**
    * What no callout covers: the station, badge and labels of every visible node, the strip
-   * across the top of every zone, which its name moves along with the camera, and the label of
+   * across the top of every zone, which holds its name, and the label of
    * every edge of the step.
    */
   closed: readonly Rect[];

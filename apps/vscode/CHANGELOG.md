@@ -22,6 +22,9 @@ The `dav` language version follows the major version: every `1.x.x` release is `
 - A step is held for 1 s after its last phase instead of 1.8 s, before it plays again or the next step starts
 - A packet keeps its pace round a rounded corner instead of speeding up by as much as 16 % there
 - An edge's label is set at 11.5 px, the size of a node's `sub`, instead of 11 px. Its room grows with it, so a label fits the same number of characters as before
+- A rail that runs level past a node keeps above the room of the node's badge where that costs no more than a small detour, instead of running through the badge. A rail that meets a node from above turns higher for the same reason
+- A rail turns towards the node it ends at at least 16 units before it, where it can. A rail that met a node from below turned right under the node's labels, so its arrowhead hid the last stretch and seemed to sit across a level line
+- A zone's name stays at the top left of its zone, in the preview, exported HTML and exported SVG. It no longer follows the camera through its zone: the chip over the diagram tells which zones a phase moves between
 
 ## 1.1.0 (2026-11-14)
 
