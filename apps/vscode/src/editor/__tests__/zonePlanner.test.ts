@@ -147,7 +147,9 @@ describe('ZonePlanner', () => {
   });
 });
 
-describe('ZonePlanner, on a diagram large enough to spread its search', () => {
+// Some tests here search this diagram more than once: 2.5 s on a CI runner, and twice that on a
+// slow one, past vitest's 5 s default.
+describe('ZonePlanner, on a diagram large enough to spread its search', { timeout: 15_000 }, () => {
   const large = (extra = ''): DavDocument => parse(largeDiagram(extra)).document;
   /**
    * A planner on a machine with that many cores, and every worker it has made. The workers
