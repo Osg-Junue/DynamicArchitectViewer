@@ -1,5 +1,5 @@
 import type { Layout, Rect } from '../layout';
-import { GROUP_HEADER, GROUP_PADDING } from '../layout/metrics';
+import { stationRect } from '../layout/metrics';
 import {
   COLOR_RESET,
   type CodeBlock,
@@ -21,7 +21,7 @@ import {
   edgeLabelArea,
   nodeBody,
   RailRouter,
-  stationArea,
+  zoneNameArea,
 } from './rails';
 import { PHASE_MS, pacePhases } from './timing';
 
@@ -113,11 +113,11 @@ export interface ResolvedView {
   phaseDurations: number[];
 }
 
-/** The strip across the top of a zone that holds its name. */
-const ZONE_NAME_STRIP = GROUP_PADDING + GROUP_HEADER;
 /** Kept around what is drawn of a node: its station, its badge and its labels. */
 const CALLOUT_NODE_CLEARANCE = 4;
-/** Kept around the cell of a node a step is about, and around a dimmed node's station and labels. */
+/** Kept around a zone's name. */
+const CALLOUT_ZONE_NAME_CLEARANCE = 8;
+/** Kept around the cell of a node a step is about, and around a dimmed node's station. */
 const CALLOUT_NODE_CELL_CLEARANCE = 6;
 const CALLOUT_DIMMED_NODE_CLEARANCE = 14;
 
@@ -423,19 +423,21 @@ export function resolveView(
   if (phases.length > 0) {
     const stepRails = edges.map((e) => e.path);
     const closed = [
+      // A dimmed node's labels may be covered: the step is not about it.
       ...visibleNodes
-        .flatMap((n) => [...nodeBody(n), ...badgeArea(n)])
+        .flatMap((n) => [...(n.dimmed ? nodeBody(n).slice(0, 1) : nodeBody(n)), ...badgeArea(n)])
         .map((part) => expandRect(part, CALLOUT_NODE_CLEARANCE)),
-      // The strip at the top of a zone is kept for its name, along its whole width.
-      ...groups.map((g) => ({ ...g.rect, height: ZONE_NAME_STRIP })),
+      // A zone's name; the rest of the strip across the top of the zone is free.
+      ...groups.map((g) => expandRect(zoneNameArea(g.label, g.rect), CALLOUT_ZONE_NAME_CLEARANCE)),
       ...edges.flatMap((e) => (e.label && e.labelAt ? [edgeLabelArea(e.label, e.labelAt)] : [])),
     ];
     const cells = visibleNodes.map((n) =>
       n.dimmed
-        ? expandRect(stationArea(n), CALLOUT_DIMMED_NODE_CLEARANCE)
+        ? expandRect(stationRect(n.rect, n.icon), CALLOUT_DIMMED_NODE_CLEARANCE)
         : expandRect(n.rect, CALLOUT_NODE_CELL_CLEARANCE),
     );
-    const zones = groups.map((g) => g.rect);
+    // A dimmed zone's border may be crossed freely.
+    const zones = groups.filter((g) => !g.dimmed).map((g) => g.rect);
     for (const phase of phases) {
       placePhaseCallouts(phase, {
         closed,

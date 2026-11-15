@@ -3,11 +3,13 @@ import { parse } from '../../dsl';
 import { computeLayout, type Rect, rectContains, rectOverlaps } from '../../layout';
 import { SAMPLE_TEMPLATES } from '../../samples';
 import { CALLOUT_GAP } from '../callout';
-import { pointAt } from '../geometry';
+import { placePhaseCallouts } from '../calloutPlace';
+import { pointAt, type Route } from '../geometry';
 import {
   calloutRect,
   calmFrame,
   computePacketCalloutBox,
+  DEFAULT_FLOW_COLOR,
   framePose,
   type Packet,
   packetsOnScreen,
@@ -567,5 +569,58 @@ step "Giant" {
         }
       });
     }
+  });
+});
+
+describe('which line a callout is read as describing', () => {
+  const route = (...points: Array<[number, number]>): Route => ({
+    points: points.map(([x, y]) => ({ x, y })),
+  });
+  const gap = (r: Rect, rail: Route): number => {
+    let best = Number.POSITIVE_INFINITY;
+    for (let i = 0; i <= 60; i++) {
+      const p = pointAt(rail, i / 60);
+      best = Math.min(
+        best,
+        Math.hypot(
+          Math.max(r.x - p.x, 0, p.x - (r.x + r.width)),
+          Math.max(r.y - p.y, 0, p.y - (r.y + r.height)),
+        ),
+      );
+    }
+    return best;
+  };
+
+  it('sits no nearer another line of the step than its own, though a place by that line is closer', () => {
+    // Above the rail is taken, as by labels, and so are both its ends, as by stations: the
+    // nearest free place is under the next line down, where it would be read as that line's.
+    const own = route([0, 100], [300, 100]);
+    const below = route([0, 150], [300, 150]);
+    const packet: Packet = {
+      from: 'a',
+      to: 'b',
+      fromLabel: 'A',
+      toLabel: 'B',
+      label: 'Scan',
+      color: DEFAULT_FLOW_COLOR,
+      path: own,
+      roundTrip: false,
+      durationMs: 2000,
+    };
+    placePhaseCallouts([packet], {
+      closed: [
+        { x: -1000, y: -1000, width: 2300, height: 1070 },
+        { x: -80, y: 70, width: 80, height: 60 },
+        { x: 300, y: 70, width: 80, height: 60 },
+      ],
+      cells: [],
+      zones: [],
+      rails: [own, below],
+    });
+    const box = computePacketCalloutBox(packet);
+    if (!box) throw new Error('no callout');
+    expect(packet.calloutAt).toBeDefined();
+    const r = calloutRect(box);
+    expect(gap(r, own)).toBeLessThanOrEqual(gap(r, below));
   });
 });

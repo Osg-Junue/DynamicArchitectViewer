@@ -119,7 +119,7 @@ function direct(from: ResolvedNode, to: ResolvedNode): Route {
 }
 
 /** The room a zone's name takes up, which no rail, label or callout is drawn over. */
-function zoneNameArea(label: string, zone: Rect): Rect {
+export function zoneNameArea(label: string, zone: Rect): Rect {
   const width = Math.min(textWidth(label, ZONE_LABEL.size), zoneLabelRoom(zone.width));
   return {
     x: zone.x + ZONE_LABEL.inset - 4,

@@ -14,7 +14,7 @@ import {
   type VElement,
   type VNode,
 } from '../index';
-import { badgeArea, nodeBody } from '../rails';
+import { badgeArea, nodeBody, zoneNameArea } from '../rails';
 
 const REPO_ROOT = resolve(__dirname, '../../../../..');
 export const readExample = (file: string): string =>
@@ -22,12 +22,18 @@ export const readExample = (file: string): string =>
 
 export const buildPacket = (packet: Packet, t?: number) => buildPacketWith(packet, ICON_SHAPES, t);
 
-/** The strip across the top of each zone, which holds its name. */
+/** Where the name of each zone is written. */
 export const nameStrips = (view: ResolvedView): Rect[] =>
-  view.groups.map((g) => ({ ...g.rect, height: 34 }));
-/** What is drawn of each node: its station, its badge and its labels. */
+  view.groups.map((g) => zoneNameArea(g.label, g.rect));
+/**
+ * What of each node no callout covers: its station, its badge and, unless it is dimmed, its
+ * labels.
+ */
 export const nodeParts = (view: ResolvedView): Rect[] =>
-  view.nodes.flatMap((n) => [...nodeBody(n), ...badgeArea(n)]);
+  view.nodes.flatMap((n) => [
+    ...(n.dimmed ? nodeBody(n).slice(0, 1) : nodeBody(n)),
+    ...badgeArea(n),
+  ]);
 /** What no callout may cover in a view. */
 export const closedAreas = (view: ResolvedView): Rect[] => [
   ...nameStrips(view),
