@@ -7,9 +7,10 @@ import type { Packet } from './resolve';
  * Where the callouts of a phase go: each takes the free place nearest its own rail, a little in
  * favor of the middle of the rail, where its numbered stop is.
  *
- * Two things a callout would rather not do, and does only where that brings it clearly closer:
- * lie across the border of a zone, and use the cell of a node. A zone's name is closed
- * altogether, but not the rest of the strip it is written in.
+ * Three things a callout would rather not do, and does only where that brings it clearly closer:
+ * lie across the border of a zone, use the cell of a node, and, least of all, be nearer another
+ * line of the step than its own. A zone's name is closed altogether, but not the rest of the
+ * strip it is written in.
  *
  * A callout with no free place within reach sits above the middle of its rail, whatever is
  * there (see `computePacketCalloutBox`). No sample or stress diagram has one.
@@ -49,9 +50,9 @@ const OWN_RAIL_MARGIN = 24;
 const BORDER_COST = 12;
 /**
  * What being nearer another line of the step than its own costs a place: a callout sits by
- * another line only where every place that is not is further away by more than this. Counted
- * as a cost rather than as a rule, it lets the search stop once such a place is found, instead
- * of looking through every reach for a place that keeps the rule.
+ * another line only where every place that is not costs more than this more, its distance from
+ * the rail counted with what it pays for borders and cells. Counted as a cost rather than as a
+ * rule, it takes one search, where a rule would take a second one after the first found nothing.
  */
 const BY_OTHER_LINE_COST = 200;
 /** How much closer a place must be to be worth using a node's cell. */

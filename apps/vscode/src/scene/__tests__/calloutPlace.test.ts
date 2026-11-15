@@ -658,3 +658,42 @@ describe('which line a callout is read as describing', () => {
     expect(gap(r, below)).toBeLessThan(gap(r, own));
   });
 });
+
+describe('the border of a zone', () => {
+  it('is crossed for a place 20 units closer to the rail', () => {
+    // A rail 28 units above the bottom of its zone, closed above and at both ends: inside the
+    // zone below it there is no room, so the callout either lies across the bottom border, 24
+    // units from its rail, or keeps clear of the zone, 44 units from it. That is worth a cost
+    // of 12 for the border; it would not be worth 30.
+    const own: Route = {
+      points: [
+        { x: 100, y: 120 },
+        { x: 300, y: 120 },
+      ],
+    };
+    const packet: Packet = {
+      from: 'a',
+      to: 'b',
+      fromLabel: 'A',
+      toLabel: 'B',
+      label: 'Scan',
+      color: DEFAULT_FLOW_COLOR,
+      path: own,
+      roundTrip: false,
+      durationMs: 2000,
+    };
+    placePhaseCallouts([packet], {
+      closed: [
+        { x: -1000, y: -1000, width: 2400, height: 1100 },
+        { x: -1000, y: 100, width: 1080, height: 2000 },
+        { x: 320, y: 100, width: 1000, height: 2000 },
+      ],
+      cells: [],
+      zones: [{ x: 0, y: 0, width: 400, height: 148 }],
+      rails: [own],
+    });
+    const at = packet.calloutAt;
+    if (!at) throw new Error('no place');
+    expect(at.y).toBeLessThan(148);
+  });
+});
