@@ -36,6 +36,8 @@ export interface Lane {
   zone: Int16Array;
   /** How many routes run on the stretch so far. */
   use: Uint8Array;
+  /** 1 where a level stretch runs through the room above a station that its badge is written in. */
+  badge: Uint8Array;
 }
 
 /**
@@ -83,7 +85,10 @@ function gridLines(marks: Mark[]): number[] {
   return out.map((m) => m[0]);
 }
 
-/** A line through every station, beside every node, on both sides of every zone's border. */
+/**
+ * A line through every station, beside every node, above the room of every badge, on both sides
+ * of every zone's border.
+ */
 function linesOf(
   nodes: readonly RouteNode[],
   groups: readonly RouteGroup[],
@@ -100,6 +105,7 @@ function linesOf(
     );
     yMarks.push(
       [c.y, true],
+      [n.badge.y, false],
       [n.area.y - NODE_MARGIN, false],
       [n.area.y + n.area.height + NODE_MARGIN, false],
     );
@@ -195,11 +201,30 @@ function markZones(grid: Grid, groups: readonly RouteGroup[]): void {
   }
 }
 
+/** Notes the level stretches a badge would be written over. */
+function markBadges(grid: Grid, nodes: readonly RouteNode[]): void {
+  const { xs, ys, W, H } = grid;
+  for (const { badge } of nodes) {
+    const right = badge.x + badge.width;
+    const bottom = badge.y + badge.height;
+    for (let iy = 0; iy < H; iy++) {
+      const y = ys[iy] as number;
+      if (y <= badge.y || y >= bottom) continue;
+      for (let ix = 0; ix < W - 1; ix++) {
+        if ((xs[ix + 1] as number) > badge.x && (xs[ix] as number) < right) {
+          grid.level.badge[iy * W + ix] = 1;
+        }
+      }
+    }
+  }
+}
+
 const lane = (size: number): Lane => ({
   block: new Int32Array(size).fill(-1),
   door: new Uint8Array(size),
   zone: new Int16Array(size).fill(-1),
   use: new Uint8Array(size),
+  badge: new Uint8Array(size),
 });
 
 /** The grid for a diagram, with what closes each stretch and which zone it lies in. */
@@ -227,6 +252,7 @@ export function buildGrid(
   });
   for (const w of walls) close(grid, w, -2);
   markZones(grid, groups);
+  markBadges(grid, nodes);
   return grid;
 }
 

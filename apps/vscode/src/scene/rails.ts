@@ -119,7 +119,7 @@ function direct(from: ResolvedNode, to: ResolvedNode): Route {
 }
 
 /** The room a zone's name takes up, which no rail, label or callout is drawn over. */
-function zoneNameArea(label: string, zone: Rect): Rect {
+export function zoneNameArea(label: string, zone: Rect): Rect {
   const width = Math.min(textWidth(label, ZONE_LABEL.size), zoneLabelRoom(zone.width));
   return {
     x: zone.x + ZONE_LABEL.inset - 4,
@@ -136,13 +136,40 @@ function zoneNameAreas(doc: DavDocument, layout: Layout): Rect[] {
   });
 }
 
+/** How far above its station a node's badge starts, and how tall it is. */
+const BADGE_RISE = 25;
+const BADGE_HEIGHT = 20;
+/** Kept between a badge and a rail that runs level above it. */
+const BADGE_CLEARANCE = 8;
+
 /** The room the badge above a node's station takes up; none without a badge. */
 export function badgeArea(node: ResolvedNode): Rect[] {
   if (!node.badge) return [];
   const station = stationRect(node.rect, node.icon);
   const width =
     textWidth(fitText(node.badge, BADGE_SIZE, BADGE_MAX_WIDTH, 'bold'), BADGE_SIZE, 'bold') + 16;
-  return [{ x: station.x + station.width / 2 - width / 2, y: station.y - 25, width, height: 20 }];
+  return [
+    {
+      x: station.x + station.width / 2 - width / 2,
+      y: station.y - BADGE_RISE,
+      width,
+      height: BADGE_HEIGHT,
+    },
+  ];
+}
+
+/**
+ * The room above a node's station that a badge is written in, as wide as the node's area. A step
+ * may give any node a badge, and a rail keeps its course from step to step.
+ */
+function badgeRoom(node: ResolvedNode, area: Rect): Rect {
+  const station = stationRect(node.rect, node.icon);
+  return {
+    x: area.x,
+    y: station.y - BADGE_RISE - BADGE_CLEARANCE,
+    width: area.width,
+    height: BADGE_HEIGHT + BADGE_CLEARANCE,
+  };
 }
 
 /** The room an edge's label takes up where it is written. */
@@ -271,14 +298,20 @@ function routeDiagram(doc: DavDocument, layout: Layout, nodes: readonly Resolved
     ancestorIds(groupParent, nodeParent.get(nodeId)).flatMap((g) => groupIndex.get(g) ?? []);
 
   const wanted: RouteEdge[] = [];
-  const want = (id: string, from: string, to: string) => {
+  const want = (id: string, from: string, to: string, bothWays = false) => {
     const a = nodeIndex.get(from);
     const b = nodeIndex.get(to);
     if (a === undefined || b === undefined || a === b) return;
-    wanted.push({ id, from: a, to: b, home: new Set([...zonesAround(from), ...zonesAround(to)]) });
+    wanted.push({
+      id,
+      from: a,
+      to: b,
+      home: new Set([...zonesAround(from), ...zonesAround(to)]),
+      bothWays,
+    });
   };
   doc.edges.forEach((e, i) => {
-    want(`e${i}`, e.from, e.to);
+    want(`e${i}`, e.from, e.to, e.direction === 'bidirectional');
   });
   const lonePairs = new Map<string, { from: string; to: string }>();
   for (const a of doc.steps.flatMap((s) => s.animations)) {
@@ -290,7 +323,11 @@ function routeDiagram(doc: DavDocument, layout: Layout, nodes: readonly Resolved
   const names = zoneNameAreas(doc, layout);
   const areas = nodes.map(stationArea);
   const found = routeEdges(
-    nodes.map((n, i) => ({ station: stationRect(n.rect, n.icon), area: areas[i] as Rect })),
+    nodes.map((n, i) => ({
+      station: stationRect(n.rect, n.icon),
+      area: areas[i] as Rect,
+      badge: badgeRoom(n, areas[i] as Rect),
+    })),
     groups.map((g) => ({
       rect: g.rect,
       depth: ancestorIds(groupParent, groupParent.get(g.id)).length,

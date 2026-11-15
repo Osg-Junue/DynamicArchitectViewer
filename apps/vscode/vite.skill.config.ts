@@ -4,7 +4,7 @@ import { lezer } from '@lezer/generator/rollup';
 import { defineConfig, type Plugin } from 'vite';
 
 const ROOT = resolve(import.meta.dirname, '../..');
-const DOCS_URL = 'https://github.com/Osg-Junue/DynamicArchitectViewer/blob/HEAD/docs/';
+const DOCS_URL = 'https://github.com/Osg-Junue/DynamicArchitectViewer/blob/main/docs/';
 
 /** What is generated into each agent skill. `vite build --mode <key>` builds one of them. */
 const SKILLS = {

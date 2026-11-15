@@ -1,7 +1,7 @@
 import { COLOR_NAMES, ICON_NAMES } from '../../model/types';
 import { html } from '../../runtime/dom';
 import { HOLD_MS, SPEEDS } from '../../runtime/player';
-import { MIN_PACKET_MS } from '../../scene';
+import { MIN_PACKET_MS, PHASE_GAP_MS } from '../../scene';
 import {
   attributeMatrix,
   type DocPage,
@@ -31,8 +31,8 @@ export const REFERENCE_PAGES: readonly DocPage[] = [
         timingBar(t),
         p(
           t(
-            `1フェーズの長さはパケットの移動距離で決まり(最短 ${MIN_PACKET_MS / 1000} 秒)、最後のフェーズの後に ${HOLD_MS / 1000} 秒保持します。速度は ${SPEEDS[0]}x〜${SPEEDS[SPEEDS.length - 1]}x に変更できます。`,
-            `A phase lasts at least ${MIN_PACKET_MS / 1000}s, and longer the further its packets travel, followed by a ${HOLD_MS / 1000}s hold after the last one. Speed ranges from ${SPEEDS[0]}x to ${SPEEDS[SPEEDS.length - 1]}x.`,
+            `1フェーズの長さはパケットが画面上で動く距離で決まります(最短 ${MIN_PACKET_MS / 1000} 秒)。パケットが着いてから ${PHASE_GAP_MS / 1000} 秒おいて次のフェーズが始まり、最後のフェーズの後は ${HOLD_MS / 1000} 秒保持します。速度は ${SPEEDS[0]}x〜${SPEEDS[SPEEDS.length - 1]}x に変更できます。`,
+            `A phase lasts at least ${MIN_PACKET_MS / 1000}s, and longer the further its packets travel on screen. The next phase starts ${PHASE_GAP_MS / 1000}s after they arrive, and a ${HOLD_MS / 1000}s hold follows the last one. Speed ranges from ${SPEEDS[0]}x to ${SPEEDS[SPEEDS.length - 1]}x.`,
           ),
         ),
         h2(t('操作', 'Controls')),

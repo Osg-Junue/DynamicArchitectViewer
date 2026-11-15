@@ -1,6 +1,7 @@
 import { CONTROL_ICONS, type ControlIcon, controlIcon } from './controlIcons';
 import { clear, html } from './dom';
 import type { ViewerStrings } from './i18n';
+import { Menu, type MenuItem } from './menu';
 
 export const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
 
@@ -10,10 +11,16 @@ export function isPlaybackSpeed(value: number): value is (typeof SPEEDS)[number]
 
 const ZOOM_STEP = 1.2;
 
+/** What the play button plays: the current step again and again, or every step in turn. */
+export type PlayMode = 'step' | 'all';
+
 export interface ControlActions {
   selectStep(index: number | null): void;
-  togglePlay(): void;
-  togglePlayAll(): void;
+  prev(): void;
+  next(): void;
+  togglePlayback(): void;
+  /** Plays a mode at once; the play button itself keeps playing the current step. */
+  playIn(mode: PlayMode): void;
   toggleMotion(): void;
   setSpeed(speed: number): void;
   zoomBy(factor: number): void;
@@ -24,33 +31,23 @@ export interface ControlActions {
 
 export interface Controls {
   playbackBar: HTMLElement;
+  /** Holds the step's title (a dropdown of the steps); the dock adds the description. */
+  stepHead: HTMLElement;
   zoomGroup: HTMLElement;
-  stepSelect: HTMLSelectElement;
+  /** The step's title, which opens the list of steps. */
+  stepBtn: HTMLButtonElement;
+  stepMenu: Menu;
   playBtn: HTMLButtonElement;
-  playAllBtn: HTMLButtonElement;
+  playModeBtn: HTMLButtonElement;
   motionBtn: HTMLButtonElement;
-  speedSelect: HTMLSelectElement;
+  speedBtn: HTMLButtonElement;
   zoomLabel: HTMLElement;
   followBtn: HTMLButtonElement;
   minimapBtn: HTMLButtonElement;
+  closeMenus(): void;
 }
 
 const separator = () => html('span', { class: 'dav-toolbar-sep', 'aria-hidden': 'true' });
-
-function textButton(
-  label: string,
-  title: string,
-  onClick: () => void,
-  className = 'dav-btn',
-): HTMLButtonElement {
-  const btn = html(
-    'button',
-    { class: className, type: 'button', title, 'aria-label': title },
-    label,
-  );
-  btn.addEventListener('click', onClick);
-  return btn;
-}
 
 function iconButton(
   icon: ControlIcon,
@@ -69,43 +66,133 @@ const labelled = (title: string, testId: string) => ({
   'data-testid': testId,
 });
 
+/**
+ * A button that opens a menu, with the caret every dropdown of the bar shows. Given every label
+ * it can show, it holds them all in one place and shows the current one, so that it is as wide
+ * as the widest in the font it is drawn in and does not change size with the choice.
+ */
+function dropButton(
+  className: string,
+  attrs: Record<string, string>,
+  labels: readonly MenuItem[] = [],
+): HTMLButtonElement {
+  return html(
+    'button',
+    { type: 'button', class: `dav-btn dav-drop ${className}`, ...attrs },
+    html(
+      'span',
+      { class: 'dav-drop-text' },
+      ...labels.map(({ value, label }) => html('span', { 'data-value': value }, label)),
+    ),
+    controlIcon(CONTROL_ICONS.caret),
+  );
+}
+
+/** Shows a dropdown's current value on its button and in its list. */
+export function showChoice(
+  button: HTMLButtonElement,
+  menu: Menu,
+  label: string,
+  value: string,
+): void {
+  const text = button.querySelector('.dav-drop-text');
+  const labels = text ? [...text.children] : [];
+  if (labels.length > 0) {
+    for (const el of labels) el.classList.toggle('is-on', el.getAttribute('data-value') === value);
+  } else if (text) {
+    text.textContent = label;
+  }
+  menu.setChecked(value);
+}
+
+interface SplitPlay {
+  element: HTMLElement;
+  playBtn: HTMLButtonElement;
+  playModeBtn: HTMLButtonElement;
+  menu: Menu;
+}
+
+/**
+ * The play button with an arrow beside it, as in Visual Studio: the button plays the current step,
+ * and a choice in the arrow's menu plays that mode at once.
+ */
+function createSplitPlay(s: ViewerStrings, on: ControlActions): SplitPlay {
+  const playBtn = html('button', {
+    type: 'button',
+    class: 'dav-btn dav-split-main',
+    'data-testid': 'btn-play',
+  });
+  playBtn.addEventListener('click', on.togglePlayback);
+  const playModeBtn = html(
+    'button',
+    {
+      type: 'button',
+      class: 'dav-btn dav-split-toggle',
+      ...labelled(s.playMode, 'btn-play-mode'),
+    },
+    controlIcon(CONTROL_ICONS.caret),
+  );
+  const element = html('div', { class: 'dav-split' }, playBtn, playModeBtn);
+  const menu = new Menu(playModeBtn, element, {
+    label: s.playMode,
+    testIdPrefix: 'play-mode',
+    align: 'end',
+    choice: false,
+    onChoose: (mode) => on.playIn(mode === 'all' ? 'all' : 'step'),
+  });
+  menu.setItems([
+    { value: 'step', label: s.play },
+    { value: 'all', label: s.playAll },
+  ]);
+  return { element, playBtn, playModeBtn, menu };
+}
+
 /** Builds the playback toolbar and the zoom buttons. */
 export function createControls(s: ViewerStrings, speed: number, on: ControlActions): Controls {
-  const stepSelect = html('select', {
-    class: 'dav-btn dav-step-select',
-    'aria-label': s.step,
+  const prevBtn = iconButton(CONTROL_ICONS.prev, labelled(s.prevStep, 'btn-prev-step'), on.prev);
+  const nextBtn = iconButton(CONTROL_ICONS.next, labelled(s.nextStep, 'btn-next-step'), on.next);
+
+  // The step's title is itself the list of steps.
+  const stepBtn = dropButton('dav-step-select', {
     title: s.selectStep,
     'data-testid': 'select-step',
   });
-  stepSelect.addEventListener('change', () => {
-    on.selectStep(stepSelect.value === 'overview' ? null : Number(stepSelect.value));
+  const stepPick = html('span', { class: 'dav-pick' }, stepBtn);
+  const stepMenu = new Menu(stepBtn, stepPick, {
+    label: s.steps,
+    testIdPrefix: 'step-option',
+    align: 'start',
+    choice: true,
+    onChoose: (value) => on.selectStep(value === 'overview' ? null : Number(value)),
   });
+  const stepHead = html('div', { class: 'dav-step-head' }, stepPick);
 
-  const playBtn = textButton(s.play, s.play, on.togglePlay, 'dav-btn dav-btn-primary dav-btn-play');
-  playBtn.dataset.testid = 'btn-play';
-  const playAllBtn = textButton(
-    s.playAll,
-    s.playAll,
-    on.togglePlayAll,
-    'dav-btn dav-btn-primary dav-btn-play dav-btn-play-all',
-  );
-  playAllBtn.dataset.testid = 'btn-play-all';
+  const split = createSplitPlay(s, on);
   const motionBtn = iconButton(
     CONTROL_ICONS.stop,
     { 'data-testid': 'btn-motion' },
     on.toggleMotion,
   );
 
-  const speedSelect = html('select', {
-    class: 'dav-btn dav-speed-select',
-    'aria-label': s.speed,
-    title: s.speed,
-    'data-testid': 'select-speed',
+  const speedItems = SPEEDS.map((v) => ({ value: String(v), label: `${v}x` }));
+  const speedBtn = dropButton(
+    'dav-speed-select',
+    { title: s.speed, 'data-testid': 'select-speed' },
+    speedItems,
+  );
+  const speedPick = html('span', { class: 'dav-pick' }, speedBtn);
+  const speedMenu: Menu = new Menu(speedBtn, speedPick, {
+    label: s.speed,
+    testIdPrefix: 'speed',
+    align: 'end',
+    choice: true,
+    onChoose: (value) => {
+      showChoice(speedBtn, speedMenu, `${value}x`, value);
+      on.setSpeed(Number(value) || 1);
+    },
   });
-  for (const v of SPEEDS) {
-    speedSelect.append(html('option', { value: String(v), selected: v === speed }, `${v}x`));
-  }
-  speedSelect.addEventListener('change', () => on.setSpeed(Number(speedSelect.value) || 1));
+  speedMenu.setItems(speedItems);
+  showChoice(speedBtn, speedMenu, `${speed}x`, String(speed));
 
   const playbackBar = html(
     'div',
@@ -115,13 +202,9 @@ export function createControls(s: ViewerStrings, speed: number, on: ControlActio
       'aria-label': s.playback,
       'data-testid': 'playback-toolbar',
     },
-    stepSelect,
-    separator(),
-    playBtn,
-    playAllBtn,
-    motionBtn,
-    separator(),
-    speedSelect,
+    html('span', { class: 'dav-step-nav' }, prevBtn, nextBtn),
+    stepHead,
+    html('span', { class: 'dav-play-group' }, split.element, motionBtn, speedPick),
   );
 
   const zoomLabel = html('span', { class: 'dav-zoom-label', 'aria-live': 'polite' });
@@ -157,15 +240,20 @@ export function createControls(s: ViewerStrings, speed: number, on: ControlActio
 
   return {
     playbackBar,
+    stepHead,
     zoomGroup,
-    stepSelect,
-    playBtn,
-    playAllBtn,
+    stepBtn,
+    stepMenu,
+    playBtn: split.playBtn,
+    playModeBtn: split.playModeBtn,
     motionBtn,
-    speedSelect,
+    speedBtn,
     zoomLabel,
     followBtn,
     minimapBtn,
+    closeMenus: () => {
+      for (const menu of [stepMenu, split.menu, speedMenu]) menu.close(false);
+    },
   };
 }
 
@@ -181,15 +269,9 @@ export function setButtonPressed(
   button.setAttribute('aria-pressed', String(pressed));
 }
 
-/** Makes a play button offer to pause while its mode is running. */
-export function showPlayState(
-  button: HTMLButtonElement,
-  playing: boolean,
-  icon: ControlIcon,
-  playLabel: string,
-  pauseLabel: string,
-): void {
-  clear(button);
-  button.append(controlIcon(playing ? CONTROL_ICONS.pause : icon));
-  setButtonPressed(button, playing, playing ? pauseLabel : playLabel);
+/** The play button plays the current step, and offers to pause while anything plays. */
+export function showPlayback(c: Controls, s: ViewerStrings, playing: boolean): void {
+  clear(c.playBtn);
+  c.playBtn.append(controlIcon(playing ? CONTROL_ICONS.pause : CONTROL_ICONS.play));
+  setButtonPressed(c.playBtn, playing, playing ? s.pause : s.play);
 }

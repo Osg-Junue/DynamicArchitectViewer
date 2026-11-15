@@ -1,7 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
-import { computeLayout, countCrossings, type Rect, rectContains, rectOverlaps } from '../index';
-import { STATION_CENTER } from '../metrics';
+import { computeColumnLayout } from '../columns';
+import {
+  adoptZonePlan,
+  computeLayout,
+  countCrossings,
+  pendingZoneSearch,
+  pickSeedSearch,
+  type Rect,
+  rectContains,
+  rectOverlaps,
+  searchZones,
+  searchZonesFrom,
+  ZONE_SEARCH_SEEDS,
+} from '../index';
+import { enclosingRect, STATION_CENTER } from '../metrics';
 
 /** Zones of `size` chained nodes in a row, with links from the first zone to all the others. */
 function bigDiagram(size = 6, zones = 8): string {
@@ -35,9 +48,7 @@ describe('zoned placement', () => {
 
   it('fills the canvas instead of stretching into a strip', () => {
     const rects = Object.values(layout.groups);
-    const width = Math.max(...rects.map((r) => r.x + r.width)) - Math.min(...rects.map((r) => r.x));
-    const height =
-      Math.max(...rects.map((r) => r.y + r.height)) - Math.min(...rects.map((r) => r.y));
+    const { width, height } = enclosingRect(rects);
     // The column layout of this diagram is 60 times as wide as it is high. How close to the
     // canvas's own 1.6 the zones come is a balance against the length of their links.
     expect(width / height).toBeLessThan(3.5);
@@ -56,9 +67,7 @@ describe('zoned placement', () => {
     const doc = parse(bigDiagram(size, zones)).document;
     const placed = computeLayout(doc);
     const rects = Object.values(placed.groups);
-    const width = Math.max(...rects.map((r) => r.x + r.width)) - Math.min(...rects.map((r) => r.x));
-    const height =
-      Math.max(...rects.map((r) => r.y + r.height)) - Math.min(...rects.map((r) => r.y));
+    const { width, height } = enclosingRect(rects);
     expect(width / height).toBeLessThan(5);
     expect(countCrossings(doc, placed)).toBeLessThanOrEqual(2);
   });
@@ -77,6 +86,64 @@ describe('zoned placement', () => {
       expect(nearest).toBeLessThanOrEqual(70);
       expect(nearest).toBeGreaterThanOrEqual(34);
     }
+  });
+
+  it('leaves no band across the diagram that only links run through', () => {
+    // Eight entrances hold the front zone by nine links, and a single link leads on from it to a
+    // chain of zones. No zone moving alone closes the gap that link spans: the two parts have
+    // to come together as wholes. Without that, a band 1285 wide is left between them.
+    const lines = ['dav 1', 'group entrances {'];
+    for (let n = 0; n < 8; n++) lines.push(`  node e${n}`);
+    lines.push('}', 'group front {', '  node f0', '  node f1', '  node f2', '  node f3', '}');
+    lines.push('f0 --> f2', 'f1 --> f2', 'f2 --> f3', 'e0 --> f0');
+    for (let n = 0; n < 8; n++) lines.push(`e${n} --> f${n < 2 ? 1 : 2}`);
+    for (let z = 0; z < 7; z++) {
+      lines.push(`group z${z} {`);
+      for (let n = 0; n < 5; n++) lines.push(`  node z${z}n${n}`);
+      lines.push('}');
+      for (let n = 1; n < 5; n++) lines.push(`z${z}n${n - 1} --> z${z}n${n}`);
+      lines.push(z === 0 ? 'f2 --> z0n0' : `z${z - 1}n4 --> z${z}n0`);
+      if (z > 1 && z < 6) lines.push(`z0n1 --> z${z}n4`);
+    }
+    const doc = parse(lines.join('\n')).document;
+    const placed = computeLayout(doc);
+    expect(placed).not.toEqual(computeColumnLayout(doc));
+    for (const [start, size, clearance] of [
+      ['x', 'width', 60],
+      ['y', 'height', 34],
+    ] as const) {
+      const spans = Object.values(placed.groups)
+        .map((r) => [r[start], r[start] + r[size]] as const)
+        .sort((a, b) => a[0] - b[0]);
+      let covered = (spans[0] as readonly [number, number])[1];
+      for (const [from, to] of spans) {
+        // Lining up edges and stations afterwards may open a little more than the clearance.
+        expect(from - covered).toBeLessThan(clearance * 2);
+        covered = Math.max(covered, to);
+      }
+    }
+  });
+
+  it('moves a part of the diagram past the zone in its way, into room that was empty', () => {
+    // Twelve zones in a chain, each linked to the next and to the third after it. Moved only
+    // straight towards the rest, the parts stop at the first zone they meet, and the zones
+    // cover 37 % of the rectangle around them. Stepping past that zone, they cover 63 %.
+    const lines = ['dav 1'];
+    for (let z = 0; z < 12; z++) {
+      lines.push(`group z${z} {`);
+      for (let n = 0; n < 6; n++) lines.push(`  node z${z}n${n}`);
+      lines.push('}');
+      for (let n = 1; n < 6; n++) lines.push(`z${z}n${n - (n % 3 === 0 ? 2 : 1)} --> z${z}n${n}`);
+      if (z > 0) lines.push(`z${z - 1}n5 --> z${z}n0`);
+      if (z > 2) lines.push(`z${z - 3}n1 --> z${z}n5`);
+    }
+    const rects = Object.values(computeLayout(parse(lines.join('\n')).document).groups);
+    const { width, height } = enclosingRect(rects);
+    const covered = rects.reduce((sum, r) => sum + r.width * r.height, 0);
+    expect(covered / (width * height)).toBeGreaterThan(0.5);
+    rects.forEach((a, i) => {
+      for (const b of rects.slice(i + 1)) expect(rectOverlaps(a, b)).toBe(false);
+    });
   });
 
   it('puts the stations of linked zones level or straight above each other where it can', () => {
@@ -109,6 +176,29 @@ b1 --> b2`);
     const { nodes } = computeLayout(compact);
     expect(nodes.a1?.x).toBe(nodes.b1?.x);
     expect(nodes.a2?.x).toBe(nodes.b2?.x);
+  });
+
+  it('finds seed by seed what the whole search finds', () => {
+    // The seeds may run side by side, in any order, and must still come to the same answer.
+    adoptZonePlan('', undefined);
+    const search = pendingZoneSearch(document);
+    if (!search) throw new Error('the diagram needs no search');
+    const found = new Map(
+      [...ZONE_SEARCH_SEEDS].reverse().map((seed) => [seed, searchZonesFrom(search.doc, seed)]),
+    );
+    const whole = searchZones(search.doc);
+    expect(whole).toBeDefined();
+    expect(pickSeedSearch(found)).toEqual(whole);
+  });
+
+  it('takes the earlier of two seeds that are as good, in whatever order they come back', () => {
+    const [first, , , , , last] = ZONE_SEARCH_SEEDS as readonly [number, ...number[]];
+    const at = (x: number) => new Map([['z0', { x, y: 0, flip: 0 as const }]]);
+    const found = new Map([
+      [last as number, { score: 1, placement: at(2) }],
+      [first, { score: 1, placement: at(1) }],
+    ]);
+    expect(pickSeedSearch(found)).toEqual(at(1));
   });
 
   it('gives the same layout every time', () => {

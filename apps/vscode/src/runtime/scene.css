@@ -1,31 +1,10 @@
 /*
  * Diagram theme tokens and SVG scene rules, shared by the preview, exported HTML and exported SVG.
- * Inside VS Code every value follows the active color theme; the raw values apply outside it.
+ * Inside VS Code every value follows the active color theme. Outside it, the fallback is
+ * light-dark(<light theme>, <dark theme>), resolved through color-scheme as the palette below.
  */
 :root {
   color-scheme: light dark;
-  --raw-bg: #f8f7f2;
-  --raw-panel: #f0efe8;
-  --raw-node: #fffefa;
-  --raw-fg: #20282f;
-  --raw-muted: #5c6670;
-  --raw-border: #d6d3c8;
-  --raw-border-strong: #858b8f;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --raw-bg: #191b1e;
-    --raw-panel: #212429;
-    --raw-node: #212429;
-    --raw-fg: #dde0e4;
-    --raw-muted: #9ca5ae;
-    --raw-border: #363b42;
-    --raw-border-strong: #737c86;
-  }
-}
-
-:root {
   --dav-font: var(
     --vscode-font-family,
     "Segoe UI",
@@ -36,15 +15,15 @@
     sans-serif
   );
   --dav-mono: var(--vscode-editor-font-family, "Cascadia Code", Consolas, ui-monospace, monospace);
-  --dav-bg: var(--vscode-editor-background, var(--raw-bg));
-  --dav-panel: var(--vscode-sideBar-background, var(--raw-panel));
-  --dav-fg: var(--vscode-foreground, var(--raw-fg));
-  --dav-muted: var(--vscode-descriptionForeground, var(--raw-muted));
-  --dav-border: var(--vscode-panel-border, var(--raw-border));
-  --dav-border-strong: var(--vscode-input-placeholderForeground, var(--raw-border-strong));
+  --dav-bg: var(--vscode-editor-background, light-dark(#f8f7f2, #191b1e));
+  --dav-panel: var(--vscode-sideBar-background, light-dark(#f0efe8, #212429));
+  --dav-fg: var(--vscode-foreground, light-dark(#20282f, #dde0e4));
+  --dav-muted: var(--vscode-descriptionForeground, light-dark(#5c6670, #9ca5ae));
+  --dav-border: var(--vscode-panel-border, light-dark(#d6d3c8, #363b42));
+  --dav-border-strong: var(--vscode-input-placeholderForeground, light-dark(#858b8f, #737c86));
 
   /* Canvas */
-  --dav-node-bg: var(--vscode-editorWidget-background, var(--raw-node));
+  --dav-node-bg: var(--vscode-editorWidget-background, light-dark(#fffefa, #212429));
   /*
    * A rail is the text color thinned with the background. The shares are the least that bring
    * it to a contrast of 3 against every zone tint of the built-in themes; a dark theme needs
@@ -84,9 +63,6 @@
   --dav-code-punc: light-dark(#57606a, #9ca5ae);
 }
 
-.dav-svg {
-  font-family: var(--dav-font);
-}
 .dav-mono {
   font-family: var(--dav-mono);
 }

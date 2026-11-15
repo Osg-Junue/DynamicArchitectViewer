@@ -60,14 +60,17 @@ test.describe('the playground', () => {
     await expect(line(page, /^dav\s1$/)).toBeVisible();
     // The words of the language have the colors of a keyword and a string.
     await expect(page.locator('.pg-editor .view-line .mtk1')).not.toHaveCount(0);
-    expect(
-      await page
-        .locator('.pg-editor .view-line')
-        .first()
-        .evaluate(
-          (el) => new Set([...el.querySelectorAll('span span')].map((s) => s.className)).size,
-        ),
-    ).toBeGreaterThan(1);
+    // The colors come from a tokenizer that runs after the text is shown; wait for them.
+    await expect
+      .poll(() =>
+        page
+          .locator('.pg-editor .view-line')
+          .first()
+          .evaluate(
+            (el) => new Set([...el.querySelectorAll('span span')].map((s) => s.className)).size,
+          ),
+      )
+      .toBeGreaterThan(1);
 
     await setText(page, DSL);
     await expect(page.locator('.dav-title')).toHaveText('Hello');
@@ -78,7 +81,6 @@ test.describe('the playground', () => {
     await page.keyboard.type('node gamma "Gamma  ray"');
     await expect(page.locator('.dav-node[data-id="gamma"]')).toBeVisible();
     await expect(page.getByTestId('btn-play')).toHaveAttribute('aria-pressed', 'false');
-    await expect(page.getByTestId('btn-play-all')).toHaveAttribute('aria-pressed', 'false');
     expect(errors).toEqual([]);
   });
 

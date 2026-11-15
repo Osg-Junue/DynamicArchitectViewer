@@ -22,7 +22,7 @@ import {
   type VElement,
   wrapText,
 } from '../index';
-import { nodeBody } from '../rails';
+import { nodeBody, zoneNameArea } from '../rails';
 import { collectAttrs, collectText, findAll, overlap } from './helpers';
 
 const buildScene = (view: ResolvedView) => buildSceneWith(view, ICON_SHAPES);
@@ -329,10 +329,9 @@ describe('buildScene', () => {
         for (const packet of view.phases.flat()) {
           const box = computePacketCalloutBox(packet);
           if (!box) continue;
-          // The strip across the top of each zone, where its name is, wherever the camera
-          // has slid the name to.
+          // Where each zone's name is written.
           for (const group of view.groups) {
-            const header = { ...group.rect, height: 34 };
+            const header = zoneNameArea(group.label, group.rect);
             const overlaps =
               box.cx - box.halfW < header.x + header.width &&
               box.cx + box.halfW > header.x &&

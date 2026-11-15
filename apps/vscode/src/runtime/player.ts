@@ -1,6 +1,7 @@
 import type { Layout } from '../layout';
 import type { DavDocument } from '../model/types';
 import {
+  automaticPoses,
   buildDefs,
   buildScene,
   calmFrame,
@@ -11,6 +12,8 @@ import {
   measureCalloutsWith,
   type Packet,
   PHASE_MS,
+  paceView,
+  pacingZoom,
   packetsOnScreen,
   type ResolvedView,
   resolveView,
@@ -19,19 +22,20 @@ import {
   zoneMoves,
 } from '../scene';
 import { Camera } from './camera';
-import { CONTROL_ICONS } from './controlIcons';
 import {
   type Controls,
   createControls,
   isPlaybackSpeed,
+  type PlayMode,
   SPEEDS,
   setButtonPressed,
-  showPlayState,
+  showChoice,
+  showPlayback,
 } from './controls';
 import { StepDock } from './dock';
 import { clear, html, renderSvg, svg } from './dom';
 import { VIEWER_STRINGS, type ViewerLocale, type ViewerStrings } from './i18n';
-import { bindKeyboard, bindPointer } from './input';
+import { bindKeyboard, bindPointer, trackInputModality } from './input';
 import { browserTextMeasure } from './measure';
 import { Minimap } from './minimap';
 import { PacketLayer } from './packets';
@@ -42,7 +46,6 @@ import {
   syncPhaseHighlights,
 } from './sceneHighlights';
 import { renderZoneHud } from './zoneHud';
-import { ZoneLabels } from './zoneLabels';
 
 export { HOLD_MS, SPEEDS };
 
@@ -109,11 +112,12 @@ export class Player {
   #followAnim = false;
   /** The reader asked for the whole diagram; the camera stays until the next step. */
   #holdFrame = false;
+  /** The phases were timed before the canvas had a size, at zoom 1. */
+  #pacedWithoutSize = false;
 
   readonly #root: HTMLElement;
   readonly #zoneHud: HTMLElement;
   readonly #minimap: Minimap;
-  readonly #zoneLabels = new ZoneLabels();
   readonly #packets = new PacketLayer();
   readonly #dock: StepDock;
   readonly #controls: Controls;
@@ -160,7 +164,7 @@ export class Player {
     this.#world = svg('g', { class: 'dav-world' });
     this.#sceneLayer = svg('g');
     this.#svgEl.append(renderSvg(buildDefs()), this.#world);
-    this.#world.append(this.#sceneLayer, this.#zoneLabels.layer, this.#packets.layer);
+    this.#world.append(this.#sceneLayer, this.#packets.layer);
     this.#camera = new Camera(
       this.#svgEl,
       this.#world,
@@ -173,8 +177,10 @@ export class Player {
     this.#dock = new StepDock(s, (index) => this.#showStep(index));
     this.#controls = createControls(s, this.#speed, {
       selectStep: (index) => this.#showStep(index),
-      togglePlay: () => this.togglePlay(),
-      togglePlayAll: () => this.togglePlayAll(),
+      prev: () => this.prev(),
+      next: () => this.next(),
+      togglePlayback: () => this.#togglePlayback('step'),
+      playIn: (mode) => this.#playIn(mode),
       toggleMotion: () => this.toggleMotion(),
       setSpeed: (speed) => {
         this.#speed = speed;
@@ -185,6 +191,7 @@ export class Player {
       toggleMinimap: () => this.toggleMinimap(),
     });
     const { playbackBar, zoomGroup } = this.#controls;
+    this.#controls.stepHead.append(this.#dock.info);
 
     if (options.playbackSlot) {
       clear(options.playbackSlot);
@@ -203,6 +210,7 @@ export class Player {
       'main',
       { class: 'dav-viewport' },
       this.#svgEl,
+      this.#zoneHud,
       this.#titleEl,
       this.#minimap.element,
       zoomGroup,
@@ -216,7 +224,6 @@ export class Player {
         !options.playbackSlot && html('div', { class: 'dav-topbar-main' }, playbackBar),
         this.#dock.element,
       ),
-      this.#zoneHud,
       viewport,
     );
     container.append(this.#root);
@@ -229,11 +236,12 @@ export class Player {
       zoomAt: (factor, x, y) => this.#zoomBy(factor, x, y),
       selectNode: (nodeId) => this.selectNodeAnimation(nodeId),
     });
+    trackInputModality();
     this.#cleanups.push(
       bindKeyboard(options.globalKeyboard ? window : this.#root, this.#root, playbackBar, {
         next: () => this.next(),
         prev: () => this.prev(),
-        togglePlay: () => this.togglePlay(),
+        togglePlay: () => this.#togglePlayback('step'),
         showOverview: () => this.#showStep(null),
       }),
     );
@@ -270,6 +278,7 @@ export class Player {
 
   destroy(): void {
     cancelAnimationFrame(this.#frame);
+    this.#controls.closeMenus();
     for (const c of this.#cleanups) c();
     this.#controls.playbackBar.remove();
     this.#root.remove();
@@ -358,20 +367,28 @@ export class Player {
     return this.#motionOff || this.#reducedMotion;
   }
 
-  togglePlay(): void {
-    this.#togglePlayback('step');
+  /**
+   * Plays a mode chosen in the menu. A playback under way carries on from where it is in the new
+   * mode; a paused one resumes. The play button itself always plays the current step.
+   */
+  #playIn(mode: PlayMode): void {
+    if (this.isPlaying()) {
+      this.#playMode = mode;
+      this.#updatePlayButton();
+      this.#ensureLoop();
+    } else {
+      this.#togglePlayback(mode);
+    }
   }
 
-  togglePlayAll(): void {
-    this.#togglePlayback('all');
-  }
-
-  /** Starts a playback mode, freezes it in place if it is running, or resumes it if frozen. */
-  #togglePlayback(mode: 'step' | 'all'): void {
+  /**
+   * Freezes whatever plays, in place; otherwise starts `mode`, or resumes a frozen playback in
+   * `mode` from where it stopped.
+   */
+  #togglePlayback(mode: PlayMode): void {
     if (this.#data.document.steps.length === 0) return;
     this.#setMotionOff(false);
-    const running = mode === 'step' ? this.#isStepRunning() : this.#isAllRunning();
-    if (running) {
+    if (this.isPlaying()) {
       this.#paused = true;
     } else if (this.#paused) {
       this.#paused = false;
@@ -449,6 +466,7 @@ export class Player {
     } else {
       this.#fit();
     }
+    this.#repace();
   }
 
   // ---------------------------------------------------------------------------
@@ -461,16 +479,13 @@ export class Player {
     this.#svgEl.setAttribute('aria-label', doc.title || this.#strings.diagram);
     const noSteps = doc.steps.length === 0;
     this.#controls.playBtn.disabled = noSteps;
-    this.#controls.playAllBtn.disabled = noSteps;
+    this.#controls.playModeBtn.disabled = noSteps;
     this.#controls.motionBtn.disabled = noSteps || this.#reducedMotion;
-    this.#controls.speedSelect.disabled = noSteps;
-    clear(this.#controls.stepSelect);
-    this.#controls.stepSelect.append(html('option', { value: 'overview' }, this.#strings.overview));
-    doc.steps.forEach((step, i) => {
-      this.#controls.stepSelect.append(
-        html('option', { value: String(i) }, `${i + 1}. ${step.title}`),
-      );
-    });
+    this.#controls.speedBtn.disabled = noSteps;
+    this.#controls.stepMenu.setItems([
+      { value: 'overview', label: this.#strings.overview },
+      ...doc.steps.map((_, i) => ({ value: String(i), label: this.#stepLabel(i) })),
+    ]);
     this.#dock.setSteps(doc.steps);
   }
 
@@ -479,7 +494,7 @@ export class Player {
     const { document: doc, layout } = this.#data;
     const hasZones = doc.groups.length > 0;
     this.#controls.minimapBtn.hidden = !hasZones;
-    // The strip stays while the zones change, so that the canvas never resizes during playback.
+    // The moves float over the canvas, so that it never resizes during playback.
     this.#zoneHud.hidden = !hasZones;
     this.#minimap.setDiagram(doc, layout);
   }
@@ -498,7 +513,6 @@ export class Player {
     this.#stepIndex = view.stepIndex;
     clear(this.#sceneLayer);
     this.#sceneLayer.append(renderSvg(buildScene(this.#view, this.#data.icons)));
-    this.#zoneLabels.collect(this.#sceneLayer, this.#view, this.#data.document.groups);
     this.#targets = collectSceneTargets(this.#sceneLayer);
     this.#updateCameraOverlays();
     this.#minimap.showStep(this.#view);
@@ -508,6 +522,7 @@ export class Player {
       this.#elapsed = 0;
       this.#pinned = false;
     }
+    this.#pace(0);
     this.#renderPackets();
     this.#updateDock();
     if (!opts.keepPhase && !this.#followAnim && !this.#userMoved) this.#frameStep(true);
@@ -557,6 +572,47 @@ export class Player {
     return this.#view.phaseDurations[index] ?? PHASE_MS;
   }
 
+  /**
+   * Times the phases from `from` on by how far their packets move on screen. The automatic
+   * camera sets the pace; a closer view the reader chose slows the packets, by less than it
+   * enlarges them (`pacingZoom`), and a view further out leaves them as they are. An `opening` step starts where the
+   * step is framed; otherwise the camera goes on from where it is heading.
+   */
+  #pace(from: number, opening = from === 0): void {
+    const size = this.#camera.viewSize;
+    this.#pacedWithoutSize = size.width === 0 || size.height === 0;
+    if (this.#pacedWithoutSize) {
+      paceView(this.#view, [], from);
+      return;
+    }
+    // The follow camera frames every phase again, so a zoom by hand lasts one phase at most.
+    const byHand = !this.#followAnim && (this.#userMoved || this.#holdFrame);
+    const chosen = byHand ? this.#camera.destination.zoom : 0;
+    // Under a view chosen by hand, the automatic camera's poses are the ones it frames the step at.
+    const poses = automaticPoses(size, this.#data.layout, this.#view, {
+      follow: this.#followAnim,
+      fixed: this.#fixedFrame,
+      from,
+      ...(opening || byHand ? {} : { resume: this.#camera.destination }),
+    });
+    paceView(
+      this.#view,
+      poses.map((pose) => pacingZoom(pose.zoom, chosen)),
+      from,
+    );
+  }
+
+  /**
+   * Times again what has not started playing, after the camera changed how large it draws the
+   * diagram. A phase in motion keeps its time, so that its packets do not jump.
+   */
+  #repace(): void {
+    const moving = !this.#isStopped() && this.#elapsed > 0;
+    const from = this.#pacedWithoutSize ? 0 : moving ? this.#phase + 1 : this.#phase;
+    this.#pace(this.#isStopped() ? 0 : from);
+    this.#updateStepProgress();
+  }
+
   /** Says which zones the current phase moves between, and outlines them. */
   #updateZoneHud(): void {
     clear(this.#zoneHud);
@@ -567,7 +623,7 @@ export class Player {
     }
     const moves = zoneMoves(this.#view, packets);
     const ms = this.#phaseMs(this.#phase) / this.#speed;
-    renderZoneHud(this.#zoneHud, moves, ms, this.#strings.zoneInside);
+    renderZoneHud(this.#zoneHud, moves, ms);
     outlineZones(this.#targets, moves);
   }
 
@@ -575,7 +631,6 @@ export class Player {
   #updateCameraOverlays(): void {
     const world = this.#camera.visibleWorld();
     if (!world) return;
-    this.#zoneLabels.follow(world);
     this.#minimap.setCamera(world);
   }
 
@@ -591,9 +646,19 @@ export class Player {
     if (frame) this.#camera.frame(frame, smooth);
   }
 
+  #stepLabel(index: number): string {
+    return `${index + 1}. ${this.#data.document.steps[index]?.title ?? ''}`;
+  }
+
   #updateDock(): void {
-    this.#controls.stepSelect.value =
-      this.#view.stepIndex === null ? 'overview' : String(this.#view.stepIndex);
+    const index = this.#view.stepIndex;
+    const { stepBtn, stepMenu } = this.#controls;
+    showChoice(
+      stepBtn,
+      stepMenu,
+      index === null ? this.#strings.overview : this.#stepLabel(index),
+      index === null ? 'overview' : String(index),
+    );
     this.#dock.showStep(this.#view, this.#data.document.steps.length);
     this.#updateStepProgress();
     this.#updatePlayButton();
@@ -612,10 +677,7 @@ export class Player {
 
   #updatePlayButton(): void {
     this.#zoneHud.classList.toggle('is-paused', this.#paused);
-    const { playBtn, playAllBtn } = this.#controls;
-    const s = this.#strings;
-    showPlayState(playBtn, this.#isStepRunning(), CONTROL_ICONS.play, s.play, s.pause);
-    showPlayState(playAllBtn, this.#isAllRunning(), CONTROL_ICONS.playAll, s.playAll, s.pause);
+    showPlayback(this.#controls, this.#strings, this.isPlaying());
   }
 
   // ---------------------------------------------------------------------------
@@ -652,6 +714,7 @@ export class Player {
         this.#packets.place(this.#elapsed);
         if (this.#elapsed >= this.#phaseMs(this.#phase) + 400) {
           this.#elapsed = 0;
+          this.#pace(this.#phase, false);
           this.#packets.reset();
         }
       }
@@ -669,9 +732,11 @@ export class Player {
         this.next();
         return;
       }
-      // 'step' mode: replay all phases of the current step from the beginning.
+      // 'step' mode: replay all phases of the current step from the beginning, from where the
+      // camera is now.
       this.#phase = 0;
       this.#elapsed = 0;
+      this.#pace(0, false);
       this.#renderPackets();
     }
 
@@ -691,6 +756,7 @@ export class Player {
   #reframe(): void {
     if (this.#followAnim) this.#focusCurrentPhase(false);
     else if (!this.#userMoved) this.#frameStep(false);
+    this.#repace();
   }
 
   #focusCurrentPhase(smooth: boolean): void {
@@ -718,6 +784,7 @@ export class Player {
     }
     this.#holdFrame = true;
     this.#fit();
+    this.#repace();
   }
 
   #onCameraMove(): void {
@@ -738,5 +805,6 @@ export class Player {
   #zoomBy(factor: number, cx?: number, cy?: number): void {
     this.#camera.zoomBy(factor, cx, cy);
     this.#userMoved = true;
+    this.#repace();
   }
 }

@@ -7,6 +7,10 @@ export interface ViewerStrings {
   overviewHint: string;
   play: string;
   playAll: string;
+  /** The menu beside the play button. */
+  playMode: string;
+  prevStep: string;
+  nextStep: string;
   pause: string;
   stopMotion: string;
   startMotion: string;
@@ -22,7 +26,6 @@ export interface ViewerStrings {
   playback: string;
   zoomControls: string;
   diagram: string;
-  zoneInside: string;
   stepLabel: (n: number, total: number) => string;
 }
 
@@ -30,8 +33,11 @@ export const VIEWER_STRINGS: Record<ViewerLocale, ViewerStrings> = {
   ja: {
     overview: '全体図',
     overviewHint: 'ステップを選ぶか再生（← / → / Space）すると、流れを確認できます。',
-    play: 'ステップを再生',
+    play: 'このステップを再生',
     playAll: 'すべてのステップを再生',
+    playMode: '再生する範囲',
+    prevStep: '前のステップ',
+    nextStep: '次のステップ',
     pause: '一時停止',
     stopMotion: 'アニメーションを止める',
     startMotion: 'アニメーションを動かす',
@@ -47,14 +53,16 @@ export const VIEWER_STRINGS: Record<ViewerLocale, ViewerStrings> = {
     playback: '再生',
     zoomControls: 'ズーム操作',
     diagram: '図',
-    zoneInside: '内',
     stepLabel: (n, total) => `ステップ ${n} / ${total}`,
   },
   en: {
     overview: 'Overview',
     overviewHint: 'Select a step or press play (← / → / Space) to watch the flow.',
-    play: 'Play step',
+    play: 'Play this step',
     playAll: 'Play all steps',
+    playMode: 'What to play',
+    prevStep: 'Previous step',
+    nextStep: 'Next step',
     pause: 'Pause',
     stopMotion: 'Stop animation',
     startMotion: 'Start animation',
@@ -70,7 +78,6 @@ export const VIEWER_STRINGS: Record<ViewerLocale, ViewerStrings> = {
     playback: 'Playback',
     zoomControls: 'Zoom controls',
     diagram: 'Diagram',
-    zoneInside: 'inside',
     stepLabel: (n, total) => `Step ${n} / ${total}`,
   },
 };

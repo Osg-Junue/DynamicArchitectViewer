@@ -1,55 +1,24 @@
 @import "./scene.css";
 
 /*
- * Player UI tokens. Diagram tokens and SVG scene rules live in scene.css.
+ * Player UI tokens. Diagram tokens and SVG scene rules live in scene.css. Outside VS Code each
+ * falls back to light-dark(<light theme>, <dark theme>).
+ *
+ * Rules are nested only where the nested form keeps the selector's specificity: `&` stands for a
+ * single class, so `.a { &:hover {} }` weighs what `.a:hover` weighs.
  */
 :root {
-  --raw-focus: #c94f12;
-  --raw-hover: rgba(32, 40, 47, 0.08);
-  --raw-selected: rgba(32, 40, 47, 0.12);
-  --raw-selected-fg: #20282f;
-  --raw-input-bg: #fffefa;
-  --raw-shadow: rgba(31, 35, 40, 0.16);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --raw-focus: #f0641e;
-    --raw-hover: rgba(255, 255, 255, 0.09);
-    --raw-selected: rgba(255, 255, 255, 0.14);
-    --raw-selected-fg: #ffffff;
-    --raw-input-bg: #2a2e34;
-    --raw-shadow: rgba(0, 0, 0, 0.4);
-  }
-}
-
-:root {
-  --dav-focus: var(--vscode-focusBorder, var(--raw-focus));
-  --dav-hover: var(--vscode-toolbar-hoverBackground, var(--raw-hover));
-  --dav-selected: var(--vscode-inputOption-activeBackground, var(--raw-selected));
-  --dav-selected-fg: var(--vscode-inputOption-activeForeground, var(--raw-selected-fg));
-  --dav-input-bg: var(--vscode-dropdown-background, var(--raw-input-bg));
-  --dav-input-fg: var(--vscode-dropdown-foreground, var(--raw-fg));
-  --dav-input-border: var(--vscode-dropdown-border, var(--raw-border));
-  --dav-shadow: var(--vscode-widget-shadow, var(--raw-shadow));
-}
-
-.vscode-dark,
-.vscode-high-contrast {
-  color-scheme: dark;
-}
-.vscode-light,
-.vscode-high-contrast-light {
-  color-scheme: light;
-}
-
-.dav-app,
-.dav-topbar,
-.dav-dock,
-.dav-zoom-group,
-.dav-playback-bar,
-.dav-btn {
-  box-sizing: border-box;
+  --dav-focus: var(--vscode-focusBorder, light-dark(#c94f12, #f0641e));
+  --dav-hover: var(
+    --vscode-toolbar-hoverBackground,
+    light-dark(rgba(32, 40, 47, 0.08), rgba(255, 255, 255, 0.09))
+  );
+  --dav-selected: var(
+    --vscode-inputOption-activeBackground,
+    light-dark(rgba(32, 40, 47, 0.12), rgba(255, 255, 255, 0.14))
+  );
+  --dav-selected-fg: var(--vscode-inputOption-activeForeground, light-dark(#20282f, #ffffff));
+  --dav-shadow: var(--vscode-widget-shadow, light-dark(rgba(31, 35, 40, 0.16), rgba(0, 0, 0, 0.4)));
 }
 
 .dav-app {
@@ -65,21 +34,25 @@
   outline: 0;
 }
 
-.dav-topbar {
-  contain: content;
-  display: flex;
-  flex-direction: column;
-  background: var(--dav-bg);
-}
 .dav-topbar-main {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 6px 12px;
   min-height: 38px;
-  padding: 4px 12px;
+  padding: 5px 12px 4px;
   border-bottom: 1px solid var(--dav-border);
+}
+/* Not `contain: paint`: the menu of the play button hangs below the bar. */
+.dav-topbar {
+  contain: layout style;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  background: var(--dav-bg);
+
+  /* The timeline is the bar's lower edge. */
+  &:has(.dav-timeline:not([hidden])) .dav-topbar-main {
+    border-bottom-color: transparent;
+  }
 }
 /* The sheet's title block, bottom-left of the drawing. */
 .dav-title {
@@ -92,6 +65,7 @@
   padding: 4px 8px;
   background: var(--dav-bg);
   border: 1px solid var(--dav-border);
+  border-radius: 6px;
   font-family: var(--dav-mono);
   font-size: 11px;
   font-weight: 400;
@@ -100,16 +74,38 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   pointer-events: none;
-}
-.dav-title:empty {
-  display: none;
+
+  &:empty {
+    display: none;
+  }
 }
 
+/* One bar: previous and next, the step's title and description, then what plays and how fast. */
 .dav-playback-bar {
-  display: inline-flex;
+  display: flex;
+  flex: 1 1 auto;
   align-items: center;
-  flex-shrink: 0;
+  gap: 8px;
+  min-width: 0;
+}
+.dav-step-nav,
+.dav-play-group {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
   gap: 2px;
+}
+.dav-step-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-left: 4px;
+  border-left: 1px solid var(--dav-border);
+}
+.dav-sr-only {
+  position: absolute;
+  clip-path: inset(50%);
 }
 .dav-toolbar-sep {
   width: 1px;
@@ -118,7 +114,13 @@
   background: var(--dav-border);
 }
 
+/*
+ * The one set of states for every control in the bar, buttons and dropdowns alike: lit while
+ * hovered or open, in the pressed color while on or chosen (and deeper under the pointer), and
+ * outlined only when reached with the keyboard.
+ */
 .dav-btn {
+  box-sizing: border-box;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -134,46 +136,181 @@
   white-space: nowrap;
   flex-shrink: 0;
   cursor: pointer;
-}
-.dav-btn:hover:not(:disabled) {
-  background: var(--dav-hover);
-}
-.dav-btn:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-.dav-btn:focus-visible {
-  outline: 1px solid var(--dav-focus);
-  outline-offset: 1px;
-}
-.dav-btn[aria-pressed="true"],
-.dav-btn[aria-pressed="true"]:hover:not(:disabled) {
-  background: var(--dav-selected);
-  color: var(--dav-selected-fg);
-}
-.dav-btn[hidden] {
-  display: none;
+
+  &:is(:hover, [aria-expanded="true"]):not(:disabled) {
+    background: var(--dav-hover);
+  }
+  &:is([aria-pressed="true"], [aria-checked="true"]) {
+    background: var(--dav-selected);
+    color: var(--dav-selected-fg);
+
+    &:hover:not(:disabled) {
+      background: linear-gradient(var(--dav-selected) 0 0) var(--dav-selected);
+    }
+  }
+  &:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  &:focus {
+    outline: none;
+  }
+  :root:not(.dav-pointer) &:focus-visible {
+    outline: 1px solid var(--dav-focus);
+    outline-offset: 1px;
+  }
+  /* Colors give way in High Contrast: an outline marks what is on. After the focus rules, so
+     that a focused button keeps it. */
+  @media (forced-colors: active) {
+    &:is([aria-pressed="true"], [aria-checked="true"]) {
+      outline: 2px solid Highlight;
+      outline-offset: -2px;
+    }
+  }
 }
 
-.dav-step-select,
-.dav-speed-select,
-.dav-step-select:hover:not(:disabled),
-.dav-speed-select:hover:not(:disabled) {
-  background: var(--dav-input-bg);
-  border-color: var(--dav-input-border);
-  color: var(--dav-input-fg);
+/* Previous and next take the whole height left of the title, so they are easy to hit. */
+.dav-step-nav {
+  align-self: stretch;
+  align-items: stretch;
+
+  & > .dav-btn {
+    min-width: 22px;
+    height: auto;
+    padding: 0 3px;
+  }
 }
-.dav-step-select {
-  display: inline-block;
-  max-width: 260px;
-  padding: 0 4px;
+
+/*
+ * Every dropdown of the bar is one of these: a button with its value and a caret, and under it a
+ * list (`.dav-menu`). The step's title is one, set as a heading; Export's list looks the same.
+ */
+.dav-pick {
+  position: relative;
+  display: inline-flex;
+  justify-self: start;
+  min-width: 0;
+  max-width: 100%;
+}
+.dav-drop {
+  gap: 4px;
+  min-width: 0;
+  flex-shrink: 1;
+
+  & svg {
+    flex: none;
+    color: var(--dav-muted);
+  }
+}
+/*
+ * A dropdown that holds all its labels (the speed) stacks them in one place and shows the current
+ * one: it is as wide as the widest in any font, its value is centered in it, and choosing moves
+ * neither its caret nor anything beside it.
+ */
+.dav-drop-text:has(> span) {
+  display: grid;
+  justify-items: center;
+
+  & > span {
+    grid-area: 1 / 1;
+
+    &:not(.is-on) {
+      visibility: hidden;
+    }
+  }
+}
+.dav-drop-text,
+.dav-menu .dav-btn > span {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.dav-speed-select {
-  display: inline-block;
-  padding: 0 2px;
-  font-variant-numeric: tabular-nums;
+.dav-step-select {
+  padding: 0 4px;
+  font-size: 13.5px;
+  font-weight: 700;
+}
+.dav-step-desc {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  padding: 0 5px;
+  overflow: hidden;
+  color: var(--dav-muted);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-line;
+}
+
+/*
+ * The play button and the arrow of its menu, as in Visual Studio: one button in two parts. The
+ * whole is lit when either part is hovered, pressed or open, and the part under the pointer, or
+ * the open arrow, is lit once more on top, in the pressed color while something plays.
+ */
+.dav-split {
+  --dav-part: var(--dav-hover);
+  position: relative;
+  display: inline-flex;
+  border-radius: 4px;
+
+  &:not(:has(:disabled)) {
+    &:is(:hover, :has([aria-expanded="true"])) {
+      background: var(--dav-hover);
+    }
+    /* As specific as the hover above, so that the pressed color stays under the pointer. */
+    &:has([aria-pressed="true"]) {
+      --dav-part: var(--dav-selected);
+      background: var(--dav-selected);
+    }
+  }
+  & > .dav-btn {
+    border-radius: 4px 0 0 4px;
+
+    &[aria-pressed="true"] {
+      background: transparent;
+    }
+    &:is(:hover, [aria-expanded="true"]):not(:disabled) {
+      background: var(--dav-part);
+    }
+  }
+  & > .dav-split-toggle {
+    min-width: 16px;
+    padding: 0;
+    border-radius: 0 4px 4px 0;
+  }
+}
+.dav-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  width: max-content;
+  max-width: min(36em, calc(100vw - 24px));
+  max-height: min(60vh, 420px);
+  padding: 4px;
+  overflow-y: auto;
+  background: var(--dav-panel);
+  border: 1px solid var(--dav-border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px var(--dav-shadow);
+
+  &.is-start {
+    right: auto;
+    left: 0;
+  }
+  & .dav-btn {
+    justify-content: start;
+    padding: 0 12px;
+  }
+  /* Inside the list, which scrolls and would cut a ring drawn outside its items. */
+  :root & .dav-btn:focus-visible {
+    outline-offset: -2px;
+  }
+}
+.dav-menu-sep {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--dav-border);
 }
 
 .dav-viewport {
@@ -185,9 +322,10 @@
   cursor: grab;
   touch-action: none;
   background: var(--dav-bg);
-}
-.dav-viewport.dav-dragging {
-  cursor: grabbing;
+
+  &.dav-dragging {
+    cursor: grabbing;
+  }
 }
 .dav-canvas {
   display: block;
@@ -207,7 +345,7 @@
   padding: 3px;
   background: var(--dav-panel);
   border: 1px solid var(--dav-border);
-  border-radius: 3px;
+  border-radius: 6px;
   box-shadow: 0 2px 8px var(--dav-shadow);
 }
 .dav-zoom-label {
@@ -220,39 +358,48 @@
   user-select: none;
 }
 
-.dav-dock {
-  contain: content;
-  border-bottom: 1px solid var(--dav-border);
-}
-.dav-step-info {
-  padding: 6px 12px 5px;
-  min-width: 0;
-}
-.dav-step-no {
-  margin-right: 10px;
-  font-family: var(--dav-mono);
-  font-size: 11.5px;
-  font-weight: 400;
-  color: var(--dav-muted);
-}
+.dav-zone-line {
+  position: relative;
+  width: 64px;
+  height: 2px;
+  background: var(--dav-border-strong);
 
-/* A strip of its own above the canvas: nothing in the diagram can run under it. */
+  & i {
+    position: absolute;
+    inset: 0;
+    transform: scaleX(0);
+    transform-origin: left;
+    animation: dav-zone-progress 2s ease-in-out forwards;
+  }
+}
+/* The zones the current phase moves between, as a chip over the top of the canvas. */
 .dav-zone-hud {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  z-index: 5;
   display: flex;
-  flex: none;
   align-items: center;
-  justify-content: safe center;
   gap: 18px;
-  height: 36px;
-  padding: 0 12px;
+  max-width: calc(100% - 24px);
+  height: 34px;
+  padding: 0 16px;
   overflow: hidden;
-  background: var(--dav-bg);
+  transform: translateX(-50%);
+  background: var(--dav-panel);
+  border: 1px solid var(--dav-border);
+  border-radius: 17px;
   color: var(--dav-fg);
   font-size: 14px;
   font-weight: 600;
-}
-.dav-zone-hud[hidden] {
-  display: none;
+  pointer-events: none;
+
+  &:empty {
+    display: none;
+  }
+  &.is-paused .dav-zone-line i {
+    animation-play-state: paused;
+  }
 }
 .dav-zone-pair,
 .dav-zone-name {
@@ -261,42 +408,23 @@
   white-space: nowrap;
 }
 .dav-zone-pair {
-  gap: 9px;
+  gap: 10px;
 }
 .dav-zone-name {
-  gap: 6px;
-}
-.dav-zone-name.is-from {
-  color: var(--dav-muted);
+  gap: 7px;
+
+  &.is-from {
+    color: var(--dav-muted);
+  }
 }
 .dav-zone-dot {
   width: 9px;
   height: 9px;
   border-radius: 50%;
 }
-.dav-zone-inside {
+.dav-zone-more {
   color: var(--dav-muted);
   font-weight: 400;
-}
-.dav-zone-line {
-  position: relative;
-  display: block;
-  width: 72px;
-  height: 2px;
-  background: var(--dav-border-strong);
-}
-.dav-zone-line i {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 2px;
-  transform: scaleX(0);
-  transform-origin: left;
-  animation: dav-zone-progress 2s ease-in-out forwards;
-}
-.dav-zone-hud.is-paused .dav-zone-line i {
-  animation-play-state: paused;
 }
 @keyframes dav-zone-progress {
   to {
@@ -318,98 +446,66 @@
   height: 140px;
   background: var(--dav-panel);
   border: 1px solid var(--dav-border);
-  border-radius: 3px;
+  border-radius: 6px;
   cursor: pointer;
-}
-.dav-minimap[hidden] {
-  display: none;
-}
-@media (max-width: 560px), (max-height: 420px) {
-  .dav-minimap {
+
+  @media (max-width: 560px), (max-height: 420px) {
     display: none;
   }
 }
 
-/* Step ruler: one numbered graduation per step, like the sheet index of a drawing set. */
+/*
+ * The timeline: one segment per step along the bar's lower edge. Its buttons reach below the
+ * line. Every panel that floats over the canvas has the corners of the bar's lists (6px).
+ */
 .dav-timeline {
   display: flex;
-  border-top: 1px solid var(--dav-border);
+  gap: 3px;
 }
-.dav-timeline[hidden] {
-  display: none;
-}
-.dav-tick {
-  position: relative;
-  flex: 1 1 0;
-  min-width: 0;
-  height: 20px;
-  padding: 0 0 0 5px;
-  border: 0;
-  border-left: 1px solid var(--dav-border);
-  background: transparent;
-  color: var(--dav-muted);
-  font-family: var(--dav-mono);
-  font-size: 10.5px;
-  text-align: left;
-  overflow: hidden;
-  cursor: pointer;
-}
-.dav-tick:first-child {
-  border-left: 0;
-}
-.dav-tick:hover {
-  background: var(--dav-hover);
-}
-.dav-tick:focus-visible {
-  outline: 1px solid var(--dav-focus);
-  outline-offset: -1px;
-}
+.dav-tick::before,
 .dav-tick-fill {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0 0 auto;
   height: 3px;
+}
+.dav-tick-fill {
   background: var(--dav-border-strong);
   transform: scaleX(0);
   transform-origin: left;
 }
-.dav-tick.is-current {
-  color: var(--dav-fg);
-}
-.dav-tick.is-current .dav-tick-fill {
-  background: var(--dav-accent);
-}
-.dav-step-title {
-  font-size: 14px;
-  font-weight: 700;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.dav-step-desc {
-  margin-top: 1px;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--dav-fg);
-  white-space: pre-line;
-  min-height: 1.5em;
+.dav-tick {
+  position: relative;
+  flex: 1 1 0;
+  /* Room to hit, in the bar's own height: over the canvas it would take clicks meant for that. */
+  height: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+
+  &::before {
+    content: "";
+    background: var(--dav-border);
+  }
+  &:hover::before {
+    background: var(--dav-border-strong);
+  }
+  &.is-current .dav-tick-fill {
+    background: var(--dav-accent);
+  }
 }
 
-.dav-node,
-.dav-edge,
-.dav-edge-label,
-.dav-group {
-  transition: opacity 0.2s ease;
-}
-.dav-flow[hidden] {
-  display: none;
-}
-@media (prefers-reduced-motion: reduce) {
+@media (prefers-reduced-motion: no-preference) {
   .dav-node,
   .dav-edge,
   .dav-edge-label,
   .dav-group {
-    transition: none;
+    transition: opacity 0.2s ease;
   }
+}
+
+/* One rule for every element the player hides. Last, so that it outweighs a class that sets
+   `display`. */
+[hidden] {
+  display: none;
 }

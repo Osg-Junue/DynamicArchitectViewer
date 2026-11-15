@@ -103,7 +103,7 @@ export function mountApp(container: HTMLElement): void {
     'button',
     {
       type: 'button',
-      class: 'btn btn-icon',
+      class: 'dav-btn',
       title: helpTitle,
       'aria-label': helpTitle,
       'data-testid': 'btn-open-help',

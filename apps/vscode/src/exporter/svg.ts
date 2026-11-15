@@ -20,6 +20,7 @@ import { collectUsedIcons } from './icons';
 import {
   CANVAS_HEIGHT,
   cameraKeys,
+  paceForCamera,
   planCamera,
   WIDTH,
   wholeAcrossSteps,
@@ -37,10 +38,10 @@ import {
   zoneStrip,
 } from './svgChrome';
 import { Clock, num, pushAll, roundRect, type StepSlot, schedule, viewBoxOf } from './svgClock';
-import { animatedPacket, animateHighlights, stillHighlights, zoneLabelLayer } from './svgScene';
+import { animatedPacket, animateHighlights, stillHighlights } from './svgScene';
 import { toXml } from './xml';
 
-export { planCamera } from './svgCamera';
+export { paceForCamera, planCamera } from './svgCamera';
 export { type PhaseSlot, type StepSlot, schedule } from './svgClock';
 
 export interface SvgExportOptions {
@@ -78,7 +79,9 @@ const SVG_STYLES = sceneStyles
   .replace(/([;{])(--?[\w-]+)\s*:\s*/g, '$1$2:')
   .replace(/;}/g, '}')
   .replace(/:root\b/g, '.dav-svg')
-  .trim();
+  .trim()
+  // The player's page sets its font on its own elements; an exported image has only this rule.
+  .concat('.dav-svg{font-family:var(--dav-font)}');
 
 /** Generates an SVG file that needs no script and makes no external request. */
 export function exportSvg(source: string | DavDocument, options: SvgExportOptions = {}): string {
@@ -204,7 +207,7 @@ function animatedSvg(
   cameraMode: 'follow' | 'whole',
   only?: number,
 ): string {
-  const { steps, total } = schedule(doc, layout, only);
+  const { steps, total } = schedule(doc, layout, only, paceForCamera(doc, layout, cameraMode));
   const icons = collectUsedIcons(doc);
   const clock = new Clock(total);
   const wholeRect = wholeAcrossSteps(doc, layout, steps);
@@ -236,7 +239,7 @@ function animatedSvg(
   const timelineTop = head.height;
   // One step has nothing to rule; a line separates the header from what follows.
   const zoneTop = timelineTop + (only === undefined ? TIMELINE_HEIGHT : 1);
-  const strip = doc.groups.length > 0 ? zoneStrip(steps, zoneTop, locale, clock) : null;
+  const strip = doc.groups.length > 0 ? zoneStrip(steps, zoneTop, clock) : null;
   const canvasTop = zoneTop + (strip ? ZONE_STRIP_HEIGHT : 0);
   const canvasBottom = canvasTop + canvas.height;
 
@@ -250,11 +253,10 @@ function animatedSvg(
     ),
   );
   for (const step of steps) {
-    const scene = buildScene(step.view, icons, { groupLabels: false });
+    const scene = buildScene(step.view, icons);
     animateHighlights(scene, step, clock);
     world.children.push(clock.showDuring(h('g', {}, scene), [[step.start, step.end]]));
   }
-  pushAll(world, zoneLabelLayer(doc, layout, steps, camera, startWorld, clock, total));
   const packets = h('g', { class: 'dav-layer-packets' });
   for (const step of steps) {
     for (const phase of step.phases) {

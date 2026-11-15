@@ -111,7 +111,7 @@ export class ExportMenu {
       'button',
       {
         type: 'button',
-        class: 'btn primary export-button',
+        class: 'dav-btn export-button',
         'aria-haspopup': 'menu',
         'aria-expanded': 'false',
         'aria-controls': 'export-menu-list',
@@ -132,8 +132,8 @@ export class ExportMenu {
     );
 
     this.#scopes = {
-      all: menuButton('menuitemradio', 'export-item export-scope', 'export-scope-all', s.allSteps),
-      step: menuButton('menuitemradio', 'export-item export-scope', 'export-scope-step'),
+      all: menuButton('menuitemradio', 'dav-btn', 'export-scope-all', html('span', {}, s.allSteps)),
+      step: menuButton('menuitemradio', 'dav-btn', 'export-scope-step', html('span')),
     };
     for (const scope of SCOPES) {
       const el = this.#scopes[scope];
@@ -149,32 +149,32 @@ export class ExportMenu {
       this.#scopes.all,
       this.#scopes.step,
     );
-    this.#separator = html('div', { class: 'export-separator', role: 'separator' });
+    this.#separator = html('div', { class: 'dav-menu-sep', role: 'separator' });
 
     const [stillLabel, stillDetail] = itemContent(s.still[0], s.still[1]);
     this.#stillDetail = stillDetail;
     this.#formats = {
       html: menuButton(
         'menuitem',
-        'export-item',
+        'dav-btn export-item',
         'export-html',
         ...itemContent(s.html[0], s.html[1]),
       ),
       'svg-animated': menuButton(
         'menuitem',
-        'export-item',
+        'dav-btn export-item',
         'export-svg-animated',
         ...itemContent(s.animated[0], s.animated[1]),
       ),
       'svg-whole': menuButton(
         'menuitem',
-        'export-item',
+        'dav-btn export-item',
         'export-svg-whole',
         ...itemContent(s.whole[0], s.whole[1]),
       ),
       'svg-still': menuButton(
         'menuitem',
-        'export-item',
+        'dav-btn export-item',
         'export-svg-still',
         stillLabel,
         stillDetail,
@@ -192,7 +192,12 @@ export class ExportMenu {
 
     this.#list = html(
       'div',
-      { id: 'export-menu-list', class: 'export-menu-list', role: 'menu', 'aria-label': s.menu },
+      {
+        id: 'export-menu-list',
+        class: 'dav-menu export-menu-list',
+        role: 'menu',
+        'aria-label': s.menu,
+      },
       this.#scopeGroup,
       this.#separator,
       ...EXPORT_FORMATS.map((format) => this.#formats[format]),
@@ -303,7 +308,8 @@ export class ExportMenu {
     const { hasSteps, step } = this.#shown;
     this.#scopeGroup.hidden = !step;
     this.#separator.hidden = !step;
-    if (step) this.#scopes.step.textContent = s.thisStep(step.index + 1, step.title);
+    const stepText = this.#scopes.step.firstElementChild;
+    if (step && stepText) stepText.textContent = s.thisStep(step.index + 1, step.title);
     for (const scope of SCOPES) {
       this.#scopes[scope].setAttribute('aria-checked', String(scope === this.#scope));
     }

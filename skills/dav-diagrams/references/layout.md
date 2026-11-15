@@ -116,13 +116,13 @@ lb --> db
 
 **A node outside a zone stands lower than the zone's top.** The first row of a group starts as far down as the first row of the deepest group nested in it. A zone's frame pushes its stations down by its header and by the room for loops, and without this a rail from a station outside a zone to one inside it would have to step down.
 
-**There is no syntax to pin a node.** This is deliberate. See [Design decisions](https://github.com/Osg-Junue/DynamicArchitectViewer/blob/HEAD/docs/design-decisions.md).
+**There is no syntax to pin a node.** This is deliberate. See [Design decisions](https://github.com/Osg-Junue/DynamicArchitectViewer/blob/main/docs/design-decisions.md).
 
 **Lines run level and upright, and keep clear of nodes.** A rail is made of straight stretches with rounded corners. It never runs through another node or over the name of a zone, and it goes round a zone it has nothing to do with unless the way round is much longer. Rails that share a line run side by side, so several rails can enter a node next to each other. Two stations that are 12 units or less off level are joined by one straight line that meets them a little off their middle.
 
 ## Exact rules
 
-This section is for changing the layout code in [`layout/index.ts`](https://github.com/Osg-Junue/DynamicArchitectViewer/blob/HEAD/apps/vscode/src/layout/index.ts). Rail routing is not part of this stage. It lives in `scene/route.ts` and `scene/rails.ts`, and is described under [Routing rails](#routing-rails).
+This section is for changing the layout code in [`layout/index.ts`](https://github.com/Osg-Junue/DynamicArchitectViewer/blob/main/apps/vscode/src/layout/index.ts). Rail routing is not part of this stage. It lives in `scene/route.ts` and `scene/rails.ts`, and is described under [Routing rails](#routing-rails).
 
 ### Inputs and outputs
 

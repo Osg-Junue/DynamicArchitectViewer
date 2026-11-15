@@ -40,17 +40,20 @@ export interface StepSlot {
 
 /**
  * Plays every step at 1x, as "Play all" does: each phase in turn, then a hold. With `only`, plays
- * that one step, as "Play step" does.
+ * that one step, as "Play step" does. `pace` may time the phases again before they are laid
+ * out, once every step is resolved.
  */
 export function schedule(
   doc: DavDocument,
   layout: Layout,
   only?: number,
+  pace?: (views: readonly ResolvedView[]) => void,
 ): { steps: StepSlot[]; total: number } {
   let t = 0;
   const indices = only === undefined ? doc.steps.map((_, i) => i) : [only];
-  const steps = indices.map((i): StepSlot => {
-    const view = resolveView(doc, layout, i);
+  const resolved = indices.map((i) => ({ i, view: resolveView(doc, layout, i) }));
+  pace?.(resolved.map((r) => r.view));
+  const steps = resolved.map(({ i, view }): StepSlot => {
     const start = t;
     const phases = view.phases.map((packets, j): PhaseSlot => {
       const durationMs = view.phaseDurations[j] ?? PHASE_MS;
@@ -77,30 +80,6 @@ export function complement(intervals: readonly Interval[], [from, to]: Interval)
     t = Math.max(t, b);
   }
   if (t < to) out.push([t, to]);
-  return out;
-}
-
-export function intersect(a: readonly Interval[], b: readonly Interval[]): Interval[] {
-  const out: Interval[] = [];
-  for (const [a0, a1] of a) {
-    for (const [b0, b1] of b) {
-      const lo = Math.max(a0, b0);
-      const hi = Math.min(a1, b1);
-      if (lo < hi) out.push([lo, hi]);
-    }
-  }
-  return out;
-}
-
-/** Joins adjacent positive-length intervals from an already-ordered sequence. */
-export function mergeIntervals(intervals: Iterable<Interval>): Interval[] {
-  const out: Interval[] = [];
-  for (const [a, b] of intervals) {
-    if (b <= a) continue;
-    const prev = out[out.length - 1];
-    if (prev && prev[1] === a) out[out.length - 1] = [prev[0], b];
-    else out.push([a, b]);
-  }
   return out;
 }
 

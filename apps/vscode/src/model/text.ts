@@ -1,6 +1,6 @@
 /** Edge label metrics, shared by the layout (column spacing) and the renderer. */
-export const EDGE_LABEL_FONT_SIZE = 11;
-export const EDGE_LABEL_MAX_WIDTH = 180;
+export const EDGE_LABEL_FONT_SIZE = 11.5;
+export const EDGE_LABEL_MAX_WIDTH = 188;
 
 /** How a text is set: at its regular weight, bold, or in the monospaced font of code. */
 export type TextStyle = 'normal' | 'bold' | 'mono';

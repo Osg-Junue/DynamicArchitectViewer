@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { openWebview, postedMessages, sendDsl, watchErrors } from './helpers';
+import { choose, chosen, openWebview, postedMessages, sendDsl, watchErrors } from './helpers';
 
 test.describe('the export menu', () => {
   test('exports single-step animated SVGs only when the step resolves motion', async ({ page }) => {
@@ -28,11 +28,10 @@ test.describe('the export menu', () => {
     ].join('\n');
 
     await openWebview(page, dsl);
-    const stepSelect = page.getByTestId('select-step');
     const exportBtn = page.getByTestId('btn-export');
 
     // Step 2 resolves real motion: single-step animated SVG options are enabled and post step: 1
-    await stepSelect.selectOption('1');
+    await choose(page, 'select-step', '1');
     await expect(page.locator('.dav-step-title')).toContainText('Step 2 / 4');
 
     await exportBtn.click();
@@ -55,7 +54,7 @@ test.describe('the export menu', () => {
 
     // Undeclared node or group endpoints resolve 0 phases, keeping animated items disabled
     for (const stepValue of ['2', '3']) {
-      await stepSelect.selectOption(stepValue);
+      await choose(page, 'select-step', stepValue);
       await exportBtn.click();
       await page.getByTestId('export-scope-step').click();
       await expect(page.getByTestId('export-svg-animated')).toBeDisabled();
@@ -124,10 +123,9 @@ test.describe('the export menu', () => {
 
     await openWebview(page, validDsl);
     await sendDsl(page, validDsl, 'file:///one.dav');
-    const stepSelect = page.getByTestId('select-step');
     const exportBtn = page.getByTestId('btn-export');
 
-    await stepSelect.selectOption('1');
+    await choose(page, 'select-step', '1');
     await expect(page.locator('.dav-step-title')).toContainText('Step 2 / 2');
 
     // ArrowLeft and ArrowRight inside the open menu do not leak to the underlying Player
@@ -135,10 +133,10 @@ test.describe('the export menu', () => {
     await expect(page.getByRole('menu')).toBeVisible();
     await page.keyboard.press('ArrowLeft');
     await expect(page.locator('.dav-step-title')).toContainText('Step 2 / 2');
-    await expect(stepSelect).toHaveValue('1');
+    await expect(chosen(page, 'select-step')).toHaveAttribute('data-value', '1');
     await page.keyboard.press('ArrowRight');
     await expect(page.locator('.dav-step-title')).toContainText('Step 2 / 2');
-    await expect(stepSelect).toHaveValue('1');
+    await expect(chosen(page, 'select-step')).toHaveAttribute('data-value', '1');
 
     // Scope stays on This step when reopened on the same step, and resets on another step
     await page.getByTestId('export-scope-step').click();
@@ -149,7 +147,7 @@ test.describe('the export menu', () => {
     await expect(page.getByTestId('export-scope-step')).toHaveAttribute('aria-checked', 'true');
     await page.keyboard.press('Escape');
 
-    await stepSelect.selectOption('0');
+    await choose(page, 'select-step', '0');
     await expect(page.locator('.dav-step-title')).toContainText('Step 1 / 2');
     await exportBtn.click();
     await expect(page.getByTestId('export-scope-all')).toHaveAttribute('aria-checked', 'true');
@@ -157,7 +155,7 @@ test.describe('the export menu', () => {
     await page.keyboard.press('Escape');
 
     // A fatal syntax error keeps the last diagram on screen but blocks exporting, and closes the menu
-    await stepSelect.selectOption('1');
+    await choose(page, 'select-step', '1');
     await expect(page.locator('.dav-step-title')).toContainText('Step 2 / 2');
     await exportBtn.click();
     await expect(page.getByRole('menu')).toBeVisible();
@@ -196,7 +194,7 @@ test.describe('the export menu', () => {
     ]);
 
     // Switching to a new URI resets scope to All steps even when landing on the same step index
-    await stepSelect.selectOption('0');
+    await choose(page, 'select-step', '0');
     await exportBtn.click();
     await page.getByTestId('export-scope-step').click();
     await expect(page.getByTestId('export-scope-step')).toHaveAttribute('aria-checked', 'true');
@@ -229,7 +227,7 @@ test.describe('the export menu', () => {
     await expect(separator).toHaveCount(1);
     await expect(separator).toBeVisible();
 
-    // Keyboard :focus-visible outline is visible, and High Contrast radio dot uses 4px border
+    // Keyboard :focus-visible outline is visible, and in High Contrast an outline marks the chosen range
     const focusOutline = await page.getByTestId('export-scope-all').evaluate((el) => ({
       focusVisible: el.matches(':focus-visible'),
       outlineStyle: getComputedStyle(el).outlineStyle,
@@ -238,10 +236,10 @@ test.describe('the export menu', () => {
     expect(focusOutline.outlineStyle).not.toBe('none');
 
     await page.emulateMedia({ forcedColors: 'active' });
-    const radioBorderTop = await page
-      .locator('.export-scope[aria-checked="true"]')
-      .evaluate((el) => getComputedStyle(el, '::before').borderTopWidth);
-    expect(radioBorderTop).toBe('4px');
+    const chosenOutline = await page
+      .locator('[data-testid^="export-scope-"][aria-checked="true"]')
+      .evaluate((el) => getComputedStyle(el).outlineStyle);
+    expect(chosenOutline).toBe('solid');
     await page.emulateMedia({ forcedColors: 'none' });
 
     // Clicking disabled Standalone HTML or the separator keeps the menu open and focus inside it
@@ -257,7 +255,7 @@ test.describe('the export menu', () => {
       }
       await expect(page.getByRole('menu')).toBeVisible();
       const focusState = await page.evaluate(() => {
-        const menu = document.querySelector('[role="menu"]');
+        const menu = document.querySelector('#export-menu-list');
         const active = document.activeElement;
         return {
           insideMenu: Boolean(menu && active && menu.contains(active)),
@@ -270,7 +268,7 @@ test.describe('the export menu', () => {
 
     // On Overview, the separator is hidden along with the scope radios
     await page.keyboard.press('Escape');
-    await page.getByTestId('select-step').selectOption('overview');
+    await choose(page, 'select-step', 'overview');
     await expect(page.locator('.dav-step-title')).toHaveText('Overview');
     await exportBtn.click();
     await expect(separator).toBeHidden();

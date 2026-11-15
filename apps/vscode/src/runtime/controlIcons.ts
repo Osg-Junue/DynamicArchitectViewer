@@ -16,8 +16,11 @@ const solid = (...shapes: Shape[]): ControlIcon => ({ shapes, filled: true, size
 
 /** The 24×24 artwork of the toolbar buttons. */
 export const CONTROL_ICONS = {
-  // The square every player uses for "stop": it follows play and play-all in the toolbar.
+  // The square every player uses for "stop": it follows the play button in the toolbar.
   stop: solid(['rect', { x: 6, y: 6, width: 12, height: 12, rx: 1.5 }]),
+  prev: line(['path', { d: 'M15 18l-6-6 6-6' }]),
+  next: line(['path', { d: 'M9 18l6-6-6-6' }]),
+  caret: { ...line(['path', { d: 'M6 9l6 6 6-6' }]), size: 13 },
   fit: line(
     ['path', { d: 'M8 3H5a2 2 0 0 0-2 2v3' }],
     ['path', { d: 'M21 8V5a2 2 0 0 0-2-2h-3' }],
@@ -42,14 +45,7 @@ export const CONTROL_ICONS = {
     ['rect', { x: 6, y: 5, width: 4, height: 14, rx: 1 }],
     ['rect', { x: 14, y: 5, width: 4, height: 14, rx: 1 }],
   ),
-  play: solid(['polygon', { points: '6 4 20 12 6 20 6 4' }]),
-  playAll: {
-    ...solid(
-      ['polygon', { points: '2 5 12 12 2 19 2 5' }],
-      ['polygon', { points: '12 5 22 12 12 19 12 5' }],
-    ),
-    size: 16,
-  },
+  play: { ...solid(['polygon', { points: '6 4 20 12 6 20 6 4' }]), size: 13 },
 } as const satisfies Record<string, ControlIcon>;
 
 /** Artwork for the editor's documentation button, kept separate so the runtime bundle omits it. */
@@ -62,7 +58,7 @@ export const DOCS_ICON: ControlIcon = {
     ['path', { d: 'M8 17h8' }],
   ],
   filled: false,
-  size: 16,
+  size: 15,
 };
 
 const LINE_STYLE = {

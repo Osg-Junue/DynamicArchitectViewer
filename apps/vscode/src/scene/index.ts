@@ -16,6 +16,8 @@ export {
   type PacketCalloutCodeBox,
 } from './callout';
 export {
+  type AutomaticCamera,
+  automaticPoses,
   calmFrame,
   clampZoom,
   type Frame,
@@ -54,7 +56,16 @@ export {
   resolveView,
 } from './resolve';
 export { fitText, type TextMeasure, type TextStyle, textWidth, wrapText } from './text';
-export { HOLD_MS, MIN_PACKET_MS, PHASE_MS, packetPosition, packetShare } from './timing';
+export {
+  HOLD_MS,
+  MIN_PACKET_MS,
+  PHASE_GAP_MS,
+  PHASE_MS,
+  paceView,
+  pacingZoom,
+  packetPosition,
+  packetShare,
+} from './timing';
 export { h, type VElement, type VNode } from './vnode';
 export {
   MAX_ZONE_MOVES,
@@ -62,9 +73,7 @@ export {
   MINIMAP_ZONE_ATTRS,
   type MinimapZone,
   minimapZones,
-  placeZoneLabels,
   ZONE_LABEL,
-  type ZoneLabelEntry,
   type ZoneMove,
   type ZonePlace,
   zoneColor,
