@@ -49,8 +49,9 @@ export function planCamera(
 }
 
 /**
- * Times every phase by how far its packets move on the exported canvas, as the preview does:
- * the canvas and the zooms are the ones the camera of `mode` will use.
+ * Times every phase by how far its packets move on screen, as the preview does: the camera that
+ * follows the flow sets the pace, and a fixed camera that shows the diagram closer slows the
+ * packets so that they stay readable, but never speeds them up from further out.
  */
 export function paceForCamera(
   doc: DavDocument,
@@ -58,21 +59,15 @@ export function paceForCamera(
   mode: 'follow' | 'whole',
 ): (views: readonly ResolvedView[]) => void {
   return (views) => {
+    let fixed = 0;
     if (mode === 'whole') {
       const rect = wholeOfViews(doc, layout, views);
-      const { zoom } = wholePose(wholeCanvas(rect), rect);
-      for (const view of views) {
-        paceView(
-          view,
-          view.phases.map(() => zoom),
-        );
-      }
-      return;
+      fixed = wholePose(wholeCanvas(rect), rect).zoom;
     }
     for (const view of views) {
       paceView(
         view,
-        automaticPoses(FOLLOW_CANVAS, layout, view).map((pose) => pose.zoom),
+        automaticPoses(FOLLOW_CANVAS, layout, view).map((pose) => Math.max(pose.zoom, fixed)),
       );
     }
   };

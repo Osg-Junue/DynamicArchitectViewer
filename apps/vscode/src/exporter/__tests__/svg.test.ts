@@ -655,6 +655,21 @@ describe('planCamera', () => {
     expect(total).not.toBe(plain.total);
   });
 
+  it('plays no faster with the whole diagram in view than with the camera that follows', () => {
+    const { document } = parse(sampleDsl('enterprise-zero-trust-10anim'));
+    const layout = computeLayout(document);
+    const pace = (mode: 'follow' | 'whole') =>
+      schedule(document, layout, undefined, paceForCamera(document, layout, mode)).steps.flatMap(
+        (step) => step.phases.map((phase) => phase.durationMs),
+      );
+    const follow = pace('follow');
+    const whole = pace('whole');
+    expect(whole).toHaveLength(follow.length);
+    whole.forEach((ms, i) => {
+      expect(ms).toBeGreaterThanOrEqual(follow[i] ?? 0);
+    });
+  });
+
   it('moves closer than the whole diagram on a wide one', () => {
     const { document } = parse(sampleDsl('enterprise-zero-trust-10anim'));
     const layout = computeLayout(document);
