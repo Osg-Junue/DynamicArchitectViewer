@@ -122,16 +122,32 @@ It exits with `1` when a file is missing or out of date. Line endings that a che
 
 **Check with the options the files were exported with.** A file written with `--camera whole` is out of date for a check without it. One command line serves both: with `--check` it checks, and without it it exports.
 
-In CI, as a step of a workflow that has checked out the repository. Use the versions of the actions that the repository's other workflows use:
+In CI on GitHub, this is a whole workflow, as `.github/workflows/diagrams.yml`:
 
 ```yaml
-- uses: actions/setup-node@v7
-  with:
-    node-version: 22
-- run: npx dynamic-architect-viewer-cli@1.3.0 export --check docs/*.dav
+name: Diagrams
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  exports:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: npx dynamic-architect-viewer-cli@1.3.0 export --check docs/*.dav
 ```
 
-Add this only when the user asks for it, or agrees to it. When moving to another version of the package, export every file again in the same change, because the new version may write other bytes.
+Where the repository has workflows already, add the last two steps to a job there instead, and take the versions of the two actions from them.
+
+- **One `--check` line for each form.** A diagram exported as an SVG and as HTML needs a second line, with `--format html`. The HTML contains the source, so a change to a comment makes it out of date where the SVG is not.
+- **Name the files when a pattern does not fit.** A pattern checks every diagram it matches with one set of options. Where the diagrams of a directory are exported with different options, or not all of them are exported, give each command the files it is for.
+
+Add the workflow only when the user asks for it, or agrees to it. When moving to another version of the package, export every file again in the same change, because the new version may write other bytes.
 
 ## Checking and formatting
 

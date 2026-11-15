@@ -91,7 +91,7 @@ Still showing: db: badge "PENDING" (since step 1)
 
 | Part | Meaning |
 | :--- | :--- |
-| Step order | Time. Step 2 happens after step 1 |
+| Step order | Time, as a rule: step 2 happens after step 1. A later step may instead show another outcome of an earlier one. Its title or summary says so ("Payment fails", "The same order again"), and a badge set back to an earlier value is a sign of it. Read such a step as a branch from that point, not as what happens next |
 | The paragraph under the title | The author's summary of the step |
 | `1.`, `2.`, ... | Packets, in the order they travel within the step |
 | `2a.`, `2b.` | Packets with the same number travel at the same time |
@@ -130,7 +130,7 @@ List every connection of X, then every packet that X sends or receives, in step 
 
 **"What happens when something fails?"**
 
-Find the steps where a badge, a color or the visibility changes, and the elements that are hidden at first. Describe the normal path, the failure, the reaction and whether the diagram returns to normal.
+Find the steps where a badge, a color or the visibility changes, and the elements that are hidden at first. Describe the normal path, the failure, the reaction and whether the diagram returns to normal. When the steps show several failures as other outcomes of one point, answer for each of them, and say how each ends.
 
 **"Review this file"**
 
