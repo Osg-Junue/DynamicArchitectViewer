@@ -21,7 +21,7 @@ export default defineConfig({
     outDir: resolve(PACKAGE, 'dist'),
     emptyOutDir: true,
     minify: true,
-    target: 'node20',
+    target: 'node22',
     lib: {
       entry: resolve(import.meta.dirname, 'src/cli/dav.ts'),
       formats: ['es'],

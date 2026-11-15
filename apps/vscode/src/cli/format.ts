@@ -2,7 +2,15 @@ import { writeFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { format, parse } from '../dsl';
 import { diagnosticLine } from '../skill/check';
-import { EXIT_FAILED, EXIT_OK, EXIT_USAGE, errorMessage, readDav, UsageError } from './shared';
+import {
+  EXIT_FAILED,
+  EXIT_OK,
+  EXIT_USAGE,
+  errorMessage,
+  expandFiles,
+  readDav,
+  UsageError,
+} from './shared';
 
 export const FORMAT_USAGE = `Usage: dav format [--check] <file.dav>...
 
@@ -40,7 +48,7 @@ function formatFile(file: string, check: boolean): boolean {
 }
 
 export function runFormat(args: readonly string[]): number {
-  const { values, positionals: files } = parseArgs({
+  const { values, positionals } = parseArgs({
     args: [...args],
     allowPositionals: true,
     options: {
@@ -52,6 +60,7 @@ export function runFormat(args: readonly string[]): number {
     console.log(FORMAT_USAGE);
     return EXIT_OK;
   }
+  const files = expandFiles(positionals);
   if (files.length === 0) throw new UsageError('no .dav file was given');
 
   let clean = true;

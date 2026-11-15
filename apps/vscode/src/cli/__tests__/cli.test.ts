@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { format } from '../../dsl';
 import { importContent } from '../../exporter';
@@ -42,6 +42,7 @@ afterEach(() => {
 
 const fileWith = (text: string, name = 'checkout.dav') => {
   const file = join(dir, name);
+  mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, text);
   return file;
 };
@@ -83,6 +84,13 @@ describe('dav', () => {
     expect(unknown.stderr).toContain('there is no command "render"');
   });
 
+  it.each(['constructor', '__proto__'])('has no command "%s" either', async (name) => {
+    const { status, stderr } = await dav(name, 'a.dav');
+
+    expect(status).toBe(2);
+    expect(stderr).toContain(`there is no command "${name}"`);
+  });
+
   it.each(['export', 'format', 'check', 'outline'])('%s shows its own help', async (command) => {
     const { status, stdout } = await dav(command, '--help');
     expect(status).toBe(0);
@@ -122,6 +130,54 @@ describe('dav', () => {
       expect((await dav(command, join(dir, 'missing.dav'))).status).toBe(2);
     }
   });
+
+  describe('given a pattern, as PowerShell and cmd.exe hand it over', () => {
+    it('exports every diagram the pattern matches', async () => {
+      fileWith(DIAGRAM, 'a.dav');
+      fileWith(DIAGRAM, 'b.dav');
+      const { status } = await dav('export', join(dir, '*.dav'));
+
+      expect(status).toBe(0);
+      expect(existsSync(join(dir, 'a.svg'))).toBe(true);
+      expect(existsSync(join(dir, 'b.svg'))).toBe(true);
+    });
+
+    it('checks and formats what it matches, in the order of the names', async () => {
+      fileWith(WITH_ERROR, 'b.dav');
+      fileWith(DIAGRAM, 'a.dav');
+      const check = await dav('check', join(dir, '?.dav'));
+      const formatted = await dav('format', join(dir, '*.dav'));
+
+      expect(check.status).toBe(1);
+      expect(check.stdout.indexOf('a.dav')).toBeLessThan(check.stdout.indexOf('b.dav'));
+      expect(formatted.status).toBe(0);
+      expect(formatted.stdout.indexOf('a.dav')).toBeLessThan(formatted.stdout.indexOf('b.dav'));
+    });
+
+    it('matches directories too', async () => {
+      fileWith(DIAGRAM, 'one/x.dav');
+      fileWith(DIAGRAM, 'two/x.dav');
+
+      expect((await dav('export', join(dir, '*', 'x.dav'))).status).toBe(0);
+      expect(existsSync(join(dir, 'one', 'x.svg'))).toBe(true);
+      expect(existsSync(join(dir, 'two', 'x.svg'))).toBe(true);
+    });
+
+    it('outlines the one diagram a pattern matches, and rejects a pattern that matches two', async () => {
+      fileWith(DIAGRAM, 'a.dav');
+      expect((await dav('outline', join(dir, '*.dav'))).status).toBe(0);
+
+      fileWith(DIAGRAM, 'b.dav');
+      expect((await dav('outline', join(dir, '*.dav'))).status).toBe(2);
+    });
+
+    it('fails with 2 for a pattern that matches nothing, and names it', async () => {
+      const { status, stderr } = await dav('export', join(dir, '*.dav'));
+
+      expect(status).toBe(2);
+      expect(stderr).toContain('*.dav');
+    });
+  });
 });
 
 describe('dav export', () => {
@@ -150,6 +206,24 @@ describe('dav export', () => {
     expect(existsSync(join(out, 'a.svg'))).toBe(true);
     expect(existsSync(join(out, 'b.svg'))).toBe(true);
     expect(existsSync(join(dir, 'a.svg'))).toBe(false);
+  });
+
+  it('writes nothing when two diagrams would be one file in --out-dir', async () => {
+    const out = join(dir, 'out');
+    const one = fileWith(DIAGRAM, 'one/x.dav');
+    const two = fileWith(DIAGRAM, 'two/x.dav');
+    const { status, stderr } = await dav('export', '--out-dir', out, one, two);
+
+    expect(status).toBe(2);
+    expect(stderr).toContain(`${one} and ${two} would both be written to ${join(out, 'x.svg')}`);
+    expect(existsSync(out)).toBe(false);
+    expect((await dav('export', '--check', '--out-dir', out, one, two)).status).toBe(2);
+  });
+
+  it('takes one diagram given twice as it is', async () => {
+    const file = fileWith(DIAGRAM);
+
+    expect((await dav('export', file, file)).status).toBe(0);
   });
 
   it('writes a still picture with --still, and keeps the whole diagram with --camera whole', async () => {

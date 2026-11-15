@@ -73,7 +73,7 @@ Then open a `.dav` file, or run **DynamicArchitectViewer: New Diagram from Sampl
 
 ## Command line
 
-The `dav` command does what the extension does with a `.dav` file, without the editor: in a terminal or in CI. It is the npm package [`dynamic-architect-viewer-cli`](apps/cli/README.md), which needs Node.js 20 or later and has no dependencies.
+The `dav` command does what the extension does with a `.dav` file, without the editor: in a terminal or in CI. It is the npm package [`dynamic-architect-viewer-cli`](apps/cli/README.md), which needs Node.js 22.17 or later and has no dependencies.
 
 ```bash
 npx dynamic-architect-viewer-cli export docs/checkout.dav
