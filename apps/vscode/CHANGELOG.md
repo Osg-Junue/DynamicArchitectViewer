@@ -3,7 +3,7 @@
 This project follows [Semantic Versioning](https://semver.org/). The `0.x` series was a preview.
 The `dav` language version follows the major version: every `1.x.x` release is `dav 1`.
 
-## Unreleased
+## 1.2.0 (2026-11-15)
 
 - A callout is placed no nearer another line of the step than its own, so it is no longer read as describing the line it sits by. Before, it kept away only from the lines of other packets in its phase. It sits nearer another line only where every place that does not is more than 200 units further away, counting what crossing a zone's border or using a node's cell adds
 - A callout may cover a dimmed node, its icon and its name, and cross the border of a dimmed zone, and it crosses the border of any other zone more readily, so it finds a place near its line more often. It still never covers a zone's name, a badge, or the icon or name of a node the step is about
