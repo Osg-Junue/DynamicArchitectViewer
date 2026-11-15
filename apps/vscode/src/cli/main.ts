@@ -54,7 +54,10 @@ export async function runCli(args: readonly string[], version: string): Promise<
   // Only its own entries: `constructor` and the like are found on every object.
   const command = name !== undefined && Object.hasOwn(COMMANDS, name) ? COMMANDS[name] : undefined;
   if (!command) {
-    if (name !== undefined) console.error(`dav: there is no command "${name}"`);
+    // The version is said with what is missing: a later version may have it.
+    if (name !== undefined) {
+      console.error(`dav: there is no command "${name}" in version ${version}`);
+    }
     console.error(USAGE);
     return EXIT_USAGE;
   }
@@ -67,7 +70,7 @@ export async function runCli(args: readonly string[], version: string): Promise<
     const message = errorMessage(error);
     const said = error instanceof UsageError ? message : (message.split('. ')[0] ?? message);
     console.error(`dav ${name}: ${said.replace(/\.$/, '')}`);
-    console.error(`Run "dav ${name} --help" for the options.`);
+    console.error(`Run "dav ${name} --help" for the options of version ${version}.`);
     return EXIT_USAGE;
   }
 }

@@ -1,9 +1,9 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { KEYWORDS, parse } from '../../dsl';
+import { format, KEYWORDS, parse } from '../../dsl';
 import { COLOR_NAMES, ICON_NAMES } from '../../model/types';
 import { SAMPLE_TEMPLATES } from '../../samples';
 import { reviewDetail } from '../review';
@@ -11,10 +11,14 @@ import { reviewDetail } from '../review';
 const ROOT = resolve(__dirname, '../../../../..');
 const WRITING = join(ROOT, 'skills/dav-diagrams');
 const READING = join(ROOT, 'skills/dav-reading');
+const COMMAND_LINE = join(ROOT, 'skills/dav-cli');
 const CHECKER = join(WRITING, 'scripts/dav-check.mjs');
 const OUTLINER = join(READING, 'scripts/dav-outline.mjs');
+/** The command the `dav-cli` skill has an agent fetch from npm, as this repository builds it. */
+const DAV = join(ROOT, 'apps/cli/dist/dav.mjs');
 const skill = readFileSync(join(WRITING, 'SKILL.md'), 'utf8');
 const reading = readFileSync(join(READING, 'SKILL.md'), 'utf8');
+const commandLine = readFileSync(join(COMMAND_LINE, 'SKILL.md'), 'utf8');
 
 const inlineCode = (text: string) => [...text.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
 
@@ -46,6 +50,7 @@ const run = (script: string, ...args: string[]) => {
 describe.each([
   ['dav-diagrams', WRITING, skill],
   ['dav-reading', READING, reading],
+  ['dav-cli', COMMAND_LINE, commandLine],
 ])('%s/SKILL.md', (name, skillDir, text) => {
   it('has frontmatter that meets the Agent Skills specification', () => {
     const description = /^description: (.+)$/m.exec(text)?.[1] ?? '';
@@ -185,6 +190,86 @@ describe('dav-reading/SKILL.md', () => {
     for (const line of excerpts.join('\n').split('\n')) {
       if (line.trim()) expect(outline, line).toContain(line);
     }
+  });
+});
+
+describe('dav-cli/SKILL.md', () => {
+  const PACKAGE = 'dynamic-architect-viewer-cli';
+  const { version } = JSON.parse(readFileSync(join(ROOT, 'apps/cli/package.json'), 'utf8')) as {
+    version: string;
+  };
+  const COMMANDS = ['export', 'check', 'format', 'outline'];
+  /** The command lines of its `bash` blocks, as the arguments of `dav`, without their comments. */
+  const examples = [...commandLine.matchAll(/^ *```bash\n([\s\S]*?)^ *```$/gm)]
+    .flatMap((m) => (m[1] ?? '').split('\n'))
+    .map((line) => line.replace(/\s+#.*$/, '').trim())
+    .filter((line) => line.startsWith(`npx ${PACKAGE}@`) && !line.includes('<command>'))
+    .map((line) => line.split(/\s+/).slice(2));
+
+  /** A project as the examples take it to be: diagrams in `docs` and in `diagrams`. */
+  const project = () => {
+    const root = mkdtempSync(join(dir, 'project-'));
+    const dsl = format(readFileSync(join(ROOT, 'examples/02-screen-flow-checkout.dav'), 'utf8'));
+    for (const file of ['docs/checkout.dav', 'docs/orders.dav', 'diagrams/login.dav']) {
+      mkdirSync(join(root, file, '..'), { recursive: true });
+      writeFileSync(join(root, file), dsl);
+    }
+    return root;
+  };
+  const dav = (cwd: string, ...args: string[]) => {
+    const { status, stdout, stderr } = spawnSync(process.execPath, [DAV, ...args], {
+      cwd,
+      encoding: 'utf8',
+    });
+    // The command names files as the system does; the skill writes them with a slash.
+    return { status, said: `${stdout}${stderr}`.replaceAll('\\', '/') };
+  };
+
+  it('gives the version of the package wherever it has the package run', () => {
+    const versions = [...commandLine.matchAll(new RegExp(`${PACKAGE}@([^\\s\`]+)`, 'g'))];
+
+    expect(versions.length).toBeGreaterThan(0);
+    for (const [, named] of versions) expect(named).toBe(version);
+    expect(commandLine).not.toMatch(new RegExp(`npx ${PACKAGE}(?!@)`));
+  });
+
+  it('names only the commands and options the command has', () => {
+    const help = [[], ...COMMANDS.map((command) => [command])]
+      .map((command) => dav(dir, ...command, '--help').said)
+      .join('\n');
+    const known = new Set(help.match(/--[a-z][a-z-]*/g));
+    const named = new Set(commandLine.match(/--[a-z][a-z-]*/g));
+
+    expect(named.size).toBeGreaterThan(0);
+    expect([...named].filter((option) => !known.has(option))).toEqual([]);
+    for (const command of COMMANDS) expect(commandLine).toContain(`| \`${command} <file.dav>`);
+    for (const [command] of examples) expect(COMMANDS).toContain(command);
+  });
+
+  it('has only examples that run', () => {
+    const root = project();
+
+    expect(examples.length).toBeGreaterThan(5);
+    for (const args of examples) {
+      const { status, said } = dav(root, ...args);
+      expect(status, `dav ${args.join(' ')}\n${said}`).toBe(0);
+    }
+  });
+
+  it('shows the lines of export --check as the command prints them', () => {
+    const root = project();
+    const check = () => dav(root, 'export', '--check', 'docs/checkout.dav');
+    const line = (state: string) => `docs/checkout.svg: ${state}`;
+    for (const state of ['up to date', 'out of date; ', 'missing; ']) {
+      expect(commandLine).toContain(line(state));
+    }
+
+    expect(check()).toMatchObject({ status: 1, said: expect.stringContaining(line('missing; ')) });
+    expect(dav(root, 'export', 'docs/checkout.dav').said).toMatch(/^docs\/checkout\.svg: \d+ KB$/m);
+    expect(check()).toMatchObject({ status: 0, said: expect.stringContaining(line('up to date')) });
+    expect(dav(root, 'export', '--check', '--camera', 'whole', 'docs/checkout.dav').said).toContain(
+      line('out of date; '),
+    );
   });
 });
 

@@ -81,7 +81,7 @@ describe('dav', () => {
     expect((await dav()).status).toBe(2);
     const unknown = await dav('render', 'a.dav');
     expect(unknown.status).toBe(2);
-    expect(unknown.stderr).toContain('there is no command "render"');
+    expect(unknown.stderr).toContain('there is no command "render" in version 9.9.9');
   });
 
   it.each(['constructor', '__proto__'])('has no command "%s" either', async (name) => {
@@ -118,10 +118,10 @@ describe('dav', () => {
     expect(status).toBe(2);
   });
 
-  it('names the option it does not know, and where the help is', async () => {
+  it('names the option it does not know, its version, and where the help is', async () => {
     const { stderr } = await dav('export', '--bogus', 'a.dav');
     expect(stderr).toBe(
-      'dav export: Unknown option \'--bogus\'\nRun "dav export --help" for the options.',
+      'dav export: Unknown option \'--bogus\'\nRun "dav export --help" for the options of version 9.9.9.',
     );
   });
 

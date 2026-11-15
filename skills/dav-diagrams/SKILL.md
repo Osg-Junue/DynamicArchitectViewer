@@ -47,7 +47,7 @@ Follow the workflow in order. Do not skip step 5: the checker is the only way to
    | `2` | Bad arguments or an unreadable file |
 
    Run it again after every fix, until it exits with `0`. Leave out `--detail` only when the user asked for a minimal diagram.
-6. **Report.** Give the path, and tell the user to open the file in VS Code with the [DynamicArchitectViewer extension](https://marketplace.visualstudio.com/items?itemName=osg-junue.dynamic-architect-viewer) and press `Ctrl+Shift+V` (`⌘⇧V` on macOS). The checker describes the layout but does not render it, so never claim to have seen the result. If Node.js is unavailable, compare the file against [the specification](references/specification.md) and the lists below by hand, and say that it was not validated.
+6. **Report.** Give the path, and tell the user to open the file in VS Code with the [DynamicArchitectViewer extension](https://marketplace.visualstudio.com/items?itemName=osg-junue.dynamic-architect-viewer) and press `Ctrl+Shift+V` (`⌘⇧V` on macOS). The checker describes the layout but does not render it, so never claim to have seen the result. When the user wants an SVG or an HTML file of the diagram, for a README or to send to someone, use the `dav-cli` skill. If Node.js is unavailable, compare the file against [the specification](references/specification.md) and the lists below by hand, and say that it was not validated.
 
 Write titles, labels and descriptions in the user's language. IDs must stay ASCII.
 
