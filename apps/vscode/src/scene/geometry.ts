@@ -68,6 +68,8 @@ interface Piece {
   via?: Point;
   to: Point;
   length: number;
+  /** For a corner: its length up to each of `CORNER_SEGMENTS` evenly spaced parameters. */
+  marks?: number[];
 }
 
 const distance = (a: Point, b: Point): number => Math.hypot(b.x - a.x, b.y - a.y);
@@ -85,17 +87,37 @@ function onCorner(piece: Piece, via: Point, u: number): Point {
   };
 }
 
-const CORNER_SEGMENTS = 8;
+/** Fine enough that a packet keeps its pace round a corner to within 2 %. */
+const CORNER_SEGMENTS = 32;
 
 function cornerPiece(from: Point, via: Point, to: Point): Piece {
-  const piece: Piece = { from, via, to, length: 0 };
+  const marks = [0];
+  const piece: Piece = { from, via, to, length: 0, marks };
   let previous = from;
   for (let i = 1; i <= CORNER_SEGMENTS; i++) {
     const point = onCorner(piece, via, i / CORNER_SEGMENTS);
     piece.length += distance(previous, point);
+    marks.push(piece.length);
     previous = point;
   }
   return piece;
+}
+
+/**
+ * The curve's parameter `along` its length into a corner. The parameter runs faster at the ends
+ * of the curve than in its middle, so a packet moving at a steady pace would jump round a corner.
+ */
+function cornerParameter(piece: Piece, along: number): number {
+  const marks = piece.marks ?? [];
+  for (let i = 1; i < marks.length; i++) {
+    const end = marks[i] ?? 0;
+    if (along <= end || i === marks.length - 1) {
+      const start = marks[i - 1] ?? 0;
+      const within = end > start ? clamp((along - start) / (end - start), 0, 1) : 0;
+      return (i - 1 + within) / CORNER_SEGMENTS;
+    }
+  }
+  return 0;
 }
 
 /** A route is asked for its points many times over; its pieces are worked out once. */
@@ -192,8 +214,9 @@ function pointOnRoute(route: Route, t: number): Point {
   let left = clamp(t, 0, 1) * pieces.reduce((sum, piece) => sum + piece.length, 0);
   for (const piece of pieces) {
     if (left <= piece.length) {
-      const u = piece.length > 0 ? left / piece.length : 0;
-      return piece.via ? onCorner(piece, piece.via, u) : towards(piece.from, piece.to, left);
+      return piece.via
+        ? onCorner(piece, piece.via, cornerParameter(piece, left))
+        : towards(piece.from, piece.to, left);
     }
     left -= piece.length;
   }

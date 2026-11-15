@@ -11,6 +11,7 @@ The `dav` language version follows the major version: every `1.x.x` release is `
 - A move inside one zone shows the zone's name alone, without "inside", in the preview, exported HTML and exported SVG
 - Export is drawn as the other controls instead of as a filled button
 - Packets are timed by how far they move on screen instead of in the diagram, so they keep one readable top speed whatever the zoom: a step the camera shows close up plays slower, and one it shows from far away plays faster. The exported SVG times them at its own camera's zoom
+- A packet keeps its pace round a rounded corner instead of speeding up by as much as 16 % there
 - An edge's label is set at 11.5 px, the size of a node's `sub`, instead of 11 px. Its room grows with it, so a label fits the same number of characters as before
 
 ## 1.1.0 (2026-11-14)

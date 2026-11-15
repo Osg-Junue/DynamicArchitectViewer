@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Rect } from '../../layout';
-import { expandRect, segmentIntersectsRect } from '../geometry';
+import { expandRect, pointAt, segmentIntersectsRect } from '../geometry';
 
 describe('2D rectangle and segment geometry helpers', () => {
   const box: Rect = { x: 100, y: 200, width: 80, height: 40 };
@@ -43,5 +43,26 @@ describe('2D rectangle and segment geometry helpers', () => {
         { x: 90, y: 200, width: 20, height: 0 },
       ),
     ).toBe(false);
+  });
+});
+
+describe('points along a route', () => {
+  it('moves at a steady pace round a corner, as along its straight stretches', () => {
+    const route = {
+      points: [
+        { x: 0, y: 0 },
+        { x: 40, y: 0 },
+        { x: 40, y: 40 },
+      ],
+    };
+    const steps = 400;
+    const gaps: number[] = [];
+    let previous = pointAt(route, 0);
+    for (let i = 1; i <= steps; i++) {
+      const point = pointAt(route, i / steps);
+      gaps.push(Math.hypot(point.x - previous.x, point.y - previous.y));
+      previous = point;
+    }
+    expect(Math.max(...gaps) / Math.min(...gaps)).toBeLessThan(1.02);
   });
 });
