@@ -1,12 +1,12 @@
 import type { Layout } from '../layout';
 import type { DavDocument } from '../model/types';
 import {
+  automaticPoses,
   buildDefs,
   buildScene,
   calmFrame,
   clamp,
   followFrame,
-  framePose,
   HOLD_MS,
   type IconShapes,
   measureCalloutsWith,
@@ -14,7 +14,6 @@ import {
   PHASE_MS,
   paceView,
   packetsOnScreen,
-  phasePoses,
   type ResolvedView,
   resolveView,
   stepFrame,
@@ -581,9 +580,10 @@ export class Player {
   }
 
   /**
-   * Times the phases from `from` on by how far their packets move on screen, at the zoom the
-   * camera will show each one at. An `opening` step starts where the step is framed; otherwise
-   * the camera goes on from where it is heading.
+   * Times the phases from `from` on by how far their packets move on screen. The automatic
+   * camera sets the pace; a closer view the reader chose slows the packets so that they stay
+   * readable, and a view further out leaves them as they are. An `opening` step starts where the
+   * step is framed; otherwise the camera goes on from where it is heading.
    */
   #pace(from: number, opening = from === 0): void {
     const size = this.#camera.viewSize;
@@ -592,34 +592,21 @@ export class Player {
       paceView(this.#view, [], from);
       return;
     }
-    const { layout } = this.#data;
-    const phases = this.#view.phases;
-    const rest = phases.slice(from);
-    const held = this.#camera.destination;
-    let zooms: number[];
-    if (this.#followAnim) {
-      zooms = rest.map((packets) => framePose(size, followFrame(layout, packets)).zoom);
-    } else if (this.#userMoved || this.#holdFrame || (this.#fixedFrame && !opening)) {
-      zooms = rest.map(() => held.zoom);
-    } else if (opening) {
-      const first = framePose(
-        size,
-        stepFrame(size, layout, this.#view, {
-          fixed: this.#fixedFrame,
-          ...(phases[0] ? { follow: phases[0] } : {}),
-        }),
-      );
-      zooms = this.#fixedFrame
-        ? rest.map(() => first.zoom)
-        : phasePoses(size, layout, rest, first).map((pose) => pose.zoom);
-    } else {
-      // The camera now shows the phase before `from`, or nothing in particular at the start.
-      const before = phases[from - 1] ?? [];
-      zooms = phasePoses(size, layout, [before, ...rest], held)
-        .slice(1)
-        .map((pose) => pose.zoom);
-    }
-    paceView(this.#view, zooms, from);
+    // The follow camera frames every phase again, so a zoom by hand lasts one phase at most.
+    const byHand = !this.#followAnim && (this.#userMoved || this.#holdFrame);
+    const chosen = byHand ? this.#camera.destination.zoom : 0;
+    // Under a view chosen by hand, the automatic camera's poses are the ones it frames the step at.
+    const poses = automaticPoses(size, this.#data.layout, this.#view, {
+      follow: this.#followAnim,
+      fixed: this.#fixedFrame,
+      from,
+      ...(opening || byHand ? {} : { resume: this.#camera.destination }),
+    });
+    paceView(
+      this.#view,
+      poses.map((pose) => Math.max(pose.zoom, chosen)),
+      from,
+    );
   }
 
   /**

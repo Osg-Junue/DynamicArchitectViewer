@@ -16,6 +16,8 @@ export {
   type PacketCalloutCodeBox,
 } from './callout';
 export {
+  type AutomaticCamera,
+  automaticPoses,
   calmFrame,
   clampZoom,
   type Frame,
@@ -25,7 +27,6 @@ export {
   MAX_FIT_ZOOM,
   type Pose,
   packetsOnScreen,
-  phasePoses,
   type Size,
   stepFrame,
   visibleWorld,

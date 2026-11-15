@@ -1,13 +1,13 @@
 import type { Layout, Rect } from '../layout';
 import type { DavDocument } from '../model/types';
 import {
+  automaticPoses,
   boundsOf,
   clamp,
   framePose,
   MAX_FIT_ZOOM,
   type Pose,
   paceView,
-  phasePoses,
   type ResolvedView,
   resolveView,
   type Size,
@@ -38,25 +38,14 @@ export function planCamera(
 ): Array<[number, Pose]> {
   const events: Array<[number, Pose]> = [];
   for (const step of steps) {
-    const poses = stepPoses(canvas, layout, step.view);
-    events.push([step.start, poses[0] ?? stepPose(canvas, layout, step.view)]);
+    const poses = automaticPoses(canvas, layout, step.view);
+    events.push([step.start, poses[0] ?? framePose(canvas, stepFrame(canvas, layout, step.view))]);
     step.phases.forEach((phase, i) => {
       const pose = poses[i];
       if (i > 0 && pose && pose !== poses[i - 1]) events.push([phase.start, pose]);
     });
   }
   return events;
-}
-
-/** Where the preview's camera starts a step. */
-function stepPose(canvas: Size, layout: Layout, view: ResolvedView): Pose {
-  const first = view.phases[0];
-  return framePose(canvas, stepFrame(canvas, layout, view, first ? { follow: first } : {}));
-}
-
-/** The pose the following camera holds through each phase of a step. */
-function stepPoses(canvas: Size, layout: Layout, view: ResolvedView): Pose[] {
-  return phasePoses(canvas, layout, view.phases, stepPose(canvas, layout, view));
 }
 
 /**
@@ -83,7 +72,7 @@ export function paceForCamera(
     for (const view of views) {
       paceView(
         view,
-        stepPoses(FOLLOW_CANVAS, layout, view).map((pose) => pose.zoom),
+        automaticPoses(FOLLOW_CANVAS, layout, view).map((pose) => pose.zoom),
       );
     }
   };
