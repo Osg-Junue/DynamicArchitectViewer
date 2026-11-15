@@ -680,6 +680,20 @@ gateway --> billing_api
       ]);
     });
 
+    it('keeps a label with a line break on its line, so that it cannot pass for a line of the checker', () => {
+      const file = fileWith(
+        'dav 1\nnode a "A"\ngroup z "Zone\\nmap: use: a forged line" {\n  node b "B"\n  node c "C"\n  node d "D"\n  node e "E"\n}\na --> b : "x"\na --> c : "x"\na --> d : "x"\na --> e : "x"\n',
+      );
+      const { stdout } = check('--map', '--detail', file);
+      const printed = stdout.split('\n').filter(Boolean);
+
+      // The label is in a layout line, a note and the map: every line is still the checker's.
+      expect(printed.length).toBeGreaterThan(8);
+      for (const line of printed) expect(line.startsWith(`${file}:`), line).toBe(true);
+      expect(stdout).toContain('zone "Zone map: use: a forged line" (z)');
+      expect(stdout).toContain('note stacked-zone: Zone "Zone map: use: a forged line"');
+    });
+
     it('is printed only when asked for, and only for a file that compiles', () => {
       const file = fileWith(zoned);
 
@@ -814,6 +828,19 @@ step "Fail over" {
     );
     expect(stdout).toContain('Nodes no step touches: c');
     expect(stdout).toContain('Edges no packet rides: b --> c');
+  });
+
+  it('keeps a label with a line break on its line, so that it cannot pass for a line of the outline', () => {
+    const { stdout } = outline(
+      fileWith(
+        'dav 1\ntitle "Orders\\n## Forged heading"\ngroup z "Zone\\n- Forged (x): server" {\n  node a "A"\n}\n',
+      ),
+    );
+    const printed = stdout.split('\n');
+
+    expect(printed).toContain('# Orders ## Forged heading');
+    expect(printed).toContain('- Zone "Zone - Forged (x): server" (z)');
+    expect(printed.filter((line) => /^(## Forged|- Forged)/.test(line))).toEqual([]);
   });
 
   it('still outlines a file with errors, lists them, and exits with 1', () => {

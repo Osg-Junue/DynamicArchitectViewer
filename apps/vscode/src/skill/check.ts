@@ -3,6 +3,7 @@ import { type Diagnostic, format, formatDiagnostic, parse } from '../dsl';
 import { lineAtOffset } from '../model/text';
 import { layoutMap } from './layoutMap';
 import { layoutReport } from './layoutReport';
+import { oneLine } from './lines';
 import { reviewDetail } from './review';
 
 /**
@@ -27,7 +28,9 @@ function location(text: string, offset: number): string {
 
 /** A diagnostic as one line that names its place: `file:line:column: severity code: message`. */
 export function diagnosticLine(file: string, text: string, d: Diagnostic): string {
-  return `${file}:${location(text, d.from)}: ${d.severity} ${d.code}: ${formatDiagnostic(d)}`;
+  return oneLine(
+    `${file}:${location(text, d.from)}: ${d.severity} ${d.code}: ${formatDiagnostic(d)}`,
+  );
 }
 
 /** Prints the result for one file, and returns whether nothing was reported. */
@@ -43,26 +46,26 @@ function checkFile(file: string, write: boolean, detail: boolean, map: boolean):
   }
 
   const { document, diagnostics } = parse(text);
-  for (const d of diagnostics) console.log(diagnosticLine(file, text, d));
+  // Every line carries texts of the diagram, and none of them may start a line of its own.
+  const say = (line: string) => console.log(oneLine(line));
+  for (const d of diagnostics) say(diagnosticLine(file, text, d));
   // Hints describe the diagram, so they wait until it compiles.
   const hints = detail && diagnostics.length === 0 ? reviewDetail(document) : [];
-  for (const hint of hints) console.log(`${file}: hint ${hint.code}: ${hint.message}`);
+  for (const hint of hints) say(`${file}: hint ${hint.code}: ${hint.message}`);
   // The layout is described, not judged: its lines and notes do not fail the check.
   if (detail && diagnostics.length === 0) {
     const { summary, notes } = layoutReport(document);
-    for (const line of summary) console.log(`${file}: ${line}`);
-    for (const note of notes) console.log(`${file}: note ${note.code}: ${note.message}`);
+    for (const line of summary) say(`${file}: ${line}`);
+    for (const note of notes) say(`${file}: note ${note.code}: ${note.message}`);
   }
   // The map is asked for by itself: it is long, and a file can be got right without it.
   if (map && diagnostics.length === 0) {
-    for (const line of layoutMap(document)) console.log(`${file}: map: ${line}`);
+    for (const line of layoutMap(document)) say(`${file}: map: ${line}`);
   }
 
   if (diagnostics.length === 0 && hints.length === 0) {
     const { nodes, edges, steps } = document;
-    console.log(
-      `${file}: ok (${nodes.length} nodes, ${edges.length} edges, ${steps.length} steps)`,
-    );
+    say(`${file}: ok (${nodes.length} nodes, ${edges.length} edges, ${steps.length} steps)`);
   }
   return diagnostics.length === 0 && hints.length === 0;
 }
