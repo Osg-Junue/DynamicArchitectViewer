@@ -25,6 +25,7 @@ The `dav` language version follows the major version: every `1.x.x` release is `
 - A rail that runs level past a node keeps above the room of the node's badge where that costs no more than a small detour, instead of running through the badge. A rail that meets a node from above turns higher for the same reason
 - A rail turns towards the node it ends at at least 16 units before it, where it can. A rail that met a node from below turned right under the node's labels, so its arrowhead hid the last stretch and seemed to sit across a level line
 - A zone's name stays at the top left of its zone, in the preview, exported HTML and exported SVG. It no longer follows the camera through its zone: the chip over the diagram tells which zones a phase moves between
+- Zones that are placed freely leave no band across the diagram that only rails run through. Two parts of a large diagram joined by few links could stay hundreds of units apart, because each zone was moved on its own and none left its neighbors. The parts now come together as wholes, and step past a zone in their way into room that was empty, as long as the diagram gets no wider and no higher for it: a diagram of a hundred nodes in eighteen zones is 24 % narrower and 14 % lower, and one of three hundred nodes 34 % narrower
 
 ## 1.1.0 (2026-11-14)
 

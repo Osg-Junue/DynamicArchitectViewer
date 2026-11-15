@@ -62,6 +62,8 @@ const END_TEMPERATURE = 1.5;
 const CANVAS_ASPECT = 1.6;
 /** Sizes of the steps a zone takes towards its neighbors, largest first. */
 const TIGHTEN_STEPS = [128, 64, 32, 16, 8, 4];
+const COMPACT_ROUNDS = 4;
+const COMPACT_MIN_SHIFT = 8;
 const ALIGN_REACH = 140;
 const ALIGN_TOLERANCE = 30;
 /** The most a link costs for being off a straight line, which is also what one that cannot be straight costs. */
@@ -150,7 +152,8 @@ function throughCost(l: BlockLink, placed: readonly Placed[]): number {
   return total;
 }
 
-function spreadCost(placed: readonly Placed[]): number {
+/** The width and the height of the rectangle around the whole arrangement. */
+function extent(placed: readonly Placed[]): { width: number; height: number } {
   let left = Number.POSITIVE_INFINITY;
   let right = Number.NEGATIVE_INFINITY;
   let top = Number.POSITIVE_INFINITY;
@@ -161,9 +164,14 @@ function spreadCost(placed: readonly Placed[]): number {
     top = Math.min(top, p.y);
     bottom = Math.max(bottom, p.y + p.block.height);
   }
+  return { width: right - left, height: bottom - top };
+}
+
+function spreadCost(placed: readonly Placed[]): number {
+  const { width, height } = extent(placed);
   // The longer side of the canvas the arrangement needs: growing along the other side is
   // free, so the search fills the canvas instead of stretching into a strip.
-  return Math.max(right - left, (bottom - top) * CANVAS_ASPECT) * 1.2;
+  return Math.max(width, height * CANVAS_ASPECT) * 1.2;
 }
 
 /** The cost of the whole arrangement. */
@@ -491,6 +499,103 @@ function tighten(links: readonly BlockLink[], placed: readonly Placed[]): void {
   }
 }
 
+/** How far `a` can move back along the axis before it is too close to `b`, which stays. */
+function roomBefore(a: Placed, b: Placed, axis: 'x' | 'y'): number {
+  const across = axis === 'x' ? 'y' : 'x';
+  const size = axis === 'x' ? 'width' : 'height';
+  const acrossSize = axis === 'x' ? 'height' : 'width';
+  const clearance = axis === 'x' ? HORIZONTAL_CLEARANCE : VERTICAL_CLEARANCE;
+  const acrossClearance = axis === 'x' ? VERTICAL_CLEARANCE : HORIZONTAL_CLEARANCE;
+  const apart =
+    a[across] >= b[across] + b.block[acrossSize] + acrossClearance ||
+    b[across] >= a[across] + a.block[acrossSize] + acrossClearance;
+  // A zone that is already before the other only moves further away from it.
+  if (apart || a[axis] + a.block[size] <= b[axis]) return Number.POSITIVE_INFINITY;
+  return a[axis] - (b[axis] + b.block[size]) - clearance;
+}
+
+/**
+ * Closes the room that nothing but links run through. The search and the sliding move one
+ * zone at a time, and a zone that several links hold on one side does not leave them for a
+ * single link on the other: two parts of a diagram then stay apart, however long the links
+ * between them. Here everything past a line moves at once, as far as the clearances allow or
+ * a part of that, when it lowers the cost.
+ *
+ * The part often has room to go further if it first steps aside, past the zone that stops it,
+ * to either side of that zone. With `aside`, both are tried as well, and the move that lowers
+ * the cost most is taken. A step aside must leave the diagram no wider and no higher. Height is free to the
+ * search while the canvas has room for it, and a part that may step out of the diagram does so
+ * at every zone in its way: the zones then run down a diagonal, with two corners left empty.
+ */
+function compact(links: readonly BlockLink[], placed: readonly Placed[], aside: boolean): void {
+  for (let round = 0; round < COMPACT_ROUNDS; round++) {
+    let moved = false;
+    for (const axis of ['x', 'y'] as const) {
+      const across = axis === 'x' ? 'y' : 'x';
+      const acrossSize = axis === 'x' ? 'height' : 'width';
+      const acrossClearance = axis === 'x' ? VERTICAL_CLEARANCE : HORIZONTAL_CLEARANCE;
+      const ordered = [...placed].sort((a, b) => a[axis] - b[axis]);
+      for (let cut = 1; cut < ordered.length; cut++) {
+        const near = ordered.slice(0, cut);
+        const far = ordered.slice(cut);
+        const home = far.map((p) => ({ x: p.x, y: p.y }));
+        const put = (along: number, step: number) => {
+          far.forEach((p, i) => {
+            const at = home[i] as { x: number; y: number };
+            p[axis] = at[axis] - along;
+            p[across] = at[across] + step;
+          });
+        };
+        const outer = extent(placed);
+        const fits = () => {
+          const { width, height } = extent(placed);
+          return width <= outer.width && height <= outer.height;
+        };
+        let best = { cost: linkCost(links, placed), along: 0, step: 0 };
+        /** Tries the moves that start with that step aside, and tells what stops the part. */
+        const slide = (step: number): { stopped: Placed; stopper: Placed } | undefined => {
+          put(0, step);
+          if (step !== 0 && !far.every((p) => isClear(p, placed))) return undefined;
+          let room = Number.POSITIVE_INFINITY;
+          let stop: { stopped: Placed; stopper: Placed } | undefined;
+          for (const stopped of far) {
+            for (const stopper of near) {
+              const r = roomBefore(stopped, stopper, axis);
+              if (r < room) {
+                room = r;
+                stop = { stopped, stopper };
+              }
+            }
+          }
+          // With nothing ahead, the part would only drift along the rest of the diagram.
+          if (!stop) return undefined;
+          for (let along = room; along >= COMPACT_MIN_SHIFT; along /= 2) {
+            put(along, step);
+            if (step !== 0 && !fits()) continue;
+            const cost = linkCost(links, placed);
+            if (cost < best.cost) {
+              best = { cost, along, step };
+              break;
+            }
+          }
+          return stop;
+        };
+        const stop = slide(0);
+        if (stop && aside) {
+          const { stopped, stopper } = stop;
+          const from = (home[far.indexOf(stopped)] as { x: number; y: number })[across];
+          slide(stopper[across] + stopper.block[acrossSize] + acrossClearance - from);
+          slide(stopper[across] - acrossClearance - stopped.block[acrossSize] - from);
+        }
+        put(best.along, best.step);
+        if (best.along !== 0) moved = true;
+      }
+    }
+    if (!moved) break;
+  }
+  for (const l of links) updateSegment(l);
+}
+
 /**
  * The stations at the ends of the link are level, or one is straight above the other, and
  * nothing stands between them: a rail can join them in one straight line.
@@ -674,19 +779,31 @@ export function searchZonePlacement(doc: DavDocument, columnLayout: ColumnLayout
       p.flip = 0;
     }
     anneal(links, placed, seededRandom(seed * 104729));
-    tighten(links, placed);
-    alignEdges(links, placed);
-    // Lining up edges moves zones a little; close what that opened.
-    tighten(links, placed);
-    // Last, since sliding would undo it.
-    straighten(links, placed);
-    const score =
-      linkCost(links, placed) +
-      countCrossings(doc, toLayout(placed)) * 150 -
-      straightLinks(links, placed) * STRAIGHT_WORTH;
-    if (score < bestScore) {
-      bestScore = score;
-      bestPlacement = snapshot(placed);
+    const found: Pose[] = placed.map((p) => ({ x: p.x, y: p.y, flip: p.flip }));
+    // Stepping aside is judged here by the cost between zones alone, and can cost more in
+    // crossings inside them than it saves: the arrangement is finished both ways, and the
+    // one with steps aside is taken only where the whole score is lower for it.
+    for (const aside of [false, true]) {
+      placed.forEach((p, i) => {
+        applyPose(p, found[i] as Pose);
+      });
+      for (const l of links) updateSegment(l);
+      tighten(links, placed);
+      compact(links, placed, aside);
+      alignEdges(links, placed);
+      // Lining up edges moves zones a little; close what that opened.
+      tighten(links, placed);
+      compact(links, placed, aside);
+      // Last, since sliding would undo it.
+      straighten(links, placed);
+      const score =
+        linkCost(links, placed) +
+        countCrossings(doc, toLayout(placed)) * 150 -
+        straightLinks(links, placed) * STRAIGHT_WORTH;
+      if (score < bestScore) {
+        bestScore = score;
+        bestPlacement = snapshot(placed);
+      }
     }
   }
   return bestPlacement;

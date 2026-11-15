@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
+import { computeColumnLayout } from '../columns';
 import { computeLayout, countCrossings, type Rect, rectContains, rectOverlaps } from '../index';
 import { STATION_CENTER } from '../metrics';
 
@@ -77,6 +78,66 @@ describe('zoned placement', () => {
       expect(nearest).toBeLessThanOrEqual(70);
       expect(nearest).toBeGreaterThanOrEqual(34);
     }
+  });
+
+  it('leaves no band across the diagram that only links run through', () => {
+    // Eight entrances hold the front zone by nine links, and a single link leads on from it to a
+    // chain of zones. No zone moving alone closes the gap that link spans: the two parts have
+    // to come together as wholes. Without that, a band 1285 wide is left between them.
+    const lines = ['dav 1', 'group entrances {'];
+    for (let n = 0; n < 8; n++) lines.push(`  node e${n}`);
+    lines.push('}', 'group front {', '  node f0', '  node f1', '  node f2', '  node f3', '}');
+    lines.push('f0 --> f2', 'f1 --> f2', 'f2 --> f3', 'e0 --> f0');
+    for (let n = 0; n < 8; n++) lines.push(`e${n} --> f${n < 2 ? 1 : 2}`);
+    for (let z = 0; z < 7; z++) {
+      lines.push(`group z${z} {`);
+      for (let n = 0; n < 5; n++) lines.push(`  node z${z}n${n}`);
+      lines.push('}');
+      for (let n = 1; n < 5; n++) lines.push(`z${z}n${n - 1} --> z${z}n${n}`);
+      lines.push(z === 0 ? 'f2 --> z0n0' : `z${z - 1}n4 --> z${z}n0`);
+      if (z > 1 && z < 6) lines.push(`z0n1 --> z${z}n4`);
+    }
+    const doc = parse(lines.join('\n')).document;
+    const placed = computeLayout(doc);
+    expect(placed).not.toEqual(computeColumnLayout(doc));
+    for (const [start, size, clearance] of [
+      ['x', 'width', 60],
+      ['y', 'height', 34],
+    ] as const) {
+      const spans = Object.values(placed.groups)
+        .map((r) => [r[start], r[start] + r[size]] as const)
+        .sort((a, b) => a[0] - b[0]);
+      let covered = (spans[0] as readonly [number, number])[1];
+      for (const [from, to] of spans) {
+        // Lining up edges and stations afterwards may open a little more than the clearance.
+        expect(from - covered).toBeLessThan(clearance * 2);
+        covered = Math.max(covered, to);
+      }
+    }
+  });
+
+  it('moves a part of the diagram past the zone in its way, into room that was empty', () => {
+    // Twelve zones in a chain, each linked to the next and to the third after it. Moved only
+    // straight towards the rest, the parts stop at the first zone they meet, and the zones
+    // cover 37 % of the rectangle around them. Stepping past that zone, they cover 63 %.
+    const lines = ['dav 1'];
+    for (let z = 0; z < 12; z++) {
+      lines.push(`group z${z} {`);
+      for (let n = 0; n < 6; n++) lines.push(`  node z${z}n${n}`);
+      lines.push('}');
+      for (let n = 1; n < 6; n++) lines.push(`z${z}n${n - (n % 3 === 0 ? 2 : 1)} --> z${z}n${n}`);
+      if (z > 0) lines.push(`z${z - 1}n5 --> z${z}n0`);
+      if (z > 2) lines.push(`z${z - 3}n1 --> z${z}n5`);
+    }
+    const rects = Object.values(computeLayout(parse(lines.join('\n')).document).groups);
+    const width = Math.max(...rects.map((r) => r.x + r.width)) - Math.min(...rects.map((r) => r.x));
+    const height =
+      Math.max(...rects.map((r) => r.y + r.height)) - Math.min(...rects.map((r) => r.y));
+    const covered = rects.reduce((sum, r) => sum + r.width * r.height, 0);
+    expect(covered / (width * height)).toBeGreaterThan(0.5);
+    rects.forEach((a, i) => {
+      for (const b of rects.slice(i + 1)) expect(rectOverlaps(a, b)).toBe(false);
+    });
   });
 
   it('puts the stations of linked zones level or straight above each other where it can', () => {

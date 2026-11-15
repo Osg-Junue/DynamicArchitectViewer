@@ -18,7 +18,7 @@ interface Job {
 
 /**
  * Keeps the search for where the zones go off the main thread. On a diagram of a hundred nodes
- * it takes about 150 ms and on three hundred over a second, and it runs again whenever the
+ * it takes about 200 ms and on three hundred about a second and a half, and it runs again whenever the
  * structure changes, which while typing an ID is every keystroke.
  *
  * `whenPlanned` calls back once `computeLayout` answers for the diagram without searching: at
