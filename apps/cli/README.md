@@ -15,7 +15,7 @@ This writes `docs/checkout.svg`: an animated SVG that plays every step without a
 | Command | Does |
 | :--- | :--- |
 | `dav export` | Writes an SVG image or a standalone HTML file next to each diagram |
-| `dav check` | Reports what the editor reports. `--detail` adds hints and describes the layout, and `--write` formats the file first |
+| `dav check` | Reports what the editor reports. `--detail` adds hints and describes the layout, `--map` says which node is where, and `--write` formats the file first |
 | `dav format` | Formats files in place. `--check` writes nothing and fails when a file is not formatted |
 | `dav outline` | Prints what a diagram says, with every reference resolved. `--json` prints it as JSON |
 
@@ -42,7 +42,7 @@ A diagram with an error is not exported; the errors are printed with their line 
 `--check` writes nothing. It fails when a file is missing or is not what its diagram exports now:
 
 ```yaml
-- run: npx dynamic-architect-viewer-cli@1.3.0 export --check docs/*.dav
+- run: npx dynamic-architect-viewer-cli@1.4.0 export --check docs/*.dav
 ```
 
 Give the version in full. An export depends only on the text and the options, but a later version may lay out a diagram differently, and then the check fails until the files are exported again.

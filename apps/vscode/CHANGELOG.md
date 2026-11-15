@@ -3,6 +3,15 @@
 This project follows [Semantic Versioning](https://semver.org/). The `0.x` series was a preview.
 The `dav` language version follows the major version: every `1.x.x` release is `dav 1`.
 
+## 1.4.0 (2026-11-16)
+
+- `dav check`, `dav outline` and the two scripts of the skills print a label that holds a line break on one line. What followed the break started a line of its own, so a diagram could write a line that read as the script's: a heading of the outline, a line of the checker. An agent that takes those lines for facts could be told anything that way
+- `dav check --map`, and `--map` of the `dav-check` script of the `dav-diagrams` skill, says which node is where, for a reader that cannot see the diagram: which zones and nodes stand beside each zone, a table of the nodes of each zone by column and row, numbered across the whole diagram so that any two nodes compare by their numbers, and for each connection where its second node lies from its first. It is printed only when asked for, and does not change the exit code. The layout lines of `--detail` give numbers only
+- The `dav-cli` skill gives a whole GitHub Actions workflow for checking exported files, instead of two steps of one. It says that each form a diagram is exported in needs its own `--check` line, and when to name the files instead of a pattern
+- The `dav-diagrams` skill says that the one-line form of `code` takes no title, which only the form between backticks does, and lists the mistake
+- The `dav-diagrams` skill says that the layout lines of the checker give numbers and not which node is where, and that a proportion needs acting on only with the note `tall-diagram`
+- The `dav-diagrams` skill says how to write a step that shows another outcome of an earlier step, such as a payment that fails where it succeeded before: named in its title and `desc`, with the badges set back. The `dav-reading` skill reads such a step as a branch, where it took every step to come after the one before
+
 ## 1.3.0 (2026-11-15)
 
 - A third agent skill, `dav-cli`, has an agent run the `dav` command: it exports a diagram as an SVG or an HTML file, shows it in a README, and checks in CI that the exported files are up to date. It also checks and formats many files at once. The skill carries no script: it runs the npm package with `npx`, under the version it is released with, so that the version that checks a file is the one that wrote it. Install AI Agent Skill installs all three skills

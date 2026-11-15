@@ -82,14 +82,14 @@ npx dynamic-architect-viewer-cli export docs/checkout.dav
 | Command | Does |
 | :--- | :--- |
 | `dav export` | Writes an animated or still SVG, or a standalone HTML file, next to each diagram |
-| `dav check` | Reports what the editor reports. `--detail` adds hints and describes the layout |
+| `dav check` | Reports what the editor reports. `--detail` adds hints and describes the layout, and `--map` says which node is where |
 | `dav format` | Formats files in place. `--check` fails when a file is not formatted |
 | `dav outline` | Prints what a diagram says, with every reference resolved |
 
 `dav export --check` writes nothing and fails when a file is missing or is not what its diagram exports now. In CI, this keeps the SVG in a README up to date:
 
 ```yaml
-- run: npx dynamic-architect-viewer-cli@1.3.0 export --check docs/*.dav
+- run: npx dynamic-architect-viewer-cli@1.4.0 export --check docs/*.dav
 ```
 
 ## AI agent skills
@@ -98,7 +98,7 @@ Three skills teach coding agents to work with `.dav` files. The scripts of the f
 
 | Skill | For | What it runs |
 | :--- | :--- | :--- |
-| [`dav-diagrams`](skills/dav-diagrams/SKILL.md) | Writing and changing diagrams: the language, how layout works, how to structure steps, and how much detail a diagram needs | `dav-check` runs the parser and formatter of the editor, and with `--detail` also reports missing descriptions and code and text too long to be shown in full, and describes the layout |
+| [`dav-diagrams`](skills/dav-diagrams/SKILL.md) | Writing and changing diagrams: the language, how layout works, how to structure steps, and how much detail a diagram needs | `dav-check` runs the parser and formatter of the editor, and with `--detail` also reports missing descriptions and code and text too long to be shown in full, and describes the layout. With `--map` it says which node is where |
 | [`dav-reading`](skills/dav-reading/SKILL.md) | Reading diagrams: explaining the architecture and the data flows a `.dav` file describes | `dav-outline` prints what the file says, with every reference resolved and the packets of each step in order |
 | [`dav-cli`](skills/dav-cli/SKILL.md) | Exporting diagrams: an SVG or an HTML file of a diagram, shown in a README, and kept up to date from CI. Checking and formatting many files at once | `dav`, from the npm package, with `npx`. The skill carries no script |
 

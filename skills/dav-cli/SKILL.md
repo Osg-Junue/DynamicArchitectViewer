@@ -16,7 +16,7 @@ This skill is for running the command. To write or change a `.dav` file, use the
 The command is the npm package `dynamic-architect-viewer-cli`. It needs no install:
 
 ```bash
-npx dynamic-architect-viewer-cli@1.3.0 <command> [options] <file.dav>...
+npx dynamic-architect-viewer-cli@1.4.0 <command> [options] <file.dav>...
 ```
 
 - **Give the version in full,** as above. An export depends only on the text of the diagram and the options, but another version may lay out a diagram differently. So the version that checks an exported file has to be the version that wrote it.
@@ -32,7 +32,7 @@ If Node.js 22.17, npm or the network is missing, say that the command could not 
 | Command | Does | Options |
 | :--- | :--- | :--- |
 | `export <file.dav>...` | Writes an SVG image or a standalone HTML file for each diagram | See [Exporting](#exporting) |
-| `check <file.dav>...` | Prints what the editor reports, one line per finding | `--detail` adds hints and describes the layout. `--write` formats each file first |
+| `check <file.dav>...` | Prints what the editor reports, one line per finding | `--detail` adds hints and describes the layout. `--map` says which node is where. `--write` formats each file first |
 | `format <file.dav>...` | Formats each file in place, as the editor's formatter does | `--check` writes nothing, and fails when a file is not formatted |
 | `outline <file.dav>` | Prints what one diagram says, with every reference resolved | `--json` prints it as JSON |
 
@@ -54,7 +54,7 @@ Read the exit code and the lines the command printed before saying that somethin
 2. **Export.** The file is written next to the diagram, under the same name: `docs/checkout.dav` gives `docs/checkout.svg`.
 
    ```bash
-   npx dynamic-architect-viewer-cli@1.3.0 export docs/checkout.dav
+   npx dynamic-architect-viewer-cli@1.4.0 export docs/checkout.dav
    ```
 
    Each file written is printed as `docs/checkout.svg: 78 KB`.
@@ -84,10 +84,10 @@ A diagram without steps is exported as a still picture.
 `--camera`, `--still` and `--step` apply to an SVG, not to HTML.
 
 ```bash
-npx dynamic-architect-viewer-cli@1.3.0 export docs/*.dav                            # every diagram in docs
-npx dynamic-architect-viewer-cli@1.3.0 export --out-dir docs/media diagrams/*.dav  # into another directory
-npx dynamic-architect-viewer-cli@1.3.0 export --still --step 3 -o docs/failover.svg docs/checkout.dav
-npx dynamic-architect-viewer-cli@1.3.0 export --format html --locale ja docs/checkout.dav
+npx dynamic-architect-viewer-cli@1.4.0 export docs/*.dav                            # every diagram in docs
+npx dynamic-architect-viewer-cli@1.4.0 export --out-dir docs/media diagrams/*.dav  # into another directory
+npx dynamic-architect-viewer-cli@1.4.0 export --still --step 3 -o docs/failover.svg docs/checkout.dav
+npx dynamic-architect-viewer-cli@1.4.0 export --format html --locale ja docs/checkout.dav
 ```
 
 ### Showing an export
@@ -122,26 +122,42 @@ It exits with `1` when a file is missing or out of date. Line endings that a che
 
 **Check with the options the files were exported with.** A file written with `--camera whole` is out of date for a check without it. One command line serves both: with `--check` it checks, and without it it exports.
 
-In CI, as a step of a workflow that has checked out the repository. Use the versions of the actions that the repository's other workflows use:
+In CI on GitHub, this is a whole workflow, as `.github/workflows/diagrams.yml`:
 
 ```yaml
-- uses: actions/setup-node@v7
-  with:
-    node-version: 22
-- run: npx dynamic-architect-viewer-cli@1.3.0 export --check docs/*.dav
+name: Diagrams
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  exports:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: npx dynamic-architect-viewer-cli@1.4.0 export --check docs/*.dav
 ```
 
-Add this only when the user asks for it, or agrees to it. When moving to another version of the package, export every file again in the same change, because the new version may write other bytes.
+Where the repository has workflows already, add the last two steps to a job there instead, and take the versions of the two actions from them.
+
+- **One `--check` line for each form.** A diagram exported as an SVG and as HTML needs a second line, with `--format html`. The HTML contains the source, so a change to a comment makes it out of date where the SVG is not.
+- **Name the files when a pattern does not fit.** A pattern checks every diagram it matches with one set of options. Where the diagrams of a directory are exported with different options, or not all of them are exported, give each command the files it is for.
+
+Add the workflow only when the user asks for it, or agrees to it. When moving to another version of the package, export every file again in the same change, because the new version may write other bytes.
 
 ## Checking and formatting
 
 For one file that is being written, the checker of the `dav-diagrams` skill is the tool. The command is for many files, for a script and for CI:
 
 ```bash
-npx dynamic-architect-viewer-cli@1.3.0 check docs/*.dav          # errors and warnings, as the editor shows them
-npx dynamic-architect-viewer-cli@1.3.0 check --detail docs/*.dav # also hints on missing detail, and the layout
-npx dynamic-architect-viewer-cli@1.3.0 format --check docs/*.dav # fails when a file is not formatted
-npx dynamic-architect-viewer-cli@1.3.0 format docs/*.dav         # formats in place
+npx dynamic-architect-viewer-cli@1.4.0 check docs/*.dav          # errors and warnings, as the editor shows them
+npx dynamic-architect-viewer-cli@1.4.0 check --detail docs/*.dav # also hints on missing detail, and the layout
+npx dynamic-architect-viewer-cli@1.4.0 format --check docs/*.dav # fails when a file is not formatted
+npx dynamic-architect-viewer-cli@1.4.0 format docs/*.dav         # formats in place
 ```
 
 | Line of `check` | Meaning |
@@ -149,7 +165,8 @@ npx dynamic-architect-viewer-cli@1.3.0 format docs/*.dav         # formats in pl
 | `file:line:column: error code: message` | The file does not compile |
 | `file:line:column: warning code: message` | Part of the file is being ignored |
 | `file: hint code: message` | With `--detail`: detail is missing, or a text is cut off |
-| `file: layout: ...` and `file: note code: message` | With `--detail`: where the layout puts things. These lines do not fail the check |
+| `file: layout: ...` and `file: note code: message` | With `--detail`: the size of the layout and the columns and rows it takes. These lines do not fail the check |
+| `file: map: ...` | With `--map`: which node is where, in words and small tables. How to read it is in the `dav-diagrams` skill. These lines do not fail the check either |
 | `file: ok (...)` | Nothing was reported for the file |
 
 `check` exits with `1` for an error, a warning or a hint. `format` leaves a file with a syntax error as it is, reports it and exits with `1`.

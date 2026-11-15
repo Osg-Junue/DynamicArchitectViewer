@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { formatDiagnostic, parse } from '../dsl';
 import type { Animation, DavDocument, DavEdge, DavNode, DavStep } from '../model/types';
+import { oneLine } from './lines';
 import { carries } from './packets';
 
 /**
@@ -89,7 +90,8 @@ interface EdgeOutline {
   shownFromStep?: number;
 }
 
-const arrowOf = (e: DavEdge): string =>
+/** The arrow an edge is written with. */
+export const arrowOf = (e: DavEdge): string =>
   e.direction === 'bidirectional'
     ? e.style === 'dashed'
       ? '<.>'
@@ -351,7 +353,9 @@ function render(file: string, doc: DavDocument, outline: Outline): string {
     list('Nodes no step touches', outline.neverInAStep);
     list('Edges no packet rides', outline.edgesWithoutPackets, (edge) => edge);
   }
-  return `${lines.join('\n')}\n`;
+  // Each entry is one line of the outline: a label with a line break in it stays on its line,
+  // and cannot pass for a heading or a line of its own.
+  return `${lines.map(oneLine).join('\n')}\n`;
 }
 
 /** Prints the outline of the file in its arguments and returns the exit code. `usage` names the command. */
@@ -383,6 +387,8 @@ export function runOutline(args: readonly string[], usage = USAGE): number {
   );
   // The outline still describes what could be read; the reader should know it may be partial.
   const errors = diagnostics.filter((d) => d.severity === 'error');
-  for (const d of errors) console.error(`${file}: error ${d.code}: ${formatDiagnostic(d)}`);
+  for (const d of errors) {
+    console.error(oneLine(`${file}: error ${d.code}: ${formatDiagnostic(d)}`));
+  }
   return errors.length > 0 ? EXIT_ERRORS : EXIT_OK;
 }
