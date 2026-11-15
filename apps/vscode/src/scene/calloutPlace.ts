@@ -1,6 +1,16 @@
 import { type Rect, rectOverlaps } from '../layout';
 import { calloutRect, computePacketCalloutBox } from './callout';
 import { expandRect, type Point, pointAt, type Rail, railBox, railLength } from './geometry';
+import {
+  type Bounds,
+  boundsOfPoints,
+  nearestRun,
+  type Runs,
+  reach,
+  reachBounds,
+  runsEnter,
+  runsOf,
+} from './railSamples';
 import type { Packet } from './resolve';
 
 /**
@@ -81,20 +91,6 @@ function samples(rail: Rail): Point[] {
   return Array.from({ length: count + 1 }, (_, i) => pointAt(rail, i / count));
 }
 
-/** Distance from a point to a rectangle; zero inside it. */
-function reach(rect: Rect, p: Point): number {
-  return Math.hypot(
-    Math.max(rect.x - p.x, 0, p.x - (rect.x + rect.width)),
-    Math.max(rect.y - p.y, 0, p.y - (rect.y + rect.height)),
-  );
-}
-
-function nearest(rect: Rect, points: readonly Point[]): number {
-  let best = Number.POSITIVE_INFINITY;
-  for (const p of points) best = Math.min(best, reach(rect, p));
-  return best;
-}
-
 /** Whether two rails run together all the way: the shorter never leaves the side of the longer. */
 function alongside(a: readonly Point[], b: readonly Point[]): boolean {
   const [short, long] = a.length <= b.length ? [a, b] : [b, a];
@@ -133,6 +129,25 @@ export function placePhaseCallouts(phase: readonly Packet[], around: CalloutSurr
     // The shortest rails first: they leave the least choice.
     .sort((a, b) => a.own.length - b.own.length || a.index - b.index);
   const rails = around.rails.map(sampleOf);
+  // The bounds and the runs of each rail's samples, worked out once.
+  const railBounds = new Map<readonly Point[], Bounds>();
+  const boundsOfRail = (points: readonly Point[]): Bounds => {
+    let bounds = railBounds.get(points);
+    if (!bounds) {
+      bounds = boundsOfPoints(points);
+      railBounds.set(points, bounds);
+    }
+    return bounds;
+  };
+  const railRuns = new Map<readonly Point[], Runs>();
+  const runsOfRail = (points: readonly Point[]): Runs => {
+    let runs = railRuns.get(points);
+    if (!runs) {
+      runs = runsOf(points);
+      railRuns.set(points, runs);
+    }
+    return runs;
+  };
   const taken: Rect[] = [];
 
   for (const { packet, size, own } of entries) {
@@ -144,6 +159,7 @@ export function placePhaseCallouts(phase: readonly Packet[], around: CalloutSurr
     // Nor is any other line of the step to be nearer than its own, so that a callout is not
     // read as describing the line it happens to sit by, unless no place that is not is near.
     const others = rails.filter((points) => !alongside(points, own) && !rivals.includes(points));
+    const ownRuns = runsOfRail(own);
     const middle = pointAt(packet.path, 0.5);
     const acrossBorder = (rect: Rect) => zones.some((zone) => !respectsZone(rect, zone));
     const inCell = (rect: Rect) => cells.some((cell) => rectOverlaps(rect, cell));
@@ -156,22 +172,15 @@ export function placePhaseCallouts(phase: readonly Packet[], around: CalloutSurr
       const spaced = expandRect(rect, CALLOUT_CLEARANCE);
       if (closed.some((area) => rectOverlaps(rect, area))) return undefined;
       if (taken.some((other) => rectOverlaps(spaced, other))) return undefined;
-      for (const points of rails) {
-        for (const p of points) {
-          if (
-            p.x > padded.x &&
-            p.x < padded.x + padded.width &&
-            p.y > padded.y &&
-            p.y < padded.y + padded.height
-          ) {
-            return undefined;
-          }
-        }
-      }
-      const mine = nearest(rect, own);
+      if (rails.some((points) => runsEnter(padded, runsOfRail(points)))) return undefined;
+      const mine = nearestRun(rect, ownRuns);
       if (mine < OWN_RAIL_GAP) return undefined;
-      if (rivals.some((points) => nearest(rect, points) < mine + OWN_RAIL_MARGIN)) return undefined;
-      return others.some((points) => nearest(rect, points) < mine) ? 'byOther' : 'apart';
+      /** Whether a rail comes nearer the place than `than`; its box is asked first. */
+      const nearer = (points: readonly Point[], than: number): boolean =>
+        reachBounds(rect, boundsOfRail(points)) < than &&
+        nearestRun(rect, runsOfRail(points)) < than;
+      if (rivals.some((points) => nearer(points, mine + OWN_RAIL_MARGIN))) return undefined;
+      return others.some((points) => nearer(points, mine)) ? 'byOther' : 'apart';
     };
     /** What a place's distance from the middle of the rail adds to its distance from the rail. */
     const fromMiddle = (rect: Rect): number =>
@@ -180,7 +189,7 @@ export function placePhaseCallouts(phase: readonly Packet[], around: CalloutSurr
         CENTER_WEIGHT;
     /** How good a place is: its distance, and what it costs to be there. */
     const cost = (rect: Rect): number =>
-      nearest(rect, own) +
+      nearestRun(rect, ownRuns) +
       fromMiddle(rect) +
       // Above its rail before below it, and either before beside it, when all else is equal.
       (middle.y >= rect.y + rect.height ? 0 : middle.y <= rect.y ? 0.5 : 1) +
@@ -191,17 +200,30 @@ export function placePhaseCallouts(phase: readonly Packet[], around: CalloutSurr
     // be further away by more than BY_OTHER_LINE_COST.
     let best: { rect: Rect; cost: number } | undefined;
     let apart = true;
+    const ownBounds = boundsOfRail(own);
+    /**
+     * Places this near the rail were looked at in a nearer reach already, or cost more than the
+     * best place found then: either way none of them is better than the best.
+     */
+    let searched = 0;
     for (const limit of SEARCH_REACHES) {
+      // A place no nearer than the best one costs is no better, whatever else it costs.
+      const within = best ? Math.min(limit, best.cost) : limit;
+      const tooFar = (gap: number): boolean =>
+        gap > within || (best !== undefined && gap >= best.cost);
       const box = expandRect(railBox(packet.path), limit);
       const candidates: Array<{ rect: Rect; base: number }> = [];
       for (let y = box.y - size.height; y <= box.y + box.height; y += SEARCH_STEP) {
         for (let x = box.x - size.width; x <= box.x + box.width; x += SEARCH_STEP) {
           const rect = { x, y, width: size.width, height: size.height };
-          const gap = nearest(rect, own);
-          if (gap < OWN_RAIL_GAP || gap > limit) continue;
+          // No nearer the rail than to the bounds of its samples, which is quicker to tell.
+          if (tooFar(reachBounds(rect, ownBounds))) continue;
+          const gap = nearestRun(rect, ownRuns);
+          if (gap < OWN_RAIL_GAP || gap <= searched || tooFar(gap)) continue;
           candidates.push({ rect, base: gap + fromMiddle(rect) });
         }
       }
+      searched = limit;
       // Nearest first; ties in reading order, to stay deterministic.
       candidates.sort((a, b) => a.base - b.base || a.rect.y - b.rect.y || a.rect.x - b.rect.x);
       for (const { rect, base } of candidates) {
