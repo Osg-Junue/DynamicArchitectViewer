@@ -20,6 +20,7 @@ import { collectUsedIcons } from './icons';
 import {
   CANVAS_HEIGHT,
   cameraKeys,
+  paceForCamera,
   planCamera,
   WIDTH,
   wholeAcrossSteps,
@@ -40,7 +41,7 @@ import { Clock, num, pushAll, roundRect, type StepSlot, schedule, viewBoxOf } fr
 import { animatedPacket, animateHighlights, stillHighlights, zoneLabelLayer } from './svgScene';
 import { toXml } from './xml';
 
-export { planCamera } from './svgCamera';
+export { paceForCamera, planCamera } from './svgCamera';
 export { type PhaseSlot, type StepSlot, schedule } from './svgClock';
 
 export interface SvgExportOptions {
@@ -206,7 +207,7 @@ function animatedSvg(
   cameraMode: 'follow' | 'whole',
   only?: number,
 ): string {
-  const { steps, total } = schedule(doc, layout, only);
+  const { steps, total } = schedule(doc, layout, only, paceForCamera(doc, layout, cameraMode));
   const icons = collectUsedIcons(doc);
   const clock = new Clock(total);
   const wholeRect = wholeAcrossSteps(doc, layout, steps);

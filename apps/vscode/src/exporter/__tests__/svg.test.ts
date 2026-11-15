@@ -17,7 +17,8 @@ import {
   visibleWorld,
   wholeDiagramFrame,
 } from '../../scene';
-import { exportSvg, planCamera, schedule } from '../svg';
+import { railLength } from '../../scene/geometry';
+import { exportSvg, paceForCamera, planCamera, schedule } from '../svg';
 import { escapeHtml, toXml } from '../xml';
 
 const CANVAS: Size = { width: 960, height: 540 };
@@ -624,6 +625,34 @@ describe('planCamera', () => {
       ),
     ]);
     expect(events.map(([t]) => t)).toContain(steps[1]?.start);
+  });
+
+  it('times each phase by how far its packets move at the zoom the camera shows them at', () => {
+    const { document } = parse(sampleDsl('enterprise-zero-trust-10anim'));
+    const layout = computeLayout(document);
+    const plain = schedule(document, layout);
+    const { steps, total } = schedule(
+      document,
+      layout,
+      undefined,
+      paceForCamera(document, layout, 'follow'),
+    );
+    const events = planCamera(CANVAS, layout, steps);
+    const zoomAt = (t: number) => events.filter(([at]) => at <= t).at(-1)?.[1].zoom ?? 1;
+
+    let lone = 0;
+    for (const step of steps) {
+      for (const phase of step.phases) {
+        const [packet] = phase.packets;
+        if (phase.packets.length !== 1 || !packet || packet.roundTrip) continue;
+        const pixelsPerSecond =
+          (railLength(packet.path) * zoomAt(phase.start)) / (packet.durationMs / 1000);
+        expect(pixelsPerSecond).toBeLessThanOrEqual(260.5);
+        lone++;
+      }
+    }
+    expect(lone).toBeGreaterThan(0);
+    expect(total).not.toBe(plain.total);
   });
 
   it('moves closer than the whole diagram on a wide one', () => {

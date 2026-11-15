@@ -158,6 +158,27 @@ export function stepFrame(
   return { rect: bounds, maxZoom: MAX_FIT_ZOOM };
 }
 
+/**
+ * The pose the camera holds through each phase of a step when nothing else moves it: `first`
+ * for the first phase, then the same pose as long as a phase's packets are on screen, and the
+ * calm frame of the ones that are not.
+ */
+export function phasePoses(
+  canvas: Size,
+  layout: Layout,
+  phases: readonly (readonly Packet[])[],
+  first: Pose,
+): Pose[] {
+  let pose = first;
+  return phases.map((packets, i) => {
+    if (i > 0 && !packetsOnScreen(layout, packets, visibleWorld(canvas, pose))) {
+      const frame = calmFrame(canvas, layout, packets);
+      if (frame) pose = framePose(canvas, frame);
+    }
+    return pose;
+  });
+}
+
 /** Frames the packets of one phase closely, with their callouts and rails. */
 export function followFrame(layout: Layout, packets: readonly Packet[]): Frame {
   const { nodes, groups } = layout;

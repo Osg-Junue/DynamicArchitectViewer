@@ -6,12 +6,15 @@ import {
   calmFrame,
   clamp,
   followFrame,
+  framePose,
   HOLD_MS,
   type IconShapes,
   measureCalloutsWith,
   type Packet,
   PHASE_MS,
+  paceView,
   packetsOnScreen,
+  phasePoses,
   type ResolvedView,
   resolveView,
   stepFrame,
@@ -111,6 +114,8 @@ export class Player {
   #followAnim = false;
   /** The reader asked for the whole diagram; the camera stays until the next step. */
   #holdFrame = false;
+  /** The phases were timed before the canvas had a size, at zoom 1. */
+  #pacedWithoutSize = false;
 
   readonly #root: HTMLElement;
   readonly #zoneHud: HTMLElement;
@@ -465,6 +470,7 @@ export class Player {
     } else {
       this.#fit();
     }
+    this.#repace();
   }
 
   // ---------------------------------------------------------------------------
@@ -524,6 +530,7 @@ export class Player {
       this.#elapsed = 0;
       this.#pinned = false;
     }
+    this.#pace(0);
     this.#renderPackets();
     this.#updateDock();
     if (!opts.keepPhase && !this.#followAnim && !this.#userMoved) this.#frameStep(true);
@@ -571,6 +578,59 @@ export class Player {
 
   #phaseMs(index: number): number {
     return this.#view.phaseDurations[index] ?? PHASE_MS;
+  }
+
+  /**
+   * Times the phases from `from` on by how far their packets move on screen, at the zoom the
+   * camera will show each one at. An `opening` step starts where the step is framed; otherwise
+   * the camera goes on from where it is heading.
+   */
+  #pace(from: number, opening = from === 0): void {
+    const size = this.#camera.viewSize;
+    this.#pacedWithoutSize = size.width === 0 || size.height === 0;
+    if (this.#pacedWithoutSize) {
+      paceView(this.#view, [], from);
+      return;
+    }
+    const { layout } = this.#data;
+    const phases = this.#view.phases;
+    const rest = phases.slice(from);
+    const held = this.#camera.destination;
+    let zooms: number[];
+    if (this.#followAnim) {
+      zooms = rest.map((packets) => framePose(size, followFrame(layout, packets)).zoom);
+    } else if (this.#userMoved || this.#holdFrame || (this.#fixedFrame && !opening)) {
+      zooms = rest.map(() => held.zoom);
+    } else if (opening) {
+      const first = framePose(
+        size,
+        stepFrame(size, layout, this.#view, {
+          fixed: this.#fixedFrame,
+          ...(phases[0] ? { follow: phases[0] } : {}),
+        }),
+      );
+      zooms = this.#fixedFrame
+        ? rest.map(() => first.zoom)
+        : phasePoses(size, layout, rest, first).map((pose) => pose.zoom);
+    } else {
+      // The camera now shows the phase before `from`, or nothing in particular at the start.
+      const before = phases[from - 1] ?? [];
+      zooms = phasePoses(size, layout, [before, ...rest], held)
+        .slice(1)
+        .map((pose) => pose.zoom);
+    }
+    paceView(this.#view, zooms, from);
+  }
+
+  /**
+   * Times again what has not started playing, after the camera changed how large it draws the
+   * diagram. A phase in motion keeps its time, so that its packets do not jump.
+   */
+  #repace(): void {
+    const moving = !this.#isStopped() && this.#elapsed > 0;
+    const from = this.#pacedWithoutSize ? 0 : moving ? this.#phase + 1 : this.#phase;
+    this.#pace(this.#isStopped() ? 0 : from);
+    this.#updateStepProgress();
   }
 
   /** Says which zones the current phase moves between, and outlines them. */
@@ -665,6 +725,7 @@ export class Player {
         this.#packets.place(this.#elapsed);
         if (this.#elapsed >= this.#phaseMs(this.#phase) + 400) {
           this.#elapsed = 0;
+          this.#pace(this.#phase, false);
           this.#packets.reset();
         }
       }
@@ -682,9 +743,11 @@ export class Player {
         this.next();
         return;
       }
-      // 'step' mode: replay all phases of the current step from the beginning.
+      // 'step' mode: replay all phases of the current step from the beginning, from where the
+      // camera is now.
       this.#phase = 0;
       this.#elapsed = 0;
+      this.#pace(0, false);
       this.#renderPackets();
     }
 
@@ -704,6 +767,7 @@ export class Player {
   #reframe(): void {
     if (this.#followAnim) this.#focusCurrentPhase(false);
     else if (!this.#userMoved) this.#frameStep(false);
+    this.#repace();
   }
 
   #focusCurrentPhase(smooth: boolean): void {
@@ -731,6 +795,7 @@ export class Player {
     }
     this.#holdFrame = true;
     this.#fit();
+    this.#repace();
   }
 
   #onCameraMove(): void {
@@ -751,5 +816,6 @@ export class Player {
   #zoomBy(factor: number, cx?: number, cy?: number): void {
     this.#camera.zoomBy(factor, cx, cy);
     this.#userMoved = true;
+    this.#repace();
   }
 }

@@ -36,6 +36,11 @@ export class Camera {
     return this.#pose.zoom;
   }
 
+  /** Where the camera is heading, or where it is when it is not moving. */
+  get destination(): Pose {
+    return this.#target ?? this.#pose;
+  }
+
   get isEasing(): boolean {
     return this.#target !== null;
   }
