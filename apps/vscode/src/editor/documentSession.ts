@@ -122,7 +122,7 @@ export class DocumentSession {
       return;
     }
     this.#awaitingLayout = true;
-    this.#planner.whenPlanned(parsed.document, () => {
+    const drawn = () => {
       this.#awaitingLayout = false;
       this.#valid = {
         dsl,
@@ -136,6 +136,8 @@ export class DocumentSession {
         this.#heldCursorOffset = null;
         this.cursorMoved(offset);
       }
-    });
+    };
+    // With no diagram of this document on screen yet, the preview is empty until this one is.
+    this.#planner.whenPlanned(parsed.document, drawn, this.#valid === null);
   }
 }
