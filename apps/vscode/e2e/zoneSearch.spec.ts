@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, type Page, test } from '@playwright/test';
-import { openWebview, sendDsl } from './helpers';
+import { chosen, openWebview, sendDsl } from './helpers';
 
 /** A diagram with links long enough that the zones are searched for a better place. */
 const SEARCHED_DSL = readFileSync(
@@ -53,7 +53,7 @@ test.describe('searching for where the zones go', () => {
       [SEARCHED_DSL, SEARCHED_DSL.indexOf('step "Reserve stock"') + 8] as const,
     );
     await expect(page.locator('.dav-node')).toHaveCount(9);
-    await expect(page.getByTestId('select-step')).toHaveValue('1');
+    await expect(chosen(page, 'select-step')).toHaveAttribute('data-value', '1');
     expect(workers).toBe(1);
   });
 

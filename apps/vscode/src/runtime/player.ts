@@ -28,6 +28,7 @@ import {
   type PlayMode,
   SPEEDS,
   setButtonPressed,
+  showChoice,
   showPlayback,
 } from './controls';
 import { StepDock } from './dock';
@@ -484,14 +485,11 @@ export class Player {
     this.#controls.playBtn.disabled = noSteps;
     this.#controls.playModeBtn.disabled = noSteps;
     this.#controls.motionBtn.disabled = noSteps || this.#reducedMotion;
-    this.#controls.speedSelect.disabled = noSteps;
-    clear(this.#controls.stepSelect);
-    this.#controls.stepSelect.append(html('option', { value: 'overview' }, this.#strings.overview));
-    doc.steps.forEach((step, i) => {
-      this.#controls.stepSelect.append(
-        html('option', { value: String(i) }, `${i + 1}. ${step.title}`),
-      );
-    });
+    this.#controls.speedBtn.disabled = noSteps;
+    this.#controls.stepMenu.setItems([
+      { value: 'overview', label: this.#strings.overview },
+      ...doc.steps.map((_, i) => ({ value: String(i), label: this.#stepLabel(i) })),
+    ]);
     this.#dock.setSteps(doc.steps);
   }
 
@@ -654,9 +652,19 @@ export class Player {
     if (frame) this.#camera.frame(frame, smooth);
   }
 
+  #stepLabel(index: number): string {
+    return `${index + 1}. ${this.#data.document.steps[index]?.title ?? ''}`;
+  }
+
   #updateDock(): void {
-    this.#controls.stepSelect.value =
-      this.#view.stepIndex === null ? 'overview' : String(this.#view.stepIndex);
+    const index = this.#view.stepIndex;
+    const { stepBtn, stepMenu } = this.#controls;
+    showChoice(
+      stepBtn,
+      stepMenu,
+      index === null ? this.#strings.overview : this.#stepLabel(index),
+      index === null ? 'overview' : String(index),
+    );
     this.#dock.showStep(this.#view, this.#data.document.steps.length);
     this.#updateStepProgress();
     this.#updatePlayButton();

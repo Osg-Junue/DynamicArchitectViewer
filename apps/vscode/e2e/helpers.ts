@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { expect, type Page } from '@playwright/test';
+import { expect, type FrameLocator, type Locator, type Page } from '@playwright/test';
 import { createServer } from 'vite';
 import type { SvgExportOptions } from '../src/exporter';
 import type { WebviewToHostMessage } from '../src/protocol/messages';
@@ -125,4 +125,22 @@ export function watchErrors(page: Page): string[] {
     if (msg.type() === 'error') errors.push(`console: ${msg.text()}`);
   });
   return errors;
+}
+
+type Scope = Page | FrameLocator | Locator;
+type Dropdown = 'select-step' | 'select-speed';
+const ITEM_PREFIX: Record<Dropdown, string> = {
+  'select-step': 'step-option',
+  'select-speed': 'speed',
+};
+
+/** Chooses a value in one of the bar's dropdowns: the step list or the speed. */
+export async function choose(scope: Scope, dropdown: Dropdown, value: string): Promise<void> {
+  await scope.getByTestId(dropdown).click();
+  await scope.getByTestId(`${ITEM_PREFIX[dropdown]}-${value}`).click();
+}
+
+/** The item a dropdown marks as its current value; its `data-value` is that value. */
+export function chosen(scope: Scope, dropdown: Dropdown): Locator {
+  return scope.locator(`[data-testid^="${ITEM_PREFIX[dropdown]}-"][aria-checked="true"]`);
 }

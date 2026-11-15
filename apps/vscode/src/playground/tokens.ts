@@ -96,7 +96,7 @@ function theme(base: 'vs' | 'vs-dark', colors: TokenColors, background: string) 
     base,
     inherit: true,
     rules: Object.entries(colors).map(([token, foreground]) => ({ token, foreground })),
-    // The background of the page (`--raw-bg` in scene.css), so that the two panes are one surface.
+    // The background of the page (the fallback of `--dav-bg` in scene.css), so that the two panes are one surface.
     colors: { 'editor.background': background },
   } satisfies editor.IStandaloneThemeData;
 }

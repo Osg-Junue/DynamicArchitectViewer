@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { expect, test } from '@playwright/test';
-import { DEFAULT_DSL, openWebview, watchErrors, writeExport } from './helpers';
+import { choose, DEFAULT_DSL, openWebview, watchErrors, writeExport } from './helpers';
 
 test.describe('exported HTML', () => {
   test('works standalone from file:// under its strict CSP', async ({ page, context }, info) => {
@@ -17,7 +17,7 @@ test.describe('exported HTML', () => {
 
     // Rendered by the inline runtime (would be blocked if the CSP hash were wrong).
     await expect(viewer.locator('.dav-node')).toHaveCount(8);
-    await expect(viewer.getByTestId('select-step').locator('option')).toHaveCount(5);
+    await expect(viewer.locator('[data-testid^="step-option-"]')).toHaveCount(5);
     await expect(viewer.locator('.dav-step-title')).toContainText('Step 1 / 4');
     await expect(viewer.locator('header.dav-topbar [data-testid="btn-play"]')).toBeVisible();
 
@@ -37,12 +37,12 @@ test.describe('exported HTML', () => {
     // Keyboard & top dropdown navigation.
     await viewer.locator('body').press('ArrowRight');
     await expect(viewer.locator('.dav-step-title')).toContainText('Step 2 / 4');
-    await viewer.getByTestId('select-step').selectOption('3');
+    await choose(viewer, 'select-step', '3');
     await expect(viewer.locator('.dav-step-title')).toContainText('Step 4 / 4');
     await expect(viewer.locator('.dav-node[data-id="db_pri"] .dav-badge')).toContainText('DOWN');
 
     // Scene DOM in exported HTML must match the editor preview at the same step.
-    await page.getByTestId('select-step').selectOption('3');
+    await choose(page, 'select-step', '3');
     expect(await viewer.locator('.dav-scene').innerHTML()).toBe(
       await page.locator('.dav-scene').innerHTML(),
     );
