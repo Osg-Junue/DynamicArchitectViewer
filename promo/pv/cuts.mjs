@@ -87,7 +87,8 @@ async function openPreview(ctx, line, col = 5, speed = '1') {
     (o) => window.postMessage({ type: 'cursorMoved', offset: o }, '*'),
     offsetOf(line, col),
   );
-  await frame.selectOption('[data-testid=select-speed]', speed);
+  await frame.click('[data-testid=select-speed]');
+  await frame.click(`[data-testid=speed-${speed}]`);
   await clock.runFor(1500);
   ctx.frame = frame;
   return frame;
