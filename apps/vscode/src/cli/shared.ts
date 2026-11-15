@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, globSync, readFileSync } from 'node:fs';
 
 export const EXIT_OK = 0;
 /** Something was reported: a diagnostic, or a file that is missing or out of date. */
@@ -12,6 +12,19 @@ export class UsageError extends Error {}
 /** Reads a `.dav` file as the editor does: VS Code ignores a byte order mark, and some shells write one. */
 export function readDav(file: string): string {
   return readFileSync(file, 'utf8').replace(/^﻿/, '');
+}
+
+/**
+ * The files the arguments name. PowerShell and cmd.exe hand `docs/*.dav` over as it is, where
+ * a POSIX shell lists the files, so a pattern that is not a file itself is expanded here. One
+ * that matches nothing is left as it is, and is then reported as a file that cannot be read.
+ */
+export function expandFiles(args: readonly string[]): string[] {
+  return args.flatMap((arg) => {
+    if (!/[*?]/.test(arg) || existsSync(arg)) return [arg];
+    const found = globSync(arg).sort();
+    return found.length > 0 ? found : [arg];
+  });
 }
 
 /** The value of an option that takes one of a few words, or `fallback` when it is not given. */

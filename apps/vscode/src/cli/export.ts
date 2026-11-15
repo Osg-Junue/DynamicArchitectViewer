@@ -10,6 +10,7 @@ import {
   EXIT_OK,
   EXIT_USAGE,
   errorMessage,
+  expandFiles,
   oneOf,
   readDav,
   UsageError,
@@ -93,6 +94,19 @@ function targetOf(file: string, plan: ExportPlan): string {
   return join(plan.outDir ?? dirname(file), name);
 }
 
+/** Two diagrams of one name, sent to one directory, would be one file: the second replacing the first. */
+function rejectSharedTargets(files: readonly string[], plan: ExportPlan): void {
+  const sources = new Map<string, string>();
+  for (const file of files) {
+    const target = targetOf(file, plan);
+    const first = sources.get(resolve(target));
+    if (first === undefined) sources.set(resolve(target), file);
+    else if (resolve(first) !== resolve(file)) {
+      throw new UsageError(`${first} and ${file} would both be written to ${target}`);
+    }
+  }
+}
+
 function render(text: string, document: DavDocument, plan: ExportPlan): Promise<string> | string {
   if (plan.format === 'html') return exportHtml(text, { locale: plan.locale });
   return exportSvg(document, {
@@ -154,7 +168,7 @@ async function exportFile(file: string, plan: ExportPlan): Promise<boolean> {
 }
 
 export async function runExport(args: readonly string[]): Promise<number> {
-  const { values, positionals: files } = parseArgs({
+  const { values, positionals } = parseArgs({
     args: [...args],
     allowPositionals: true,
     options: {
@@ -174,10 +188,12 @@ export async function runExport(args: readonly string[]): Promise<number> {
     return EXIT_OK;
   }
   const plan = planOf(values);
+  const files = expandFiles(positionals);
   if (files.length === 0) throw new UsageError('no .dav file was given');
   if (plan.out !== undefined && files.length > 1) {
     throw new UsageError('--out names one file; use --out-dir for several diagrams');
   }
+  rejectSharedTargets(files, plan);
 
   let clean = true;
   for (const file of files) {
