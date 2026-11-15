@@ -623,4 +623,38 @@ describe('which line a callout is read as describing', () => {
     const r = calloutRect(box);
     expect(gap(r, own)).toBeLessThanOrEqual(gap(r, below));
   });
+
+  it('sits by another line rather than have no place, where nothing nearer its own is free', () => {
+    // Everything is taken but the room under the next line down.
+    const own = route([0, 100], [300, 100]);
+    const below = route([0, 150], [300, 150]);
+    const packet: Packet = {
+      from: 'a',
+      to: 'b',
+      fromLabel: 'A',
+      toLabel: 'B',
+      label: 'Scan',
+      color: DEFAULT_FLOW_COLOR,
+      path: own,
+      roundTrip: false,
+      durationMs: 2000,
+    };
+    placePhaseCallouts([packet], {
+      closed: [
+        { x: -1000, y: -1000, width: 2300, height: 1070 },
+        { x: -1000, y: 70, width: 1000, height: 2000 },
+        { x: 300, y: 70, width: 1000, height: 2000 },
+      ],
+      cells: [],
+      zones: [],
+      rails: [own, below],
+    });
+    const box = computePacketCalloutBox(packet);
+    if (!box) throw new Error('no callout');
+    // Placed by the search, not left above the middle of its rail.
+    expect(packet.calloutAt).toBeDefined();
+    const r = calloutRect(box);
+    expect(r.y).toBeGreaterThan(150);
+    expect(gap(r, below)).toBeLessThan(gap(r, own));
+  });
 });

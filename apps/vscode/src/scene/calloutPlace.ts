@@ -47,6 +47,13 @@ const ZONE_INSIDE_PAD = 16;
 const OWN_RAIL_MARGIN = 24;
 /** How much closer a place must be to be worth lying across a zone's border. */
 const BORDER_COST = 12;
+/**
+ * What being nearer another line of the step than its own costs a place: a callout sits by
+ * another line only where every place that is not is further away by more than this. Counted
+ * as a cost rather than as a rule, it lets the search stop once such a place is found, instead
+ * of looking through every reach for a place that keeps the rule.
+ */
+const BY_OTHER_LINE_COST = 200;
 /** How much closer a place must be to be worth using a node's cell. */
 const CELL_COST = 12;
 /** What a unit of distance from the middle of the rail counts, next to one from the rail. */
@@ -107,14 +114,24 @@ function respectsZone(rect: Rect, zone: Rect): boolean {
 export function placePhaseCallouts(phase: readonly Packet[], around: CalloutSurroundings): void {
   for (const packet of phase) delete packet.calloutAt;
   const { closed, cells, zones } = around;
+  // Each rail sampled once, so that a packet's samples are the same array wherever they are used.
+  const sampled = new Map<Rail, Point[]>();
+  const sampleOf = (rail: Rail): Point[] => {
+    let points = sampled.get(rail);
+    if (!points) {
+      points = samples(rail);
+      sampled.set(rail, points);
+    }
+    return points;
+  };
   const entries = phase
     .flatMap((packet, index) => {
       const box = computePacketCalloutBox(packet);
-      return box ? [{ packet, index, size: calloutRect(box), own: samples(packet.path) }] : [];
+      return box ? [{ packet, index, size: calloutRect(box), own: sampleOf(packet.path) }] : [];
     })
     // The shortest rails first: they leave the least choice.
     .sort((a, b) => a.own.length - b.own.length || a.index - b.index);
-  const rails = around.rails.map(samples);
+  const rails = around.rails.map(sampleOf);
   const taken: Rect[] = [];
 
   for (const { packet, size, own } of entries) {
@@ -124,18 +141,20 @@ export function placePhaseCallouts(phase: readonly Packet[], around: CalloutSurr
       .filter((e) => e.packet !== packet && !alongside(e.own, own))
       .map((e) => e.own);
     // Nor is any other line of the step to be nearer than its own, so that a callout is not
-    // read as describing the line it happens to sit by. Where that leaves no place within
-    // reach, this one rule is given up before the callout is left without a place.
+    // read as describing the line it happens to sit by, unless no place that is not is near.
     const others = rails.filter((points) => !alongside(points, own) && !rivals.includes(points));
-    let apartFromOthers = true;
     const middle = pointAt(packet.path, 0.5);
     const acrossBorder = (rect: Rect) => zones.some((zone) => !respectsZone(rect, zone));
     const inCell = (rect: Rect) => cells.some((cell) => rectOverlaps(rect, cell));
-    const isFree = (rect: Rect): boolean => {
+    /**
+     * Whether a place is free: `apart` when it keeps every rule, `byOther` when it is free but
+     * nearer another line of the step than its own, and `undefined` when it is not free.
+     */
+    const freedom = (rect: Rect): 'apart' | 'byOther' | undefined => {
       const padded = expandRect(rect, RAIL_CLEARANCE);
       const spaced = expandRect(rect, CALLOUT_CLEARANCE);
-      if (closed.some((area) => rectOverlaps(rect, area))) return false;
-      if (taken.some((other) => rectOverlaps(spaced, other))) return false;
+      if (closed.some((area) => rectOverlaps(rect, area))) return undefined;
+      if (taken.some((other) => rectOverlaps(spaced, other))) return undefined;
       for (const points of rails) {
         for (const p of points) {
           if (
@@ -144,16 +163,14 @@ export function placePhaseCallouts(phase: readonly Packet[], around: CalloutSurr
             p.y > padded.y &&
             p.y < padded.y + padded.height
           ) {
-            return false;
+            return undefined;
           }
         }
       }
       const mine = nearest(rect, own);
-      return (
-        mine >= OWN_RAIL_GAP &&
-        !rivals.some((points) => nearest(rect, points) < mine + OWN_RAIL_MARGIN) &&
-        !(apartFromOthers && others.some((points) => nearest(rect, points) < mine))
-      );
+      if (mine < OWN_RAIL_GAP) return undefined;
+      if (rivals.some((points) => nearest(rect, points) < mine + OWN_RAIL_MARGIN)) return undefined;
+      return others.some((points) => nearest(rect, points) < mine) ? 'byOther' : 'apart';
     };
     /** What a place's distance from the middle of the rail adds to its distance from the rail. */
     const fromMiddle = (rect: Rect): number =>
@@ -169,38 +186,42 @@ export function placePhaseCallouts(phase: readonly Packet[], around: CalloutSurr
       (acrossBorder(rect) ? BORDER_COST : 0) +
       (inCell(rect) ? CELL_COST : 0);
 
-    const search = (): { rect: Rect; cost: number } | undefined => {
-      let found: { rect: Rect; cost: number } | undefined;
-      for (const limit of SEARCH_REACHES) {
-        const box = expandRect(railBox(packet.path), limit);
-        const candidates: Array<{ rect: Rect; base: number }> = [];
-        for (let y = box.y - size.height; y <= box.y + box.height; y += SEARCH_STEP) {
-          for (let x = box.x - size.width; x <= box.x + box.width; x += SEARCH_STEP) {
-            const rect = { x, y, width: size.width, height: size.height };
-            const gap = nearest(rect, own);
-            if (gap < OWN_RAIL_GAP || gap > limit) continue;
-            candidates.push({ rect, base: gap + fromMiddle(rect) });
-          }
+    // A place nearer another line than its own is taken only when the best that is not would
+    // be further away by more than BY_OTHER_LINE_COST.
+    let best: { rect: Rect; cost: number } | undefined;
+    let apart = true;
+    for (const limit of SEARCH_REACHES) {
+      const box = expandRect(railBox(packet.path), limit);
+      const candidates: Array<{ rect: Rect; base: number }> = [];
+      for (let y = box.y - size.height; y <= box.y + box.height; y += SEARCH_STEP) {
+        for (let x = box.x - size.width; x <= box.x + box.width; x += SEARCH_STEP) {
+          const rect = { x, y, width: size.width, height: size.height };
+          const gap = nearest(rect, own);
+          if (gap < OWN_RAIL_GAP || gap > limit) continue;
+          candidates.push({ rect, base: gap + fromMiddle(rect) });
         }
-        // Nearest first; ties in reading order, to stay deterministic.
-        candidates.sort((a, b) => a.base - b.base || a.rect.y - b.rect.y || a.rect.x - b.rect.x);
-        for (const { rect, base } of candidates) {
-          // No place further down the list can cost less than its distance alone.
-          if (found && base >= found.cost) break;
-          if (!isFree(rect)) continue;
-          const total = cost(rect);
-          if (!found || total < found.cost) found = { rect, cost: total };
-        }
-        // A place further out than this reach costs more than the one found.
-        if (found && found.cost <= limit) break;
       }
-      return found;
-    };
-    let best = search();
-    if (!best && others.length > 0) {
-      apartFromOthers = false;
-      best = search();
+      // Nearest first; ties in reading order, to stay deterministic.
+      candidates.sort((a, b) => a.base - b.base || a.rect.y - b.rect.y || a.rect.x - b.rect.x);
+      for (const { rect, base } of candidates) {
+        // No place further down the list can cost less than its distance alone.
+        if (best && base >= best.cost) break;
+        const free = freedom(rect);
+        if (!free) continue;
+        const total = cost(rect) + (free === 'byOther' ? BY_OTHER_LINE_COST : 0);
+        if (!best || total < best.cost) {
+          best = { rect, cost: total };
+          apart = free === 'apart';
+        }
+      }
+      // A place further out than this reach costs more than the one found.
+      if (best && best.cost <= limit) break;
     }
+    /** Free by the rules the place found keeps. */
+    const isFree = (rect: Rect): boolean => {
+      const free = freedom(rect);
+      return free === 'apart' || (free === 'byOther' && !apart);
+    };
 
     // Level with a callout of the same phase that is nearly level with it already.
     if (best) {
@@ -209,7 +230,7 @@ export function placePhaseCallouts(phase: readonly Packet[], around: CalloutSurr
         .flatMap((other) => [other.y, other.y + other.height - size.height])
         .filter((y) => y !== found.rect.y && Math.abs(y - found.rect.y) <= LEVEL_REACH)
         .map((y) => ({ ...found.rect, y }))
-        .filter((rect) => isFree(rect) && cost(rect) <= found.cost + LEVEL_COST)
+        .filter((rect) => isFree(rect) && cost(rect) <= cost(found.rect) + LEVEL_COST)
         .sort((a, b) => cost(a) - cost(b))[0];
       if (level) best = { rect: level, cost: cost(level) };
       packet.calloutAt = { x: best.rect.x, y: best.rect.y };
