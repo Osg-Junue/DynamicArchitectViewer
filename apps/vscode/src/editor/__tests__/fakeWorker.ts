@@ -1,22 +1,43 @@
-import { searchZones, type ZoneSearch } from '../../layout';
+import { searchZones, searchZonesFrom } from '../../layout';
 import type { SearchWorker } from '../zonePlanner';
+import type { ZoneSearchRequest } from '../zoneSearch.worker';
 
 /** A search worker that answers when the test says so. */
 export class FakeWorker implements SearchWorker {
   onmessage: SearchWorker['onmessage'] = null;
   onerror: SearchWorker['onerror'] = null;
-  posted: ZoneSearch[] = [];
+  posted: ZoneSearchRequest[] = [];
+  /** How many of `posted` have been answered. */
+  answered = 0;
   terminated = false;
+  readonly #searches: boolean;
 
-  postMessage(search: ZoneSearch): void {
-    this.posted.push(search);
+  /** Without `searches` it answers that the zones stay, at once: for tests of who is asked what. */
+  constructor(searches = true) {
+    this.#searches = searches;
   }
 
-  /** Answers the search posted last, as the real worker does. */
+  postMessage(request: ZoneSearchRequest): void {
+    this.posted.push(request);
+  }
+
+  /** Whether the worker was asked for something it has not answered. */
+  get busy(): boolean {
+    return !this.terminated && this.answered < this.posted.length;
+  }
+
+  /** Answers the request posted last, as the real worker does. */
   answer(): void {
-    const search = this.posted.at(-1);
-    if (!search) throw new Error('nothing was posted');
-    this.onmessage?.({ data: { key: search.key, placement: searchZones(search.doc) } });
+    const request = this.posted.at(-1);
+    if (!request) throw new Error('nothing was posted');
+    this.answered = this.posted.length;
+    const { key, doc, seed } = request;
+    const whole = () => (this.#searches ? searchZones(doc) : undefined);
+    const part = (of: number) =>
+      this.#searches ? searchZonesFrom(doc, of) : { score: of, placement: undefined };
+    this.onmessage?.({
+      data: seed === undefined ? { key, placement: whole() } : { key, seed, ...part(seed) },
+    });
   }
 
   terminate(): void {

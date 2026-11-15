@@ -1,11 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { hasFatalError, parse } from '../../dsl';
 import { adoptZonePlan } from '../../layout';
 import { DocumentSession, type SessionView } from '../documentSession';
-import { ZonePlanner } from '../zonePlanner';
+import { SETTLE_MS, ZonePlanner } from '../zonePlanner';
 import { FakeWorker } from './fakeWorker';
+import { largeDiagram } from './largeDiagram';
 
 const REPO = resolve(__dirname, '../../../../..');
 /** A diagram with links long enough that its zones are searched for a better place. */
@@ -34,7 +35,8 @@ function setup() {
     show: (valid) => told.push(`show ${valid.document.nodes.length} nodes`),
     cursorAt: (elementId, stepIndex) => told.push(`cursor ${elementId} step ${stepIndex}`),
   };
-  const session = new DocumentSession(new ZonePlanner(() => worker), view);
+  // One core: the search is never spread, whatever the machine the tests run on.
+  const session = new DocumentSession(new ZonePlanner(() => worker, 1), view);
   return { session, worker, told };
 }
 
@@ -174,5 +176,78 @@ describe('DocumentSession', () => {
     // The cursor held for the first document is gone with it.
     session.cursorMoved(SMALL.indexOf('node a') + 5);
     expect(told).toEqual(['cursor a step null']);
+  });
+
+  it('searches a large diagram at once while nothing is shown, and after a pause once one is', () => {
+    vi.useFakeTimers();
+    try {
+      const workers: FakeWorker[] = [];
+      const told: string[] = [];
+      const view: SessionView = {
+        switched: () => {},
+        textChanged: () => {},
+        show: (valid) => told.push(`show ${valid.document.nodes.length} nodes`),
+        cursorAt: () => {},
+      };
+      const planner = new ZonePlanner(() => {
+        const worker = new FakeWorker(false);
+        workers.push(worker);
+        return worker;
+      }, 4);
+      const session = new DocumentSession(planner, view);
+      const answerAll = () => {
+        for (let busy = workers.filter((w) => w.busy); busy.length > 0; ) {
+          busy[0]?.answer();
+          busy = workers.filter((w) => w.busy);
+        }
+      };
+
+      session.docChanged({ dsl: largeDiagram(), uri: 'file:///large.dav', version: 1 });
+      expect(workers.filter((w) => w.busy)).toHaveLength(3);
+      answerAll();
+      expect(told).toEqual(['show 40 nodes']);
+
+      session.docChanged({ dsl: largeDiagram('node more'), uri: 'file:///large.dav', version: 2 });
+      expect(workers.filter((w) => w.busy)).toHaveLength(0);
+      vi.advanceTimersByTime(SETTLE_MS);
+      expect(workers.filter((w) => w.busy)).toHaveLength(3);
+      answerAll();
+      expect(told).toEqual(['show 40 nodes', 'show 41 nodes']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('stops the search of a large diagram for another document, and starts that one at once', () => {
+    vi.useFakeTimers();
+    try {
+      const workers: FakeWorker[] = [];
+      const told: string[] = [];
+      const view: SessionView = {
+        switched: () => {},
+        textChanged: () => {},
+        show: (valid) => told.push(`show ${valid.document.nodes.length} nodes`),
+        cursorAt: () => {},
+      };
+      const planner = new ZonePlanner(() => {
+        const worker = new FakeWorker(false);
+        workers.push(worker);
+        return worker;
+      }, 4);
+      const session = new DocumentSession(planner, view);
+
+      session.docChanged({ dsl: largeDiagram(), uri: 'file:///one.dav', version: 1 });
+      session.docChanged({ dsl: largeDiagram('node more'), uri: 'file:///two.dav', version: 1 });
+      // Nothing of the second document is on screen either: its search does not wait.
+      expect(workers.map((w) => w.terminated)).toEqual([true, true, true, false, false, false]);
+      expect(workers.slice(3).every((w) => w.busy)).toBe(true);
+
+      for (let busy = workers.filter((w) => w.busy); busy.length > 0; ) {
+        busy[0]?.answer();
+        busy = workers.filter((w) => w.busy);
+      }
+      expect(told).toEqual(['show 41 nodes']);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

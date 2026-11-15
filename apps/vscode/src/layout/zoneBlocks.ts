@@ -99,18 +99,34 @@ function detach<T extends { parentId?: string }>(item: T, zoneId: string): T | O
   return rest;
 }
 
-export function buildBlocks(
-  doc: DavDocument,
-  columnLayout: ColumnLayout,
-): { blocks: Block[]; owners: Map<string, string> } {
+/** The block each node moves with: its top-level zone, or the node itself outside any zone. */
+function ownersOf(doc: DavDocument): Map<string, string> {
   const zoneOf = zoneOfGroups(doc.groups);
   const nodeZone = zoneOfNodes(doc);
-  const owners = new Map(
+  return new Map(
     doc.nodes.map((n) => {
       const z = nodeZone.get(n.id);
       return [n.id, z !== undefined && zoneOf.has(z) ? z : n.id];
     }),
   );
+}
+
+/** How many links run between zones: the time the search takes grows with them. */
+export function linksBetweenZones(doc: DavDocument): number {
+  const owners = ownersOf(doc);
+  return doc.edges.filter((e) => {
+    const from = owners.get(e.from);
+    const to = owners.get(e.to);
+    return from !== undefined && to !== undefined && from !== to;
+  }).length;
+}
+
+export function buildBlocks(
+  doc: DavDocument,
+  columnLayout: ColumnLayout,
+): { blocks: Block[]; owners: Map<string, string> } {
+  const zoneOf = zoneOfGroups(doc.groups);
+  const owners = ownersOf(doc);
 
   const pad = GROUP_PADDING;
   const blocks: Block[] = [];

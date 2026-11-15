@@ -1,7 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
 import { computeColumnLayout } from '../columns';
-import { computeLayout, countCrossings, type Rect, rectContains, rectOverlaps } from '../index';
+import {
+  adoptZonePlan,
+  computeLayout,
+  countCrossings,
+  pendingZoneSearch,
+  pickSeedSearch,
+  type Rect,
+  rectContains,
+  rectOverlaps,
+  searchZones,
+  searchZonesFrom,
+  ZONE_SEARCH_SEEDS,
+} from '../index';
 import { enclosingRect, STATION_CENTER } from '../metrics';
 
 /** Zones of `size` chained nodes in a row, with links from the first zone to all the others. */
@@ -164,6 +176,29 @@ b1 --> b2`);
     const { nodes } = computeLayout(compact);
     expect(nodes.a1?.x).toBe(nodes.b1?.x);
     expect(nodes.a2?.x).toBe(nodes.b2?.x);
+  });
+
+  it('finds seed by seed what the whole search finds', () => {
+    // The seeds may run side by side, in any order, and must still come to the same answer.
+    adoptZonePlan('', undefined);
+    const search = pendingZoneSearch(document);
+    if (!search) throw new Error('the diagram needs no search');
+    const found = new Map(
+      [...ZONE_SEARCH_SEEDS].reverse().map((seed) => [seed, searchZonesFrom(search.doc, seed)]),
+    );
+    const whole = searchZones(search.doc);
+    expect(whole).toBeDefined();
+    expect(pickSeedSearch(found)).toEqual(whole);
+  });
+
+  it('takes the earlier of two seeds that are as good, in whatever order they come back', () => {
+    const [first, , , , , last] = ZONE_SEARCH_SEEDS as readonly [number, ...number[]];
+    const at = (x: number) => new Map([['z0', { x, y: 0, flip: 0 as const }]]);
+    const found = new Map([
+      [last as number, { score: 1, placement: at(2) }],
+      [first, { score: 1, placement: at(1) }],
+    ]);
+    expect(pickSeedSearch(found)).toEqual(at(1));
   });
 
   it('gives the same layout every time', () => {

@@ -4,10 +4,14 @@ import { countCrossings } from './links';
 import type { Layout } from './metrics';
 import {
   applyZonePlacement,
+  bestOfSeeds,
   hasZonesToPlace,
   LONG_LINK,
+  linksBetweenZones,
   longLinkExcess,
+  SEEDS,
   searchZonePlacement,
+  searchZonePlacementFrom,
   structureKey,
   withoutLabels,
   type ZonePlacement,
@@ -60,6 +64,8 @@ export interface ZoneSearch {
    * typing a label cannot rearrange anything.
    */
   doc: DavDocument;
+  /** How many links run between zones: the time the search takes grows with them. */
+  links: number;
 }
 
 /**
@@ -73,7 +79,9 @@ export function pendingZoneSearch(doc: DavDocument): ZoneSearch | undefined {
   if (zonePlan?.key === key) return undefined;
   const bare = withoutLabels(doc);
   // Most diagrams have no link long enough to move a zone for, and that is quick to see.
-  if (longLinkExcess(bare, computeColumnLayout(bare)) > 0) return { key, doc: bare };
+  if (longLinkExcess(bare, computeColumnLayout(bare)) > 0) {
+    return { key, doc: bare, links: linksBetweenZones(bare) };
+  }
   zonePlan = { key, placement: undefined };
   return undefined;
 }
@@ -84,8 +92,35 @@ export function adoptZonePlan(key: string, placement: ZonePlacement | undefined)
 
 /** Decides whether and where to move the zones of a diagram that has links too long. */
 export function searchZones(doc: DavDocument): ZonePlacement | undefined {
+  return ifWorthMoving(doc, searchZonePlacement(doc, computeColumnLayout));
+}
+
+/** The seeds `searchZones` runs, which `searchZonesFrom` takes one at a time. */
+export const ZONE_SEARCH_SEEDS = SEEDS;
+
+/** What one seed of the search found: where the zones go, if at all, and how good that is. */
+export interface SeedSearch {
+  /** The lower, the better. */
+  score: number;
+  placement: ZonePlacement | undefined;
+}
+
+/**
+ * The part of `searchZones` that one seed does, for a caller that runs the seeds side by side
+ * and takes the answer of them all from `pickSeedSearch`.
+ */
+export function searchZonesFrom(doc: DavDocument, seed: number): SeedSearch {
+  const { score, placement } = searchZonePlacementFrom(doc, computeColumnLayout, seed);
+  return { score, placement: ifWorthMoving(doc, placement) };
+}
+
+/** What `searchZones` answers, from what `searchZonesFrom` found for every seed. */
+export function pickSeedSearch(found: ReadonlyMap<number, SeedSearch>): ZonePlacement | undefined {
+  return bestOfSeeds(found)?.placement;
+}
+
+function ifWorthMoving(doc: DavDocument, placement: ZonePlacement): ZonePlacement | undefined {
   const columns = computeColumnLayout(doc);
-  const placement = searchZonePlacement(doc, computeColumnLayout);
   const zoned = applyZonePlacement(doc, placement, computeColumnLayout);
   // A crossing is worth one link that is a whole comfortable length too long: placing the
   // zones freely may add one where it saves more than that, and not otherwise.

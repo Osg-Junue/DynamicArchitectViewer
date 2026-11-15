@@ -26,7 +26,8 @@ import {
 } from './zoneFinish';
 
 const ITERATIONS = 16000;
-const SEEDS = [11, 23, 37, 53, 71, 97];
+/** Where the search starts from, one run each: the same diagram must always get the same layout. */
+export const SEEDS: readonly number[] = [11, 23, 37, 53, 71, 97];
 const START_TEMPERATURE = 500;
 const END_TEMPERATURE = 1.5;
 /** What a crossing anywhere in the diagram, inside a zone too, costs an arrangement in the end. */
@@ -159,45 +160,95 @@ function snapshot(placed: readonly Placed[]): ZonePlacement {
  * always gets the same placement.
  */
 export function searchZonePlacement(doc: DavDocument, columnLayout: ColumnLayout): ZonePlacement {
+  const arrangement = arrange(doc, columnLayout);
+  let best = NOTHING_FOUND;
+  for (const seed of SEEDS) {
+    const found = searchFrom(doc, arrangement, seed);
+    // The first of two that are as good, which `bestOfSeeds` has to match.
+    if (found.score < best.score) best = found;
+  }
+  return best.placement;
+}
+
+/**
+ * The part of `searchZonePlacement` that one seed does. The seeds do not depend on each other,
+ * so they can run side by side: `bestOfSeeds` then gives what the whole search would have.
+ */
+export function searchZonePlacementFrom(
+  doc: DavDocument,
+  columnLayout: ColumnLayout,
+  seed: number,
+): SeedPlacement {
+  return searchFrom(doc, arrange(doc, columnLayout), seed);
+}
+
+/** What the whole search gives, from what each of its seeds found. */
+export function bestOfSeeds<T extends { score: number }>(
+  found: ReadonlyMap<number, T>,
+): T | undefined {
+  let best: T | undefined;
+  for (const seed of SEEDS) {
+    const one = found.get(seed);
+    if (one && one.score < (best?.score ?? Number.POSITIVE_INFINITY)) best = one;
+  }
+  return best;
+}
+
+/** The best arrangement found from one seed, and its score: the lower, the better. */
+export interface SeedPlacement {
+  score: number;
+  placement: ZonePlacement;
+}
+
+const NOTHING_FOUND: SeedPlacement = { score: Number.POSITIVE_INFINITY, placement: new Map() };
+
+/** What every seed starts from: the zones, where they stand at first, and the links between them. */
+interface Arrangement {
+  placed: Placed[];
+  links: BlockLink[];
+  start: ReadonlyMap<string, { x: number; y: number }>;
+}
+
+function arrange(doc: DavDocument, columnLayout: ColumnLayout): Arrangement {
   const { blocks, owners } = buildBlocks(doc, columnLayout);
   const start = initialPositions(doc, blocks, owners, columnLayout);
   const placed: Placed[] = blocks.map((block) => ({ block, x: 0, y: 0, flip: 0 }));
-  const links = buildLinks(doc, placed);
+  return { placed, links: buildLinks(doc, placed), start };
+}
 
-  let bestScore = Number.POSITIVE_INFINITY;
-  let bestPlacement: ZonePlacement = new Map();
-  for (const seed of SEEDS) {
-    for (const p of placed) {
-      const at = start.get(p.block.id) ?? { x: 0, y: 0 };
-      p.x = at.x;
-      p.y = at.y;
-      p.flip = 0;
-    }
-    anneal(links, placed, seededRandom(seed * 104729));
-    tighten(links, placed);
-    const tightened = posesOf(placed);
-    // Stepping aside is judged by the cost between zones alone, and can cost more in
-    // crossings inside them than it saves: the arrangement is finished both ways, and the
-    // one with steps aside is taken only where the whole score is lower for it.
-    for (const aside of [false, true]) {
-      restore(placed, tightened);
-      refreshSegments(links);
-      compact(links, placed, aside);
-      alignEdges(links, placed);
-      // Lining up edges moves zones a little; close what that opened.
-      tighten(links, placed);
-      compact(links, placed, aside);
-      // Last, since sliding would undo it.
-      straighten(links, placed);
-      const score =
-        linkCost(links, placed) +
-        countCrossings(doc, toLayout(placed)) * DIAGRAM_CROSSING_COST -
-        straightLinks(links, placed) * STRAIGHT_WORTH;
-      if (score < bestScore) {
-        bestScore = score;
-        bestPlacement = snapshot(placed);
-      }
-    }
+function searchFrom(
+  doc: DavDocument,
+  { placed, links, start }: Arrangement,
+  seed: number,
+): SeedPlacement {
+  for (const p of placed) {
+    const at = start.get(p.block.id) ?? { x: 0, y: 0 };
+    p.x = at.x;
+    p.y = at.y;
+    p.flip = 0;
   }
-  return bestPlacement;
+  anneal(links, placed, seededRandom(seed * 104729));
+  tighten(links, placed);
+  const tightened = posesOf(placed);
+  let best = NOTHING_FOUND;
+  // Stepping aside is judged by the cost between zones alone, and can cost more in
+  // crossings inside them than it saves: the arrangement is finished both ways, and the
+  // one with steps aside is taken only where the whole score is lower for it.
+  for (const aside of [false, true]) {
+    restore(placed, tightened);
+    refreshSegments(links);
+    compact(links, placed, aside);
+    alignEdges(links, placed);
+    // Lining up edges moves zones a little; close what that opened.
+    tighten(links, placed);
+    compact(links, placed, aside);
+    // Last, since sliding would undo it.
+    straighten(links, placed);
+    const score =
+      linkCost(links, placed) +
+      countCrossings(doc, toLayout(placed)) * DIAGRAM_CROSSING_COST -
+      straightLinks(links, placed) * STRAIGHT_WORTH;
+    if (score < best.score) best = { score, placement: snapshot(placed) };
+  }
+  return best;
 }
