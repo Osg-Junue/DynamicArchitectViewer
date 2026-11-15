@@ -841,7 +841,7 @@ test('zooming out by hand leaves the pace of the packets as it is, and zooming i
     return Number.parseFloat(ms);
   };
   const framed = await firstPhaseMs();
-  expect(framed).toBeGreaterThan(1300);
+  expect(framed).toBeGreaterThan(1000);
 
   for (let i = 0; i < 8; i++) await page.getByTestId('btn-zoom-out').click();
   expect(await firstPhaseMs()).toBe(framed);

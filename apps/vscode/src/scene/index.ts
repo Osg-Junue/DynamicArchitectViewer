@@ -61,6 +61,7 @@ export {
   MIN_PACKET_MS,
   PHASE_MS,
   paceView,
+  pacingZoom,
   packetPosition,
   packetShare,
 } from './timing';
