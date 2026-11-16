@@ -1,0 +1,65 @@
+dav 1
+title "01 ECサイト: 層構造のマイクロサービス"
+
+// Layers that read from left to right, with one edge back from the data layer (mq --> notify).
+
+group clients "クライアント" [color: teal] {
+  node web "Webブラウザ" [icon: browser, sub: "SPA (React)"]
+  node app "モバイルアプリ" [icon: mobile, sub: "iOS / Android"]
+  node admin "管理画面" [icon: desktop, sub: "社内オペレーター"]
+}
+
+group edge "エッジ" [color: purple] {
+  node cdn "CDN" [icon: cdn, sub: "CloudFront"]
+  node waf "WAF" [icon: firewall, sub: "Bot対策"]
+  node gw "APIゲートウェイ" [icon: router, sub: "Kong"]
+  node auth "認証" [icon: auth, sub: "OIDC / JWT"]
+}
+
+group services "アプリケーション" [color: blue] {
+  node bff "BFF" [icon: api, sub: "GraphQL"]
+  node catalog "商品サービス" [icon: container, sub: "Go"]
+  node cart "カートサービス" [icon: container, sub: "Node.js"]
+  node order "注文サービス" [icon: container, sub: "Java"]
+  node pay "決済サービス" [icon: payment, sub: "PCI分離"]
+  node stock "在庫サービス" [icon: container, sub: "Go"]
+  node notify "通知サービス" [icon: mail, sub: "Worker"]
+}
+
+group data "データ" [color: green] {
+  node pg "注文DB" [icon: database, sub: "PostgreSQL"]
+  node es "検索" [icon: search, sub: "OpenSearch"]
+  node redis "キャッシュ" [icon: cache, sub: "Redis"]
+  node mq "イベントバス" [icon: queue, sub: "Kafka"]
+  node s3 "画像ストレージ" [icon: storage, sub: "S3"]
+}
+
+group ext "外部サービス" [color: yellow] {
+  node psp "決済代行" [icon: external, sub: "Stripe"]
+  node carrier "配送業者API" [icon: external, sub: "ヤマト / 佐川"]
+  node smtp "メール配信" [icon: mail, sub: "SendGrid"]
+}
+
+web --> cdn : "HTTPS"
+app --> waf : "HTTPS"
+admin --> gw : "VPN"
+cdn --> waf : "オリジン転送"
+cdn --> s3 : "静的配信"
+waf --> gw : "検査済み"
+gw <-> auth : "トークン検証"
+gw --> bff : "GraphQL"
+bff --> catalog : "gRPC"
+bff --> cart : "gRPC"
+bff --> order : "gRPC"
+catalog --> es : "検索クエリ"
+catalog --> redis : "キャッシュ"
+cart --> redis : "カート保存"
+order --> pg : "SQL"
+order --> pay : "決済依頼"
+order --> stock : "引当"
+order --> mq : "OrderCreated"
+pay <-> psp : "Charge API"
+stock --> pg : "SQL"
+stock --> carrier : "出荷依頼"
+mq --> notify : "購読"
+notify --> smtp : "SMTP"

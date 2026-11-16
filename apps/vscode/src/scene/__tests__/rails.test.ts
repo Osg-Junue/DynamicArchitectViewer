@@ -15,8 +15,9 @@ import {
   svgPath,
 } from '../geometry';
 import { fitText, type ResolvedView, resolveView, textWidth } from '../index';
-import { nodeBody, stationArea } from '../rails';
+import { edgeLabelArea, nodeBody, stationArea } from '../rails';
 import { type RouteEdge, type RouteNode, routeEdges } from '../route';
+import { LARGE_DIAGRAMS } from './helpers';
 
 /** A node whose station is centered on the point, with its labels below. */
 const node = (x: number, y: number): RouteNode => ({
@@ -214,6 +215,26 @@ describe('the rails of a diagram', () => {
     const view = viewOf('dav 1\nnode a\ngroup g {\n  node b\n}\na --> b\nb --> b\n');
     const rail = view.edges.find((e) => e.from === 'a')?.path;
     expect(rail && 'points' in rail && rail.points.length).toBe(2);
+  });
+
+  it.each(
+    LARGE_DIAGRAMS.filter(([, dsl]) => parse(dsl).document.edges.some((e) => e.from === e.to)),
+  )('%s: no label of another edge is written over the label of a loop', (_, dsl) => {
+    // A loop's label has a place of its own, above its curve, where the rails that leave the
+    // same station run past: their labels must keep clear of it.
+    const view = viewOf(dsl);
+    const areaOf = (e: ResolvedView['edges'][number]): Rect[] =>
+      e.label && e.labelAt ? [edgeLabelArea(e.label, e.labelAt)] : [];
+    const ofLoops = view.edges.filter((e) => e.from === e.to).flatMap(areaOf);
+    expect(ofLoops.length).toBeGreaterThan(0);
+    for (const e of view.edges.filter((e) => e.from !== e.to)) {
+      for (const area of areaOf(e)) {
+        expect(
+          ofLoops.some((loop) => rectOverlaps(area, loop)),
+          `label of ${e.id} over the label of a loop`,
+        ).toBe(false);
+      }
+    }
   });
 
   it.each(SAMPLE_TEMPLATES.map((sample) => [sample.id, sample.dsl] as const))(

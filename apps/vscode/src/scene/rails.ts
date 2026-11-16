@@ -62,6 +62,12 @@ export interface EdgeLabelSpot {
   anchor: 'start' | 'middle' | 'end';
 }
 
+/** A loop's label is written above the middle of its curve. */
+function loopLabelSpot(station: Rect, ordinal: number): EdgeLabelSpot {
+  const middle = pointAt(selfLoop(station, ordinal), 0.5);
+  return { x: middle.x, y: middle.y - LOOP_LABEL_LIFT, anchor: 'middle' };
+}
+
 /** The rails of one arrangement of a diagram. */
 interface Routed {
   /** By position in `doc.edges`; none for a loop. */
@@ -349,6 +355,14 @@ function routeDiagram(doc: DavDocument, layout: Layout, nodes: readonly Resolved
     const rail = railOf(`l${key}`, pair.from, pair.to);
     if (rail) lone.set(key, rail);
   }
+  // A loop's label has its place whatever else is drawn, so the other labels keep clear of it.
+  const loops = loopOrdinals(doc);
+  const loopLabels = doc.edges.flatMap((e) => {
+    const node = e.from === e.to ? nodes[nodeIndex.get(e.from) ?? -1] : undefined;
+    if (!node || !e.label) return [];
+    const spot = loopLabelSpot(stationRect(node.rect, node.icon), loops.get(e) ?? 0);
+    return [edgeLabelArea(e.label, spot)];
+  });
   const labels = placeLabels(
     doc.edges.map((e, i) => {
       const rail = ofEdges[i];
@@ -356,7 +370,7 @@ function routeDiagram(doc: DavDocument, layout: Layout, nodes: readonly Resolved
         ? { label: e.label, rail, shared: found.get(`e${i}`)?.shared ?? [] }
         : undefined;
     }),
-    [...nodes.flatMap(nodeBody), ...names],
+    [...nodes.flatMap(nodeBody), ...names, ...loopLabels],
     ofEdges.flatMap((rail) => rail ?? []),
   );
   return { ofEdges, labels, lone };
@@ -417,8 +431,7 @@ export class RailRouter {
   labelOf(edge: DavEdge, from: ResolvedNode, to: ResolvedNode): EdgeLabelSpot | undefined {
     if (!edge.label) return undefined;
     if (from.id === to.id) {
-      const middle = pointAt(this.ofEdge(edge, from, to), 0.5);
-      return { x: middle.x, y: middle.y - LOOP_LABEL_LIFT, anchor: 'middle' };
+      return loopLabelSpot(stationRect(from.rect, from.icon), this.#loops.get(edge) ?? 0);
     }
     return this.#routed.labels[this.#indexOf.get(edge) ?? -1];
   }

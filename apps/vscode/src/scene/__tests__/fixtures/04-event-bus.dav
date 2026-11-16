@@ -1,0 +1,72 @@
+dav 1
+title "04 イベント駆動: バスに集中する構成"
+
+// More than ten edges meet one node (broker), which also has a loop.
+
+group producers "発行側" [color: teal] {
+  node p_order "注文API" [icon: api, sub: "REST"]
+  node p_pay "決済API" [icon: payment, sub: "REST"]
+  node p_user "会員API" [icon: user, sub: "REST"]
+  node p_stock "在庫バッチ" [icon: schedule, sub: "毎時"]
+  node p_click "行動ログ" [icon: browser, sub: "SDK"]
+}
+
+group bus "イベント基盤" [color: purple] {
+  node broker "ブローカー" [icon: queue, sub: "Kafka"]
+  node schema "スキーマ管理" [icon: file, sub: "Schema Registry"]
+  node dlq "DLQ" [icon: queue, sub: "失敗イベント"]
+  node replay "再送ツール" [icon: terminal, sub: "CLI"]
+}
+
+group consumers "購読側" [color: blue] {
+  node c_ship "出荷" [icon: container, sub: "Worker"]
+  node c_mail "メール" [icon: mail, sub: "Worker"]
+  node c_point "ポイント" [icon: container, sub: "Worker"]
+  node c_fraud "不正検知" [icon: ai, sub: "Flink"]
+  node c_search "検索更新" [icon: search, sub: "Indexer"]
+  node c_dwh "分析連携" [icon: logic, sub: "Connector"]
+}
+
+group stores "データストア" [color: green] {
+  node s_ship "出荷DB" [icon: database, sub: "PostgreSQL"]
+  node s_point "ポイントDB" [icon: database, sub: "DynamoDB"]
+  node s_index "検索インデックス" [icon: search, sub: "OpenSearch"]
+  node s_dwh "DWH" [icon: database, sub: "Snowflake"]
+}
+
+group ops "運用" [color: orange] {
+  node o_lag "ラグ監視" [icon: monitor, sub: "Burrow"]
+  node o_alert "アラート" [icon: chat, sub: "PagerDuty"]
+  node o_oncall "当番" [icon: user, sub: "SRE"]
+}
+
+p_order --> broker : "OrderCreated"
+p_pay --> broker : "PaymentCaptured"
+p_user --> broker : "UserRegistered"
+p_stock --> broker : "StockChanged"
+p_click --> broker : "PageViewed"
+p_order ..> schema : "スキーマ登録"
+p_pay ..> schema : "スキーマ登録"
+broker <.> schema : "互換性検査"
+broker --> c_ship : "orders"
+broker --> c_mail : "orders, users"
+broker --> c_point : "payments"
+broker --> c_fraud : "payments"
+broker --> c_search : "stock"
+broker --> c_dwh : "全トピック"
+c_ship --> s_ship : "SQL"
+c_point --> s_point : "PutItem"
+c_search --> s_index : "Bulk"
+c_dwh --> s_dwh : "Snowpipe"
+c_ship --> dlq : "失敗"
+c_mail --> dlq : "失敗"
+c_point --> dlq : "失敗"
+dlq --> replay : "取り出し"
+replay --> broker : "再投入"
+c_fraud --> broker : "FraudDetected"
+broker --> o_lag : "オフセット"
+dlq --> o_alert : "滞留"
+o_lag --> o_alert : "遅延"
+o_alert --> o_oncall : "呼び出し"
+o_oncall --> replay : "実行"
+broker --> broker : "コンパクション"

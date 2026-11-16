@@ -1,0 +1,74 @@
+dav 1
+title "02 データ基盤: 収集から活用まで"
+
+// Many inputs come together into a few (fan-in) and spread again (fan-out).
+// The operations zone sends dashed control lines to all the others.
+
+group sources "データソース" [color: teal] {
+  node appdb "業務DB" [icon: database, sub: "MySQL"]
+  node crm "CRM" [icon: external, sub: "Salesforce"]
+  node weblog "アクセスログ" [icon: file, sub: "Nginx"]
+  node iot "センサー" [icon: device, sub: "MQTT"]
+  node saas "広告SaaS" [icon: external, sub: "REST API"]
+  node files "CSVファイル" [icon: sheet, sub: "SFTP"]
+}
+
+group ingest "取り込み" [color: purple] {
+  node cdc "CDC" [icon: logic, sub: "Debezium"]
+  node collector "APIコレクター" [icon: function, sub: "Lambda"]
+  node stream "ストリーム" [icon: queue, sub: "Kinesis"]
+  node loader "バッチローダー" [icon: schedule, sub: "Embulk"]
+}
+
+group process "加工" [color: blue] {
+  node lake "データレイク" [icon: storage, sub: "S3 / Parquet"]
+  node spark "分散処理" [icon: runtime, sub: "Spark"]
+  node dbt "変換" [icon: logic, sub: "dbt"]
+  node quality "品質検査" [icon: search, sub: "Great Expectations"]
+  node feature "特徴量ストア" [icon: cache, sub: "Feast"]
+}
+
+group serve "活用" [color: green] {
+  node dwh "DWH" [icon: database, sub: "BigQuery"]
+  node mart "データマート" [icon: sheet, sub: "部門別"]
+  node bi "BIダッシュボード" [icon: monitor, sub: "Looker"]
+  node ml "機械学習" [icon: ai, sub: "需要予測"]
+  node retl "リバースETL" [icon: webhook, sub: "Hightouch"]
+}
+
+group ops "運用・統制" [color: gray] {
+  node airflow "ジョブ管理" [icon: schedule, sub: "Airflow"]
+  node catalog "データカタログ" [icon: search, sub: "DataHub"]
+  node mon "監視" [icon: monitor, sub: "Datadog"]
+  node pager "アラート" [icon: chat, sub: "Slack"]
+}
+
+appdb --> cdc : "binlog"
+crm --> collector : "REST"
+saas --> collector : "REST"
+weblog --> stream : "Fluent Bit"
+iot --> stream : "MQTT"
+files --> loader : "SFTP"
+cdc --> stream : "変更イベント"
+collector --> lake : "JSON"
+stream --> lake : "Firehose"
+loader --> lake : "Parquet"
+lake --> spark : "読み込み"
+spark --> quality : "検査"
+spark --> feature : "特徴量"
+quality --> dbt : "合格データ"
+dbt --> dwh : "モデル"
+dwh --> mart : "集計"
+mart --> bi : "SQL"
+dwh --> ml : "学習データ"
+feature --> ml : "オンライン特徴量"
+mart --> retl : "同期"
+retl --> crm : "書き戻し"
+airflow ..> loader : "起動"
+airflow ..> spark : "起動"
+airflow ..> dbt : "起動"
+catalog <.> lake : "メタデータ"
+catalog <.> dwh : "メタデータ"
+quality --> mon : "検査結果"
+airflow --> mon : "ジョブ状態"
+mon --> pager : "通知"

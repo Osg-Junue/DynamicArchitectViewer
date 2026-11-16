@@ -1,0 +1,80 @@
+dav 1
+title "05 マルチリージョン: 対称構成とレプリケーション"
+
+// Two zones of the same shape, joined by replication.
+
+group global "グローバル" [color: teal] {
+  node user "利用者" [icon: users, sub: "国内 / 海外"]
+  node dns "DNS" [icon: router, sub: "Route 53"]
+  node cdn "CDN" [icon: cdn, sub: "CloudFront"]
+  node health "ヘルスチェック" [icon: monitor, sub: "30秒間隔"]
+}
+
+group tokyo "東京リージョン (主)" [color: blue] {
+  node t_lb "ロードバランサー" [icon: lb, sub: "ALB"]
+  node t_app1 "アプリ A" [icon: container, sub: "ECS / AZ-a"]
+  node t_app2 "アプリ B" [icon: container, sub: "ECS / AZ-c"]
+  node t_cache "キャッシュ" [icon: cache, sub: "Redis"]
+  node t_db "DB プライマリ" [icon: database, sub: "Aurora"]
+  node t_q "キュー" [icon: queue, sub: "SQS"]
+}
+
+group osaka "大阪リージョン (副)" [color: green] {
+  node o_lb "ロードバランサー" [icon: lb, sub: "ALB"]
+  node o_app1 "アプリ A" [icon: container, sub: "ECS / AZ-a"]
+  node o_app2 "アプリ B" [icon: container, sub: "ECS / AZ-c"]
+  node o_cache "キャッシュ" [icon: cache, sub: "Redis"]
+  node o_db "DB レプリカ" [icon: database, sub: "Aurora Global"]
+  node o_q "キュー" [icon: queue, sub: "SQS"]
+}
+
+group shared "共有サービス" [color: purple] {
+  node s3 "オブジェクト保管" [icon: storage, sub: "S3 CRR"]
+  node secret "シークレット" [icon: key, sub: "Secrets Manager"]
+  node ci "デプロイ" [icon: runtime, sub: "GitHub Actions"]
+  node obs "監視" [icon: monitor, sub: "CloudWatch"]
+}
+
+group dr "バックアップ / DR" [color: orange] {
+  node vault "バックアップ保管" [icon: storage, sub: "AWS Backup"]
+  node cold "コールドDB" [icon: database, sub: "日次スナップショット"]
+  node runbook "切替手順" [icon: terminal, sub: "Runbook"]
+  node sre "当番" [icon: user, sub: "SRE"]
+}
+
+user --> dns : "名前解決"
+user --> cdn : "HTTPS"
+dns --> t_lb : "重み 100"
+dns ..> o_lb : "重み 0 (待機)"
+cdn --> t_lb : "オリジン"
+cdn ..> o_lb : "フェイルオーバー"
+health ..> t_lb : "監視"
+health ..> o_lb : "監視"
+health --> dns : "切替"
+t_lb --> t_app1 : "HTTP"
+t_lb --> t_app2 : "HTTP"
+t_app1 --> t_cache : "GET"
+t_app2 --> t_cache : "GET"
+t_app1 --> t_db : "SQL"
+t_app2 --> t_db : "SQL"
+t_app1 --> t_q : "ジョブ"
+o_lb --> o_app1 : "HTTP"
+o_lb --> o_app2 : "HTTP"
+o_app1 --> o_cache : "GET"
+o_app2 --> o_cache : "GET"
+o_app1 --> o_db : "SQL (読取)"
+o_app2 --> o_db : "SQL (読取)"
+o_app1 --> o_q : "ジョブ"
+t_db --> o_db : "レプリケーション"
+t_app1 --> s3 : "アップロード"
+o_app1 --> s3 : "アップロード"
+ci ..> t_app1 : "デプロイ"
+ci ..> o_app1 : "デプロイ"
+t_app2 ..> secret : "取得"
+o_app2 ..> secret : "取得"
+t_db --> vault : "スナップショット"
+vault --> cold : "復元"
+obs --> sre : "アラート"
+sre --> runbook : "実行"
+runbook ..> dns : "手動切替"
+runbook ..> o_db : "昇格"

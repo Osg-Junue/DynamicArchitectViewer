@@ -141,6 +141,9 @@ describe('zoned placement', () => {
     const { width, height } = enclosingRect(rects);
     const covered = rects.reduce((sum, r) => sum + r.width * r.height, 0);
     expect(covered / (width * height)).toBeGreaterThan(0.5);
+    // In shared columns the chain is a strip 40 times wider than high, which its zones cover
+    // almost wholly: that is not what this is about.
+    expect(width / height).toBeLessThan(5);
     rects.forEach((a, i) => {
       for (const b of rects.slice(i + 1)) expect(rectOverlaps(a, b)).toBe(false);
     });

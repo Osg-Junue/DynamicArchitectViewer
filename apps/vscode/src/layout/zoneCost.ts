@@ -20,6 +20,17 @@ const CANVAS_ASPECT = 1.6;
 /** The most a link costs for being off a straight line, which is also what one that cannot be straight costs. */
 const OFF_STRAIGHT_CAP = 160;
 const OFF_STRAIGHT_WEIGHT = 2;
+/**
+ * What an arrangement no wider than high pays for each unit its links run up or down beyond
+ * what they run to the right: an upright link then costs twice what a level one of its length
+ * does. A diagram is read from left to right, and without this a zone was as well placed above
+ * or below the zone it is linked to as beside it. The weight falls to nothing as the
+ * arrangement gets twice as wide as high: from there on, going further to the right would
+ * stretch it into a strip, and a long flow has to turn back under itself.
+ */
+const OFF_FLOW_WEIGHT = 1;
+const OFF_FLOW_FULL_ASPECT = 1;
+const OFF_FLOW_NONE_ASPECT = 2;
 /** What two links between zones cost for crossing, and one for running through a zone. */
 const CROSSING_COST = 250;
 const THROUGH_COST = 130;
@@ -111,6 +122,11 @@ function shapeCost(l: BlockLink): number {
   );
 }
 
+/** How far the link runs up or down beyond what it runs to the right. */
+function offFlow(l: BlockLink): number {
+  return Math.max(0, Math.abs(l.by - l.ay) - Math.max(0, l.bx - l.ax));
+}
+
 function crossingCost(s: BlockLink, t: BlockLink): number {
   if (s.maxX < t.minX || t.maxX < s.minX || s.maxY < t.minY || t.maxY < s.minY) return 0;
   return !shareStation(s, t) && properlyCross(s, t) ? CROSSING_COST : 0;
@@ -139,21 +155,32 @@ export function extent(placed: readonly Placed[]): { width: number; height: numb
   return { width: right - left, height: bottom - top };
 }
 
-function spreadCost(placed: readonly Placed[]): number {
+/**
+ * What the size of an arrangement costs it, and what each unit its links run off the flow
+ * counts in an arrangement of that size.
+ */
+function sizeCost(placed: readonly Placed[]): { spread: number; offFlowWeight: number } {
   const { width, height } = extent(placed);
-  // The longer side of the canvas the arrangement needs: growing along the other side is
-  // free, so the search fills the canvas instead of stretching into a strip.
-  return Math.max(width, height * CANVAS_ASPECT) * 1.2;
+  const narrow =
+    (OFF_FLOW_NONE_ASPECT - width / Math.max(1, height)) /
+    (OFF_FLOW_NONE_ASPECT - OFF_FLOW_FULL_ASPECT);
+  return {
+    // The longer side of the canvas the arrangement needs: growing along the other side is
+    // free, so the search fills the canvas instead of stretching into a strip.
+    spread: Math.max(width, height * CANVAS_ASPECT) * 1.2,
+    offFlowWeight: OFF_FLOW_WEIGHT * Math.min(1, Math.max(0, narrow)),
+  };
 }
 
 /** The cost of the whole arrangement. */
 export function linkCost(links: readonly BlockLink[], placed: readonly Placed[]): number {
-  let total = spreadCost(placed);
+  const { spread, offFlowWeight } = sizeCost(placed);
+  let total = spread;
   for (let i = 0; i < links.length; i++) {
     const s = links[i];
     if (!s) continue;
     updateSegment(s);
-    total += shapeCost(s) + throughCost(s, placed);
+    total += shapeCost(s) + offFlow(s) * offFlowWeight + throughCost(s, placed);
     for (let j = 0; j < i; j++) {
       const t = links[j];
       if (t) total += crossingCost(s, t);
@@ -168,6 +195,8 @@ const touches = (l: BlockLink, a: Placed, b: Placed | undefined) =>
 /**
  * The part of the cost that moving `a` (and `b`) can change. The search compares this before
  * and after a move, which costs far less than evaluating the whole arrangement for every move.
+ * A move can change the size of the arrangement, and with it what running off the flow counts
+ * for every link, so that is summed over them all.
  */
 function movedCost(
   links: readonly BlockLink[],
@@ -176,16 +205,18 @@ function movedCost(
   b: Placed | undefined,
   refreshTouching: boolean,
 ): number {
-  let total = spreadCost(placed);
+  const { spread, offFlowWeight } = sizeCost(placed);
+  let total = spread;
   for (let i = 0; i < links.length; i++) {
     const s = links[i];
     if (!s) continue;
     if (!touches(s, a, b)) {
       if (runsThrough(s, a)) total += THROUGH_COST;
       if (b && runsThrough(s, b)) total += THROUGH_COST;
-      continue;
+    } else if (refreshTouching) {
+      updateSegment(s);
     }
-    if (refreshTouching) updateSegment(s);
+    total += offFlow(s) * offFlowWeight;
   }
   for (let i = 0; i < links.length; i++) {
     const s = links[i];
