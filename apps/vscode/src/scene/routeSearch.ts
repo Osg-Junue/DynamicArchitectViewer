@@ -91,6 +91,18 @@ class CostHeap {
   }
 }
 
+/** The first of the sorted `values` that is no less than `value`; their number when none is. */
+function lowerBound(values: readonly number[], value: number): number {
+  let lo = 0;
+  let hi = values.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if ((values[mid] as number) < value) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
 /** For a crossing where a node's links may start or end: what each heading costs there. */
 type Doors = Map<number, Float64Array>;
 
@@ -109,6 +121,22 @@ export class RouteSearch {
   readonly #stamp: Uint32Array;
   readonly #heap = new CostHeap();
   #run = 0;
+  /** For the link being searched: 1 for every route that shares a station with it. */
+  readonly #friend: Uint8Array;
+  /**
+   * What `#crowding` and `#crossed` answered in this search, for level and for upright
+   * stretches and headings: a stretch is reached with every heading and number of turns, and
+   * the answer is the same each time.
+   */
+  readonly #crowd: readonly [Float64Array, Float64Array];
+  readonly #crowdRun: readonly [Uint32Array, Uint32Array];
+  readonly #cross: readonly [Uint8Array, Uint8Array];
+  readonly #crossRun: readonly [Uint32Array, Uint32Array];
+  /** The search a crossing was last a door of the goal in, or near enough to an end to ask `#turnsAtEnd`. */
+  readonly #goalRun: Uint32Array;
+  readonly #endRun: Uint32Array;
+  /** The search a zone was last one of the link's own in. */
+  readonly #homeRun: Uint32Array;
 
   constructor(
     grid: Grid,
@@ -122,6 +150,34 @@ export class RouteSearch {
     this.#best = new Float64Array(states);
     this.#cameFrom = new Int32Array(states);
     this.#stamp = new Uint32Array(states);
+    const size = grid.W * grid.H;
+    this.#friend = new Uint8Array(edgeEnds.length);
+    this.#crowd = [new Float64Array(size), new Float64Array(size)];
+    this.#crowdRun = [new Uint32Array(size), new Uint32Array(size)];
+    this.#cross = [new Uint8Array(size), new Uint8Array(size)];
+    this.#crossRun = [new Uint32Array(size), new Uint32Array(size)];
+    this.#goalRun = new Uint32Array(size);
+    this.#endRun = new Uint32Array(size);
+    let zones = 0;
+    for (const lane of [grid.level, grid.upright]) {
+      for (const zone of lane.zone) if (zone >= zones) zones = zone + 1;
+    }
+    this.#homeRun = new Uint32Array(zones);
+  }
+
+  /** Notes the crossings round node `k` where a turn may be too near it: the others need no asking. */
+  #markEnd(k: number): void {
+    const { xs, ys, W } = this.#grid;
+    const { station, area } = this.#nodes[k] as RouteNode;
+    const reach = ARROW_ROOM + 2;
+    const bottom = area.y + area.height + reach;
+    for (let iy = lowerBound(ys, station.y - reach); iy < ys.length; iy++) {
+      if ((ys[iy] as number) > bottom) break;
+      for (let ix = lowerBound(xs, station.x - reach); ix < xs.length; ix++) {
+        if ((xs[ix] as number) > station.x + station.width + reach) break;
+        this.#endRun[iy * W + ix] = this.#run;
+      }
+    }
   }
 
   /**
@@ -155,37 +211,32 @@ export class RouteSearch {
   }
 
   /** How dearer a stretch is based on friendly (shared-endpoint) vs unrelated routes on it. */
-  #crowding(lane: Lane, stretch: number, edge: RouteEdge): number {
+  #crowding(lane: Lane, which: 0 | 1, stretch: number): number {
     const used = lane.use[stretch] as number;
     if (used === 0) return 0;
+    if (this.#crowdRun[which][stretch] === this.#run) return this.#crowd[which][stretch] as number;
     const list = lane.routes[stretch];
-    if (!list) return used <= 2 ? used * 0.05 : 0.1 + (used - 2) * 0.5;
-    let friendly = 0;
-    let unrelated = 0;
-    for (const idx of list) {
-      const ends = this.#edgeEnds[idx];
-      if (
-        ends &&
-        (ends[0] === edge.from ||
-          ends[0] === edge.to ||
-          ends[1] === edge.from ||
-          ends[1] === edge.to)
-      ) {
-        friendly++;
-      } else {
-        unrelated++;
-      }
+    let cost: number;
+    if (!list) cost = used <= 2 ? used * 0.05 : 0.1 + (used - 2) * 0.5;
+    else {
+      const friend = this.#friend;
+      let friendly = 0;
+      for (const idx of list) if (friend[idx] === 1) friendly++;
+      const unrelated = list.length - friendly;
+      const fCost = friendly <= 3 ? friendly * 0.06 : 0.18 + (friendly - 3) * 0.25;
+      const uCost = unrelated <= 2 ? unrelated * 0.35 : 0.7 + (unrelated - 2) * 0.65;
+      cost = fCost + uCost;
     }
-    const fCost = friendly <= 3 ? friendly * 0.06 : 0.18 + (friendly - 3) * 0.25;
-    const uCost = unrelated <= 2 ? unrelated * 0.35 : 0.7 + (unrelated - 2) * 0.65;
-    return fCost + uCost;
+    this.#crowdRun[which][stretch] = this.#run;
+    this.#crowd[which][stretch] = cost;
+    return cost;
   }
 
   /**
    * How many unrelated routes go straight through crossing `p`, across a route heading there.
-   * Friendly routes that share an endpoint with `edge` part without crossing.
+   * Friendly routes that share an endpoint with the link part without crossing.
    */
-  #crossed(p: number, level: boolean, ix: number, iy: number, edge: RouteEdge): number {
+  #crossed(p: number, level: boolean, ix: number, iy: number): number {
     const { W, H } = this.#grid;
     const perp = level ? this.#grid.upright : this.#grid.level;
     const before = level ? (iy > 0 ? p - W : -1) : ix > 0 ? p - 1 : -1;
@@ -194,24 +245,18 @@ export class RouteSearch {
     const bUse = perp.use[before] as number;
     const aUse = perp.use[after] as number;
     if (bUse === 0 || aUse === 0) return 0;
+    const which = level ? 0 : 1;
+    if (this.#crossRun[which][p] === this.#run) return this.#cross[which][p] as number;
     const bList = perp.routes[before];
     const aList = perp.routes[after];
-    if (!bList || !aList) return Math.min(bUse, aUse);
     let count = 0;
-    for (const idx of bList) {
-      if (!aList.includes(idx)) continue;
-      const ends = this.#edgeEnds[idx];
-      if (
-        ends &&
-        (ends[0] === edge.from ||
-          ends[0] === edge.to ||
-          ends[1] === edge.from ||
-          ends[1] === edge.to)
-      ) {
-        continue;
-      }
-      count++;
+    if (!bList || !aList) count = Math.min(bUse, aUse);
+    else {
+      const friend = this.#friend;
+      for (const idx of bList) if (friend[idx] !== 1 && aList.includes(idx)) count++;
     }
+    this.#crossRun[which][p] = this.#run;
+    this.#cross[which][p] = count;
     return count;
   }
 
@@ -260,6 +305,76 @@ export class RouteSearch {
           PORT_REACH,
       );
     const run = ++this.#run;
+    const friend = this.#friend;
+    this.#edgeEnds.forEach((ends, idx) => {
+      friend[idx] =
+        ends[0] === edge.from || ends[0] === edge.to || ends[1] === edge.from || ends[1] === edge.to
+          ? 1
+          : 0;
+    });
+    const goalRun = this.#goalRun;
+    const endRun = this.#endRun;
+    const homeRun = this.#homeRun;
+    for (const q of goals.keys()) goalRun[q] = run;
+    for (const zone of edge.home) if (zone < homeRun.length) homeRun[zone] = run;
+    this.#markEnd(edge.from);
+    this.#markEnd(edge.to);
+    // The turns still to come at least, from where the doors of the goal are: none where one
+    // is straight ahead, one where a line through one crosses the way ahead, else two. Counting
+    // them keeps a search from trying every staircase that is as long as the straight way.
+    const levelDoor = new Uint8Array(H);
+    const uprightDoor = new Uint8Array(W);
+    let minLevel = H;
+    let maxLevel = -1;
+    let minUpright = W;
+    let maxUpright = -1;
+    for (const [q, costs] of goals) {
+      const qx = q % W;
+      const qy = (q / W) | 0;
+      if (Number.isFinite(costs[RIGHT] as number)) {
+        levelDoor[qy] = 1;
+        minLevel = Math.min(minLevel, qy);
+        maxLevel = Math.max(maxLevel, qy);
+      }
+      if (Number.isFinite(costs[DOWN] as number)) {
+        uprightDoor[qx] = 1;
+        minUpright = Math.min(minUpright, qx);
+        maxUpright = Math.max(maxUpright, qx);
+      }
+    }
+    const goalX = this.#grid.xIndex.get(goal.x) ?? 0;
+    const goalY = this.#grid.yIndex.get(goal.y) ?? 0;
+    const turnsLeft = (p: number, d: number): number => {
+      const ix = p % W;
+      const iy = (p / W) | 0;
+      if (d === RIGHT) {
+        if (levelDoor[iy] === 1 && goalX >= ix) return 0;
+        return maxUpright >= ix ? 1 : 2;
+      }
+      if (d === LEFT) {
+        if (levelDoor[iy] === 1 && goalX <= ix) return 0;
+        return minUpright <= ix ? 1 : 2;
+      }
+      if (d === DOWN) {
+        if (uprightDoor[ix] === 1 && goalY >= iy) return 0;
+        return maxLevel >= iy ? 1 : 2;
+      }
+      if (uprightDoor[ix] === 1 && goalY <= iy) return 0;
+      return minLevel <= iy ? 1 : 2;
+    };
+    /** What is left at least from a state: the way to the goal, and the turns it must still take. */
+    const left = (p: number, d: number, turns: number): number => {
+      const more = turnsLeft(p, d);
+      return (
+        rest(p) +
+        (more === 0
+          ? 0
+          : more === 1
+            ? (BEND_COSTS[Math.min(2, turns)] as number)
+            : (BEND_COSTS[Math.min(2, turns)] as number) +
+              (BEND_COSTS[Math.min(2, turns + 1)] as number))
+      );
+    };
     heap.clear();
     for (const [start, costs] of starts) {
       for (let d = 0; d < 4; d++) {
@@ -269,7 +384,7 @@ export class RouteSearch {
         best[state] = cost;
         cameFrom[state] = -1;
         stamp[state] = run;
-        heap.push(cost + rest(start), state);
+        heap.push(cost + left(start, d, 0), state);
       }
     }
     while (heap.size > 0) {
@@ -280,9 +395,13 @@ export class RouteSearch {
       const turns = state & 3;
       const cost = best[state] as number;
       // A cheaper way to this state was found after this entry was pushed.
-      if (estimate > cost + rest(p) + 1e-6) continue;
+      if (estimate > cost + left(p, d, turns) + 1e-6) continue;
       const leaving = cameFrom[state] === -1;
-      if (!leaving && Number.isFinite(goals.get(p)?.[d] ?? Number.POSITIVE_INFINITY)) {
+      if (
+        !leaving &&
+        goalRun[p] === run &&
+        Number.isFinite(goals.get(p)?.[d] ?? Number.POSITIVE_INFINITY)
+      ) {
         const path: number[] = [];
         for (let s = state; s !== -1; s = cameFrom[s] as number) path.push(s >> 4);
         return path.reverse();
@@ -309,36 +428,51 @@ export class RouteSearch {
           ? Math.abs((xs[nx] as number) - (xs[ix] as number))
           : Math.abs((ys[ny] as number) - (ys[iy] as number));
         const zone = lane.zone[stretch] as number;
-        const foreign = zone >= 0 && !edge.home.has(zone);
+        const foreign = zone >= 0 && homeRun[zone] !== run;
         let step =
           length *
           (foreign ? THROUGH : 1) *
           (lane.badge[stretch] === 1 ? UNDER_BADGE : 1) *
-          (1 + this.#crowding(lane, stretch, edge));
+          (1 + this.#crowding(lane, level ? 0 : 1, stretch));
         let nextTurns = turns;
         if (nd !== d) {
           step += BEND_COSTS[Math.min(2, turns)] as number;
           nextTurns = Math.min(3, turns + 1);
-          const x = xs[ix] as number;
-          const y = ys[iy] as number;
-          // Turning right outside either station hides the rail under the arrowhead or corner.
-          if (this.#turnsAtEnd(edge.to, x, y, nd)) step += SHORT_END;
-          if (this.#turnsAtEnd(edge.from, x, y, (d + 2) % 4)) step += SHORT_END;
+          if (endRun[p] === run) {
+            const x = xs[ix] as number;
+            const y = ys[iy] as number;
+            // Turning right outside either station hides the rail under the arrowhead or corner.
+            if (this.#turnsAtEnd(edge.to, x, y, nd)) step += SHORT_END;
+            if (this.#turnsAtEnd(edge.from, x, y, (d + 2) % 4)) step += SHORT_END;
+          }
         }
         const q = ny * W + nx;
-        const arrival = goals.get(q)?.[nd] ?? Number.POSITIVE_INFINITY;
+        const arrival =
+          goalRun[q] === run
+            ? (goals.get(q)?.[nd] ?? Number.POSITIVE_INFINITY)
+            : Number.POSITIVE_INFINITY;
         // Charge half on leaving `p` and half on entering `q` so a 1-cell Z-jog cannot dodge a crossing.
-        if (!leaving) step += 0.5 * CROSS * this.#crossed(p, level, ix, iy, edge);
+        if (!leaving) step += 0.5 * CROSS * this.#crossed(p, level, ix, iy);
         if (Number.isFinite(arrival)) step += arrival + (nd === UP ? OWN_LABELS : 0);
-        else step += 0.5 * CROSS * this.#crossed(q, level, nx, ny, edge);
+        else step += 0.5 * CROSS * this.#crossed(q, level, nx, ny);
         if (leaving && nd === DOWN) step += OWN_LABELS;
         const next = (q * 4 + nd) * 4 + nextTurns;
         const total = cost + step;
         if (stamp[next] === run && (best[next] as number) <= total) continue;
+        // The same crossing and heading reached with fewer turns for no more: whatever
+        // follows from here costs no less than it does from there.
+        let dominated = false;
+        for (let fewer = next - nextTurns; fewer < next; fewer++) {
+          if (stamp[fewer] === run && (best[fewer] as number) <= total && cameFrom[fewer] !== -1) {
+            dominated = true;
+            break;
+          }
+        }
+        if (dominated) continue;
         stamp[next] = run;
         best[next] = total;
         cameFrom[next] = state;
-        heap.push(total + rest(q), next);
+        heap.push(total + left(q, nd, nextTurns), next);
       }
     }
     return undefined;

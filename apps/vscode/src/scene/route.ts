@@ -152,6 +152,10 @@ export function routeEdges(
   }
 
   let current = evaluatePaths(paths, grid, edges, edgeIndex);
+  // A search answers the same for as long as no route has changed: `changes` counts the
+  // routes that have, and `searchedAt` holds what it was when each link was last searched for.
+  let changes = 0;
+  const searchedAt = new Int32Array(edges.length).fill(-1);
   for (let pass = 0; pass < MAX_REROUTE_PASSES; pass++) {
     const candidates = edges
       .map((edge, idx) => {
@@ -170,11 +174,15 @@ export function routeEdges(
     const snapshot = new Map(paths);
     for (const { edge, idx } of candidates) {
       const oldPath = paths.get(edge.id);
-      if (!oldPath) continue;
+      if (!oldPath || searchedAt[idx] === changes) continue;
       unoccupy(grid, oldPath, idx);
       const nextPath = search.find(edge) ?? oldPath;
       occupy(grid, nextPath, idx);
       paths.set(edge.id, nextPath);
+      if (nextPath.length !== oldPath.length || nextPath.some((p, k) => p !== oldPath[k])) {
+        changes++;
+      }
+      searchedAt[idx] = changes;
     }
     const nextEval = evaluatePaths(paths, grid, edges, edgeIndex);
     if (nextEval.score < current.score) {

@@ -237,6 +237,32 @@ describe('the rails of a diagram', () => {
     }
   });
 
+  it.each(LARGE_DIAGRAMS)('%s: no rail is drawn on another one', (_, dsl) => {
+    // Lines of the grid stood nearer to each other than rails are set apart, and each line
+    // spread its rails on its own: two rails ran half a unit apart for hundreds of units, as
+    // one thick line. A rail is 3.5 wide; a station that many rails meet on one side still
+    // sets them nearer than the 7 they keep elsewhere.
+    const rails = viewOf(dsl).edges.flatMap((e) =>
+      'points' in e.path ? [{ id: e.id, parts: stretches(e.path.points) }] : [],
+    );
+    const span = (a: number, b: number) => [Math.min(a, b), Math.max(a, b)] as const;
+    for (const [i, a] of rails.entries()) {
+      for (const b of rails.slice(i + 1)) {
+        for (const [p, q] of a.parts) {
+          for (const [r, s] of b.parts) {
+            const upright = p.x === q.x;
+            if (upright !== (r.x === s.x)) continue;
+            const [lo, hi] = upright ? span(p.y, q.y) : span(p.x, q.x);
+            const [from, to] = upright ? span(r.y, s.y) : span(r.x, s.x);
+            if (Math.min(hi, to) - Math.max(lo, from) < 20) continue;
+            const apart = Math.abs(upright ? p.x - r.x : p.y - r.y);
+            expect(apart, `${a.id} beside ${b.id}`).toBeGreaterThanOrEqual(3.5);
+          }
+        }
+      }
+    }
+  });
+
   it('routes a rail that passes a station with a loop round the loop and its label', () => {
     // The rails beside a node took the room its loop is drawn in for a way through: the rail
     // from `job` down to `latest` ran through the loop of `svc`, and the one from `idp` over it.

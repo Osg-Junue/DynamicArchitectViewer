@@ -1,8 +1,17 @@
 import { pushToMap } from '../model/text';
 import type { DavDocument } from '../model/types';
 import { parentMap } from '../model/zones';
-import { countCrossings, crossingsOf, type Link, linksOf, segmentsOf } from './links';
-import { type Layout, type Rect, STATION_CENTER } from './metrics';
+import {
+  countCrossings,
+  crossingsOf,
+  type Link,
+  linksOf,
+  properlyCross,
+  type Segment,
+  segmentsOf,
+  shareStation,
+} from './links';
+import { type Rect, STATION_CENTER } from './metrics';
 import {
   buildBlocks,
   type ColumnLayout,
@@ -260,12 +269,22 @@ function arrange(doc: DavDocument, columnLayout: ColumnLayout): Arrangement {
   };
 }
 
-function scoreZoneLayout(docLinks: readonly Link[], layout: Layout) {
-  const segs = segmentsOf(docLinks, layout);
-  return {
-    crossings: crossingsOf(segs),
-    deltaY: segs.reduce((sum, s) => sum + Math.abs(s.ay - s.by), 0),
-  };
+const spanOf = (segs: readonly Segment[]): number =>
+  segs.reduce((sum, s) => sum + Math.abs(s.ay - s.by), 0);
+
+/** How many pairs of `segs` cross that have at least one link of a node in `moved` in them. */
+function crossingsOfMoved(segs: readonly Segment[], moved: ReadonlySet<string>): number {
+  const touched = segs.map((s) => moved.has(s.from) || moved.has(s.to));
+  let crossings = 0;
+  segs.forEach((s, i) => {
+    if (!touched[i]) return;
+    segs.forEach((t, j) => {
+      // A pair of two such links is counted once, from the first of them.
+      if (j === i || (touched[j] && j < i)) return;
+      if (!shareStation(s, t) && properlyCross(s, t)) crossings++;
+    });
+  });
+  return crossings;
 }
 
 /**
@@ -278,7 +297,8 @@ function refineZoneNodeOrder(
   adj: ReadonlyMap<string, readonly string[]>,
   docLinks: readonly Link[],
 ): boolean {
-  let curScore = scoreZoneLayout(docLinks, toLayout(placed));
+  let curSegs = segmentsOf(docLinks, toLayout(placed));
+  let curScore = { crossings: crossingsOf(curSegs), deltaY: spanOf(curSegs) };
   let anyChanged = false;
   for (let sweep = 0; sweep < 4; sweep++) {
     let changed = false;
@@ -311,12 +331,22 @@ function refineZoneNodeOrder(
         sorted.forEach((item, idx) => {
           item.r.y = slotYs[idx] as number;
         });
-        const nextScore = scoreZoneLayout(docLinks, toLayout(placed));
+        // Only the links of the nodes that moved can cross anything else than before: counting
+        // those again, not every pair of the diagram, is what keeps a large diagram quick.
+        const nextSegs = segmentsOf(docLinks, toLayout(placed));
+        const nextScore = {
+          crossings:
+            curScore.crossings -
+            crossingsOfMoved(curSegs, partitionIds) +
+            crossingsOfMoved(nextSegs, partitionIds),
+          deltaY: spanOf(nextSegs),
+        };
         const better =
           nextScore.crossings < curScore.crossings ||
           (nextScore.crossings === curScore.crossings && nextScore.deltaY < curScore.deltaY - 0.5);
         if (better) {
           curScore = nextScore;
+          curSegs = nextSegs;
           changed = true;
           anyChanged = true;
         } else {

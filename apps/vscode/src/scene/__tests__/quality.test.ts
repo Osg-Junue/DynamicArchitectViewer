@@ -24,7 +24,7 @@ describe('how readable an overview is', () => {
     '05-sequence-payment-retry.dav': { winding: 0, crossings: 0, rightward: 0.4, coveredLabels: 0, aspect: 2.16 },
     '06-lan-office-network.dav': { winding: 0, crossings: 0, rightward: 1, coveredLabels: 0, aspect: 5.56 },
     '07-dynamic-architect-viewer.dav': { winding: 0, crossings: 0, rightward: 0.4, coveredLabels: 0, aspect: 2.3 },
-    '01-ec-microservices.dav': { winding: 2, crossings: 4, rightward: 0.87, coveredLabels: 0, aspect: 1.38 },
+    '01-ec-microservices.dav': { winding: 4, crossings: 3, rightward: 0.87, coveredLabels: 0, aspect: 1.38 },
     '02-data-pipeline.dav': { winding: 2, crossings: 6, rightward: 0.5, coveredLabels: 0, aspect: 1.64 },
     '03-hub-spoke-network.dav': { winding: 0, crossings: 1, rightward: 0.71, coveredLabels: 0, aspect: 2.85 },
     '04-event-bus.dav': { winding: 3, crossings: 7, rightward: 0.42, coveredLabels: 1, aspect: 1.28 },
@@ -32,8 +32,8 @@ describe('how readable an overview is', () => {
     '06-cicd-feedback.dav': { winding: 0, crossings: 0, rightward: 0.1, coveredLabels: 0, aspect: 2.19 },
     '07-zero-trust-nested.dav': { winding: 1, crossings: 5, rightward: 0.33, coveredLabels: 1, aspect: 1.48 },
     '08-iot-edge-cloud.dav': { winding: 3, crossings: 3, rightward: 0.36, coveredLabels: 0, aspect: 1.81 },
-    '09-dense-mesh.dav': { winding: 4, crossings: 37, rightward: 0.38, coveredLabels: 0, aspect: 1.91 },
-    '10-bank-unbalanced.dav': { winding: 3, crossings: 4, rightward: 0.63, coveredLabels: 0, aspect: 1.37 },
+    '09-dense-mesh.dav': { winding: 5, crossings: 37, rightward: 0.38, coveredLabels: 0, aspect: 1.91 },
+    '10-bank-unbalanced.dav': { winding: 3, crossings: 5, rightward: 0.63, coveredLabels: 1, aspect: 1.37 },
   };
   const examples = readdirSync(resolve(__dirname, '../../../../../examples')).sort();
   const diagrams = [

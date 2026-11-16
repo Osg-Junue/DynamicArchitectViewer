@@ -6,8 +6,13 @@ import type { RouteEdge, RouteGroup, RouteNode } from './route';
 const NODE_MARGIN = 8;
 const LABEL_MARGIN = 12;
 const ZONE_MARGIN = 12;
-/** Lines of the grid nearer than this become one. */
-const MERGE = 3;
+/** Distance between two routes that run on one line. */
+export const RAIL_GAP = 7;
+/**
+ * Lines of the grid nearer than this become one: two lines nearer than rails are set apart
+ * would be drawn as one anyway, and every line costs each search time.
+ */
+const MERGE = RAIL_GAP;
 /**
  * How far off the middle of a station a route may meet it, to reach in a straight line a station
  * that is almost level with it or almost straight above it.
@@ -192,6 +197,18 @@ function portsOf(
   return ports;
 }
 
+/** The first of the sorted `values` that is greater than `value`; their number when none is. */
+function firstAbove(values: readonly number[], value: number): number {
+  let lo = 0;
+  let hi = values.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if ((values[mid] as number) <= value) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
 function closeStretch(lane: Lane, i: number, who: number, door: boolean): void {
   if (lane.block[i] === -1) {
     lane.block[i] = who;
@@ -214,11 +231,15 @@ function close(
   const { xs, ys, W, H } = grid;
   const right = box.x + box.width;
   const bottom = box.y + box.height;
-  for (let iy = 0; iy < H; iy++) {
+  // Only the stretches that reach into the box: the one before its first line counts too.
+  const firstX = Math.max(0, firstAbove(xs, box.x) - 1);
+  for (let iy = Math.max(0, firstAbove(ys, box.y) - 1); iy < H; iy++) {
     const y = ys[iy] as number;
+    if (y >= bottom) break;
     const skipLevel = skipLines?.ys.has(y) ?? false;
-    for (let ix = 0; ix < W; ix++) {
+    for (let ix = firstX; ix < W; ix++) {
       const x = xs[ix] as number;
+      if (x >= right) break;
       const i = iy * W + ix;
       if (
         !skipLevel &&
@@ -254,10 +275,13 @@ function markZones(grid: Grid, groups: readonly RouteGroup[]): void {
     .sort((a, b) => (groups[a]?.depth ?? 0) - (groups[b]?.depth ?? 0));
   for (const k of outermostFirst) {
     const rect = (groups[k] as RouteGroup).rect;
-    for (let iy = 0; iy < H; iy++) {
-      for (let ix = 0; ix < W; ix++) {
+    const firstX = Math.max(0, firstAbove(xs, rect.x) - 1);
+    for (let iy = Math.max(0, firstAbove(ys, rect.y) - 1); iy < H; iy++) {
+      const y = ys[iy] as number;
+      if (y >= rect.y + rect.height) break;
+      for (let ix = firstX; ix < W; ix++) {
         const x = xs[ix] as number;
-        const y = ys[iy] as number;
+        if (x >= rect.x + rect.width) break;
         const i = iy * W + ix;
         if (ix < W - 1 && inside(rect, (x + (xs[ix + 1] as number)) / 2, y)) grid.level.zone[i] = k;
         if (iy < H - 1 && inside(rect, x, (y + (ys[iy + 1] as number)) / 2)) {
@@ -274,10 +298,12 @@ function markBadges(grid: Grid, nodes: readonly RouteNode[]): void {
   for (const { badge } of nodes) {
     const right = badge.x + badge.width;
     const bottom = badge.y + badge.height;
-    for (let iy = 0; iy < H; iy++) {
+    const firstX = Math.max(0, firstAbove(xs, badge.x) - 1);
+    for (let iy = firstAbove(ys, badge.y); iy < H; iy++) {
       const y = ys[iy] as number;
-      if (y <= badge.y || y >= bottom) continue;
-      for (let ix = 0; ix < W - 1; ix++) {
+      if (y >= bottom) break;
+      for (let ix = firstX; ix < W - 1; ix++) {
+        if ((xs[ix] as number) >= right) break;
         if ((xs[ix + 1] as number) > badge.x && (xs[ix] as number) < right) {
           grid.level.badge[iy * W + ix] = 1;
         }

@@ -11,7 +11,7 @@ import {
   selfLoop,
 } from './geometry';
 import type { ResolvedNode } from './resolve';
-import { type RouteEdge, routeEdges } from './route';
+import { type RoutedRail, type RouteEdge, routeEdges } from './route';
 import {
   BADGE_MAX_WIDTH,
   BADGE_SIZE,
@@ -358,6 +358,19 @@ function placeLabels(
   return result;
 }
 
+/**
+ * The last routes found, and what they were found for. Finding them is most of the work, and
+ * they do not depend on the labels of the edges: typing one only places the labels again.
+ */
+let lastFound: { key: string; found: Map<string, RoutedRail> } | undefined;
+
+function routesFor(...args: Parameters<typeof routeEdges>): Map<string, RoutedRail> {
+  const [nodes, groups, walls, edges] = args;
+  const key = JSON.stringify([nodes, groups, walls, edges.map((e) => [e, [...e.home]])]);
+  if (lastFound?.key !== key) lastFound = { key, found: routeEdges(...args) };
+  return lastFound.found;
+}
+
 function routeDiagram(doc: DavDocument, layout: Layout, nodes: readonly ResolvedNode[]): Routed {
   const nodeIndex = new Map(nodes.map((n, i) => [n.id, i]));
   const groups = doc.groups.flatMap((g) => {
@@ -406,7 +419,7 @@ function routeDiagram(doc: DavDocument, layout: Layout, nodes: readonly Resolved
     return [edgeLabelArea(e.label, spot)];
   });
   const loopNodes = new Set(doc.edges.filter((e) => e.from === e.to).map((e) => e.from));
-  const found = routeEdges(
+  const found = routesFor(
     nodes.map((n, i) => {
       const area = areas[i] as Rect;
       return {
