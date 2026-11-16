@@ -116,12 +116,10 @@ const carries = (e: DavEdge, from: string, to: string): boolean =>
   (e.direction === 'bidirectional' && e.from === to && e.to === from);
 
 /**
- * What is drawn of a node: its station, and the block of labels below it. An edge label keeps
- * clear of these; the room `stationArea` adds around a station is free for it.
+ * The rectangle occupied by a node's label and sub-label below its station.
  */
-export function nodeBody(node: ResolvedNode): Rect[] {
+function nodeLabelRect(node: ResolvedNode, area = stationArea(node)): Rect {
   const station = stationRect(node.rect, node.icon);
-  const area = stationArea(node);
   const bottom = station.y + station.height;
   // A long name or sub-label is wider than the area a rail keeps clear of.
   const text = Math.min(
@@ -132,14 +130,23 @@ export function nodeBody(node: ResolvedNode): Rect[] {
       node.sub ? textWidth(node.sub, NODE_SUB_SIZE) + 8 : 0,
     ),
   );
+  return {
+    x: station.x + station.width / 2 - text / 2,
+    y: bottom,
+    width: text,
+    height: area.y + area.height - bottom,
+  };
+}
+
+/**
+ * What is drawn of a node: its station, and the block of labels below it. An edge label keeps
+ * clear of these; the room `stationArea` adds around a station is free for it.
+ */
+export function nodeBody(node: ResolvedNode): Rect[] {
+  const station = stationRect(node.rect, node.icon);
   return [
     { x: station.x - 4, y: station.y - 4, width: station.width + 8, height: station.height + 8 },
-    {
-      x: station.x + station.width / 2 - text / 2,
-      y: bottom,
-      width: text,
-      height: area.y + area.height - bottom,
-    },
+    nodeLabelRect(node),
   ];
 }
 
@@ -241,12 +248,13 @@ const STOP_ROOM = 15;
 const LABEL_ABOVE_STOP = 20;
 const LABEL_BELOW_STOP = 28;
 /** Shares of a stretch at which its label is tried, the middle first. */
-const LABEL_SHARES = [0.5, 0.3, 0.7];
+const LABEL_SHARES = [0.5, 0.35, 0.65, 0.2, 0.8];
 
 /**
  * Finds each label a place beside its own rail: on the longest stretch that no other rail runs
  * beside and that is long enough for it, clear of every node, zone name, other label and rail.
- * A label with no such place takes the one that covers the least.
+ * Most-constrained (shortest) rails are placed first. A label with no free place takes the one
+ * that covers the least.
  */
 function placeLabels(
   edges: ReadonlyArray<{ label: string; rail: Route; shared: readonly boolean[] } | undefined>,
@@ -259,10 +267,27 @@ function placeLabels(
       return b ? [[a, b]] : [];
     }),
   );
+  const totalLen = (rail: Route): number => {
+    let len = 0;
+    for (let i = 0; i + 1 < rail.points.length; i++) {
+      const p = rail.points[i] as Point;
+      const q = rail.points[i + 1] as Point;
+      len += Math.hypot(q.x - p.x, q.y - p.y);
+    }
+    return len;
+  };
+  const order = edges
+    .flatMap((edge, i) => (edge ? [{ i, len: totalLen(edge.rail) }] : []))
+    .sort((a, b) => a.len - b.len || a.i - b.i)
+    .map((entry) => entry.i);
+
   const taken: Rect[] = [];
   const height = EDGE_LABEL_FONT_SIZE * 1.2;
-  return edges.map((edge) => {
-    if (!edge) return undefined;
+  const result: Array<EdgeLabelSpot | undefined> = Array(edges.length).fill(undefined);
+
+  for (const edgeIdx of order) {
+    const edge = edges[edgeIdx];
+    if (!edge) continue;
     const text = fitText(edge.label, EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH);
     const width = textWidth(text, EDGE_LABEL_FONT_SIZE);
     const middle = pointAt(edge.rail, 0.5);
@@ -278,17 +303,27 @@ function placeLabels(
         const q = edge.rail.points[i + 1];
         if (!q) return [];
         const length = Math.hypot(q.x - p.x, q.y - p.y);
-        return [{ p, q, length, fits: !edge.shared[i] && length >= width + 16 }];
+        const longEnough = length >= width + 16;
+        const isShared = Boolean(edge.shared[i]);
+        const fitsUnshared = !isShared && longEnough;
+        const fitsShared = isShared && longEnough;
+        const fitCost = fitsUnshared ? 0 : fitsShared ? 2 : 4;
+        return [{ p, q, length, fitsUnshared, fitsShared, fitCost }];
       })
-      .sort((s, t) => Number(t.fits) - Number(s.fits) || t.length - s.length);
+      .sort(
+        (s, t) =>
+          Number(t.fitsUnshared) - Number(s.fitsUnshared) ||
+          Number(t.fitsShared) - Number(s.fitsShared) ||
+          t.length - s.length,
+      );
 
     let best: { spot: EdgeLabelSpot; box: Rect; cost: number } | undefined;
-    const consider = (spot: EdgeLabelSpot, left: number, fits: boolean) => {
+    const consider = (spot: EdgeLabelSpot, left: number, fitCost: number) => {
       const box = { x: left - 2, y: spot.y - height * 0.8, width: width + 4, height };
       const cost =
         [...solid, ...taken, stops].filter((o) => rectOverlaps(box, o)).length * 100 +
         strokes.filter(([p, q]) => segmentIntersectsRect(p, q, box)).length * 10 +
-        (fits ? 0 : 1);
+        fitCost;
       if (!best || cost < best.cost) best = { spot, box, cost };
     };
     for (const span of spans) {
@@ -296,32 +331,31 @@ function placeLabels(
       for (const share of LABEL_SHARES) {
         const x = span.p.x + (span.q.x - span.p.x) * share;
         const y = span.p.y + (span.q.y - span.p.y) * share;
-        if (level) {
-          // Above the stretch, or else below it.
-          consider({ x, y: y - LABEL_GAP, anchor: 'middle' }, x - width / 2, span.fits);
-          consider(
-            { x, y: y + LABEL_GAP + height * 0.8, anchor: 'middle' },
-            x - width / 2,
-            span.fits,
-          );
-          if (share === 0.5) {
-            consider({ x, y: y - LABEL_ABOVE_STOP, anchor: 'middle' }, x - width / 2, false);
-            consider({ x, y: y + LABEL_BELOW_STOP, anchor: 'middle' }, x - width / 2, false);
+        for (const gap of [LABEL_GAP, LABEL_GAP + 6]) {
+          const fitCost = gap === LABEL_GAP ? span.fitCost : span.fitCost + 1;
+          if (level) {
+            consider({ x, y: y - gap, anchor: 'middle' }, x - width / 2, fitCost);
+            consider({ x, y: y + gap + height * 0.8, anchor: 'middle' }, x - width / 2, fitCost);
+          } else {
+            const base = y + height * 0.3;
+            consider({ x: x + gap, y: base, anchor: 'start' }, x + gap, fitCost);
+            consider({ x: x - gap, y: base, anchor: 'end' }, x - gap - width, fitCost);
           }
-        } else {
-          // To the right of the stretch, or else to its left.
-          const base = y + height * 0.3;
-          consider({ x: x + LABEL_GAP, y: base, anchor: 'start' }, x + LABEL_GAP, span.fits);
-          consider({ x: x - LABEL_GAP, y: base, anchor: 'end' }, x - LABEL_GAP - width, span.fits);
+        }
+        if (level && share === 0.5) {
+          const stopCost = Math.max(span.fitCost, 2);
+          consider({ x, y: y - LABEL_ABOVE_STOP, anchor: 'middle' }, x - width / 2, stopCost);
+          consider({ x, y: y + LABEL_BELOW_STOP, anchor: 'middle' }, x - width / 2, stopCost);
         }
         if (best?.cost === 0) break;
       }
       if (best?.cost === 0) break;
     }
-    if (!best) return undefined;
+    if (!best) continue;
     taken.push(best.box);
-    return best.spot;
-  });
+    result[edgeIdx] = best.spot;
+  }
+  return result;
 }
 
 function routeDiagram(doc: DavDocument, layout: Layout, nodes: readonly ResolvedNode[]): Routed {
@@ -371,12 +405,18 @@ function routeDiagram(doc: DavDocument, layout: Layout, nodes: readonly Resolved
     const spot = loopLabelSpot(stationRect(node.rect, node.icon), loops.get(e) ?? 0);
     return [edgeLabelArea(e.label, spot)];
   });
+  const loopNodes = new Set(doc.edges.filter((e) => e.from === e.to).map((e) => e.from));
   const found = routeEdges(
-    nodes.map((n, i) => ({
-      station: stationRect(n.rect, n.icon),
-      area: areas[i] as Rect,
-      badge: badgeRoom(n, areas[i] as Rect),
-    })),
+    nodes.map((n, i) => {
+      const area = areas[i] as Rect;
+      return {
+        station: stationRect(n.rect, n.icon),
+        area,
+        labelArea: nodeLabelRect(n, area),
+        hasLoop: loopNodes.has(n.id),
+        badge: badgeRoom(n, area),
+      };
+    }),
     groups.map((g) => ({
       rect: g.rect,
       depth: ancestorIds(groupParent, groupParent.get(g.id)).length,
@@ -420,7 +460,16 @@ let lastRouted: { key: string; routed: Routed } | undefined;
 
 function routedFor(doc: DavDocument, layout: Layout, nodes: readonly ResolvedNode[]): Routed {
   const key = JSON.stringify([
-    nodes.map((n) => [n.id, n.icon, n.rect.x, n.rect.y, n.rect.width, n.rect.height]),
+    nodes.map((n) => [
+      n.id,
+      n.icon,
+      n.label,
+      n.sub ?? '',
+      n.rect.x,
+      n.rect.y,
+      n.rect.width,
+      n.rect.height,
+    ]),
     doc.nodes.map((n) => n.parentId ?? null),
     doc.groups.map((g) => [g.id, g.parentId ?? null, g.label, layout.groups[g.id] ?? null]),
     doc.edges.map((e) => [e.from, e.to, e.direction, e.label ?? null]),

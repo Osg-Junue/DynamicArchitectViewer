@@ -1,5 +1,5 @@
 import type { DavDocument, DavEdge } from '../model/types';
-import { idPair, topLevelGroups, zoneOfGroups, zoneOfNodes } from '../model/zones';
+import { idPair, parentMap, topLevelGroups, zoneOfGroups, zoneOfNodes } from '../model/zones';
 import { linksOf, segmentsOf } from './links';
 import {
   EMPTY_GROUP_CONTENT,
@@ -25,7 +25,10 @@ const ROW_GAP = 44;
 export type ColumnLayout = (doc: DavDocument) => Layout;
 
 /** Where the search put each zone. It holds no sizes, so it can be applied to resized zones. */
-export type ZonePlacement = ReadonlyMap<string, { x: number; y: number; flip: 0 | 1 }>;
+export type ZonePlacement = ReadonlyMap<
+  string,
+  { x: number; y: number; flip: 0 | 1; order?: readonly string[] }
+>;
 
 /** A top-level zone, or a node outside any zone, moved as one rigid piece. */
 export interface Block {
@@ -258,17 +261,56 @@ export function flippedY(block: Block, rect: Rect): number {
   return block.head + block.contentHeight - (rect.y - block.head) - rect.height;
 }
 
-/** Zones can come out wider than they were searched at; those to the right step aside. */
-function keepClear(placed: readonly Placed[]): void {
+/** Zones can come out wider than they were searched at, and dense meshes need extra corridor room. */
+function keepClear(
+  placed: readonly Placed[],
+  hClear = HORIZONTAL_CLEARANCE,
+  vClear = VERTICAL_CLEARANCE,
+): void {
+  if (vClear > VERTICAL_CLEARANCE) {
+    const byY = [...placed].sort((a, b) => a.y - b.y);
+    byY.forEach((p, i) => {
+      for (const q of byY.slice(0, i)) {
+        const xNear =
+          p.x < q.x + q.block.width + HORIZONTAL_CLEARANCE &&
+          q.x < p.x + p.block.width + HORIZONTAL_CLEARANCE;
+        if (xNear && p.y >= q.y + q.block.height) {
+          p.y = Math.max(p.y, q.y + q.block.height + vClear);
+        }
+      }
+    });
+  }
   const byX = [...placed].sort((a, b) => a.x - b.x);
   byX.forEach((p, i) => {
     for (const q of byX.slice(0, i)) {
-      const near =
-        p.y < q.y + q.block.height + VERTICAL_CLEARANCE &&
-        q.y < p.y + p.block.height + VERTICAL_CLEARANCE;
-      if (near) p.x = Math.max(p.x, q.x + q.block.width + HORIZONTAL_CLEARANCE);
+      const near = p.y < q.y + q.block.height + vClear && q.y < p.y + p.block.height + vClear;
+      if (near) p.x = Math.max(p.x, q.x + q.block.width + hClear);
     }
   });
+}
+
+function applyNodeOrder(
+  nodeParent: ReadonlyMap<string, string | undefined>,
+  block: Block,
+  order: readonly string[],
+): void {
+  const rankIndex = new Map(order.map((id, i) => [id, i]));
+  const groups = new Map<string, Array<[string, Rect]>>();
+  for (const entry of block.nodes.entries()) {
+    const [id, r] = entry;
+    const key = `${nodeParent.get(id) ?? ''}|${Math.round(r.x)}`;
+    const list = groups.get(key);
+    if (list) list.push(entry);
+    else groups.set(key, [entry]);
+  }
+  for (const items of groups.values()) {
+    if (items.length < 2) continue;
+    const ys = items.map(([, r]) => r.y).sort((a, b) => a - b);
+    items.sort((a, b) => (rankIndex.get(a[0]) ?? 0) - (rankIndex.get(b[0]) ?? 0));
+    items.forEach(([, r], k) => {
+      r.y = ys[k] as number;
+    });
+  }
 }
 
 /** Builds the layout of a diagram from a placement found for its structure. */
@@ -277,10 +319,19 @@ export function applyZonePlacement(
   placement: ZonePlacement,
   columnLayout: ColumnLayout,
 ): Layout {
-  const placed = buildBlocks(doc, columnLayout).blocks.map(
-    (block): Placed => ({ block, ...(placement.get(block.id) ?? { x: 0, y: 0, flip: 0 }) }),
-  );
-  keepClear(placed);
+  const nodeParent = parentMap(doc.nodes);
+  const placed = buildBlocks(doc, columnLayout).blocks.map((block): Placed => {
+    const entry = placement.get(block.id);
+    if (entry?.order) applyNodeOrder(nodeParent, block, entry.order);
+    return {
+      block,
+      x: entry?.x ?? 0,
+      y: entry?.y ?? 0,
+      flip: entry?.flip ?? 0,
+    };
+  });
+  const dense = linksBetweenZones(doc) >= topLevelGroups(doc.groups).length * 3;
+  keepClear(placed, dense ? 92 : HORIZONTAL_CLEARANCE, dense ? 54 : VERTICAL_CLEARANCE);
   return toLayout(placed);
 }
 

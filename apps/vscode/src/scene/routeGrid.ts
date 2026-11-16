@@ -2,8 +2,9 @@ import type { Rect } from '../layout';
 import type { Point } from './geometry';
 import type { RouteEdge, RouteGroup, RouteNode } from './route';
 
-/** How far beside a node, and beside a zone's border, a line of the grid runs. */
+/** How far beside a node, beside its wider label block, and beside a zone's border, a line of the grid runs. */
 const NODE_MARGIN = 8;
+const LABEL_MARGIN = 12;
 const ZONE_MARGIN = 12;
 /** Lines of the grid nearer than this become one. */
 const MERGE = 3;
@@ -36,6 +37,8 @@ export interface Lane {
   zone: Int16Array;
   /** How many routes run on the stretch so far. */
   use: Uint8Array;
+  /** Indices of the routes currently using each stretch (lazily created per occupied stretch). */
+  routes: Array<number[] | undefined>;
   /** 1 where a level stretch runs through the room above a station that its badge is written in. */
   badge: Uint8Array;
 }
@@ -82,34 +85,53 @@ function gridLines(marks: Mark[]): number[] {
     else if (mark[1] && !last[1]) out[out.length - 1] = mark;
     else if (mark[1] && last[1] && mark[0] !== last[0]) out.push(mark);
   }
-  return out.map((m) => m[0]);
+  // Add evenly spaced interior tracks across wide gaps so unrelated rails do not all stack on border lines.
+  const coords = out.map((m) => m[0]);
+  const expanded: number[] = [];
+  for (let i = 0; i < coords.length; i++) {
+    const a = coords[i] as number;
+    expanded.push(a);
+    const b = coords[i + 1];
+    if (b === undefined) continue;
+    const gap = b - a;
+    if (gap >= 36) {
+      const count = gap >= 64 ? 2 : 1;
+      const step = gap / (count + 1);
+      for (let k = 1; k <= count; k++) expanded.push(a + step * k);
+    }
+  }
+  return expanded;
 }
 
 /**
- * A line through every station, beside every node, above the room of every badge, on both sides
- * of every zone's border.
+ * A line through every station, beside every node (including wide labels), above the room of
+ * every badge, on both sides of every zone's border, and on all four sides of every wall.
  */
 function linesOf(
   nodes: readonly RouteNode[],
   groups: readonly RouteGroup[],
   walls: readonly Rect[],
+  ports: readonly Ports[],
 ): { xs: number[]; ys: number[] } {
   const xMarks: Mark[] = [];
   const yMarks: Mark[] = [];
-  for (const n of nodes) {
+  nodes.forEach((n, k) => {
     const c = stationCenter(n);
-    xMarks.push(
-      [c.x, true],
-      [n.area.x - NODE_MARGIN, false],
-      [n.area.x + n.area.width + NODE_MARGIN, false],
-    );
+    for (const x of ports[k]?.xs ?? [c.x]) xMarks.push([x, true]);
+    for (const y of ports[k]?.ys ?? [c.y]) yMarks.push([y, true]);
+    xMarks.push([n.area.x - NODE_MARGIN, false], [n.area.x + n.area.width + NODE_MARGIN, false]);
+    if (n.labelArea) {
+      xMarks.push(
+        [n.labelArea.x - LABEL_MARGIN, false],
+        [n.labelArea.x + n.labelArea.width + LABEL_MARGIN, false],
+      );
+    }
     yMarks.push(
-      [c.y, true],
       [n.badge.y, false],
       [n.area.y - NODE_MARGIN, false],
       [n.area.y + n.area.height + NODE_MARGIN, false],
     );
-  }
+  });
   for (const g of groups) {
     for (const side of [-ZONE_MARGIN, ZONE_MARGIN]) {
       xMarks.push([g.rect.x + side, false], [g.rect.x + g.rect.width + side, false]);
@@ -117,20 +139,43 @@ function linesOf(
     }
   }
   for (const w of walls) {
-    xMarks.push([w.x + w.width + 4, false]);
-    yMarks.push([w.y + w.height + 4, false]);
+    xMarks.push([w.x - 6, false], [w.x + w.width + 6, false]);
+    yMarks.push([w.y - 6, false], [w.y + w.height + 6, false]);
   }
   return { xs: gridLines(xMarks), ys: gridLines(yMarks) };
 }
 
 /**
- * The lines a node's links may meet it on: those through the middle of its station, and those
- * through a linked station that is only a little off them.
+ * The lines a node's links may meet it on: those through the middle of its station, those
+ * through a linked station that is only a little off them, and off-center vertical ports when
+ * a wall (such as a zone label) sits over the node's centerline above the station.
  */
-function portsOf(nodes: readonly RouteNode[], edges: readonly RouteEdge[]): Ports[] {
+function portsOf(
+  nodes: readonly RouteNode[],
+  edges: readonly RouteEdge[],
+  walls: readonly Rect[],
+): Ports[] {
   const ports: Ports[] = nodes.map((n) => {
     const c = stationCenter(n);
-    return { xs: new Set([c.x]), ys: new Set([c.y]) };
+    const xs = new Set([c.x]);
+    const overhead = walls.filter(
+      (w) => w.y + w.height + 4 <= n.station.y && n.station.y - (w.y + w.height) <= 120,
+    );
+    if (overhead.some((w) => c.x > w.x - 4 && c.x < w.x + w.width + 4)) {
+      for (const side of [
+        [-10, -11],
+        [10, 11],
+      ]) {
+        for (const offset of side) {
+          const px = c.x + offset;
+          if (!overhead.some((w) => px > w.x - 4 && px < w.x + w.width + 4)) {
+            xs.add(px);
+            break;
+          }
+        }
+      }
+    }
+    return { xs, ys: new Set([c.y]) };
   });
   for (const e of edges) {
     const a = stationCenter(nodes[e.from] as RouteNode);
@@ -156,21 +201,43 @@ function closeStretch(lane: Lane, i: number, who: number, door: boolean): void {
 
 /**
  * Closes every stretch inside `box`: to all routes (`who` -2), or to all but a node's own,
- * which may enter along the lines of `own`.
+ * which may enter along the lines of `own`. When `skipLines` is given, stretches sitting on a
+ * station's centerline are left untouched so wall padding never seals off a station port.
  */
-function close(grid: Grid, box: Rect, who: number, own?: Ports): void {
+function close(
+  grid: Grid,
+  box: Rect,
+  who: number,
+  own?: Ports,
+  skipLines?: { xs: ReadonlySet<number>; ys: ReadonlySet<number> },
+): void {
   const { xs, ys, W, H } = grid;
   const right = box.x + box.width;
   const bottom = box.y + box.height;
   for (let iy = 0; iy < H; iy++) {
     const y = ys[iy] as number;
+    const skipLevel = skipLines?.ys.has(y) ?? false;
     for (let ix = 0; ix < W; ix++) {
       const x = xs[ix] as number;
       const i = iy * W + ix;
-      if (ix < W - 1 && y > box.y && y < bottom && (xs[ix + 1] as number) > box.x && x < right) {
+      if (
+        !skipLevel &&
+        ix < W - 1 &&
+        y > box.y &&
+        y < bottom &&
+        (xs[ix + 1] as number) > box.x &&
+        x < right
+      ) {
         closeStretch(grid.level, i, who, own?.ys.has(y) ?? false);
       }
-      if (iy < H - 1 && x > box.x && x < right && (ys[iy + 1] as number) > box.y && y < bottom) {
+      if (
+        !(skipLines?.xs.has(x) ?? false) &&
+        iy < H - 1 &&
+        x > box.x &&
+        x < right &&
+        (ys[iy + 1] as number) > box.y &&
+        y < bottom
+      ) {
         closeStretch(grid.upright, i, who, own?.xs.has(x) ?? false);
       }
     }
@@ -224,6 +291,7 @@ const lane = (size: number): Lane => ({
   door: new Uint8Array(size),
   zone: new Int16Array(size).fill(-1),
   use: new Uint8Array(size),
+  routes: new Array(size),
   badge: new Uint8Array(size),
 });
 
@@ -234,7 +302,8 @@ export function buildGrid(
   walls: readonly Rect[],
   edges: readonly RouteEdge[],
 ): Grid {
-  const { xs, ys } = linesOf(nodes, groups, walls);
+  const ports = portsOf(nodes, edges, walls);
+  const { xs, ys } = linesOf(nodes, groups, walls, ports);
   const size = xs.length * ys.length;
   const grid: Grid = {
     xs,
@@ -243,26 +312,64 @@ export function buildGrid(
     H: ys.length,
     level: lane(size),
     upright: lane(size),
-    ports: portsOf(nodes, edges),
+    ports,
     xIndex: new Map(xs.map((x, i) => [x, i])),
     yIndex: new Map(ys.map((y, i) => [y, i])),
   };
   nodes.forEach((n, k) => {
     close(grid, n.area, k, grid.ports[k]);
+    if (n.labelArea) close(grid, n.labelArea, k, grid.ports[k]);
   });
-  for (const w of walls) close(grid, w, -2);
+  const stationLines = {
+    xs: new Set(nodes.map((n) => stationCenter(n).x)),
+    ys: new Set(nodes.map((n) => stationCenter(n).y)),
+  };
+  for (const w of walls) {
+    close(grid, w, -2);
+    close(
+      grid,
+      { x: w.x - 4, y: w.y - 4, width: w.width + 8, height: w.height + 8 },
+      -2,
+      undefined,
+      stationLines,
+    );
+  }
   markZones(grid, groups);
   markBadges(grid, nodes);
   return grid;
 }
 
 /** Notes that a route runs on every stretch of `path`, which makes them dearer for the next. */
-export function occupy(grid: Grid, path: readonly number[]): void {
+export function occupy(grid: Grid, path: readonly number[], edgeIndex = -1): void {
   for (let i = 0; i + 1 < path.length; i++) {
     const p = path[i] as number;
     const q = path[i + 1] as number;
-    const { use } = Math.abs(p - q) === 1 ? grid.level : grid.upright;
+    const l = Math.abs(p - q) === 1 ? grid.level : grid.upright;
     const stretch = Math.min(p, q);
-    use[stretch] = Math.min(255, (use[stretch] as number) + 1);
+    l.use[stretch] = Math.min(255, (l.use[stretch] as number) + 1);
+    if (edgeIndex >= 0) {
+      const list = l.routes[stretch];
+      if (list) list.push(edgeIndex);
+      else l.routes[stretch] = [edgeIndex];
+    }
+  }
+}
+
+/** Removes a route from every stretch of `path` before re-routing it. */
+export function unoccupy(grid: Grid, path: readonly number[], edgeIndex: number): void {
+  for (let i = 0; i + 1 < path.length; i++) {
+    const p = path[i] as number;
+    const q = path[i + 1] as number;
+    const l = Math.abs(p - q) === 1 ? grid.level : grid.upright;
+    const stretch = Math.min(p, q);
+    const list = l.routes[stretch];
+    if (list) {
+      const idx = list.indexOf(edgeIndex);
+      if (idx !== -1) list.splice(idx, 1);
+      if (list.length === 0) l.routes[stretch] = undefined;
+    }
+    if ((l.use[stretch] as number) > 0) {
+      l.use[stretch] = (l.use[stretch] as number) - 1;
+    }
   }
 }
