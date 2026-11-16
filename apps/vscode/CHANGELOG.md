@@ -5,6 +5,7 @@ The `dav` language version follows the major version: every `1.x.x` release is `
 
 ## Unreleased
 
+- Install AI Agent Skill offers Cursor as well: `.cursor/skills` in the workspace, or `~/.cursor/skills` for all projects
 - A large diagram whose zones are placed freely reads from left to right more often. Zones along a flow stood above each other as readily as side by side, so a diagram of five zones could come out taller than wide, with its flow running from the bottom to the top. An upright link between zones now costs more than a level one while the diagram is narrower than twice its height. Diagrams whose zones are placed freely are arranged anew, and an exported SVG of one is out of date for `dav export --check` until it is exported again
 - The label of an edge is no longer written over the label of a loop on the node it leaves or reaches
 - A rail that only passes a node with a self-loop goes round the loop and its label. It took the room beside the node for a way through, so on a node that many rails pass the loop was drawn across them. Rails that reach the node itself still meet it where the loop leaves and comes back
