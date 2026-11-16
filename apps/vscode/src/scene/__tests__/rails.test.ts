@@ -237,6 +237,65 @@ describe('the rails of a diagram', () => {
     }
   });
 
+  it('routes a rail that passes a station with a loop round the loop and its label', () => {
+    // The rails beside a node took the room its loop is drawn in for a way through: the rail
+    // from `job` down to `latest` ran through the loop of `svc`, and the one from `idp` over it.
+    const view = viewOf(`dav 1
+node sched "Scheduler"
+node dev "Developer"
+group app "Jobs" {
+  node job "Sync job"
+  node svc "Access service"
+}
+group data "Warehouse" {
+  node latest "Latest snapshot"
+  node raw "Raw table"
+  node members "Members"
+}
+group ext "External" {
+  node gitlab "GitLab"
+  node idp "Identity"
+  node audit "Audit log"
+}
+sched ..> job : "Scheduled"
+dev --> svc : "Request"
+job --> latest : "SELECT"
+job --> raw : "Append to raw"
+job --> audit : "Code / log"
+latest --> svc : "Read"
+idp --> svc : "Token"
+svc ..> svc : "Re-check grant"
+svc --> members : "Add member"
+svc --> gitlab : "Invite"
+raw --> members : "Merge"
+gitlab --> audit : "Webhook"
+job --> idp : "Service account"
+`);
+    const loop = view.edges.find((e) => e.from === e.to);
+    if (!loop?.label || !loop.labelAt) throw new Error('no loop with a label');
+    const curve = Array.from({ length: 25 }, (_, i) => pointAt(loop.path, i / 24));
+    const xs = curve.map((p) => p.x);
+    const ys = curve.map((p) => p.y);
+    const [left, top] = [Math.min(...xs), Math.min(...ys)];
+    const room: Rect[] = [
+      { x: left, y: top, width: Math.max(...xs) - left, height: Math.max(...ys) - top },
+      edgeLabelArea(loop.label, loop.labelAt),
+    ];
+    const passing = view.edges.filter((e) => e.from !== loop.from && e.to !== loop.from);
+    expect(passing.length).toBeGreaterThan(0);
+    for (const e of passing) {
+      const points = (e.path as Route).points;
+      for (let i = 0; i + 1 < points.length; i++) {
+        for (const box of room) {
+          expect(
+            segmentIntersectsRect(points[i] as Point, points[i + 1] as Point, box),
+            `${e.id} through the loop on ${loop.from}`,
+          ).toBe(false);
+        }
+      }
+    }
+  });
+
   it.each(SAMPLE_TEMPLATES.map((sample) => [sample.id, sample.dsl] as const))(
     '%s: a rail keeps its course from the overview into every step',
     (_, dsl) => {
