@@ -23,12 +23,52 @@ Options:
   -h, --help      Show this help; after a command, the help of that command
   -v, --version   Show the version`;
 
+const CHECK_USAGE = 'Usage: dav check [--write] [--detail] [--map] <file.dav>...';
+
+export const CHECK_HELP = `${CHECK_USAGE}
+
+Reports the errors and warnings of each file, as the editor shows them: one line for each,
+with its line and column. Fails when a file has an error, a warning or a hint.
+
+Options:
+  --write      Format each file in place before it is checked
+  --detail     For a file without errors and warnings, also give hints, where the diagram
+               says too little or a text is too long to be shown in full, and describe
+               the layout: its size, and the columns and rows the nodes take
+  --map        For such a file, also say which node is where, in words and small tables
+  -h, --help   Show this help`;
+
+const OUTLINE_USAGE = 'Usage: dav outline [--json] <file.dav>';
+
+export const OUTLINE_HELP = `${OUTLINE_USAGE}
+
+Prints what one diagram says, as Markdown: its zones and nodes, its connections, and the
+packets of each step in the order they travel, with every reference resolved. A file with
+an error is outlined as far as it could be read, and the command fails.
+
+Options:
+  --json       Print the outline as JSON
+  -h, --help   Show this help`;
+
+/** A command of the skill scripts, which answer `--help` with their usage line alone. */
+function withHelp(
+  help: string,
+  run: (args: string[]) => number,
+): (args: readonly string[]) => number {
+  return (args) => {
+    if (args.includes('--help') || args.includes('-h')) {
+      console.log(help);
+      return EXIT_OK;
+    }
+    return run(expandFiles(args));
+  };
+}
+
 const COMMANDS: Readonly<Record<string, (args: readonly string[]) => number | Promise<number>>> = {
   export: runExport,
-  check: (args) =>
-    runCheck(expandFiles(args), 'Usage: dav check [--write] [--detail] [--map] <file.dav>...'),
+  check: withHelp(CHECK_HELP, (files) => runCheck(files, CHECK_USAGE)),
   format: runFormat,
-  outline: (args) => runOutline(expandFiles(args), 'Usage: dav outline [--json] <file.dav>'),
+  outline: withHelp(OUTLINE_HELP, (files) => runOutline(files, OUTLINE_USAGE)),
 };
 
 /** An option the command does not have, or a value that is missing, as `node:util` reports it. */
