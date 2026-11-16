@@ -73,11 +73,22 @@ Then open a `.dav` file, or run **DynamicArchitectViewer: New Diagram from Sampl
 
 ## Command line
 
-The `dav` command does what the extension does with a `.dav` file, without the editor: in a terminal or in CI. It is the npm package [`dynamic-architect-viewer-cli`](apps/cli/README.md), which needs Node.js 22.17 or later and has no dependencies.
+The `dav` command does what the extension does with a `.dav` file, without the editor: in a terminal or in CI. It is the npm package [`dynamic-architect-viewer-cli`](https://www.npmjs.com/package/dynamic-architect-viewer-cli), which needs Node.js 22.17 or later and has no dependencies.
+
+Without an install, `npx` fetches the package and runs it:
 
 ```bash
 npx dynamic-architect-viewer-cli export docs/checkout.dav
 ```
+
+Installed, the command is `dav`:
+
+```bash
+npm install --global dynamic-architect-viewer-cli
+dav export docs/checkout.dav
+```
+
+In a project, `npm install --save-dev dynamic-architect-viewer-cli` makes it a development dependency, and `npx dav` runs it.
 
 | Command | Does |
 | :--- | :--- |
@@ -85,6 +96,8 @@ npx dynamic-architect-viewer-cli export docs/checkout.dav
 | `dav check` | Reports what the editor reports. `--detail` adds hints and describes the layout, and `--map` says which node is where |
 | `dav format` | Formats files in place. `--check` fails when a file is not formatted |
 | `dav outline` | Prints what a diagram says, with every reference resolved |
+
+[The manual of the command](apps/cli/README.md) has every option, what each command prints, and the exit codes.
 
 `dav export --check` writes nothing and fails when a file is missing or is not what its diagram exports now. In CI, this keeps the SVG in a README up to date:
 
@@ -128,6 +141,7 @@ Then ask your agent as usual, such as "Diagram this repository's login flow in `
 - [Examples](docs/examples.md)
 - [Language specification](docs/specification.md)
 - [How diagrams are laid out](docs/layout.md)
+- [The `dav` command](apps/cli/README.md)
 - [Architecture](docs/architecture.md)
 - [Contributing](CONTRIBUTING.md)
 

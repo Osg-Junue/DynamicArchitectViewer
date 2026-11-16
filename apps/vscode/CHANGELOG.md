@@ -3,6 +3,11 @@
 This project follows [Semantic Versioning](https://semver.org/). The `0.x` series was a preview.
 The `dav` language version follows the major version: every `1.x.x` release is `dav 1`.
 
+## Unreleased
+
+- `dav check --help` and `dav outline --help` say what each option does, as the help of `dav export` and `dav format` does. They printed the usage line alone
+- The README of the npm package `dynamic-architect-viewer-cli` is a manual of the command: how to install it, every option of each command, the lines each prints with what they mean, how to read the layout lines and the map of `dav check`, and the exit codes
+
 ## 1.4.0 (2026-11-16)
 
 - `dav check`, `dav outline` and the two scripts of the skills print a label that holds a line break on one line. What followed the break started a line of its own, so a diagram could write a line that read as the script's: a heading of the outline, a line of the checker. An agent that takes those lines for facts could be told anything that way
