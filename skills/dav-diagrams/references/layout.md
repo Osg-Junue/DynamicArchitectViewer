@@ -186,7 +186,7 @@ The result is deterministic. Zones no longer share columns, so a column does not
 
 Rails are routed after layout, by `routeEdges` in `scene/route.ts`, once for an arrangement: a rail keeps its course from step to step. A self-loop is not routed; it stays a curve at its station's upper right.
 
-1. **The grid** (`scene/routeGrid.ts`). Routes run on the lines through the middle of every station, 8 units beside every node's area (its station and labels), 12 units inside and outside every zone border, and just past every zone name.
+1. **The grid** (`scene/routeGrid.ts`). Routes run on the lines through the middle of every station, 8 units beside every node's area (its station and labels), 12 units inside and outside every zone border, and just past every zone name and every self-loop.
 2. **One route at a time, shortest reach first** (`scene/routeSearch.ts`). A route is the cheapest way over the grid from one station to the other (A*). What it pays for:
 
    | Cost | Amount |
@@ -199,7 +199,7 @@ Rails are routed after layout, by `routeEdges` in `scene/route.ts`, once for an 
    | Leaving a node downwards, or reaching one from below | 30 |
    | Meeting a station off its middle | 2 per unit |
 
-   Another node's area and a zone's name are closed. A route leaves its own station in a straight line, and enters a node's area only along a line through that station's middle, or through the middle of a linked station that is 12 units or less off it.
+   Another node's area and a zone's name are closed, and so are a self-loop's curve, 10 units round it, and its label: a route that only passes a station with a loop goes round the loop instead of through it. That room stops short of the lines through the middle of the loop's station, which its own routes arrive on. A route leaves its own station in a straight line, and enters a node's area only along a line through that station's middle, or through the middle of a linked station that is 12 units or less off it.
 3. **Side by side** (`scene/routeSpread.ts`). Routes that share a line are set 7 units apart, within 42 units, or 28 where they meet a station. Two routes that run together keep their sides round every corner: the one that turns off to the left at the end of their shared run is the left one all along, so they part without crossing. Routes with nothing to tell them apart, such as the two directions between one pair of stations, each keep to the left of their own direction.
 4. **The ends.** A route stops 2 units outside its station's outline. One that leaves a node downwards starts below the node's labels instead.
 

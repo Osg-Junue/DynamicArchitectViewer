@@ -68,6 +68,39 @@ function loopLabelSpot(station: Rect, ordinal: number): EdgeLabelSpot {
   return { x: middle.x, y: middle.y - LOOP_LABEL_LIFT, anchor: 'middle' };
 }
 
+/**
+ * Room kept round the curve of a loop, which no other rail is drawn through or along: wide
+ * enough that rails running side by side past it stay clear of it too.
+ */
+const LOOP_CLEARANCE = 10;
+
+/**
+ * The room each loop's curve takes up beside its station. It leaves the station a little right
+ * of the middle of its top and comes back a little above the middle of its right side, so the
+ * lines through the middle of the station stay open to the rails that meet it there.
+ */
+function loopAreas(
+  doc: DavDocument,
+  nodes: readonly ResolvedNode[],
+  nodeIndex: ReadonlyMap<string, number>,
+  loops: ReadonlyMap<DavEdge, number>,
+): Rect[] {
+  return doc.edges.flatMap((e) => {
+    const node = e.from === e.to ? nodes[nodeIndex.get(e.from) ?? -1] : undefined;
+    if (!node) return [];
+    const station = stationRect(node.rect, node.icon);
+    const curve = selfLoop(station, loops.get(e) ?? 0);
+    const points = Array.from({ length: 25 }, (_, i) => pointAt(curve, i / 24));
+    const xs = points.map((p) => p.x);
+    const ys = points.map((p) => p.y);
+    // Never over the lines through the middle of the station, which its own rails arrive on.
+    const x = Math.max(Math.min(...xs) - LOOP_CLEARANCE, station.x + station.width / 2 + 1);
+    const y = Math.min(...ys) - LOOP_CLEARANCE;
+    const bottom = Math.min(Math.max(...ys) + LOOP_CLEARANCE, station.y + station.height / 2 - 1);
+    return [{ x, y, width: Math.max(...xs) + LOOP_CLEARANCE - x, height: bottom - y }];
+  });
+}
+
 /** The rails of one arrangement of a diagram. */
 interface Routed {
   /** By position in `doc.edges`; none for a loop. */
@@ -328,6 +361,16 @@ function routeDiagram(doc: DavDocument, layout: Layout, nodes: readonly Resolved
 
   const names = zoneNameAreas(doc, layout);
   const areas = nodes.map(stationArea);
+  const loops = loopOrdinals(doc);
+  const loopRoom = loopAreas(doc, nodes, nodeIndex, loops);
+  // A loop's label has its place whatever else is drawn, so the other rails go round it and the
+  // other labels keep clear of it.
+  const loopLabels = doc.edges.flatMap((e) => {
+    const node = e.from === e.to ? nodes[nodeIndex.get(e.from) ?? -1] : undefined;
+    if (!node || !e.label) return [];
+    const spot = loopLabelSpot(stationRect(node.rect, node.icon), loops.get(e) ?? 0);
+    return [edgeLabelArea(e.label, spot)];
+  });
   const found = routeEdges(
     nodes.map((n, i) => ({
       station: stationRect(n.rect, n.icon),
@@ -338,7 +381,8 @@ function routeDiagram(doc: DavDocument, layout: Layout, nodes: readonly Resolved
       rect: g.rect,
       depth: ancestorIds(groupParent, groupParent.get(g.id)).length,
     })),
-    names,
+    // Other rails go round a loop as round a zone's name, instead of through it.
+    [...names, ...loopRoom, ...loopLabels],
     wanted,
   );
 
@@ -355,14 +399,6 @@ function routeDiagram(doc: DavDocument, layout: Layout, nodes: readonly Resolved
     const rail = railOf(`l${key}`, pair.from, pair.to);
     if (rail) lone.set(key, rail);
   }
-  // A loop's label has its place whatever else is drawn, so the other labels keep clear of it.
-  const loops = loopOrdinals(doc);
-  const loopLabels = doc.edges.flatMap((e) => {
-    const node = e.from === e.to ? nodes[nodeIndex.get(e.from) ?? -1] : undefined;
-    if (!node || !e.label) return [];
-    const spot = loopLabelSpot(stationRect(node.rect, node.icon), loops.get(e) ?? 0);
-    return [edgeLabelArea(e.label, spot)];
-  });
   const labels = placeLabels(
     doc.edges.map((e, i) => {
       const rail = ofEdges[i];
@@ -370,7 +406,7 @@ function routeDiagram(doc: DavDocument, layout: Layout, nodes: readonly Resolved
         ? { label: e.label, rail, shared: found.get(`e${i}`)?.shared ?? [] }
         : undefined;
     }),
-    [...nodes.flatMap(nodeBody), ...names, ...loopLabels],
+    [...nodes.flatMap(nodeBody), ...names, ...loopLabels, ...loopRoom],
     ofEdges.flatMap((rail) => rail ?? []),
   );
   return { ofEdges, labels, lone };

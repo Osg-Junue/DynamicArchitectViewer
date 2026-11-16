@@ -27,7 +27,7 @@ describe('how readable an overview is', () => {
     '01-ec-microservices.dav': { winding: 4, crossings: 5, rightward: 0.33, coveredLabels: 0, aspect: 1.42 },
     '02-data-pipeline.dav': { winding: 3, crossings: 10, rightward: 0.44, coveredLabels: 0, aspect: 1.65 },
     '03-hub-spoke-network.dav': { winding: 0, crossings: 1, rightward: 0.71, coveredLabels: 0, aspect: 2.68 },
-    '04-event-bus.dav': { winding: 10, crossings: 5, rightward: 0.42, coveredLabels: 4, aspect: 1.26 },
+    '04-event-bus.dav': { winding: 10, crossings: 10, rightward: 0.42, coveredLabels: 5, aspect: 1.26 },
     '05-multi-region.dav': { winding: 8, crossings: 19, rightward: 0.35, coveredLabels: 1, aspect: 1.54 },
     '06-cicd-feedback.dav': { winding: 1, crossings: 0, rightward: 0.1, coveredLabels: 0, aspect: 2.19 },
     '07-zero-trust-nested.dav': { winding: 3, crossings: 6, rightward: 0.39, coveredLabels: 0, aspect: 1.49 },
