@@ -1,0 +1,69 @@
+dav 1
+title "06 CI/CD: 長い一本道と戻りの辺"
+
+// A long chain, with feedback from its right end back to its left (a cycle).
+
+group dev "開発" [color: teal] {
+  node engineer "開発者" [icon: user, sub: "チーム"]
+  node ide "エディタ" [icon: terminal, sub: "VS Code"]
+  node git "リポジトリ" [icon: file, sub: "GitHub"]
+  node review "レビュー" [icon: chat, sub: "Pull Request"]
+}
+
+group ci "CI" [color: purple] {
+  node runner "ランナー" [icon: runtime, sub: "GitHub Actions"]
+  node build "ビルド" [icon: logic, sub: "Docker"]
+  node unit "単体テスト" [icon: function, sub: "Vitest"]
+  node scan "脆弱性検査" [icon: search, sub: "Trivy"]
+  node sbom "SBOM" [icon: file, sub: "CycloneDX"]
+}
+
+group stg "検証環境" [color: blue] {
+  node registry "レジストリ" [icon: storage, sub: "ECR"]
+  node stg_k8s "検証クラスタ" [icon: container, sub: "EKS"]
+  node e2e "E2Eテスト" [icon: browser, sub: "Playwright"]
+  node approve "承認" [icon: key, sub: "リリース責任者"]
+}
+
+group prod "本番環境" [color: green] {
+  node argo "GitOps" [icon: runtime, sub: "Argo CD"]
+  node canary "カナリア" [icon: lb, sub: "5% → 100%"]
+  node prod_k8s "本番クラスタ" [icon: container, sub: "EKS"]
+  node rollback "ロールバック" [icon: logic, sub: "自動判定"]
+}
+
+group feedback "フィードバック" [color: orange] {
+  node metrics "メトリクス" [icon: monitor, sub: "Prometheus"]
+  node alert "アラート" [icon: chat, sub: "Slack"]
+  node issue "課題管理" [icon: sheet, sub: "GitHub Issues"]
+  node post "振り返り" [icon: file, sub: "ポストモーテム"]
+}
+
+engineer --> ide : "実装"
+ide --> git : "push"
+git --> review : "PR作成"
+review --> git : "承認・マージ"
+git --> runner : "Webhook"
+runner --> build : "ジョブ"
+runner --> unit : "ジョブ"
+build --> scan : "イメージ"
+scan --> sbom : "生成"
+build --> registry : "push"
+unit ..> review : "結果コメント"
+scan ..> review : "結果コメント"
+registry --> stg_k8s : "デプロイ"
+stg_k8s --> e2e : "対象"
+e2e --> approve : "合格"
+approve --> argo : "タグ更新"
+argo --> canary : "同期"
+canary --> prod_k8s : "段階公開"
+prod_k8s --> metrics : "スクレイプ"
+metrics --> rollback : "エラー率"
+rollback --> argo : "差し戻し"
+metrics --> alert : "しきい値"
+alert --> engineer : "呼び出し"
+alert --> issue : "起票"
+issue --> post : "原因分析"
+post --> engineer : "改善タスク"
+registry --> argo : "イメージ参照"
+canary --> canary : "重み更新"

@@ -1,5 +1,5 @@
 // What the tests of the scene share: packets and views to try things on, and ways to look into a drawn tree.
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { type Rect, rectOverlaps } from '../../layout';
 import type { CodeBlock } from '../../model/types';
@@ -19,6 +19,15 @@ import { badgeArea, nodeBody, zoneNameArea } from '../rails';
 const REPO_ROOT = resolve(__dirname, '../../../../..');
 export const readExample = (file: string): string =>
   readFileSync(resolve(REPO_ROOT, 'examples', file), 'utf8');
+
+/**
+ * Larger diagrams than the examples: five zones and over twenty nodes each, every one built to
+ * strain the layout in its own way, as its first comment says. Each as `[file name, text]`.
+ */
+const FIXTURES = resolve(__dirname, 'fixtures');
+export const LARGE_DIAGRAMS: ReadonlyArray<readonly [string, string]> = readdirSync(FIXTURES)
+  .sort()
+  .map((file) => [file, readFileSync(resolve(FIXTURES, file), 'utf8')] as const);
 
 export const buildPacket = (packet: Packet, t?: number) => buildPacketWith(packet, ICON_SHAPES, t);
 

@@ -1,0 +1,74 @@
+dav 1
+title "10 銀行システム: 大きさの偏ったゾーンと長いラベル"
+
+// A zone of one node beside a zone of ten. Edge labels are near the longest that fit.
+
+group channels "チャネル" [color: teal] {
+  node atm "ATM" [icon: device, sub: "全国 1,200台"]
+  node teller "営業店端末" [icon: desktop, sub: "窓口"]
+  node netbank "インターネットバンキング" [icon: browser, sub: "個人 / 法人"]
+  node mobile "スマホアプリ" [icon: mobile, sub: "生体認証"]
+  node callcenter "コールセンター" [icon: chat, sub: "オペレーター"]
+  node openapi "オープンAPI" [icon: api, sub: "電子決済等代行業者"]
+}
+
+group gateway "統合ゲートウェイ" [color: purple] {
+  node hubgw "チャネル統合基盤" [icon: router, sub: "電文変換 / 流量制御"]
+}
+
+group core "勘定系" [color: blue] {
+  node customer "顧客情報" [icon: users, sub: "CIF"]
+  node deposit "預金" [icon: server, sub: "普通 / 定期"]
+  node loan "融資" [icon: server, sub: "審査 / 実行"]
+  node fx "為替" [icon: server, sub: "内国 / 外国"]
+  node limit "限度額管理" [icon: logic, sub: "日次 / 月次"]
+  node fraud "不正検知" [icon: ai, sub: "リアルタイムスコア"]
+  node ledger "総勘定元帳" [icon: database, sub: "Db2"]
+  node batch "夜間バッチ" [icon: schedule, sub: "センターカット"]
+  node report "帳票" [icon: printer, sub: "通帳 / 明細"]
+  node notice "通知" [icon: mail, sub: "メール / プッシュ"]
+}
+
+group networks "対外接続" [color: yellow] {
+  node zengin "全銀システム" [icon: external, sub: "内国為替"]
+  node boj "日銀ネット" [icon: building, sub: "資金決済"]
+  node swift "SWIFT" [icon: external, sub: "外国送金"]
+  node cardnet "カードネットワーク" [icon: payment, sub: "CAFIS"]
+}
+
+group audit "監査・報告" [color: gray] {
+  node auditlog "監査ログ" [icon: storage, sub: "改ざん防止 (WORM)"]
+  node regrep "当局報告" [icon: file, sub: "金融庁 / 日銀"]
+  node dwh "情報系DWH" [icon: database, sub: "経営管理"]
+}
+
+atm --> hubgw : "ISO 8583 (専用線)"
+teller --> hubgw : "営業店電文 (閉域網)"
+netbank --> hubgw : "HTTPS + ワンタイムパスワード"
+mobile --> hubgw : "HTTPS + 生体認証トークン"
+callcenter --> hubgw : "CTI連携"
+openapi --> hubgw : "OAuth 2.0 / FAPI"
+hubgw --> customer : "顧客照会"
+hubgw --> deposit : "入出金・残高照会"
+hubgw --> loan : "融資申込"
+hubgw --> fx : "振込依頼"
+deposit <-> limit : "限度額チェック"
+fx <-> limit : "限度額チェック"
+fx <-> fraud : "スコアリング (50ms以内)"
+deposit --> ledger : "仕訳"
+loan --> ledger : "仕訳"
+fx --> ledger : "仕訳"
+customer --> loan : "与信情報"
+fx <-> zengin : "全銀電文 (テレ為替)"
+fx <-> swift : "MT103 / ISO 20022"
+zengin --> boj : "差額決済"
+deposit <-> cardnet : "デビット決済"
+ledger --> batch : "日次締め"
+batch --> report : "帳票データ"
+batch --> dwh : "日次連携ファイル"
+deposit --> notice : "入出金通知"
+fraud --> notice : "不正利用の疑い"
+ledger ..> auditlog : "全取引の記録"
+hubgw ..> auditlog : "操作ログ"
+dwh --> regrep : "集計"
+auditlog --> regrep : "証跡"

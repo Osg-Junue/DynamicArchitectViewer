@@ -1,0 +1,69 @@
+dav 1
+title "03 拠点間ネットワーク: ハブ&スポーク"
+
+// Everything radiates from the head office. Most edges are two-way, so little says which way to read.
+
+group hq "本社データセンター" [color: blue] {
+  node hq_fw "境界FW" [icon: firewall, sub: "FortiGate"]
+  node hq_core "コアスイッチ" [icon: hub, sub: "L3"]
+  node hq_vpn "VPN集約" [icon: router, sub: "IPsec"]
+  node hq_ad "認証サーバー" [icon: auth, sub: "Active Directory"]
+  node hq_dns "DNS / DHCP" [icon: server, sub: "内部向け"]
+  node hq_file "ファイルサーバー" [icon: storage, sub: "NAS"]
+}
+
+group tokyo "東京支店" [color: teal] {
+  node tk_rt "支店ルーター" [icon: router, sub: "東京"]
+  node tk_sw "フロアスイッチ" [icon: hub, sub: "L2"]
+  node tk_ap "無線AP" [icon: wifi, sub: "Wi-Fi 6"]
+  node tk_pc "業務PC" [icon: desktop, sub: "40台"]
+  node tk_prn "複合機" [icon: printer, sub: "2台"]
+}
+
+group osaka "大阪支店" [color: green] {
+  node os_rt "支店ルーター" [icon: router, sub: "大阪"]
+  node os_sw "フロアスイッチ" [icon: hub, sub: "L2"]
+  node os_ap "無線AP" [icon: wifi, sub: "Wi-Fi 6"]
+  node os_pc "業務PC" [icon: desktop, sub: "25台"]
+}
+
+group cloud "クラウド" [color: purple] {
+  node tgw "Transit Gateway" [icon: cloud, sub: "AWS"]
+  node vpc_app "業務システム" [icon: container, sub: "VPC-A"]
+  node vpc_db "基幹DB" [icon: database, sub: "VPC-B"]
+  node saas "グループウェア" [icon: external, sub: "Microsoft 365"]
+}
+
+group remote "リモート" [color: orange] {
+  node inet "インターネット" [icon: cloud, sub: "ISP"]
+  node ztna "リモートアクセス" [icon: key, sub: "ZTNA"]
+  node home "在宅PC" [icon: desktop, sub: "社員"]
+  node phone "社用スマホ" [icon: mobile, sub: "MDM管理"]
+}
+
+hq_fw <-> hq_core : "10GbE"
+hq_core <-> hq_vpn : "10GbE"
+hq_core <-> hq_ad : "LDAP"
+hq_core <-> hq_dns : "DNS"
+hq_core <-> hq_file : "SMB"
+hq_vpn <-> tk_rt : "IPsec"
+hq_vpn <-> os_rt : "IPsec"
+hq_vpn <-> tgw : "専用線"
+tk_rt <-> tk_sw : "1GbE"
+tk_sw <-> tk_ap : "PoE"
+tk_sw <-> tk_pc : "有線"
+tk_sw <-> tk_prn : "有線"
+tk_ap <.> tk_pc : "無線"
+os_rt <-> os_sw : "1GbE"
+os_sw <-> os_ap : "PoE"
+os_sw <-> os_pc : "有線"
+tgw <-> vpc_app : "アタッチ"
+tgw <-> vpc_db : "アタッチ"
+vpc_app --> vpc_db : "SQL"
+inet <-> hq_fw : "回線"
+inet <-> saas : "HTTPS"
+home --> ztna : "TLS"
+phone --> ztna : "TLS"
+ztna --> inet : "トンネル"
+ztna ..> hq_ad : "認証連携"
+tk_rt <.> os_rt : "バックアップ回線"
