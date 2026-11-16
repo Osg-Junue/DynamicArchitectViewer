@@ -217,6 +217,7 @@ interface ColumnPlan {
   columnX: readonly number[];
   maxRank: number;
   inset: number;
+  rowGap: number;
 }
 
 function buildColumnPlan(
@@ -287,16 +288,53 @@ function buildColumnPlan(
     const width = Math.min(EDGE_LABEL_MAX_WIDTH, textWidth(e.label, EDGE_LABEL_FONT_SIZE));
     labelGap.set(left, Math.max(labelGap.get(left) ?? 0, width + EDGE_LABEL_MARGIN));
   }
+  // Widen column corridors that carry long-span links or hub fan-out/fan-in traffic.
+  const deg = new Map<string, number>();
+  for (const e of doc.edges) {
+    if (e.from === e.to || !ranks.rank.has(e.from) || !ranks.rank.has(e.to)) continue;
+    deg.set(e.from, (deg.get(e.from) ?? 0) + 1);
+    deg.set(e.to, (deg.get(e.to) ?? 0) + 1);
+  }
+  const congestedAt = new Int32Array(maxRank);
+  const spanningAt = new Int32Array(maxRank);
+  for (const e of doc.edges) {
+    if (e.from === e.to || !ranks.rank.has(e.from) || !ranks.rank.has(e.to)) continue;
+    const rf = rankOf(e.from);
+    const rt = rankOf(e.to);
+    const lo = Math.min(rf, rt);
+    const hi = Math.max(rf, rt);
+    const congested = hi - lo >= 2 || (deg.get(e.from) ?? 0) >= 4 || (deg.get(e.to) ?? 0) >= 4;
+    for (let r = lo; r < hi; r++) {
+      spanningAt[r] = (spanningAt[r] ?? 0) + 1;
+      if (congested) congestedAt[r] = (congestedAt[r] ?? 0) + 1;
+    }
+  }
   const columnX: number[] = [];
   let x = ORIGIN.x + inset;
   for (let rank = 0; rank <= maxRank; rank++) {
     columnX.push(x);
     // A label may use the whole rail, which also runs under the width of both nodes' labels.
     const needed = (labelGap.get(rank) ?? 0) - (NODE_SIZE.width - STATION_SIZE);
-    x += NODE_SIZE.width + Math.max(COLUMN_GAP, needed) + clearanceAfter(rank);
+    const congestedCount = Math.max(
+      congestedAt[rank] ?? 0,
+      (spanningAt[rank] ?? 0) >= 4 ? (spanningAt[rank] ?? 0) : 0,
+    );
+    const congestionGap = COLUMN_GAP + Math.min(112, Math.max(0, congestedCount - 2) * 14);
+    x += NODE_SIZE.width + Math.max(congestionGap, needed) + clearanceAfter(rank);
   }
 
-  return { root, columnX, maxRank, inset };
+  let longSpanEdges = 0;
+  for (const e of doc.edges) {
+    if (e.from === e.to || !ranks.rank.has(e.from) || !ranks.rank.has(e.to)) continue;
+    if (Math.abs(rankOf(e.from) - rankOf(e.to)) >= 2) longSpanEdges++;
+  }
+  let hubNodes = 0;
+  for (const d of deg.values()) {
+    if (d >= 5) hubNodes++;
+  }
+  const rowGap = ROW_GAP + Math.min(20, Math.floor((longSpanEdges + hubNodes * 2) / 3) * 4);
+
+  return { root, columnX, maxRank, inset, rowGap };
 }
 
 /** How far a frame pushes its first row of stations down. */
@@ -389,9 +427,9 @@ function placeAuto(
         if (colY === startY) colY += depth * level;
         for (const { id } of keyed) {
           out[id] = { x: plan.columnX[rank] ?? ORIGIN.x, y: colY, ...NODE_SIZE };
-          colY += NODE_SIZE.height + ROW_GAP + room;
+          colY += NODE_SIZE.height + plan.rowGap + room;
         }
-        const bottom = colY - ROW_GAP - room;
+        const bottom = colY - plan.rowGap - room;
         colBottom[rank] = bottom + CLUSTER_GAP;
         maxBottom = Math.max(maxBottom, bottom);
       } else {

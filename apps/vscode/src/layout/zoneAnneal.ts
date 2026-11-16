@@ -1,5 +1,17 @@
+import { pushToMap } from '../model/text';
 import type { DavDocument } from '../model/types';
-import { countCrossings } from './links';
+import { parentMap } from '../model/zones';
+import {
+  countCrossings,
+  crossingsOf,
+  type Link,
+  linksOf,
+  properlyCross,
+  type Segment,
+  segmentsOf,
+  shareStation,
+} from './links';
+import { type Rect, STATION_CENTER } from './metrics';
 import {
   buildBlocks,
   type ColumnLayout,
@@ -31,7 +43,7 @@ export const SEEDS: readonly number[] = [11, 23, 37, 53, 71, 97];
 const START_TEMPERATURE = 500;
 const END_TEMPERATURE = 1.5;
 /** What a crossing anywhere in the diagram, inside a zone too, costs an arrangement in the end. */
-const DIAGRAM_CROSSING_COST = 150;
+const DIAGRAM_CROSSING_COST = 180;
 
 interface Pose {
   x: number;
@@ -150,8 +162,30 @@ function anneal(links: readonly BlockLink[], placed: Placed[], random: () => num
   refreshSegments(links);
 }
 
-function snapshot(placed: readonly Placed[]): ZonePlacement {
-  return new Map(placed.map((p) => [p.block.id, { x: p.x, y: p.y, flip: p.flip }]));
+function nodeOrderOf(nodes: ReadonlyMap<string, Rect>): string[] {
+  return [...nodes.entries()].sort((a, b) => a[1].y - b[1].y).map(([id]) => id);
+}
+
+function snapshot(
+  placed: readonly Placed[],
+  baseOrders: ReadonlyMap<string, readonly string[]>,
+): ZonePlacement {
+  return new Map(
+    placed.map((p) => {
+      const base = baseOrders.get(p.block.id);
+      const cur = nodeOrderOf(p.block.nodes);
+      const changed =
+        base !== undefined &&
+        (cur.length !== base.length || cur.some((id, idx) => id !== base[idx]));
+      const entry: { x: number; y: number; flip: 0 | 1; order?: readonly string[] } = {
+        x: p.x,
+        y: p.y,
+        flip: p.flip,
+      };
+      if (changed) entry.order = cur;
+      return [p.block.id, entry];
+    }),
+  );
 }
 
 /**
@@ -207,18 +241,142 @@ interface Arrangement {
   placed: Placed[];
   links: BlockLink[];
   start: ReadonlyMap<string, { x: number; y: number }>;
+  nodeParent: ReadonlyMap<string, string | undefined>;
+  adj: ReadonlyMap<string, readonly string[]>;
+  docLinks: readonly Link[];
+  baseOrders: ReadonlyMap<string, readonly string[]>;
 }
 
 function arrange(doc: DavDocument, columnLayout: ColumnLayout): Arrangement {
   const { blocks, owners } = buildBlocks(doc, columnLayout);
   const start = initialPositions(doc, blocks, owners, columnLayout);
   const placed: Placed[] = blocks.map((block) => ({ block, x: 0, y: 0, flip: 0 }));
-  return { placed, links: buildLinks(doc, placed), start };
+  const adj = new Map<string, string[]>();
+  for (const e of doc.edges) {
+    if (e.from === e.to) continue;
+    pushToMap(adj, e.from, e.to);
+    pushToMap(adj, e.to, e.from);
+  }
+  const baseOrders = new Map(blocks.map((b) => [b.id, nodeOrderOf(b.nodes)]));
+  return {
+    placed,
+    links: buildLinks(doc, placed),
+    start,
+    nodeParent: parentMap(doc.nodes),
+    adj,
+    docLinks: linksOf(doc),
+    baseOrders,
+  };
+}
+
+const spanOf = (segs: readonly Segment[]): number =>
+  segs.reduce((sum, s) => sum + Math.abs(s.ay - s.by), 0);
+
+/** How many pairs of `segs` cross that have at least one link of a node in `moved` in them. */
+function crossingsOfMoved(segs: readonly Segment[], moved: ReadonlySet<string>): number {
+  const touched = segs.map((s) => moved.has(s.from) || moved.has(s.to));
+  let crossings = 0;
+  segs.forEach((s, i) => {
+    if (!touched[i]) return;
+    segs.forEach((t, j) => {
+      // A pair of two such links is counted once, from the first of them.
+      if (j === i || (touched[j] && j < i)) return;
+      if (!shareStation(s, t) && properlyCross(s, t)) crossings++;
+    });
+  });
+  return crossings;
+}
+
+/**
+ * Reorders nodes sharing a parent group and column within each placed zone using both
+ * intra-zone and inter-zone connections, keeping changes only when crossings or link span drop.
+ */
+function refineZoneNodeOrder(
+  placed: readonly Placed[],
+  nodeParent: ReadonlyMap<string, string | undefined>,
+  adj: ReadonlyMap<string, readonly string[]>,
+  docLinks: readonly Link[],
+): boolean {
+  let curSegs = segmentsOf(docLinks, toLayout(placed));
+  let curScore = { crossings: crossingsOf(curSegs), deltaY: spanOf(curSegs) };
+  let anyChanged = false;
+  for (let sweep = 0; sweep < 4; sweep++) {
+    let changed = false;
+    for (const p of placed) {
+      if (p.block.nodes.size < 2) continue;
+      const layout = toLayout(placed);
+      const groups = new Map<string, Array<[string, Rect]>>();
+      for (const entry of p.block.nodes.entries()) {
+        const [id, r] = entry;
+        const key = `${nodeParent.get(id) ?? ''}|${Math.round(r.x)}`;
+        const list = groups.get(key);
+        if (list) list.push(entry);
+        else groups.set(key, [entry]);
+      }
+      for (const items of groups.values()) {
+        if (items.length < 2) continue;
+        const partitionIds = new Set(items.map(([id]) => id));
+        const curY = (id: string) => (layout.nodes[id]?.y ?? 0) + STATION_CENTER;
+        const keyed = items.map(([id, r]) => {
+          const vals = (adj.get(id) ?? [])
+            .filter((other) => !partitionIds.has(other) && layout.nodes[other] !== undefined)
+            .map(curY);
+          const target = vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : curY(id);
+          return { id, r, oldY: r.y, cur: curY(id), target };
+        });
+        const slotYs = items.map(([, r]) => r.y).sort((a, b) => a - b);
+        if (p.flip) slotYs.reverse();
+        const sorted = [...keyed].sort((a, b) => a.target - b.target || a.cur - b.cur);
+        if (sorted.every((item, idx) => item.oldY === slotYs[idx])) continue;
+        sorted.forEach((item, idx) => {
+          item.r.y = slotYs[idx] as number;
+        });
+        // Only the links of the nodes that moved can cross anything else than before: counting
+        // those again, not every pair of the diagram, is what keeps a large diagram quick.
+        const nextSegs = segmentsOf(docLinks, toLayout(placed));
+        const nextScore = {
+          crossings:
+            curScore.crossings -
+            crossingsOfMoved(curSegs, partitionIds) +
+            crossingsOfMoved(nextSegs, partitionIds),
+          deltaY: spanOf(nextSegs),
+        };
+        const better =
+          nextScore.crossings < curScore.crossings ||
+          (nextScore.crossings === curScore.crossings && nextScore.deltaY < curScore.deltaY - 0.5);
+        if (better) {
+          curScore = nextScore;
+          curSegs = nextSegs;
+          changed = true;
+          anyChanged = true;
+        } else {
+          for (const item of keyed) item.r.y = item.oldY;
+        }
+      }
+    }
+    if (!changed) break;
+  }
+  return anyChanged;
+}
+
+function clonePlaced(placed: readonly Placed[], poses: readonly Pose[]): Placed[] {
+  return placed.map((p, i) => {
+    const pose = poses[i] ?? { x: p.x, y: p.y, flip: p.flip };
+    return {
+      block: {
+        ...p.block,
+        nodes: new Map([...p.block.nodes].map(([id, r]) => [id, { ...r }])),
+      },
+      x: pose.x,
+      y: pose.y,
+      flip: pose.flip,
+    };
+  });
 }
 
 function searchFrom(
   doc: DavDocument,
-  { placed, links, start }: Arrangement,
+  { placed, links, start, nodeParent, adj, docLinks, baseOrders }: Arrangement,
   seed: number,
 ): SeedPlacement {
   for (const p of placed) {
@@ -235,20 +393,25 @@ function searchFrom(
   // crossings inside them than it saves: the arrangement is finished both ways, and the
   // one with steps aside is taken only where the whole score is lower for it.
   for (const aside of [false, true]) {
-    restore(placed, tightened);
-    refreshSegments(links);
-    compact(links, placed, aside);
-    alignEdges(links, placed);
+    const trialPlaced = clonePlaced(placed, tightened);
+    let trialLinks = buildLinks(doc, trialPlaced);
+    refreshSegments(trialLinks);
+    compact(trialLinks, trialPlaced, aside);
+    alignEdges(trialLinks, trialPlaced);
     // Lining up edges moves zones a little; close what that opened.
-    tighten(links, placed);
-    compact(links, placed, aside);
+    tighten(trialLinks, trialPlaced);
+    compact(trialLinks, trialPlaced, aside);
+    if (refineZoneNodeOrder(trialPlaced, nodeParent, adj, docLinks)) {
+      trialLinks = buildLinks(doc, trialPlaced);
+      refreshSegments(trialLinks);
+    }
     // Last, since sliding would undo it.
-    straighten(links, placed);
+    straighten(trialLinks, trialPlaced);
     const score =
-      linkCost(links, placed) +
-      countCrossings(doc, toLayout(placed)) * DIAGRAM_CROSSING_COST -
-      straightLinks(links, placed) * STRAIGHT_WORTH;
-    if (score < best.score) best = { score, placement: snapshot(placed) };
+      linkCost(trialLinks, trialPlaced) +
+      countCrossings(doc, toLayout(trialPlaced)) * DIAGRAM_CROSSING_COST -
+      straightLinks(trialLinks, trialPlaced) * STRAIGHT_WORTH;
+    if (score < best.score) best = { score, placement: snapshot(trialPlaced, baseOrders) };
   }
   return best;
 }

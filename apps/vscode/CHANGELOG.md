@@ -5,9 +5,11 @@ The `dav` language version follows the major version: every `1.x.x` release is `
 
 ## Unreleased
 
+- Install AI Agent Skill offers Cursor as well: `.cursor/skills` in the workspace, or `~/.cursor/skills` for all projects
 - A large diagram whose zones are placed freely reads from left to right more often. Zones along a flow stood above each other as readily as side by side, so a diagram of five zones could come out taller than wide, with its flow running from the bottom to the top. An upright link between zones now costs more than a level one while the diagram is narrower than twice its height. Diagrams whose zones are placed freely are arranged anew, and an exported SVG of one is out of date for `dav export --check` until it is exported again
 - The label of an edge is no longer written over the label of a loop on the node it leaves or reaches
 - A rail that only passes a node with a self-loop goes round the loop and its label. It took the room beside the node for a way through, so on a node that many rails pass the loop was drawn across them. Rails that reach the node itself still meet it where the loop leaves and comes back
+- Two rails that run beside each other are no longer drawn as one thick line. The lines rails are routed on could stand nearer to each other than the 7 units rails keep, and each line set its own rails apart without looking at the next, so rails of two lines ran half a unit apart, in places for hundreds of units. Lines that near are now one line, and rails of neighboring lines are moved apart. Where more than five rails meet one side of a node, they still stand nearer than elsewhere. A rail can take another course than before, so an exported SVG can be out of date for `dav export --check` until it is exported again
 - `dav check --help` and `dav outline --help` say what each option does, as the help of `dav export` and `dav format` does. They printed the usage line alone
 - The README of the npm package `dynamic-architect-viewer-cli` is a manual of the command: how to install it, every option of each command, the lines each prints with what they mean, how to read the layout lines and the map of `dav check`, and the exit codes
 

@@ -168,7 +168,7 @@ With `camera: 'follow'`, the default, the camera follows the preview's rules fro
 | `dav.importHtml` | Open the `.dav` text embedded in an exported file |
 | `dav.newFromTemplate` | Create a diagram from a sample |
 | `dav.copyAiPrompt` | Copy a prompt that teaches the language to an AI agent |
-| `dav.installAgentSkill` | Copy the agent skills into a skills directory of Claude Code, Copilot or Codex |
+| `dav.installAgentSkill` | Copy the agent skills into a skills directory of Claude Code, Copilot, Codex or Cursor |
 
 The extension and webview talk through typed messages in `protocol/messages.ts`:
 
