@@ -16,4 +16,4 @@ The preview also has an interactive guide. Open it with the documentation button
 - [Architecture](architecture.md): the pipeline, modules, exported HTML and SVG, and tests
 - [Design decisions](design-decisions.md): why some features are deliberately absent
 - [Contributing](../CONTRIBUTING.md): setup, commands and common changes
-- [Releasing](releasing.md): publishing to the Marketplace
+- [Releasing](releasing.md): publishing to the Marketplace, Open VSX and npm
