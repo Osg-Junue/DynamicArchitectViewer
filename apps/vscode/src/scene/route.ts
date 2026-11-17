@@ -19,7 +19,7 @@ import {
   stationCenter,
   unoccupy,
 } from './routeGrid';
-import { RouteSearch } from './routeSearch';
+import { RouteSearch, SHARED_STATION_CROSS } from './routeSearch';
 import { apart, cornersOf, sides } from './routeSpread';
 
 export interface RouteNode {
@@ -116,11 +116,14 @@ function evaluatePaths(
         // A pair is counted once, from the route that comes first.
         if (vi <= idx) continue;
         const v = edges[vi] as RouteEdge;
-        if (h.from === v.from || h.from === v.to || h.to === v.from || h.to === v.to) continue;
+        // A route between the same two stations runs beside this one, and one that shares a
+        // station with it counts for less: see `SHARED_STATION_CROSS`.
+        if ((h.from === v.from && h.to === v.to) || (h.from === v.to && h.to === v.from)) continue;
+        const shares = h.from === v.from || h.from === v.to || h.to === v.from || h.to === v.to;
         j = k;
         const crossed = crossesAt(vertexRoutes, entry, d, nd, earlier);
         if (crossed) {
-          gridCrossings++;
+          gridCrossings += shares ? SHARED_STATION_CROSS : 1;
           crossingsByEdge[idx] = (crossingsByEdge[idx] ?? 0) + 1;
           crossingsByEdge[vi] = (crossingsByEdge[vi] ?? 0) + 1;
         }

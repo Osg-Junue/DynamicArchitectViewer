@@ -19,6 +19,14 @@ const ALIGN_TOLERANCE = 30;
 /** How far a zone moves to make a link straight, and how much cost one straight link is worth. */
 const STRAIGHTEN_REACH = 120;
 export const STRAIGHT_WORTH = 120;
+/**
+ * What one straight link is worth once a seed's arrangement is scored. A link a few units off
+ * level costs its rail two bends, which the cost does not count. At `STRAIGHT_WORTH` 12 of the
+ * 26 such links between zones in 22 test diagrams stayed bent, the move that would straighten
+ * one raising the rest of the cost by 200 or more. It moves the arrangement after its score is
+ * taken, so it does not change which seed wins.
+ */
+export const CHOSEN_STRAIGHT_WORTH = 300;
 
 /** What moving along an axis reads and keeps clear of; `across` is the other axis. */
 const AXES = {
@@ -284,9 +292,13 @@ export function straightLinks(
  * Moves zones the little it takes to put the two stations of a link level, or one straight above
  * the other. The search and the sliding leave them a few units apart, which a rail has to make
  * up with a bend. A zone takes the move that straightens the most of its links, as long as the
- * rest of the cost rises by less than those links are worth.
+ * rest of the cost rises by less than those links are worth, at `worth` each.
  */
-export function straighten(links: readonly BlockLink[], placed: readonly Placed[]): void {
+export function straighten(
+  links: readonly BlockLink[],
+  placed: readonly Placed[],
+  worth = STRAIGHT_WORTH,
+): void {
   refreshSegments(links);
   for (let round = 0; round < 4; round++) {
     let moved = false;
@@ -311,7 +323,7 @@ export function straighten(links: readonly BlockLink[], placed: readonly Placed[
         const reach = Math.abs(to.x - homeX) + Math.abs(to.y - homeY);
         if (
           gain > 0 &&
-          change <= gain * STRAIGHT_WORTH &&
+          change <= gain * worth &&
           (!best || gain > best.gain || (gain === best.gain && reach < best.reach))
         ) {
           best = { ...to, gain, reach };

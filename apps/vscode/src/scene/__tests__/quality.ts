@@ -14,6 +14,16 @@ export interface Quality {
   /** Places where two rails cross as they are drawn; rails that share a station do not count. */
   crossings: number;
   /**
+   * Places where two rails that share one station cross: rails a node sends to nodes stacked
+   * beside each other cross where they turn off in the wrong order.
+   */
+  sharedCrossings: number;
+  /**
+   * Rails between zones that step aside: two turns, leaving and arriving the same way, at most
+   * 120 apart. Moving one of the zones that little would make them straight.
+   */
+  jogs: number;
+  /**
    * Of the links between zones, the share whose target lies further to the right of its source
    * than above or below it: a diagram is read from left to right. 1 without such links.
    */
@@ -50,11 +60,16 @@ export function qualityOf(dsl: string): Quality {
     'points' in e.path ? [{ edge: e, stretches: stretchesOf(e.path.points) }] : [],
   );
   let crossings = 0;
+  let sharedCrossings = 0;
   rails.forEach((a, i) => {
     for (const b of rails.slice(i + 1)) {
       const ends = new Set([a.edge.from, a.edge.to]);
-      if (ends.has(b.edge.from) || ends.has(b.edge.to)) continue;
-      for (const s of a.stretches) crossings += b.stretches.filter((t) => cross(s, t)).length;
+      const shared = [b.edge.from, b.edge.to].filter((n) => ends.has(n)).length;
+      if (shared === 2) continue;
+      let count = 0;
+      for (const s of a.stretches) count += b.stretches.filter((t) => cross(s, t)).length;
+      if (shared === 0) crossings += count;
+      else sharedCrossings += count;
     }
   });
 
@@ -72,6 +87,15 @@ export function qualityOf(dsl: string): Quality {
     return apart && from && to ? [{ dx: to.x - from.x, dy: to.y - from.y }] : [];
   });
   const toTheRight = between.filter(({ dx, dy }) => dx > 0 && dx >= Math.abs(dy)).length;
+  const jogs = rails.filter(({ edge, stretches }) => {
+    const [first, , last] = stretches;
+    if (stretches.length !== 3 || !first || !last) return false;
+    if ((zoneOf.get(edge.from) ?? edge.from) === (zoneOf.get(edge.to) ?? edge.to)) return false;
+    const level = (s: Stretch) => Math.abs(s[0].y - s[1].y) < 0.5;
+    if (level(first) !== level(last)) return false;
+    const apart = level(first) ? first[0].y - last[1].y : first[0].x - last[1].x;
+    return Math.abs(apart) <= 120;
+  }).length;
 
   const labels = view.edges.flatMap((e) =>
     e.label && e.labelAt
@@ -93,6 +117,8 @@ export function qualityOf(dsl: string): Quality {
   return {
     winding: rails.filter((r) => r.stretches.length - 1 >= 3).length,
     crossings,
+    sharedCrossings,
+    jogs,
     rightward: between.length === 0 ? 1 : round(toTheRight / between.length),
     coveredLabels,
     aspect: round(width / height),
