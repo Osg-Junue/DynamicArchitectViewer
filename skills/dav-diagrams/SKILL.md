@@ -49,6 +49,11 @@ Follow the workflow in order. Do not skip step 5: the checker is the only way to
    Run it again after every fix, until it exits with `0`. Leave out `--detail` only when the user asked for a minimal diagram.
 6. **Report.** Give the path, and tell the user to open the file in VS Code with the [DynamicArchitectViewer extension](https://marketplace.visualstudio.com/items?itemName=osg-junue.dynamic-architect-viewer) and press `Ctrl+Shift+V` (`⌘⇧V` on macOS). The checker describes the layout but does not render it, so never claim to have seen the result. When the user wants an SVG or an HTML file of the diagram, for a README or to send to someone, use the `dav-cli` skill. If Node.js is unavailable, compare the file against [the specification](references/specification.md) and the lists below by hand, and say that it was not validated.
 
+**A large diagram,** of about 50 nodes or more, goes better in rounds than in one pass:
+
+- Write the nodes, groups and edges without steps, and run the checker with `--detail` and `--map`. Settle where things stand before writing steps, because a change to the structure can move whole zones. A node far to the right of where you meant it usually comes from an edge that points back: see [Getting the layout you want](#getting-the-layout-you-want).
+- Then write the steps a few at a time, appending them to the file, and run the checker after each batch. A file of a thousand lines can be too long to write in one reply, and an error is easier to find among a few new steps.
+
 Write titles, labels and descriptions in the user's language. IDs must stay ASCII.
 
 ## What a detailed diagram has
@@ -205,7 +210,8 @@ There is no icon for a product. Pick the kind, and name the product in `sub`: `[
 
 - **Edges set the column.** A node sits to the right of whatever points at it, and the longest path wins.
 - **Groups keep nodes together.** Declaration order breaks ties from top to bottom, so swap two declarations to swap two nodes in a column.
-- **In a cycle, the node declared first goes on the left.** For a request and response pair, declare the caller first.
+- **In a cycle, the node reached first goes on the left.** Columns come from a search that starts at the nodes in the order they are declared and follows edges in the order they are written, and the edge that closes a loop does not count. A loop that nothing else leads into is entered at its node declared first. A loop that another node leads into is entered there, whatever the order of its own nodes: in a large diagram, that is most loops.
+- **A one-way edge that points back pulls its target to the right of its source,** and the target's zone with it, unless the search reached the source through that target. A command sent back to a device, or an on-call engineer who opens a console on the far left, is such an edge. Write it as one two-way edge that names the node on the left first (`gw <-> svc`): a two-way edge counts only in the direction it is written, and a packet can run along it either way. For a request and its response, name the caller first.
 - **`animate` and `step` never affect layout.** A hidden node keeps its place, so nothing moves when it appears.
 - There is no syntax for positions. Do not try to add any.
 
