@@ -3,6 +3,10 @@
 This project follows [Semantic Versioning](https://semver.org/). The `0.x` series was a preview.
 The `dav` language version follows the major version: every `1.x.x` release is `dav 1`.
 
+## Unreleased
+
+- The outline of a zone is drawn 0.75 px wide instead of 1, and 1.25 px instead of 1.75 while a flow moves to or from the zone. Beside the thinner rails the outlines had come to look heavy: at a zoom of 60% the outline of an active zone was as wide as a rail
+
 ## 1.5.1 (2026-11-17)
 
 - The command line of this version is on npm, as `dynamic-architect-viewer-cli@1.5.1`. Version 1.5.0 is not: its release failed at npm, so the `dav-cli` skill that the extension 1.5.0 installs names a package that does not exist. Nothing else changes since 1.5.0
