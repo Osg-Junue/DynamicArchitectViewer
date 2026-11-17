@@ -107,7 +107,7 @@
 /* Widths are in drawing units, so every line keeps its proportion at any zoom. */
 .dav-rail,
 .dav-flow {
-  stroke-width: 4px;
+  stroke-width: 3px;
 }
 .dav-stop text {
   font-weight: 700;

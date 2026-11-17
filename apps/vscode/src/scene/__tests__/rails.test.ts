@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
 import { computeLayout, type Rect, rectOverlaps } from '../../layout';
@@ -17,7 +19,7 @@ import {
 import { fitText, type ResolvedView, resolveView, textWidth } from '../index';
 import { edgeLabelArea, nodeBody, stationArea } from '../rails';
 import { type RouteEdge, type RouteNode, routeEdges } from '../route';
-import { crossesAt, passage } from '../routeGrid';
+import { crossesAt, passage, RAIL_WIDTH } from '../routeGrid';
 import { LARGE_DIAGRAMS } from './helpers';
 
 /** A node whose station is centered on the point, with its labels below. */
@@ -290,11 +292,19 @@ describe('the rails of a diagram', () => {
     }
   });
 
+  it('is drawn as wide as the routing takes a rail to be', () => {
+    // The width is in the stylesheet, and the least distance between two rails is worked
+    // out from it: the two were 4 and 3.5 once, and rails set that near were one band.
+    const css = readFileSync(resolve(__dirname, '../../runtime/scene.css'), 'utf8');
+    const rule = /\.dav-rail,\s*\.dav-flow\s*\{\s*stroke-width:\s*([\d.]+)px/.exec(css);
+    expect(Number(rule?.[1])).toBe(RAIL_WIDTH);
+  });
+
   it.each(LARGE_DIAGRAMS)('%s: no rail is drawn on another one', (_, dsl) => {
     // Lines of the grid stood nearer to each other than rails are set apart, and each line
     // spread its rails on its own: two rails ran half a unit apart for hundreds of units, as
-    // one thick line. A rail is 3.5 wide; a station that many rails meet on one side still
-    // sets them nearer than the 7 they keep elsewhere.
+    // one thick line. A station that many rails meet on one side still sets them nearer than
+    // the 7 they keep elsewhere, but never so near that they touch.
     const rails = viewOf(dsl).edges.flatMap((e) =>
       'points' in e.path ? [{ id: e.id, parts: stretches(e.path.points) }] : [],
     );
@@ -309,7 +319,7 @@ describe('the rails of a diagram', () => {
             const [from, to] = upright ? span(r.y, s.y) : span(r.x, s.x);
             if (Math.min(hi, to) - Math.max(lo, from) < 20) continue;
             const apart = Math.abs(upright ? p.x - r.x : p.y - r.y);
-            expect(apart, `${a.id} beside ${b.id}`).toBeGreaterThanOrEqual(3.5);
+            expect(apart, `${a.id} beside ${b.id}`).toBeGreaterThanOrEqual(RAIL_WIDTH + 0.5);
           }
         }
       }

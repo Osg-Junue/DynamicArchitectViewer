@@ -6,6 +6,8 @@ import type { RouteEdge, RouteGroup, RouteNode } from './route';
 const NODE_MARGIN = 8;
 const LABEL_MARGIN = 12;
 const ZONE_MARGIN = 12;
+/** How wide a rail is drawn: `.dav-rail` in `runtime/scene.css` has to say the same. */
+export const RAIL_WIDTH = 3;
 /** Distance between two routes that run on one line. */
 export const RAIL_GAP = 7;
 /**

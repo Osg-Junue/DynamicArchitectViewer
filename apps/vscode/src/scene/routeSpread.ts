@@ -1,11 +1,34 @@
 import type { Point } from './geometry';
 import type { RoutedRail, RouteEdge, RouteNode } from './route';
-import { type Grid, headingOf, pointOf, RAIL_GAP, stationCenter, stretchKey } from './routeGrid';
+import {
+  type Grid,
+  headingOf,
+  pointOf,
+  RAIL_GAP,
+  RAIL_WIDTH,
+  stationCenter,
+  stretchKey,
+} from './routeGrid';
 
 /** Distance between two routes on one line, and the most a group of them may take up. */
 const GAP = RAIL_GAP;
 const PORT_WIDTH = 28;
 const BUNDLE_WIDTH = 30;
+/**
+ * The least two rails of a group are set apart, where there are more of them than the group
+ * has room for at `GAP`: a rail's width and one more, so that they stay lines of their own.
+ */
+const MIN_GAP = RAIL_WIDTH + 1;
+/**
+ * The most a group may take up where it meets a station, to keep its rails this near: further
+ * out a rail would miss the station, which is 44 across.
+ */
+const PORT_WIDTH_AT_MOST = 40;
+/** The same beside a loop, where the rails keep to one half of the station. */
+const LOOP_SIDE_WIDTH = 18;
+const LOOP_SIDE_WIDTH_AT_MOST = 20;
+/** The least rails are set apart to keep them out of the nodes beside their line: half a unit clear. */
+const TIGHT_GAP = RAIL_WIDTH + 0.5;
 
 /** A route as the search found it: on the lines of the grid, before any is moved aside. */
 export interface Found {
@@ -278,12 +301,16 @@ function spread(
     }
     if (maxTrack === 0) return;
     const bias = loopBias(group, line.upright, line.fixed, nodes);
+    const port = group.some((s) => s.port);
+    // Rails that meet a station stay inside its outline, however many they are: nearer to
+    // each other than `MIN_GAP` rather than beside the station. Elsewhere a group takes the
+    // room `MIN_GAP` needs.
     const room = bias
-      ? Math.min(PORT_WIDTH, Math.max(18, maxTrack * 3.6))
-      : group.some((s) => s.port)
-        ? PORT_WIDTH
-        : BUNDLE_WIDTH;
-    let gap = Math.max(3.5, Math.min(GAP, room / maxTrack));
+      ? Math.min(LOOP_SIDE_WIDTH_AT_MOST, Math.max(LOOP_SIDE_WIDTH, maxTrack * MIN_GAP))
+      : port
+        ? Math.min(PORT_WIDTH_AT_MOST, Math.max(PORT_WIDTH, maxTrack * MIN_GAP))
+        : Math.max(BUNDLE_WIDTH, maxTrack * MIN_GAP);
+    let gap = Math.min(GAP, room / maxTrack);
     let shift = 0;
     if (!bias) {
       let minOff = -room;
@@ -303,8 +330,8 @@ function spread(
           else if (y >= line.fixed) maxOff = Math.min(maxOff, y - 1.5 - line.fixed);
         }
       }
-      if (maxOff - minOff >= maxTrack * 3.55) {
-        gap = Math.max(3.5, Math.min(gap, (maxOff - minOff) / maxTrack));
+      if (maxOff - minOff >= maxTrack * (TIGHT_GAP + 0.05)) {
+        gap = Math.max(TIGHT_GAP, Math.min(gap, (maxOff - minOff) / maxTrack));
         const half = (maxTrack * gap) / 2;
         if (-half < minOff) shift = minOff + half;
         else if (half > maxOff) shift = maxOff - half;
