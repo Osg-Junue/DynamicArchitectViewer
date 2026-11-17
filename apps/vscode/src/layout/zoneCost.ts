@@ -146,10 +146,22 @@ function crossingCost(s: BlockLink, t: BlockLink): number {
 }
 
 /**
- * Exact orthogonal barrier cost of intermediate zone `p` on link `l`:
- * When `p` blocks both 1-bend L-paths (horizontal or vertical barrier), any orthogonal route
- * around `p` pays mandatory extra bends plus the shorter perimeter detour (`2 * clearDist`).
- * When at least one 1-bend L-path around `p` stays open, falls back to `runsThrough`.
+ * What a zone in the way of both ways round with one bend costs a link: about what the bends
+ * a rail needs to get round it cost, to which the way round its nearer side is added.
+ */
+const WALL_COST = 260;
+/** How far outside a zone a rail runs round it. */
+const WALL_MARGIN = 12;
+/** What a zone in one of the two ways with one bend costs: when the straight line runs through it, and when not. */
+const ONE_WAY_THROUGH_COST = 160;
+const ONE_WAY_COST = 95;
+
+/**
+ * What zone `p`, which is at neither end of link `l`, costs it. A rail takes right-angled
+ * ways, so a zone can be in its way without the straight line between the stations touching
+ * it: of the two ways with one bend, level first or upright first, it can block one or both.
+ * Blocking both, it stands between the stations like a wall, and the rail goes round it. The
+ * amounts are estimates of what the router then pays, not counted from a route.
  */
 function zoneObstruction(l: BlockLink, p: Placed): number {
   const left = p.x;
@@ -169,12 +181,21 @@ function zoneObstruction(l: BlockLink, p: Placed): number {
   if (hitsL1 && hitsL2) {
     const detour =
       ayIn && byIn
-        ? 2 * Math.min(Math.min(l.ay, l.by) - top + 12, bottom + 12 - Math.max(l.ay, l.by))
-        : 2 * Math.min(Math.min(l.ax, l.bx) - left + 12, right + 12 - Math.max(l.ax, l.bx));
-    return 260 + Math.max(0, detour) * l.weight;
+        ? 2 *
+          Math.min(
+            Math.min(l.ay, l.by) - top + WALL_MARGIN,
+            bottom + WALL_MARGIN - Math.max(l.ay, l.by),
+          )
+        : 2 *
+          Math.min(
+            Math.min(l.ax, l.bx) - left + WALL_MARGIN,
+            right + WALL_MARGIN - Math.max(l.ax, l.bx),
+          );
+    return WALL_COST + Math.max(0, detour) * l.weight;
   }
   if (hitsL1 || hitsL2) {
-    return (runsThroughBox(l.ax, l.ay, l.bx, l.by, left, right, top, bottom) ? 160 : 95) * l.weight;
+    const through = runsThroughBox(l.ax, l.ay, l.bx, l.by, left, right, top, bottom);
+    return (through ? ONE_WAY_THROUGH_COST : ONE_WAY_COST) * l.weight;
   }
   return runsThroughBox(l.ax, l.ay, l.bx, l.by, left, right, top, bottom) ? THROUGH_COST : 0;
 }

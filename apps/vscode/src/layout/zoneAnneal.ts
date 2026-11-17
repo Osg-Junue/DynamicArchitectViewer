@@ -160,6 +160,7 @@ function anneal(links: readonly BlockLink[], placed: Placed[], random: () => num
     }
   }
   restore(placed, bestState);
+  // The segments are those of the last arrangement tried, which is rarely the best one.
   refreshSegments(links);
 }
 
@@ -198,16 +199,26 @@ function snapshot(
   );
 }
 
+/**
+ * Finds where to put each zone, which has been arranged on its own, by simulated annealing.
+ * Shared columns are given up for shorter links between zones. Seeded, so the same diagram
+ * always gets the same placement.
+ */
 export function searchZonePlacement(doc: DavDocument, columnLayout: ColumnLayout): ZonePlacement {
   const arrangement = arrange(doc, columnLayout);
   let best = NOTHING_FOUND;
   for (const seed of SEEDS) {
     const found = searchFrom(doc, columnLayout, arrangement, seed);
+    // The first of two that are as good, which `bestOfSeeds` has to match.
     if (found.score < best.score) best = found;
   }
   return best.placement;
 }
 
+/**
+ * The part of `searchZonePlacement` that one seed does. The seeds do not depend on each other,
+ * so they can run side by side: `bestOfSeeds` then gives what the whole search would have.
+ */
 export function searchZonePlacementFrom(
   doc: DavDocument,
   columnLayout: ColumnLayout,
@@ -216,6 +227,7 @@ export function searchZonePlacementFrom(
   return searchFrom(doc, columnLayout, arrange(doc, columnLayout), seed);
 }
 
+/** What the whole search gives, from what each of its seeds found. */
 export function bestOfSeeds<T extends { score: number }>(
   found: ReadonlyMap<number, T>,
 ): T | undefined {
@@ -227,6 +239,7 @@ export function bestOfSeeds<T extends { score: number }>(
   return best;
 }
 
+/** The best arrangement found from one seed, and its score: the lower, the better. */
 export interface SeedPlacement {
   score: number;
   placement: ZonePlacement;
@@ -234,6 +247,10 @@ export interface SeedPlacement {
 
 const NOTHING_FOUND: SeedPlacement = { score: Number.POSITIVE_INFINITY, placement: new Map() };
 
+/**
+ * A zone some of whose nodes could stand in a later column than their edges put them in, and
+ * are linked to another zone: what `optimizeZoneSlackRanks` needs to try those columns.
+ */
 interface ZoneSlackMeta {
   nodeIds: string[];
   idSet: Set<string>;
@@ -244,6 +261,10 @@ interface ZoneSlackMeta {
   revTopo: string[];
 }
 
+/**
+ * What every seed starts from: the zones, where they stand at first, and the links between
+ * them. No seed changes any of it, so one arrangement serves them all.
+ */
 interface Arrangement {
   placed: Placed[];
   links: BlockLink[];
@@ -254,8 +275,10 @@ interface Arrangement {
   adj: ReadonlyMap<string, readonly string[]>;
   docLinks: readonly Link[];
   baseOrders: ReadonlyMap<string, readonly string[]>;
+  /** Few enough zones for the moves inside zones: see `MAX_REFINED_ZONES`. */
   richRefine: boolean;
   slackMeta: ReadonlyMap<string, ZoneSlackMeta>;
+  /** Zones laid out with nodes in other columns, by zone and columns: the seeds try the same ones. */
   blockCache: Map<string, Block>;
 }
 
@@ -816,6 +839,9 @@ function searchFrom(
   tighten(links, placed);
   const tightened = posesOf(placed);
   let best = NOTHING_FOUND;
+  // Stepping aside is judged by the cost between zones alone, and can cost more in
+  // crossings inside them than it saves: the arrangement is finished both ways, and the
+  // one with steps aside is taken only where the whole score is lower for it.
   for (const aside of [false, true]) {
     const trialPlaced = clonePlaced(placed, tightened);
     const trialBaseOrders = new Map(baseOrders);
@@ -823,6 +849,7 @@ function searchFrom(
     refreshSegments(trialLinks);
     compact(trialLinks, trialPlaced, aside);
     alignEdges(trialLinks, trialPlaced);
+    // Lining up edges moves zones a little; close what that opened.
     tighten(trialLinks, trialPlaced);
     compact(trialLinks, trialPlaced, aside);
 
@@ -844,6 +871,9 @@ function searchFrom(
       tighten(trialLinks, trialPlaced);
     }
 
+    // The annealing only turns over zones that mirror as a whole. One with groups in it or
+    // with loops is tried here, once the others stand where they will, and kept upside down
+    // only where the whole score is lower for it.
     if (richRefine && trialPlaced.some((p) => !p.block.flippable && p.block.nodes.size >= 2)) {
       let curFlipScore =
         linkCost(trialLinks, trialPlaced) +
@@ -869,6 +899,7 @@ function searchFrom(
       trialLinks = buildLinks(doc, trialPlaced);
       refreshSegments(trialLinks);
     }
+    // Last, since sliding would undo it.
     straighten(trialLinks, trialPlaced);
     const score =
       linkCost(trialLinks, trialPlaced) +

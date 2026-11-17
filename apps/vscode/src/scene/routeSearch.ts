@@ -1,5 +1,5 @@
 import type { RouteEdge, RouteNode } from './route';
-import { type Grid, type Lane, PORT_REACH, stationCenter } from './routeGrid';
+import { crossesAt, type Grid, type Lane, PORT_REACH, stationCenter } from './routeGrid';
 
 /** What the 1st, 2nd, and 3rd+ turns cost, as a length. */
 const BEND_COSTS = [40, 52, 115] as const;
@@ -228,61 +228,35 @@ export class RouteSearch {
     return cost;
   }
 
-  #crossingsAtDivergence(state: number, p: number, d: number, nd: number): number {
-    const vList = this.#grid.vertexRoutes[p];
-    if (!vList) return 0;
+  /** Where the walk back along the way to a state stands, for `#earlier`. */
+  #walk = -1;
+  /** The way back from a state, one step a call, as `crossesAt` asks for it. */
+  readonly #earlier = (): number => {
+    const state = this.#walk;
+    if (state === -1) return -1;
+    this.#walk = this.#cameFrom[state] as number;
+    return state >> 2;
+  };
+
+  /**
+   * How many unrelated routes a route crosses at crossing `p`, which the way to `state` reaches
+   * heading `d` and leaves heading `nd`. Routes that share a station with the link part without
+   * crossing. What two routes that have run together cost depends on the sides they met on,
+   * which is read off the way to `state`: of two ways to one state only the cheaper is kept, so
+   * a way that would have left the other route without crossing can be lost. The routes are
+   * counted again as they are drawn, in `evaluatePaths`.
+   */
+  #crossingsAt(state: number, p: number, d: number, nd: number): number {
+    const vertexRoutes = this.#grid.vertexRoutes;
+    const list = vertexRoutes[p];
+    if (!list) return 0;
     const friend = this.#friend;
-    const w1 = (d + 2) & 3;
-    const w2 = nd;
     let count = 0;
-    for (let m = 0; m < vList.length; m++) {
-      const entry = vList[m] as number;
-      const idx = entry >> 4;
-      if (friend[idx] === 1) continue;
-      const u1 = (((entry >> 2) & 3) + 2) & 3;
-      const u2 = entry & 3;
-      if (w2 === u1 || w2 === u2) continue;
-      if (w1 !== u1 && w1 !== u2) {
-        if (u2 === ((u1 + 2) & 3) && w2 === ((w1 + 2) & 3)) count++;
-        continue;
-      }
-      const fk = d;
-      const aOut = u1 === w1 ? u2 : u1;
-      const sideOutB = w2 === fk ? 0 : w2 === ((fk + 3) & 3) ? -1 : 1;
-      const sideOutA = aOut === fk ? 0 : aOut === ((fk + 3) & 3) ? -1 : 1;
-      let curState = this.#cameFrom[state] as number;
-      let f0 = d;
-      const vRoutes = this.#grid.vertexRoutes;
-      while (curState !== -1) {
-        const curP = curState >> 4;
-        const d0 = (curState >> 2) & 3;
-        const bBack = (d0 + 2) & 3;
-        const curList = vRoutes[curP];
-        let entry0 = -1;
-        if (curList) {
-          for (let j = 0; j < curList.length; j++) {
-            const e0 = curList[j] as number;
-            if (e0 >> 4 === idx) {
-              entry0 = e0;
-              break;
-            }
-          }
-        }
-        if (entry0 < 0) break;
-        const u10 = (((entry0 >> 2) & 3) + 2) & 3;
-        const u20 = entry0 & 3;
-        const aBack = u10 === f0 ? u20 : u10;
-        const prevState = this.#cameFrom[curState] as number;
-        if (bBack === aBack && prevState !== -1) {
-          f0 = d0;
-          curState = prevState;
-          continue;
-        }
-        const sideInB = bBack === ((f0 + 2) & 3) ? 0 : bBack === ((f0 + 3) & 3) ? -1 : 1;
-        const sideInA = aBack === ((f0 + 2) & 3) ? 0 : aBack === ((f0 + 3) & 3) ? -1 : 1;
-        if (Math.sign(sideInB - sideInA) !== Math.sign(sideOutB - sideOutA)) count++;
-        break;
-      }
+    for (let m = 0; m < list.length; m++) {
+      const other = list[m] as number;
+      if (friend[other >> 4] === 1) continue;
+      this.#walk = this.#cameFrom[state] as number;
+      if (crossesAt(vertexRoutes, other, d, nd, this.#earlier)) count++;
     }
     return count;
   }
@@ -479,7 +453,7 @@ export class RouteSearch {
             ? (goals.get(q)?.[nd] ?? Number.POSITIVE_INFINITY)
             : Number.POSITIVE_INFINITY;
         if (!leaving && vertexUse[p] !== 0) {
-          step += CROSS * this.#crossingsAtDivergence(state, p, d, nd);
+          step += CROSS * this.#crossingsAt(state, p, d, nd);
         }
         if (Number.isFinite(arrival)) step += arrival + (nd === UP ? OWN_LABELS : 0);
         if (leaving && nd === DOWN) step += OWN_LABELS;

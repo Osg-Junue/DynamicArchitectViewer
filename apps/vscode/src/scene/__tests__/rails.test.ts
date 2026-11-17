@@ -17,6 +17,7 @@ import {
 import { fitText, type ResolvedView, resolveView, textWidth } from '../index';
 import { edgeLabelArea, nodeBody, stationArea } from '../rails';
 import { type RouteEdge, type RouteNode, routeEdges } from '../route';
+import { crossesAt, passage } from '../routeGrid';
 import { LARGE_DIAGRAMS } from './helpers';
 
 /** A node whose station is centered on the point, with its labels below. */
@@ -184,6 +185,58 @@ describe('finding routes', () => {
       }),
     );
     expect(crossings).toEqual([]);
+  });
+});
+
+describe('two routes at a crossing', () => {
+  // A grid ten crossings wide: the crossing in column x of row y is y * 10 + x.
+  const [RIGHT, DOWN, UP] = [0, 1, 3];
+  const noWayBack = () => -1;
+  /** The way back from a crossing, for `crossesAt`: each crossing with the heading it was reached with. */
+  const wayBack = (...steps: Array<[crossing: number, heading: number]>) => {
+    const left = steps.map(([crossing, heading]) => crossing * 4 + heading);
+    return () => left.shift() ?? -1;
+  };
+
+  it('cross where both go straight through', () => {
+    const other = passage(1, DOWN, DOWN);
+    expect(crossesAt([], other, RIGHT, RIGHT, noWayBack)).toBe(true);
+  });
+
+  it('do not cross where both turn, each in a corner of its own', () => {
+    const other = passage(1, DOWN, RIGHT);
+    expect(crossesAt([], other, RIGHT, DOWN, noWayBack)).toBe(false);
+  });
+
+  it('are not said to cross while they run on together', () => {
+    const other = passage(1, RIGHT, RIGHT);
+    expect(crossesAt([], other, RIGHT, RIGHT, noWayBack)).toBe(false);
+  });
+
+  describe('that have run together', () => {
+    // The other route comes down to crossing 54, turns right and runs on along row 5. Ours
+    // comes along that row from the left: the other one joined it from above.
+    const routes: Array<number[] | undefined> = [];
+    routes[54] = [passage(1, DOWN, RIGHT)];
+    routes[55] = [passage(1, RIGHT, RIGHT)];
+    routes[56] = [passage(1, RIGHT, RIGHT)];
+    const back = () => wayBack([55, RIGHT], [54, RIGHT], [53, RIGHT]);
+
+    it('cross where ours leaves to the side the other one came from', () => {
+      expect(crossesAt(routes, passage(1, RIGHT, RIGHT), RIGHT, UP, back())).toBe(true);
+    });
+
+    it('part without crossing where ours leaves to the other side', () => {
+      expect(crossesAt(routes, passage(1, RIGHT, RIGHT), RIGHT, DOWN, back())).toBe(false);
+    });
+
+    it('do not cross where the other one started on the line, at its station', () => {
+      // No passage at 54: the other route starts there.
+      const started: Array<number[] | undefined> = [];
+      started[55] = routes[55];
+      started[56] = routes[56];
+      expect(crossesAt(started, passage(1, RIGHT, RIGHT), RIGHT, UP, back())).toBe(false);
+    });
   });
 });
 

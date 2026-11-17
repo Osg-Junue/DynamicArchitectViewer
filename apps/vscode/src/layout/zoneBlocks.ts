@@ -22,6 +22,11 @@ export const VERTICAL_CLEARANCE = 34;
 const COLUMN_GAP = 150;
 const ROW_GAP = 44;
 
+/**
+ * Lays a diagram out in columns. `rankOverrides` puts nodes in a later column than their
+ * edges alone would: the search moves a node that has columns to spare towards its links to
+ * other zones.
+ */
 export type ColumnLayout = (
   doc: DavDocument,
   rankOverrides?: ReadonlyMap<string, number>,
@@ -34,7 +39,9 @@ export type ZonePlacement = ReadonlyMap<
     x: number;
     y: number;
     flip: 0 | 1;
+    /** The nodes of the zone from top to bottom, where the search changed their order. */
     order?: readonly string[];
+    /** The columns of the nodes the search moved to a later column than their edges give. */
     ranks?: Readonly<Record<string, number>>;
   }
 >;
@@ -137,6 +144,13 @@ export function linksBetweenZones(doc: DavDocument): number {
   }).length;
 }
 
+/**
+ * What a zone looks like upside down. A zone with nothing but nodes in it mirrors as a whole.
+ * One with groups in it, or with room for loops above its rows, cannot: the name of a group
+ * stays at its top and the room for a loop stays above its node. Each level is mirrored on
+ * its own instead: the nodes and groups directly in it swap places top to bottom inside the
+ * room they took up, and each group does the same with what is in it.
+ */
 function computeFlipMetadata(
   zoneId: string,
   nodes: ReadonlyArray<{ id: string; parentId?: string }>,
@@ -188,6 +202,7 @@ function computeFlipMetadata(
   return { groupsFlipped, reflectConst };
 }
 
+/** One top-level zone laid out on its own, as a piece the search moves about. */
 export function buildSingleZoneBlock(
   doc: DavDocument,
   zoneId: string,
@@ -349,8 +364,9 @@ export function initialPositions(
   return out;
 }
 
-export function flippedY(block: Block, rect: Rect, id?: string): number {
-  const c = id !== undefined ? block.reflectConst.get(id) : undefined;
+/** Where the top of node `id` is in a zone that is upside down; `rect` is where it is in the zone as built. */
+export function flippedY(block: Block, rect: Rect, id: string): number {
+  const c = block.reflectConst.get(id);
   if (c !== undefined) return c - rect.y - rect.height;
   return block.head + block.contentHeight - (rect.y - block.head) - rect.height;
 }
@@ -397,7 +413,6 @@ export function applyZonePlacement(
   doc: DavDocument,
   placement: ZonePlacement,
   columnLayout: ColumnLayout,
-  finishPlaced?: (doc: DavDocument, placed: readonly Placed[]) => void,
 ): Layout {
   const nodeParent = parentMap(doc.nodes);
   const ranksByZone = new Map<string, ReadonlyMap<string, number>>();
@@ -415,7 +430,6 @@ export function applyZonePlacement(
     };
   });
   keepClear(placed);
-  if (finishPlaced) finishPlaced(doc, placed);
   return toLayout(placed);
 }
 

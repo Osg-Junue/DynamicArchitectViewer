@@ -10,7 +10,15 @@
  */
 import type { Rect } from '../layout';
 import type { Point } from './geometry';
-import { buildGrid, type Grid, occupy, stationCenter, unoccupy } from './routeGrid';
+import {
+  buildGrid,
+  crossesAt,
+  type Grid,
+  headingOf,
+  occupy,
+  stationCenter,
+  unoccupy,
+} from './routeGrid';
 import { RouteSearch } from './routeSearch';
 import { apart, cornersOf, sides } from './routeSpread';
 
@@ -60,9 +68,6 @@ function pathTurns(path: readonly number[]): number {
   return turns;
 }
 
-const dirOf = (p: number, q: number, W: number): number =>
-  q - p === 1 ? 0 : q - p === W ? 1 : q - p === -1 ? 2 : 3;
-
 function evaluatePaths(
   paths: ReadonlyMap<string, number[]>,
   grid: Grid,
@@ -94,57 +99,26 @@ function evaluatePaths(
       if (k === 0) continue;
       const vList = vertexRoutes[p];
       if (!vList) continue;
-      const d = dirOf(path[k - 1] as number, p, W);
-      const nd = dirOf(p, q, W);
-      const w1 = (d + 2) & 3;
-      const w2 = nd;
+      const d = headingOf(path[k - 1] as number, p, W);
+      const nd = headingOf(p, q, W);
+      // The way back from `p`, for `crossesAt`: the first of the path has no heading it was
+      // reached with, and no other route passes it.
+      let j = k;
+      const earlier = (): number => {
+        j--;
+        return j >= 1
+          ? (path[j] as number) * 4 + headingOf(path[j - 1] as number, path[j] as number, W)
+          : -1;
+      };
       for (let m = 0; m < vList.length; m++) {
         const entry = vList[m] as number;
         const vi = entry >> 4;
+        // A pair is counted once, from the route that comes first.
         if (vi <= idx) continue;
         const v = edges[vi] as RouteEdge;
         if (h.from === v.from || h.from === v.to || h.to === v.from || h.to === v.to) continue;
-        const u1 = (((entry >> 2) & 3) + 2) & 3;
-        const u2 = entry & 3;
-        if (w2 === u1 || w2 === u2) continue;
-        let crossed = false;
-        if (w1 !== u1 && w1 !== u2) {
-          crossed = u2 === ((u1 + 2) & 3) && w2 === ((w1 + 2) & 3);
-        } else {
-          const fk = d;
-          const aOut = u1 === w1 ? u2 : u1;
-          const sideOutB = w2 === fk ? 0 : w2 === ((fk + 3) & 3) ? -1 : 1;
-          const sideOutA = aOut === fk ? 0 : aOut === ((fk + 3) & 3) ? -1 : 1;
-          let f0 = d;
-          for (let j = k - 1; j >= 1; j--) {
-            const curP = path[j] as number;
-            const d0 = dirOf(path[j - 1] as number, curP, W);
-            const bBack = (d0 + 2) & 3;
-            const curList = vertexRoutes[curP];
-            let entry0 = -1;
-            if (curList) {
-              for (let r = 0; r < curList.length; r++) {
-                const e0 = curList[r] as number;
-                if (e0 >> 4 === vi) {
-                  entry0 = e0;
-                  break;
-                }
-              }
-            }
-            if (entry0 < 0) break;
-            const u10 = (((entry0 >> 2) & 3) + 2) & 3;
-            const u20 = entry0 & 3;
-            const aBack = u10 === f0 ? u20 : u10;
-            if (bBack === aBack && j > 1) {
-              f0 = d0;
-              continue;
-            }
-            const sideInB = bBack === ((f0 + 2) & 3) ? 0 : bBack === ((f0 + 3) & 3) ? -1 : 1;
-            const sideInA = aBack === ((f0 + 2) & 3) ? 0 : aBack === ((f0 + 3) & 3) ? -1 : 1;
-            crossed = Math.sign(sideInB - sideInA) !== Math.sign(sideOutB - sideOutA);
-            break;
-          }
-        }
+        j = k;
+        const crossed = crossesAt(vertexRoutes, entry, d, nd, earlier);
         if (crossed) {
           gridCrossings++;
           crossingsByEdge[idx] = (crossingsByEdge[idx] ?? 0) + 1;

@@ -261,7 +261,7 @@ function isStraight(l: BlockLink, placed: readonly Placed[]): boolean {
     for (const [id, r] of p.block.nodes) {
       if (id === l.from || id === l.to) continue;
       const x = p.x + r.x;
-      const y = p.y + (p.flip ? flippedY(p.block, r) : r.y);
+      const y = p.y + (p.flip ? flippedY(p.block, r, id) : r.y);
       if (l.maxX > x && l.minX < x + r.width && l.maxY > y && l.minY < y + r.height) return false;
     }
   }

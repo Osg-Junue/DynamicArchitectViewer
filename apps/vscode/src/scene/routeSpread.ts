@@ -1,6 +1,6 @@
 import type { Point } from './geometry';
 import type { RoutedRail, RouteEdge, RouteNode } from './route';
-import { type Grid, pointOf, RAIL_GAP, stationCenter, stretchKey } from './routeGrid';
+import { type Grid, headingOf, pointOf, RAIL_GAP, stationCenter, stretchKey } from './routeGrid';
 
 /** Distance between two routes on one line, and the most a group of them may take up. */
 const GAP = RAIL_GAP;
@@ -41,12 +41,13 @@ export function cornersOf(paths: ReadonlyMap<string, number[]>, grid: Grid): Map
  *
  * Two routes that run together keep their sides for as long as they do, round every corner:
  * the one that turns off to the left at the end of the shared run is the left one all along.
- * The result maps `a|b|stretch` to the sign of a's distance from the line minus b's.
+ * The result maps `a|b|stretch` to where a goes from b: below zero nearer the line's start
+ * (left of an upright line, above a level one), above zero further. The size says how much
+ * the two ends of their run agree: 2 when both say so, 1 when one does or neither says
+ * anything, 0.1 when they disagree and the far end has its way.
  */
 export function sides(paths: ReadonlyMap<string, number[]>, W: number): Map<string, number> {
-  // Right, down, left, up.
-  const heading = (p: number, q: number) =>
-    q - p === 1 ? 0 : q - p === W ? 1 : q - p === -1 ? 2 : 3;
+  const heading = (p: number, q: number) => headingOf(p, q, W);
   const on = new Map<string, Array<{ id: string; at: number }>>();
   for (const [id, path] of paths) {
     for (let k = 0; k + 1 < path.length; k++) {
@@ -85,6 +86,8 @@ export function sides(paths: ReadonlyMap<string, number[]>, W: number): Map<stri
         const near =
           turn(from(pathA[lo] as number, pathB[inB(lo) - step]), back) -
           turn(from(pathA[lo] as number, pathA[lo - 1]), back);
+        // Below zero: a is on the left of b, for someone travelling with a. With nothing to
+        // tell them apart, any side will do, as long as it is the same one all along.
         const sf = Math.sign(far);
         const sn = Math.sign(near);
         const left =
@@ -287,8 +290,9 @@ function spread(
       let maxOff = room;
       const gLo = Math.min(...group.map((s) => s.lo)) + 1;
       const gHi = Math.max(...group.map((s) => s.hi)) - 1;
-      for (const n of nodes) {
-        const { x, y, width, height } = n.area;
+      // No rail is moved into the area of a node beside the line.
+      for (const { area } of nodes) {
+        const { x, y, width, height } = area;
         if (line.upright) {
           if (gHi <= y || gLo >= y + height) continue;
           if (x + width <= line.fixed) minOff = Math.max(minOff, x + width + 1.5 - line.fixed);

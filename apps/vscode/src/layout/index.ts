@@ -2,7 +2,6 @@ import type { DavDocument } from '../model/types';
 import { computeColumnLayout } from './columns';
 import { countCrossings } from './links';
 import type { Layout } from './metrics';
-import { buildLinks } from './zoneCost';
 import {
   applyZonePlacement,
   bestOfSeeds,
@@ -17,7 +16,6 @@ import {
   withoutLabels,
   type ZonePlacement,
 } from './zoned';
-import { straighten } from './zoneFinish';
 
 export { countCrossings } from './links';
 export {
@@ -46,16 +44,12 @@ export type { ZonePlacement } from './zoned';
  * When that leaves links too long, placing the zones freely is tried as well, and kept only
  * if it shortens them by more than the crossings it adds are worth (see `searchZones`).
  */
-const finishPlaced = (doc: DavDocument, placed: Parameters<typeof buildLinks>[1]) => {
-  straighten(buildLinks(withoutLabels(doc), placed), placed);
-};
-
 export function computeLayout(doc: DavDocument): Layout {
   const search = pendingZoneSearch(doc);
   if (search) adoptZonePlan(search.key, searchZones(search.doc));
   const placement = hasZonesToPlace(doc) ? zonePlan?.placement : undefined;
   return placement
-    ? applyZonePlacement(doc, placement, computeColumnLayout, finishPlaced)
+    ? applyZonePlacement(doc, placement, computeColumnLayout)
     : computeColumnLayout(doc);
 }
 

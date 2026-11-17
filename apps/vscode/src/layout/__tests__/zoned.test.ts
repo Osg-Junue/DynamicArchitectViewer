@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
 import { computeColumnLayout } from '../columns';
@@ -15,6 +17,12 @@ import {
   ZONE_SEARCH_SEEDS,
 } from '../index';
 import { enclosingRect, STATION_CENTER } from '../metrics';
+
+/** The larger diagrams of the scene's tests: five zones and over twenty nodes each. */
+const FIXTURES = resolve(__dirname, '../../scene/__tests__/fixtures');
+const LARGE_DIAGRAMS = readdirSync(FIXTURES)
+  .sort()
+  .map((file) => [file, readFileSync(resolve(FIXTURES, file), 'utf8')] as const);
 
 /** Zones of `size` chained nodes in a row, with links from the first zone to all the others. */
 function bigDiagram(size = 6, zones = 8): string {
@@ -274,5 +282,80 @@ deep --> loose`;
     expect(rectContains(result.groups.outer as Rect, result.groups.inner as Rect)).toBe(true);
     expect(result.nodes.loose).toBeDefined();
     expect(result.groups.loose).toBeUndefined();
+  });
+});
+
+describe('the zones of a large diagram', () => {
+  // These diagrams take the moves the small ones never do: a node is put in a later column
+  // than its edges give, towards its links to another zone, and a zone with groups in it is
+  // turned upside down level by level.
+  it.each(LARGE_DIAGRAMS)(
+    '%s: keeps nodes apart, and every node and group inside its own',
+    (_, dsl) => {
+      const doc = parse(dsl).document;
+      const layout = computeLayout(doc);
+      const parentOfGroup = new Map(doc.groups.map((g) => [g.id, g.parentId]));
+      const around = (id: string | undefined): string[] =>
+        id === undefined ? [] : [id, ...around(parentOfGroup.get(id))];
+      doc.nodes.forEach((a, i) => {
+        const rect = layout.nodes[a.id] as Rect;
+        for (const b of doc.nodes.slice(i + 1)) {
+          expect(rectOverlaps(rect, layout.nodes[b.id] as Rect), `${a.id} on ${b.id}`).toBe(false);
+        }
+        const own = around(a.parentId);
+        for (const g of doc.groups) {
+          const zone = layout.groups[g.id] as Rect;
+          if (own.includes(g.id)) expect(rectContains(zone, rect), `${a.id} in ${g.id}`).toBe(true);
+          else expect(rectOverlaps(zone, rect), `${a.id} on ${g.id}`).toBe(false);
+        }
+      });
+      for (const g of doc.groups) {
+        const rect = layout.groups[g.id] as Rect;
+        if (g.parentId) {
+          expect(
+            rectContains(layout.groups[g.parentId] as Rect, rect),
+            `${g.id} in its group`,
+          ).toBe(true);
+        }
+        for (const other of doc.groups) {
+          if (
+            other.id === g.id ||
+            around(g.id).includes(other.id) ||
+            around(other.id).includes(g.id)
+          ) {
+            continue;
+          }
+          expect(
+            rectOverlaps(rect, layout.groups[other.id] as Rect),
+            `${g.id} on ${other.id}`,
+          ).toBe(false);
+        }
+      }
+    },
+  );
+
+  it('moves no zone up, down or to the left for an edge label, however long', () => {
+    // Zones were moved once more after a placement was applied, to put stations level again:
+    // with the sizes the labels give, so that typing a label could shift a zone by tens of
+    // units. A label may only widen its zone, which pushes the zones beside it to the right.
+    const [, dsl] = LARGE_DIAGRAMS.find(([file]) => file.startsWith('09-')) ?? ['', ''];
+    const doc = parse(dsl).document;
+    const before = computeLayout(doc);
+    const zones = doc.groups.filter((g) => !g.parentId).map((g) => g.id);
+    doc.edges.forEach((edge, i) => {
+      if (edge.from === edge.to) return;
+      const edges = doc.edges.map((e, k) =>
+        k === i ? { ...e, label: 'A label that is rather long to type in' } : e,
+      );
+      const after = computeLayout({ ...doc, edges });
+      for (const zone of zones) {
+        const was = before.groups[zone] as Rect;
+        const is = after.groups[zone] as Rect;
+        expect(is.y, `${zone} for the label of ${edge.from} to ${edge.to}`).toBe(was.y);
+        expect(is.x, `${zone} for the label of ${edge.from} to ${edge.to}`).toBeGreaterThanOrEqual(
+          was.x,
+        );
+      }
+    });
   });
 });
