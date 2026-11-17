@@ -1,5 +1,5 @@
 import type { RouteEdge, RouteNode } from './route';
-import { crossesAt, type Grid, type Lane, PORT_REACH, stationCenter } from './routeGrid';
+import { crossesAt, type Grid, type Lane, PORT_REACH, RAIL_GAP, stationCenter } from './routeGrid';
 
 /** What the 1st, 2nd, and 3rd+ turns cost, as a length. */
 const BEND_COSTS = [40, 52, 115] as const;
@@ -145,6 +145,9 @@ export class RouteSearch {
   readonly #endRun: Uint32Array;
   /** The search a zone was last one of the link's own in. */
   readonly #homeRun: Uint32Array;
+  /** 1 for a row (column) of crossings whose next row (column) is nearer than `RAIL_GAP`. */
+  readonly #nearRow: Uint8Array;
+  readonly #nearColumn: Uint8Array;
 
   constructor(
     grid: Grid,
@@ -160,6 +163,12 @@ export class RouteSearch {
     this.#stamp = new Uint32Array(states);
     const size = grid.W * grid.H;
     this.#friend = new Uint8Array(edgeEnds.length);
+    this.#nearRow = Uint8Array.from(grid.ys, (y, i) =>
+      i + 1 < grid.ys.length && (grid.ys[i + 1] as number) - y < RAIL_GAP ? 1 : 0,
+    );
+    this.#nearColumn = Uint8Array.from(grid.xs, (x, i) =>
+      i + 1 < grid.xs.length && (grid.xs[i + 1] as number) - x < RAIL_GAP ? 1 : 0,
+    );
     this.#crowd = [new Float64Array(size), new Float64Array(size)];
     this.#crowdRun = [new Uint32Array(size), new Uint32Array(size)];
     this.#goalRun = new Uint32Array(size);
@@ -216,21 +225,41 @@ export class RouteSearch {
     return result;
   }
 
-  /** How dearer a stretch is based on friendly (shared-endpoint) vs unrelated routes on it. */
+  /**
+   * How dearer a stretch is based on friendly (shared-endpoint) vs unrelated routes on it. An
+   * unrelated route on a line nearer than rails are set apart counts as one on this line: it is
+   * drawn beside this one, and the two lines' rails are set in order without telling sides.
+   */
   #crowding(lane: Lane, which: 0 | 1, stretch: number): number {
+    const { W } = this.#grid;
+    const near = which === 0 ? this.#nearRow : this.#nearColumn;
+    const at = which === 0 ? (stretch / W) | 0 : stretch % W;
+    const step = which === 0 ? W : 1;
+    const before = at > 0 && near[at - 1] === 1 ? stretch - step : -1;
+    const after = near[at] === 1 ? stretch + step : -1;
     const used = lane.use[stretch] as number;
-    if (used === 0) return 0;
+    const nearUsed =
+      (before >= 0 ? (lane.use[before] as number) : 0) +
+      (after >= 0 ? (lane.use[after] as number) : 0);
+    if (used === 0 && nearUsed === 0) return 0;
     if (this.#crowdRun[which][stretch] === this.#run) return this.#crowd[which][stretch] as number;
+    const friend = this.#friend;
     const list = lane.routes[stretch];
+    let friendly = 0;
+    let unrelated = 0;
+    if (list) for (const idx of list) if (friend[idx] !== 0) friendly++;
+    if (list) unrelated = list.length - friendly;
+    for (const other of [before, after]) {
+      if (other < 0) continue;
+      for (const idx of lane.routes[other] ?? []) {
+        if (friend[idx] === 0 && !list?.includes(idx)) unrelated++;
+      }
+    }
+    const uCost = unrelated <= 2 ? unrelated * 0.35 : 0.7 + (unrelated - 2) * 0.65;
     let cost: number;
-    if (!list) cost = used <= 2 ? used * 0.05 : 0.1 + (used - 2) * 0.5;
+    if (!list) cost = (used <= 2 ? used * 0.05 : 0.1 + (used - 2) * 0.5) + uCost;
     else {
-      const friend = this.#friend;
-      let friendly = 0;
-      for (const idx of list) if (friend[idx] !== 0) friendly++;
-      const unrelated = list.length - friendly;
       const fCost = friendly <= 3 ? friendly * 0.06 : 0.18 + (friendly - 3) * 0.25;
-      const uCost = unrelated <= 2 ? unrelated * 0.35 : 0.7 + (unrelated - 2) * 0.65;
       cost = fCost + uCost;
     }
     this.#crowdRun[which][stretch] = this.#run;

@@ -211,6 +211,46 @@ function loopBias(
   return undefined;
 }
 
+/** What `sides` says of two routes whose run ends disagree: the far end has its way, weakly. */
+const WEAK = 0.5;
+
+const shareStation = (a?: readonly [number, number], b?: readonly [number, number]): boolean =>
+  !!a && !!b && (a[0] === b[0] || a[0] === b[1] || a[1] === b[0] || a[1] === b[1]);
+
+/**
+ * Two routes whose run ends disagree cross either way; `sides` has the far end choose. Where
+ * one of them is a rail of a bundle (rails that share a station) and the other is not, the
+ * other goes on the side of the bundle it is on from the bundle's other rails, so that it
+ * crosses the bundle instead of running inside it.
+ */
+function keepBundles(
+  group: readonly Stretch[],
+  pref: number[][],
+  ends: ReadonlyMap<string, readonly [number, number]>,
+): void {
+  const n = group.length;
+  const endsOf = group.map((s) => ends.get(s.id));
+  const decided: Array<[number, number, number]> = [];
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      const w = (pref[i] as number[])[j] ?? 0;
+      if (i === j || w === 0 || Math.abs(w) >= WEAK) continue;
+      if (shareStation(endsOf[i], endsOf[j])) continue;
+      let vote = 0;
+      for (let k = 0; k < n; k++) {
+        if (k === i || k === j || !shareStation(endsOf[k], endsOf[j])) continue;
+        const v = (pref[i] as number[])[k] ?? 0;
+        if (Math.abs(v) >= WEAK) vote += Math.sign(v);
+      }
+      if (vote !== 0) decided.push([i, j, Math.sign(vote) * Math.abs(w)]);
+    }
+  }
+  for (const [i, j, w] of decided) {
+    (pref[i] as number[])[j] = w;
+    (pref[j] as number[])[i] = -w;
+  }
+}
+
 /**
  * Gives the stretches that overlap on one line an offset each, so that they run side by side:
  * each as far over as the routes beside it ask, and those that never run beside each other by
@@ -220,6 +260,7 @@ function spread(
   line: { upright: boolean; fixed: number; stretches: Stretch[] },
   side: ReadonlyMap<string, number>,
   nodes: readonly RouteNode[],
+  ends: ReadonlyMap<string, readonly [number, number]>,
 ): void {
   /** The sign of where `s` belongs relative to `t`; 0 when they do not run side by side. */
   const beside = (s: Stretch, t: Stretch): number => {
@@ -238,6 +279,7 @@ function spread(
         (pref[j] as number[])[i] = -w;
       }
     }
+    keepBundles(group, pref, ends);
     const remaining = new Set(Array.from({ length: n }, (_, i) => i));
     const ordered: number[] = [];
     while (remaining.size > 0) {
@@ -483,7 +525,8 @@ export function apart(
   nodes: readonly RouteNode[],
 ): Map<string, RoutedRail> {
   const { byRoute, byLine } = stretchesOf(found);
-  for (const line of byLine.values()) spread(line, side, nodes);
+  const ends = new Map(edges.map((e) => [e.id, [e.from, e.to] as const]));
+  for (const line of byLine.values()) spread(line, side, nodes, ends);
   separate(byLine.values());
 
   const byId = new Map(edges.map((e) => [e.id, e]));
