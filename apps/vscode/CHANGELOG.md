@@ -3,7 +3,7 @@
 This project follows [Semantic Versioning](https://semver.org/). The `0.x` series was a preview.
 The `dav` language version follows the major version: every `1.x.x` release is `dav 1`.
 
-## Unreleased
+## 1.5.4 (2026-11-17)
 
 - Placing the zones freely is tried for a diagram whose links cross in shared columns, and no longer only for one whose links are too long there. Zones linked across one another, each link of them short, stood in columns that made their links cross, and the arrangement that takes the crossings out was never looked for. As before, it is kept only where it leaves fewer crossings or less of the links too long. None of the bundled examples changes: those drawn in columns have no crossing there. A diagram that does change is drawn differently, so an exported SVG of it is out of date for `dav export --check` until it is exported again
 
