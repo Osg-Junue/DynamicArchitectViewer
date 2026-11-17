@@ -3,7 +3,7 @@
 This project follows [Semantic Versioning](https://semver.org/). The `0.x` series was a preview.
 The `dav` language version follows the major version: every `1.x.x` release is `dav 1`.
 
-## Unreleased
+## 1.5.0 (2026-11-17)
 
 - The extension is published to [Open VSX](https://open-vsx.org/extension/osg-junue/dynamic-architect-viewer) as well as to the Visual Studio Marketplace, for Cursor and other editors that install extensions from there
 - Install AI Agent Skill offers Cursor as well: `.cursor/skills` in the workspace, or `~/.cursor/skills` for all projects

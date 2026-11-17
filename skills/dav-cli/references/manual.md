@@ -116,7 +116,7 @@ What stops an export:
 It exits with `1` when a file is missing or out of date. Line endings that a checkout changed are not a difference.
 
 ```yaml
-- run: npx dynamic-architect-viewer-cli@1.4.0 export --check docs/*.dav
+- run: npx dynamic-architect-viewer-cli@1.5.0 export --check docs/*.dav
 ```
 
 - **Give the version in full.** An export depends only on the text and the options, but a later version may lay out a diagram differently, and then the check fails until the files are exported again.
