@@ -139,6 +139,7 @@ This section is for changing the layout code in [`layout/index.ts`](../apps/vsco
 2. Compute the X coordinate of each column, shared by the whole diagram.
 3. Place everything from top to bottom along the group hierarchy.
 4. Try other vertical orders, and keep a result only if it is better.
+5. Move single nodes a little where that puts one of their links level or upright. This comes after [placing zones freely](#placing-zones-freely) too.
 
 ### Columns
 
@@ -178,9 +179,20 @@ When the column layout leaves a link longer than 700 units (a link used for a ro
 3. Simulated annealing moves zones, swaps them and flips them vertically, scoring link length, crossings, links through or blocked by other zones (including L-path and perimeter-detour barriers), right-to-left links, links that run upright, how far links are from straight, and overall size. Every unit of a link's length counts, and counts again past 700. The size counts as the longer side of a 16:10 canvas the zones fit in, so they fill such a canvas rather than stretch into a strip. A link used for a round trip counts double, since it is traversed twice in its time. A link is off straight by the sideways distance between its two stations, up to 160, counted twice; this applies where no node of either zone stands between them on that side, and a link that cannot be straight counts the full 160. A link runs upright by what it goes up or down beyond what it goes to the right. In an arrangement no wider than high every such unit counts once more, so that an upright link costs twice a level one, and the zones of a flow stand side by side instead of in a stack. That weight falls evenly to nothing at twice as wide as high: a longer flow has to turn back under itself, or it becomes a strip.
 4. Each zone slides towards the zones it is linked to, as far as its clearance allows, so that linked neighbors end up one clearance apart (60 × 34).
 5. Zone edges are aligned where that costs almost nothing, and the zones slide together once more. On diagrams with up to 20 top-level zones, intra-zone nodes with DAG column slack shift toward external neighbors, nested or loop-bearing zones try a vertical flip, and nodes sharing a parent group and column are reordered by clamped neighbor barycenters and adjacent swaps whenever that lowers crossings or link spans.
-6. A zone moves up to 120 units to put the two stations of a link level, or one straight above the other, with nothing between them. It takes the move that straightens the most of its links, as long as the rest of the score rises by less than 120 per link. The best of six seeded runs is kept, counting each straight link as 120 in its favor (and each crossing anywhere in the diagram as 180 against).
+6. A zone moves up to 120 units to put the two stations of a link level, or one straight above the other, with nothing between them. It takes the move that straightens the most of its links, as long as the rest of the score rises by less than 120 per link. The best of six seeded runs is kept, counting each straight link as 120 in its favor (and each crossing anywhere in the diagram as 180 against). Once a run is scored, its zones are straightened once more with 300 allowed per link: a link a few units off level costs its rail two bends, which the score does not count. Doing this after the score leaves which run is kept as it was.
 
 The result is deterministic. Zones no longer share columns, so a column does not line up across the diagram. The search takes under two seconds at 300 nodes, so the last result is reused until the nodes, groups, edges or round trips change. Edge labels are left out of the search, so typing one never rearranges the zones. A long label can still widen its zone, and the zones to its right then move aside.
+
+### Straightening single nodes
+
+Columns, rows and the placing of zones leave some nodes a few units off a node they are linked to, and the rail between them then steps aside with two bends. Last, `layout/straightenNodes.ts` moves such a node:
+
+- up to 60 units, to put the two stations level (12 or less apart, which a rail joins with one straight line) or one straight above the other, with no other node between them;
+- only inside the frame it stands in, keeping 14 from other nodes and the room for their loops, and 28 from groups it is not in. Frames do not change;
+- together with the nodes it stands level with (for a move up or down) or straight above or below (for a move sideways), where moving alone would bend those links: that move is tried as well, under the same rules for each node;
+- by the move that straightens the most links, then by the one that moves fewer nodes, and by none that bends as many links as it straightens or makes them cross more, counted on straight lines between stations.
+
+Nodes are visited in declaration order, for up to four rounds.
 
 ### Routing rails
 
@@ -194,15 +206,16 @@ Rails are routed after layout, by `routeEdges` in `scene/route.ts`, once for an 
    | Length | 1 per unit |
    | Turns (1st / 2nd / 3rd+) | 40 / 52 / 115 |
    | Crossing an unrelated route | 160 (at a 90° vertex or at the far end of a shared run) |
+   | Crossing a route that shares one station | 40; nothing for a route between the same two stations |
    | Length inside a zone that holds neither end | 4 per unit |
-   | Length on a shared stretch | 6–25% per shared-endpoint route; 35–65% per unrelated route |
+   | Length on a shared stretch | 6–25% per shared-endpoint route; 35–65% per unrelated route, counting one on a line less than 7 units away |
    | Leaving a node downwards, or reaching one from below | 30 |
    | Using the top port of a node that has a self-loop | 40 |
    | Turning within 18 units of either station's outline/labels | 180 |
    | Meeting a station off its middle | 2 per unit |
 
    Another node's area and wider label block are closed to other routes, and walls (zone names, self-loops plus 10 units round them, and loop labels) are closed with a 4-unit guard on non-station lines. A route leaves its own station in a straight line, and enters a node's area only along a line through that station's middle, or through an off-center port within 12 units when linked almost straight or past an overhead wall.
-3. **Side by side** (`scene/routeSpread.ts`). Routes that share a line are ordered by turn preferences, packed into non-overlapping interval tracks, and set up to 7 units apart within 30 units (28 where they meet a station). More of them than that has room for stand nearer, down to 4 units, one more than the 3 a rail is wide: for that the group grows, up to 40 units at a station, which is 44 across, and 20 beside a loop. Only more rails than fit even so stand nearer still. A group is kept outside the areas of the nodes beside it, for which its rails may stand as near as 3.5. Rails of different lines that this leaves nearer than 7 units where they run beside each other are then moved apart, each as little as that takes and in the order they are in. At the top or right port of a station with a self-loop, shared rails are biased away from the upper-right loop quadrant. Two routes that run together keep their sides round every corner: the one that turns off to the left at the end of their shared run is the left one all along, so they part without crossing. Routes with nothing to tell them apart, such as the two directions between one pair of stations, each keep to the left of their own direction.
+3. **Side by side** (`scene/routeSpread.ts`). Routes that share a line are ordered by turn preferences, packed into non-overlapping interval tracks, and set up to 7 units apart within 30 units (28 where they meet a station). More of them than that has room for stand nearer, down to 4 units, one more than the 3 a rail is wide: for that the group grows, up to 40 units at a station, which is 44 across, and 20 beside a loop. Only more rails than fit even so stand nearer still. A group is kept outside the areas of the nodes beside it, for which its rails may stand as near as 3.5. Rails of different lines that this leaves nearer than 7 units where they run beside each other are then moved apart, each as little as that takes and in the order they are in. At the top or right port of a station with a self-loop, shared rails are biased away from the upper-right loop quadrant. Two routes that run together keep their sides round every corner: the one that turns off to the left at the end of their shared run is the left one all along, so they part without crossing. Routes with nothing to tell them apart, such as the two directions between one pair of stations, each keep to the left of their own direction. Two routes whose shared run has them turn off the same way at its two ends cross either way, and the far end chooses; where one of them belongs to a bundle (routes that share a station) and the other does not, the other takes the side of the bundle it is on from the bundle's other routes, so that it crosses the bundle instead of running inside it.
 4. **The ends.** A route stops 2 units outside its station's outline. One that leaves a node downwards starts below the node's labels instead.
 
 A packet that travels where no edge runs gets a route of its own, found together with the edges. If no route is found at all, the rail is a straight line between the two stations.

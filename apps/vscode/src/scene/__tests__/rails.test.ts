@@ -19,7 +19,8 @@ import {
 import { fitText, type ResolvedView, resolveView, textWidth } from '../index';
 import { edgeLabelArea, nodeBody, stationArea } from '../rails';
 import { type RouteEdge, type RouteNode, routeEdges } from '../route';
-import { crossesAt, passage, RAIL_WIDTH } from '../routeGrid';
+import { buildGrid, crossesAt, occupy, passage, RAIL_WIDTH } from '../routeGrid';
+import { RouteSearch } from '../routeSearch';
 import { LARGE_DIAGRAMS } from './helpers';
 
 /** A node whose station is centered on the point, with its labels below. */
@@ -187,6 +188,55 @@ describe('finding routes', () => {
       }),
     );
     expect(crossings).toEqual([]);
+  });
+
+  it('sends rails to nodes stacked above each other in an order that keeps them apart', () => {
+    // Rails that share a station once counted as never crossing: the one to the top node ran
+    // along the bottom and up past the others, across all three of them.
+    const nodes = [node(100, 900), node(700, 100), node(700, 300), node(700, 500), node(700, 700)];
+    const edges = [1, 2, 3, 4].map((k) => edge(`to${k}`, 0, k));
+    const found = routeEdges(nodes, [], [], edges);
+    const rails = edges.map((e) => stretches(found.get(e.id)?.points ?? []));
+    const side = (p: Point, q: Point, r: Point) =>
+      (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+    const crossings = rails.flatMap((a, i) =>
+      rails
+        .slice(i + 1)
+        .flatMap((b) =>
+          a.flatMap(([p, q]) =>
+            b.filter(
+              ([r, s]) => side(p, q, r) * side(p, q, s) < 0 && side(r, s, p) * side(r, s, q) < 0,
+            ),
+          ),
+        ),
+    );
+    expect(crossings).toEqual([]);
+  });
+});
+
+describe('a line beside another', () => {
+  it('counts the rails of a line nearer than rails stand apart as running on its own', () => {
+    // Two stations two units below the row of `p` and `q`, each linked to one of them, give
+    // the grid a line at 302 beside the one at 300. Another route runs on 300 between `p`
+    // and `q`. A rail from `p` to `q` on 302 would be drawn beside it all the same: hiding
+    // there saves nothing, and its two lines' rails are set in order without telling sides.
+    const nodes = [node(100, 300), node(900, 300), node(-500, 302), node(1500, 302)];
+    const edges = [edge('pq', 0, 1), edge('pt', 0, 2), edge('qu', 1, 3), edge('tu', 2, 3)];
+    const grid = buildGrid(nodes, [], [], edges);
+    const row = grid.yIndex.get(300) as number;
+    const busy: number[] = [];
+    grid.xs.forEach((x, ix) => {
+      if (x >= 200 && x <= 800) busy.push(row * grid.W + ix);
+    });
+    occupy(grid, busy, 3);
+    const search = new RouteSearch(
+      grid,
+      nodes,
+      edges.map((e) => [e.from, e.to] as const),
+    );
+    const path = search.find(edges[0] as RouteEdge) ?? [];
+    const ys = new Set(path.map((p) => grid.ys[(p / grid.W) | 0]));
+    expect([...ys]).toEqual([300]);
   });
 });
 

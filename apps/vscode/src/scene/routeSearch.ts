@@ -1,5 +1,5 @@
 import type { RouteEdge, RouteNode } from './route';
-import { crossesAt, type Grid, type Lane, PORT_REACH, stationCenter } from './routeGrid';
+import { crossesAt, type Grid, type Lane, PORT_REACH, RAIL_GAP, stationCenter } from './routeGrid';
 
 /** What the 1st, 2nd, and 3rd+ turns cost, as a length. */
 const BEND_COSTS = [40, 52, 115] as const;
@@ -9,6 +9,13 @@ const THROUGH = 4;
 const UNDER_BADGE = 1.25;
 /** What crossing another unrelated route costs, as a length. */
 const CROSS = 160;
+/**
+ * What crossing a route that shares one station with the link costs, as a share of `CROSS`.
+ * Rails that leave one node for nodes stacked beside each other cross where they turn off in
+ * the wrong order. At a quarter of `CROSS` a rail keeps clear of the others where that costs it
+ * about a bend or less; counted in full, rails bent much more to keep clear.
+ */
+export const SHARED_STATION_CROSS = 0.25;
 /** What leaving a node downwards costs: that route starts below the node's labels, away from its station. */
 const OWN_LABELS = 30;
 /** Extra cost to use the top port of a node whose self-loop sits at its upper right. */
@@ -121,7 +128,10 @@ export class RouteSearch {
   readonly #stamp: Uint32Array;
   readonly #heap = new CostHeap();
   #run = 0;
-  /** For the link being searched: 1 for every route that shares a station with it. */
+  /**
+   * For the link being searched: 1 for every route that shares one station with it, 2 for every
+   * route between the same two stations.
+   */
   readonly #friend: Uint8Array;
   /**
    * What `#crowding` and `#crossed` answered in this search, for level and for upright
@@ -135,6 +145,9 @@ export class RouteSearch {
   readonly #endRun: Uint32Array;
   /** The search a zone was last one of the link's own in. */
   readonly #homeRun: Uint32Array;
+  /** 1 for a row (column) of crossings whose next row (column) is nearer than `RAIL_GAP`. */
+  readonly #nearRow: Uint8Array;
+  readonly #nearColumn: Uint8Array;
 
   constructor(
     grid: Grid,
@@ -150,6 +163,12 @@ export class RouteSearch {
     this.#stamp = new Uint32Array(states);
     const size = grid.W * grid.H;
     this.#friend = new Uint8Array(edgeEnds.length);
+    this.#nearRow = Uint8Array.from(grid.ys, (y, i) =>
+      i + 1 < grid.ys.length && (grid.ys[i + 1] as number) - y < RAIL_GAP ? 1 : 0,
+    );
+    this.#nearColumn = Uint8Array.from(grid.xs, (x, i) =>
+      i + 1 < grid.xs.length && (grid.xs[i + 1] as number) - x < RAIL_GAP ? 1 : 0,
+    );
     this.#crowd = [new Float64Array(size), new Float64Array(size)];
     this.#crowdRun = [new Uint32Array(size), new Uint32Array(size)];
     this.#goalRun = new Uint32Array(size);
@@ -206,21 +225,41 @@ export class RouteSearch {
     return result;
   }
 
-  /** How dearer a stretch is based on friendly (shared-endpoint) vs unrelated routes on it. */
+  /**
+   * How dearer a stretch is based on friendly (shared-endpoint) vs unrelated routes on it. An
+   * unrelated route on a line nearer than rails are set apart counts as one on this line: it is
+   * drawn beside this one, and the two lines' rails are set in order without telling sides.
+   */
   #crowding(lane: Lane, which: 0 | 1, stretch: number): number {
+    const { W } = this.#grid;
+    const near = which === 0 ? this.#nearRow : this.#nearColumn;
+    const at = which === 0 ? (stretch / W) | 0 : stretch % W;
+    const step = which === 0 ? W : 1;
+    const before = at > 0 && near[at - 1] === 1 ? stretch - step : -1;
+    const after = near[at] === 1 ? stretch + step : -1;
     const used = lane.use[stretch] as number;
-    if (used === 0) return 0;
+    const nearUsed =
+      (before >= 0 ? (lane.use[before] as number) : 0) +
+      (after >= 0 ? (lane.use[after] as number) : 0);
+    if (used === 0 && nearUsed === 0) return 0;
     if (this.#crowdRun[which][stretch] === this.#run) return this.#crowd[which][stretch] as number;
+    const friend = this.#friend;
     const list = lane.routes[stretch];
+    let friendly = 0;
+    let unrelated = 0;
+    if (list) for (const idx of list) if (friend[idx] !== 0) friendly++;
+    if (list) unrelated = list.length - friendly;
+    for (const other of [before, after]) {
+      if (other < 0) continue;
+      for (const idx of lane.routes[other] ?? []) {
+        if (friend[idx] === 0 && !list?.includes(idx)) unrelated++;
+      }
+    }
+    const uCost = unrelated <= 2 ? unrelated * 0.35 : 0.7 + (unrelated - 2) * 0.65;
     let cost: number;
-    if (!list) cost = used <= 2 ? used * 0.05 : 0.1 + (used - 2) * 0.5;
+    if (!list) cost = (used <= 2 ? used * 0.05 : 0.1 + (used - 2) * 0.5) + uCost;
     else {
-      const friend = this.#friend;
-      let friendly = 0;
-      for (const idx of list) if (friend[idx] === 1) friendly++;
-      const unrelated = list.length - friendly;
       const fCost = friendly <= 3 ? friendly * 0.06 : 0.18 + (friendly - 3) * 0.25;
-      const uCost = unrelated <= 2 ? unrelated * 0.35 : 0.7 + (unrelated - 2) * 0.65;
       cost = fCost + uCost;
     }
     this.#crowdRun[which][stretch] = this.#run;
@@ -239,9 +278,11 @@ export class RouteSearch {
   };
 
   /**
-   * How many unrelated routes a route crosses at crossing `p`, which the way to `state` reaches
-   * heading `d` and leaves heading `nd`. Routes that share a station with the link part without
-   * crossing. What two routes that have run together cost depends on the sides they met on,
+   * How many routes a route crosses at crossing `p`, which the way to `state` reaches heading `d`
+   * and leaves heading `nd`; one that shares a station with the link counts as
+   * `SHARED_STATION_CROSS`, and one between the same two stations not at all. Routes that leave
+   * a station together and part do not cross there, but one can cross the others where it turns
+   * off. What two routes that have run together cost depends on the sides they met on,
    * which is read off the way to `state`: of two ways to one state only the cheaper is kept, so
    * a way that would have left the other route without crossing can be lost. The routes are
    * counted again as they are drawn, in `evaluatePaths`.
@@ -254,9 +295,12 @@ export class RouteSearch {
     let count = 0;
     for (let m = 0; m < list.length; m++) {
       const other = list[m] as number;
-      if (friend[other >> 4] === 1) continue;
+      const shared = friend[other >> 4];
+      if (shared === 2) continue;
       this.#walk = this.#cameFrom[state] as number;
-      if (crossesAt(vertexRoutes, other, d, nd, this.#earlier)) count++;
+      if (crossesAt(vertexRoutes, other, d, nd, this.#earlier)) {
+        count += shared === 1 ? SHARED_STATION_CROSS : 1;
+      }
     }
     return count;
   }
@@ -308,10 +352,15 @@ export class RouteSearch {
     const run = ++this.#run;
     const friend = this.#friend;
     this.#edgeEnds.forEach((ends, idx) => {
-      friend[idx] =
-        ends[0] === edge.from || ends[0] === edge.to || ends[1] === edge.from || ends[1] === edge.to
-          ? 1
-          : 0;
+      const shares =
+        ends[0] === edge.from ||
+        ends[0] === edge.to ||
+        ends[1] === edge.from ||
+        ends[1] === edge.to;
+      const same =
+        (ends[0] === edge.from && ends[1] === edge.to) ||
+        (ends[0] === edge.to && ends[1] === edge.from);
+      friend[idx] = same ? 2 : shares ? 1 : 0;
     });
     const goalRun = this.#goalRun;
     const endRun = this.#endRun;
