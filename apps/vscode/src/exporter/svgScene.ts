@@ -126,7 +126,7 @@ export function animateHighlights(scene: VElement, step: StepSlot, clock: Clock)
             rx: 14,
             fill: 'none',
             stroke: color,
-            'stroke-width': 1.75,
+            'stroke-width': 1.25,
             'vector-effect': 'non-scaling-stroke',
           }),
           intervals,
