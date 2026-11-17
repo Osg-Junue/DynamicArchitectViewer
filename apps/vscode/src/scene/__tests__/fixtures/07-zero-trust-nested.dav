@@ -1,0 +1,84 @@
+dav 1
+title "07 ゼロトラスト: 入れ子のゾーンと横断する辺"
+
+// Zones inside zones. The security zone is linked to all the others.
+
+group users "利用者" [color: teal] {
+  group staff "社員" [color: teal] {
+    node emp_pc "社給PC" [icon: desktop, sub: "Intune管理"]
+    node emp_phone "社給スマホ" [icon: mobile, sub: "MDM"]
+  }
+  group partner "委託先" [color: yellow] {
+    node pt_pc "持ち込みPC" [icon: desktop, sub: "非管理"]
+    node pt_vdi "VDI" [icon: screen, sub: "仮想デスクトップ"]
+  }
+}
+
+group access "アクセス制御" [color: purple] {
+  node idp "IdP" [icon: auth, sub: "Entra ID"]
+  node mfa "多要素認証" [icon: key, sub: "FIDO2"]
+  node posture "端末検査" [icon: search, sub: "コンプライアンス"]
+  node pdp "ポリシー判定" [icon: logic, sub: "OPA"]
+  node proxy "アクセスプロキシ" [icon: router, sub: "ZTNA"]
+}
+
+group workloads "業務システム" [color: blue] {
+  group k8s "コンテナ基盤" [color: blue] {
+    node portal "社内ポータル" [icon: browser, sub: "Next.js"]
+    node hr "人事システム" [icon: container, sub: "Java"]
+    node expense "経費精算" [icon: container, sub: "Go"]
+    node wiki "ナレッジ" [icon: file, sub: "Wiki"]
+  }
+  group legacy "旧システム" [color: gray] {
+    node erp "基幹ERP" [icon: server, sub: "SAP"]
+    node host "ホスト連携" [icon: terminal, sub: "3270"]
+  }
+}
+
+group datazone "データ" [color: green] {
+  node hr_db "人事DB" [icon: database, sub: "機密"]
+  node fin_db "会計DB" [icon: database, sub: "機密"]
+  node doc "文書保管" [icon: storage, sub: "SharePoint"]
+  node dlp "DLP" [icon: firewall, sub: "持ち出し検査"]
+}
+
+group secops "セキュリティ運用" [color: red] {
+  node siem "SIEM" [icon: monitor, sub: "Sentinel"]
+  node soar "自動対応" [icon: bot, sub: "SOAR"]
+  node vault "秘密情報" [icon: key, sub: "Vault"]
+  node pki "証明書発行" [icon: file, sub: "社内CA"]
+  node soc "SOC" [icon: users, sub: "24時間"]
+}
+
+emp_pc --> proxy : "HTTPS"
+emp_phone --> proxy : "HTTPS"
+pt_pc --> pt_vdi : "画面転送"
+pt_vdi --> proxy : "HTTPS"
+proxy <-> pdp : "許可判定"
+pdp <-> idp : "属性"
+idp <-> mfa : "チャレンジ"
+pdp <-> posture : "端末状態"
+proxy --> portal : "mTLS"
+portal --> hr : "REST"
+portal --> expense : "REST"
+portal --> wiki : "REST"
+hr --> hr_db : "SQL"
+expense --> fin_db : "SQL"
+expense --> erp : "仕訳連携"
+erp --> fin_db : "SQL"
+erp <-> host : "バッチ"
+wiki --> doc : "Graph API"
+doc --> dlp : "検査"
+hr_db --> dlp : "監査"
+proxy ..> siem : "アクセスログ"
+idp ..> siem : "認証ログ"
+dlp ..> siem : "検知"
+erp ..> siem : "監査ログ"
+siem --> soar : "インシデント"
+soar --> soc : "エスカレーション"
+soar ..> idp : "アカウント停止"
+soar ..> proxy : "遮断"
+vault ..> hr : "DB資格情報"
+vault ..> expense : "DB資格情報"
+pki ..> proxy : "証明書"
+pki ..> emp_pc : "端末証明書"

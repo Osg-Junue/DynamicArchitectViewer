@@ -11,7 +11,7 @@ import {
   selfLoop,
 } from './geometry';
 import type { ResolvedNode } from './resolve';
-import { type RouteEdge, routeEdges } from './route';
+import { type RoutedRail, type RouteEdge, routeEdges } from './route';
 import {
   BADGE_MAX_WIDTH,
   BADGE_SIZE,
@@ -62,6 +62,45 @@ export interface EdgeLabelSpot {
   anchor: 'start' | 'middle' | 'end';
 }
 
+/** A loop's label is written above the middle of its curve. */
+function loopLabelSpot(station: Rect, ordinal: number): EdgeLabelSpot {
+  const middle = pointAt(selfLoop(station, ordinal), 0.5);
+  return { x: middle.x, y: middle.y - LOOP_LABEL_LIFT, anchor: 'middle' };
+}
+
+/**
+ * Room kept round the curve of a loop, which no other rail is drawn through or along: wide
+ * enough that rails running side by side past it stay clear of it too.
+ */
+const LOOP_CLEARANCE = 10;
+
+/**
+ * The room each loop's curve takes up beside its station. It leaves the station a little right
+ * of the middle of its top and comes back a little above the middle of its right side, so the
+ * lines through the middle of the station stay open to the rails that meet it there.
+ */
+function loopAreas(
+  doc: DavDocument,
+  nodes: readonly ResolvedNode[],
+  nodeIndex: ReadonlyMap<string, number>,
+  loops: ReadonlyMap<DavEdge, number>,
+): Rect[] {
+  return doc.edges.flatMap((e) => {
+    const node = e.from === e.to ? nodes[nodeIndex.get(e.from) ?? -1] : undefined;
+    if (!node) return [];
+    const station = stationRect(node.rect, node.icon);
+    const curve = selfLoop(station, loops.get(e) ?? 0);
+    const points = Array.from({ length: 25 }, (_, i) => pointAt(curve, i / 24));
+    const xs = points.map((p) => p.x);
+    const ys = points.map((p) => p.y);
+    // Never over the lines through the middle of the station, which its own rails arrive on.
+    const x = Math.max(Math.min(...xs) - LOOP_CLEARANCE, station.x + station.width / 2 + 1);
+    const y = Math.min(...ys) - LOOP_CLEARANCE;
+    const bottom = Math.min(Math.max(...ys) + LOOP_CLEARANCE, station.y + station.height / 2 - 1);
+    return [{ x, y, width: Math.max(...xs) + LOOP_CLEARANCE - x, height: bottom - y }];
+  });
+}
+
 /** The rails of one arrangement of a diagram. */
 interface Routed {
   /** By position in `doc.edges`; none for a loop. */
@@ -77,12 +116,10 @@ const carries = (e: DavEdge, from: string, to: string): boolean =>
   (e.direction === 'bidirectional' && e.from === to && e.to === from);
 
 /**
- * What is drawn of a node: its station, and the block of labels below it. An edge label keeps
- * clear of these; the room `stationArea` adds around a station is free for it.
+ * The rectangle occupied by a node's label and sub-label below its station.
  */
-export function nodeBody(node: ResolvedNode): Rect[] {
+function nodeLabelRect(node: ResolvedNode, area = stationArea(node)): Rect {
   const station = stationRect(node.rect, node.icon);
-  const area = stationArea(node);
   const bottom = station.y + station.height;
   // A long name or sub-label is wider than the area a rail keeps clear of.
   const text = Math.min(
@@ -93,14 +130,23 @@ export function nodeBody(node: ResolvedNode): Rect[] {
       node.sub ? textWidth(node.sub, NODE_SUB_SIZE) + 8 : 0,
     ),
   );
+  return {
+    x: station.x + station.width / 2 - text / 2,
+    y: bottom,
+    width: text,
+    height: area.y + area.height - bottom,
+  };
+}
+
+/**
+ * What is drawn of a node: its station, and the block of labels below it. An edge label keeps
+ * clear of these; the room `stationArea` adds around a station is free for it.
+ */
+export function nodeBody(node: ResolvedNode): Rect[] {
+  const station = stationRect(node.rect, node.icon);
   return [
     { x: station.x - 4, y: station.y - 4, width: station.width + 8, height: station.height + 8 },
-    {
-      x: station.x + station.width / 2 - text / 2,
-      y: bottom,
-      width: text,
-      height: area.y + area.height - bottom,
-    },
+    nodeLabelRect(node),
   ];
 }
 
@@ -202,12 +248,13 @@ const STOP_ROOM = 15;
 const LABEL_ABOVE_STOP = 20;
 const LABEL_BELOW_STOP = 28;
 /** Shares of a stretch at which its label is tried, the middle first. */
-const LABEL_SHARES = [0.5, 0.3, 0.7];
+const LABEL_SHARES = [0.5, 0.35, 0.65, 0.2, 0.8, 0.27, 0.73, 0.12, 0.88, 0.42, 0.58];
 
 /**
  * Finds each label a place beside its own rail: on the longest stretch that no other rail runs
  * beside and that is long enough for it, clear of every node, zone name, other label and rail.
- * A label with no such place takes the one that covers the least.
+ * Most-constrained (shortest) rails are placed first. A label with no free place takes the one
+ * that covers the least.
  */
 function placeLabels(
   edges: ReadonlyArray<{ label: string; rail: Route; shared: readonly boolean[] } | undefined>,
@@ -215,15 +262,32 @@ function placeLabels(
   rails: readonly Route[],
 ): Array<EdgeLabelSpot | undefined> {
   const strokes = rails.flatMap((rail) =>
-    rail.points.slice(0, -1).flatMap((a, i): Array<[Point, Point]> => {
+    rail.points.slice(0, -1).flatMap((a, i): Array<{ rail: Route; a: Point; b: Point }> => {
       const b = rail.points[i + 1];
-      return b ? [[a, b]] : [];
+      return b ? [{ rail, a, b }] : [];
     }),
   );
+  const totalLen = (rail: Route): number => {
+    let len = 0;
+    for (let i = 0; i + 1 < rail.points.length; i++) {
+      const p = rail.points[i] as Point;
+      const q = rail.points[i + 1] as Point;
+      len += Math.hypot(q.x - p.x, q.y - p.y);
+    }
+    return len;
+  };
+  const order = edges
+    .flatMap((edge, i) => (edge ? [{ i, len: totalLen(edge.rail) }] : []))
+    .sort((a, b) => a.len - b.len || a.i - b.i)
+    .map((entry) => entry.i);
+
   const taken: Rect[] = [];
   const height = EDGE_LABEL_FONT_SIZE * 1.2;
-  return edges.map((edge) => {
-    if (!edge) return undefined;
+  const result: Array<EdgeLabelSpot | undefined> = Array(edges.length).fill(undefined);
+
+  for (const edgeIdx of order) {
+    const edge = edges[edgeIdx];
+    if (!edge) continue;
     const text = fitText(edge.label, EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH);
     const width = textWidth(text, EDGE_LABEL_FONT_SIZE);
     const middle = pointAt(edge.rail, 0.5);
@@ -239,17 +303,37 @@ function placeLabels(
         const q = edge.rail.points[i + 1];
         if (!q) return [];
         const length = Math.hypot(q.x - p.x, q.y - p.y);
-        return [{ p, q, length, fits: !edge.shared[i] && length >= width + 16 }];
+        const longEnough = length >= width + 16;
+        const isShared = Boolean(edge.shared[i]);
+        const fitsUnshared = !isShared && longEnough;
+        const fitsShared = isShared && longEnough;
+        const fitCost = fitsUnshared ? 0 : fitsShared ? 2 : 4;
+        return [{ p, q, length, fitsUnshared, fitsShared, fitCost }];
       })
-      .sort((s, t) => Number(t.fits) - Number(s.fits) || t.length - s.length);
+      .sort(
+        (s, t) =>
+          Number(t.fitsUnshared) - Number(s.fitsUnshared) ||
+          Number(t.fitsShared) - Number(s.fitsShared) ||
+          t.length - s.length,
+      );
 
     let best: { spot: EdgeLabelSpot; box: Rect; cost: number } | undefined;
-    const consider = (spot: EdgeLabelSpot, left: number, fits: boolean) => {
-      const box = { x: left - 2, y: spot.y - height * 0.8, width: width + 4, height };
-      const cost =
-        [...solid, ...taken, stops].filter((o) => rectOverlaps(box, o)).length * 100 +
-        strokes.filter(([p, q]) => segmentIntersectsRect(p, q, box)).length * 10 +
-        (fits ? 0 : 1);
+    const consider = (spot: EdgeLabelSpot, left: number, fitCost: number) => {
+      const box = {
+        x: left - 2,
+        y: spot.y - EDGE_LABEL_FONT_SIZE,
+        width: width + 4,
+        height: EDGE_LABEL_FONT_SIZE * 1.3,
+      };
+      let cost = fitCost;
+      for (const o of solid) if (rectOverlaps(box, o)) cost += 300;
+      for (const o of taken) if (rectOverlaps(box, o)) cost += 200;
+      if (rectOverlaps(box, stops)) cost += 60;
+      for (const s of strokes) {
+        if (segmentIntersectsRect(s.a, s.b, box)) {
+          cost += s.rail === edge.rail ? 15 : 120;
+        }
+      }
       if (!best || cost < best.cost) best = { spot, box, cost };
     };
     for (const span of spans) {
@@ -257,32 +341,45 @@ function placeLabels(
       for (const share of LABEL_SHARES) {
         const x = span.p.x + (span.q.x - span.p.x) * share;
         const y = span.p.y + (span.q.y - span.p.y) * share;
-        if (level) {
-          // Above the stretch, or else below it.
-          consider({ x, y: y - LABEL_GAP, anchor: 'middle' }, x - width / 2, span.fits);
-          consider(
-            { x, y: y + LABEL_GAP + height * 0.8, anchor: 'middle' },
-            x - width / 2,
-            span.fits,
-          );
-          if (share === 0.5) {
-            consider({ x, y: y - LABEL_ABOVE_STOP, anchor: 'middle' }, x - width / 2, false);
-            consider({ x, y: y + LABEL_BELOW_STOP, anchor: 'middle' }, x - width / 2, false);
+        for (const gap of [LABEL_GAP, LABEL_GAP + 6, LABEL_GAP + 12]) {
+          const fitCost =
+            gap === LABEL_GAP ? span.fitCost : span.fitCost + (gap === LABEL_GAP + 6 ? 1 : 2);
+          if (level) {
+            consider({ x, y: y - gap, anchor: 'middle' }, x - width / 2, fitCost);
+            consider({ x, y: y + gap + height * 0.8, anchor: 'middle' }, x - width / 2, fitCost);
+          } else {
+            const base = y + height * 0.3;
+            consider({ x: x + gap, y: base, anchor: 'start' }, x + gap, fitCost);
+            consider({ x: x - gap, y: base, anchor: 'end' }, x - gap - width, fitCost);
           }
-        } else {
-          // To the right of the stretch, or else to its left.
-          const base = y + height * 0.3;
-          consider({ x: x + LABEL_GAP, y: base, anchor: 'start' }, x + LABEL_GAP, span.fits);
-          consider({ x: x - LABEL_GAP, y: base, anchor: 'end' }, x - LABEL_GAP - width, span.fits);
+        }
+        if (level && share === 0.5) {
+          const stopCost = Math.max(span.fitCost, 2);
+          consider({ x, y: y - LABEL_ABOVE_STOP, anchor: 'middle' }, x - width / 2, stopCost);
+          consider({ x, y: y + LABEL_BELOW_STOP, anchor: 'middle' }, x - width / 2, stopCost);
         }
         if (best?.cost === 0) break;
       }
       if (best?.cost === 0) break;
     }
-    if (!best) return undefined;
+    if (!best) continue;
     taken.push(best.box);
-    return best.spot;
-  });
+    result[edgeIdx] = best.spot;
+  }
+  return result;
+}
+
+/**
+ * The last routes found, and what they were found for. Finding them is most of the work, and
+ * they do not depend on the labels of the edges: typing one only places the labels again.
+ */
+let lastFound: { key: string; found: Map<string, RoutedRail> } | undefined;
+
+function routesFor(...args: Parameters<typeof routeEdges>): Map<string, RoutedRail> {
+  const [nodes, groups, walls, edges] = args;
+  const key = JSON.stringify([nodes, groups, walls, edges.map((e) => [e, [...e.home]])]);
+  if (lastFound?.key !== key) lastFound = { key, found: routeEdges(...args) };
+  return lastFound.found;
 }
 
 function routeDiagram(doc: DavDocument, layout: Layout, nodes: readonly ResolvedNode[]): Routed {
@@ -322,17 +419,34 @@ function routeDiagram(doc: DavDocument, layout: Layout, nodes: readonly Resolved
 
   const names = zoneNameAreas(doc, layout);
   const areas = nodes.map(stationArea);
-  const found = routeEdges(
-    nodes.map((n, i) => ({
-      station: stationRect(n.rect, n.icon),
-      area: areas[i] as Rect,
-      badge: badgeRoom(n, areas[i] as Rect),
-    })),
+  const loops = loopOrdinals(doc);
+  const loopRoom = loopAreas(doc, nodes, nodeIndex, loops);
+  // A loop's label has its place whatever else is drawn, so the other rails go round it and the
+  // other labels keep clear of it.
+  const loopLabels = doc.edges.flatMap((e) => {
+    const node = e.from === e.to ? nodes[nodeIndex.get(e.from) ?? -1] : undefined;
+    if (!node || !e.label) return [];
+    const spot = loopLabelSpot(stationRect(node.rect, node.icon), loops.get(e) ?? 0);
+    return [edgeLabelArea(e.label, spot)];
+  });
+  const loopNodes = new Set(doc.edges.filter((e) => e.from === e.to).map((e) => e.from));
+  const found = routesFor(
+    nodes.map((n, i) => {
+      const area = areas[i] as Rect;
+      return {
+        station: stationRect(n.rect, n.icon),
+        area,
+        labelArea: nodeLabelRect(n, area),
+        hasLoop: loopNodes.has(n.id),
+        badge: badgeRoom(n, area),
+      };
+    }),
     groups.map((g) => ({
       rect: g.rect,
       depth: ancestorIds(groupParent, groupParent.get(g.id)).length,
     })),
-    names,
+    // Other rails go round a loop as round a zone's name, instead of through it.
+    [...names, ...loopRoom, ...loopLabels],
     wanted,
   );
 
@@ -356,7 +470,7 @@ function routeDiagram(doc: DavDocument, layout: Layout, nodes: readonly Resolved
         ? { label: e.label, rail, shared: found.get(`e${i}`)?.shared ?? [] }
         : undefined;
     }),
-    [...nodes.flatMap(nodeBody), ...names],
+    [...nodes.flatMap(nodeBody), ...names, ...loopLabels, ...loopRoom],
     ofEdges.flatMap((rail) => rail ?? []),
   );
   return { ofEdges, labels, lone };
@@ -370,7 +484,16 @@ let lastRouted: { key: string; routed: Routed } | undefined;
 
 function routedFor(doc: DavDocument, layout: Layout, nodes: readonly ResolvedNode[]): Routed {
   const key = JSON.stringify([
-    nodes.map((n) => [n.id, n.icon, n.rect.x, n.rect.y, n.rect.width, n.rect.height]),
+    nodes.map((n) => [
+      n.id,
+      n.icon,
+      n.label,
+      n.sub ?? '',
+      n.rect.x,
+      n.rect.y,
+      n.rect.width,
+      n.rect.height,
+    ]),
     doc.nodes.map((n) => n.parentId ?? null),
     doc.groups.map((g) => [g.id, g.parentId ?? null, g.label, layout.groups[g.id] ?? null]),
     doc.edges.map((e) => [e.from, e.to, e.direction, e.label ?? null]),
@@ -417,8 +540,7 @@ export class RailRouter {
   labelOf(edge: DavEdge, from: ResolvedNode, to: ResolvedNode): EdgeLabelSpot | undefined {
     if (!edge.label) return undefined;
     if (from.id === to.id) {
-      const middle = pointAt(this.ofEdge(edge, from, to), 0.5);
-      return { x: middle.x, y: middle.y - LOOP_LABEL_LIFT, anchor: 'middle' };
+      return loopLabelSpot(stationRect(from.rect, from.icon), this.#loops.get(edge) ?? 0);
     }
     return this.#routed.labels[this.#indexOf.get(edge) ?? -1];
   }

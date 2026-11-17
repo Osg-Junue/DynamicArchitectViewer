@@ -1,0 +1,77 @@
+dav 1
+title "08 IoT: 現場からクラウドへ、クラウドから現場へ"
+
+// Many leaf nodes, edges back from the cloud to the plants, and loops.
+
+group plant_a "第一工場" [color: teal] {
+  node a_temp "温度センサー" [icon: device, sub: "ライン1"]
+  node a_vib "振動センサー" [icon: device, sub: "ライン1"]
+  node a_cur "電流センサー" [icon: device, sub: "ライン2"]
+  node a_plc "PLC" [icon: logic, sub: "三菱 MELSEC"]
+  node a_gw "エッジGW" [icon: router, sub: "Greengrass"]
+}
+
+group plant_b "第二工場" [color: green] {
+  node b_temp "温度センサー" [icon: device, sub: "塗装"]
+  node b_cam "検査カメラ" [icon: screen, sub: "画像"]
+  node b_agv "搬送ロボット" [icon: bot, sub: "AGV 6台"]
+  node b_plc "PLC" [icon: logic, sub: "オムロン"]
+  node b_gw "エッジGW" [icon: router, sub: "Greengrass"]
+}
+
+group ingest "クラウド取り込み" [color: purple] {
+  node hub "IoTハブ" [icon: cloud, sub: "AWS IoT Core"]
+  node rules "ルールエンジン" [icon: logic, sub: "振り分け"]
+  node stream "ストリーム" [icon: queue, sub: "Kinesis"]
+  node twin "デバイス状態" [icon: cache, sub: "Device Shadow"]
+  node media "画像受付" [icon: storage, sub: "S3"]
+}
+
+group analytics "分析" [color: blue] {
+  node tsdb "時系列DB" [icon: database, sub: "Timestream"]
+  node anomaly "異常検知" [icon: ai, sub: "SageMaker"]
+  node vision "外観検査AI" [icon: ai, sub: "画像分類"]
+  node dash "ダッシュボード" [icon: monitor, sub: "Grafana"]
+  node lake "長期保管" [icon: storage, sub: "S3 Glacier"]
+}
+
+group fleet "運用・配信" [color: orange] {
+  node ota "OTA配信" [icon: runtime, sub: "ファーム更新"]
+  node fleetmgr "機器台帳" [icon: sheet, sub: "Fleet Indexing"]
+  node alarm "警報" [icon: chat, sub: "Teams / 回転灯"]
+  node operator "保全担当" [icon: user, sub: "現場"]
+  node erp "生産管理" [icon: server, sub: "MES"]
+}
+
+a_temp --> a_plc : "4-20mA"
+a_vib --> a_gw : "BLE"
+a_cur --> a_plc : "4-20mA"
+a_plc --> a_gw : "OPC UA"
+b_temp --> b_plc : "4-20mA"
+b_cam --> b_gw : "GigE"
+b_agv --> b_gw : "Wi-Fi"
+b_plc --> b_gw : "OPC UA"
+a_gw --> hub : "MQTT/TLS"
+b_gw --> hub : "MQTT/TLS"
+b_gw --> media : "画像アップロード"
+hub --> rules : "トピック"
+hub <-> twin : "状態同期"
+rules --> stream : "計測値"
+rules --> alarm : "しきい値超過"
+stream --> tsdb : "書き込み"
+stream --> anomaly : "推論"
+stream --> lake : "アーカイブ"
+media --> vision : "推論"
+tsdb --> dash : "クエリ"
+anomaly --> alarm : "異常"
+vision --> alarm : "不良"
+vision --> erp : "検査結果"
+alarm --> operator : "通知"
+operator --> fleetmgr : "点検記録"
+fleetmgr <-> twin : "台帳同期"
+ota ..> a_gw : "ファーム配信"
+ota ..> b_gw : "ファーム配信"
+fleetmgr --> ota : "対象選定"
+a_gw --> a_gw : "欠測時バッファ"
+b_gw --> b_gw : "欠測時バッファ"
+rules --> rules : "再評価"

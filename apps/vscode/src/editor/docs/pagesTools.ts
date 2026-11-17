@@ -40,8 +40,8 @@ function renderSkill(ctx: DocContext): Node[] {
     h2(t('VS Code からインストール', 'Install from VS Code')),
     p(
       t(
-        'コマンドパレットで `DynamicArchitectViewer: AI エージェントスキルをインストール...` を実行し、Claude Code / GitHub Copilot / Codex と、インストール先（このワークスペース / すべてのプロジェクト）を選びます。',
-        'Run `DynamicArchitectViewer: Install AI Agent Skill...` from the Command Palette, then choose Claude Code, GitHub Copilot or Codex, and either this workspace or all projects.',
+        'コマンドパレットで `DynamicArchitectViewer: AI エージェントスキルをインストール...` を実行し、Claude Code / GitHub Copilot / Codex / Cursor と、インストール先（このワークスペース / すべてのプロジェクト）を選びます。',
+        'Run `DynamicArchitectViewer: Install AI Agent Skill...` from the Command Palette, then choose Claude Code, GitHub Copilot, Codex or Cursor, and either this workspace or all projects.',
       ),
     ),
     note(

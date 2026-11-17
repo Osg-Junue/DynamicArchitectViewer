@@ -16,7 +16,7 @@ This skill is for running the command. To write or change a `.dav` file, use the
 The command is the npm package `dynamic-architect-viewer-cli`. It needs no install:
 
 ```bash
-npx dynamic-architect-viewer-cli@1.4.0 <command> [options] <file.dav>...
+npx dynamic-architect-viewer-cli@1.5.0 <command> [options] <file.dav>...
 ```
 
 - **Give the version in full,** as above. An export depends only on the text of the diagram and the options, but another version may lay out a diagram differently. So the version that checks an exported file has to be the version that wrote it.
@@ -38,6 +38,8 @@ If Node.js 22.17, npm or the network is missing, say that the command could not 
 
 `<command> --help` lists the options of a command.
 
+[references/manual.md](references/manual.md) is the manual of the command, as the npm package carries it. It has every option, each line a command prints with its meaning, what stops an export and with which exit code, and how to read the layout lines, the map and the outline. Read it when this file does not answer a question about the command. It is written for a person: it writes `dav` for an installed command, and shows the package run without a version. Whatever it shows, run every command as [Running it](#running-it) says.
+
 | Exit code | Meaning |
 | :--- | :--- |
 | `0` | Nothing to report |
@@ -54,7 +56,7 @@ Read the exit code and the lines the command printed before saying that somethin
 2. **Export.** The file is written next to the diagram, under the same name: `docs/checkout.dav` gives `docs/checkout.svg`.
 
    ```bash
-   npx dynamic-architect-viewer-cli@1.4.0 export docs/checkout.dav
+   npx dynamic-architect-viewer-cli@1.5.0 export docs/checkout.dav
    ```
 
    Each file written is printed as `docs/checkout.svg: 78 KB`.
@@ -84,10 +86,10 @@ A diagram without steps is exported as a still picture.
 `--camera`, `--still` and `--step` apply to an SVG, not to HTML.
 
 ```bash
-npx dynamic-architect-viewer-cli@1.4.0 export docs/*.dav                            # every diagram in docs
-npx dynamic-architect-viewer-cli@1.4.0 export --out-dir docs/media diagrams/*.dav  # into another directory
-npx dynamic-architect-viewer-cli@1.4.0 export --still --step 3 -o docs/failover.svg docs/checkout.dav
-npx dynamic-architect-viewer-cli@1.4.0 export --format html --locale ja docs/checkout.dav
+npx dynamic-architect-viewer-cli@1.5.0 export docs/*.dav                            # every diagram in docs
+npx dynamic-architect-viewer-cli@1.5.0 export --out-dir docs/media diagrams/*.dav  # into another directory
+npx dynamic-architect-viewer-cli@1.5.0 export --still --step 3 -o docs/failover.svg docs/checkout.dav
+npx dynamic-architect-viewer-cli@1.5.0 export --format html --locale ja docs/checkout.dav
 ```
 
 ### Showing an export
@@ -139,7 +141,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-      - run: npx dynamic-architect-viewer-cli@1.4.0 export --check docs/*.dav
+      - run: npx dynamic-architect-viewer-cli@1.5.0 export --check docs/*.dav
 ```
 
 Where the repository has workflows already, add the last two steps to a job there instead, and take the versions of the two actions from them.
@@ -154,10 +156,10 @@ Add the workflow only when the user asks for it, or agrees to it. When moving to
 For one file that is being written, the checker of the `dav-diagrams` skill is the tool. The command is for many files, for a script and for CI:
 
 ```bash
-npx dynamic-architect-viewer-cli@1.4.0 check docs/*.dav          # errors and warnings, as the editor shows them
-npx dynamic-architect-viewer-cli@1.4.0 check --detail docs/*.dav # also hints on missing detail, and the layout
-npx dynamic-architect-viewer-cli@1.4.0 format --check docs/*.dav # fails when a file is not formatted
-npx dynamic-architect-viewer-cli@1.4.0 format docs/*.dav         # formats in place
+npx dynamic-architect-viewer-cli@1.5.0 check docs/*.dav          # errors and warnings, as the editor shows them
+npx dynamic-architect-viewer-cli@1.5.0 check --detail docs/*.dav # also hints on missing detail, and the layout
+npx dynamic-architect-viewer-cli@1.5.0 format --check docs/*.dav # fails when a file is not formatted
+npx dynamic-architect-viewer-cli@1.5.0 format docs/*.dav         # formats in place
 ```
 
 | Line of `check` | Meaning |
@@ -166,12 +168,12 @@ npx dynamic-architect-viewer-cli@1.4.0 format docs/*.dav         # formats in pl
 | `file:line:column: warning code: message` | Part of the file is being ignored |
 | `file: hint code: message` | With `--detail`: detail is missing, or a text is cut off |
 | `file: layout: ...` and `file: note code: message` | With `--detail`: the size of the layout and the columns and rows it takes. These lines do not fail the check |
-| `file: map: ...` | With `--map`: which node is where, in words and small tables. How to read it is in the `dav-diagrams` skill. These lines do not fail the check either |
+| `file: map: ...` | With `--map`: which node is where, in words and small tables. How to read it is in [the manual](references/manual.md), and in the `dav-diagrams` skill. These lines do not fail the check either |
 | `file: ok (...)` | Nothing was reported for the file |
 
 `check` exits with `1` for an error, a warning or a hint. `format` leaves a file with a syntax error as it is, reports it and exits with `1`.
 
-`outline` takes one file and prints its zones, nodes, connections and steps as Markdown. How to read it is in the `dav-reading` skill.
+`outline` takes one file and prints its zones, nodes, connections and steps as Markdown. [The manual](references/manual.md) shows a whole outline and says what each part holds. How to explain a diagram from it is in the `dav-reading` skill.
 
 ## Rules
 

@@ -20,6 +20,17 @@ const CANVAS_ASPECT = 1.6;
 /** The most a link costs for being off a straight line, which is also what one that cannot be straight costs. */
 const OFF_STRAIGHT_CAP = 160;
 const OFF_STRAIGHT_WEIGHT = 2;
+/**
+ * What an arrangement no wider than high pays for each unit its links run up or down beyond
+ * what they run to the right: an upright link then costs twice what a level one of its length
+ * does. A diagram is read from left to right, and without this a zone was as well placed above
+ * or below the zone it is linked to as beside it. The weight falls to nothing as the
+ * arrangement gets twice as wide as high: from there on, going further to the right would
+ * stretch it into a strip, and a long flow has to turn back under itself.
+ */
+const OFF_FLOW_WEIGHT = 1;
+const OFF_FLOW_FULL_ASPECT = 1;
+const OFF_FLOW_NONE_ASPECT = 2;
 /** What two links between zones cost for crossing, and one for running through a zone. */
 const CROSSING_COST = 250;
 const THROUGH_COST = 130;
@@ -52,20 +63,33 @@ interface Anchor {
   y: readonly [number, number];
 }
 
+function runsThroughBox(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  left: number,
+  right: number,
+  top: number,
+  bottom: number,
+): boolean {
+  const dx = bx - ax;
+  const dy = by - ay;
+  for (let i = 1; i < 7; i++) {
+    const x = ax + (dx * i) / 7;
+    const y = ay + (dy * i) / 7;
+    if (x > left && x < right && y > top && y < bottom) return true;
+  }
+  return false;
+}
+
 export function runsThrough(link: BlockLink, p: Placed): boolean {
   const right = p.x + p.block.width;
   const bottom = p.y + p.block.height;
   if (link.maxX <= p.x || link.minX >= right || link.maxY <= p.y || link.minY >= bottom) {
     return false;
   }
-  const dx = link.bx - link.ax;
-  const dy = link.by - link.ay;
-  for (let i = 1; i < 7; i++) {
-    const x = link.ax + (dx * i) / 7;
-    const y = link.ay + (dy * i) / 7;
-    if (x > p.x && x < right && y > p.y && y < bottom) return true;
-  }
-  return false;
+  return runsThroughBox(link.ax, link.ay, link.bx, link.by, p.x, right, p.y, bottom);
 }
 
 function updateSegment(l: BlockLink): void {
@@ -111,15 +135,75 @@ function shapeCost(l: BlockLink): number {
   );
 }
 
+/** How far the link runs up or down beyond what it runs to the right. */
+function offFlow(l: BlockLink): number {
+  return Math.max(0, Math.abs(l.by - l.ay) - Math.max(0, l.bx - l.ax));
+}
+
 function crossingCost(s: BlockLink, t: BlockLink): number {
   if (s.maxX < t.minX || t.maxX < s.minX || s.maxY < t.minY || t.maxY < s.minY) return 0;
   return !shareStation(s, t) && properlyCross(s, t) ? CROSSING_COST : 0;
 }
 
+/**
+ * What a zone in the way of both ways round with one bend costs a link: about what the bends
+ * a rail needs to get round it cost, to which the way round its nearer side is added.
+ */
+const WALL_COST = 260;
+/** How far outside a zone a rail runs round it. */
+const WALL_MARGIN = 12;
+/** What a zone in one of the two ways with one bend costs: when the straight line runs through it, and when not. */
+const ONE_WAY_THROUGH_COST = 160;
+const ONE_WAY_COST = 95;
+
+/**
+ * What zone `p`, which is at neither end of link `l`, costs it. A rail takes right-angled
+ * ways, so a zone can be in its way without the straight line between the stations touching
+ * it: of the two ways with one bend, level first or upright first, it can block one or both.
+ * Blocking both, it stands between the stations like a wall, and the rail goes round it. The
+ * amounts are estimates of what the router then pays, not counted from a route.
+ */
+function zoneObstruction(l: BlockLink, p: Placed): number {
+  const left = p.x;
+  const right = left + p.block.width;
+  const top = p.y;
+  const bottom = top + p.block.height;
+  if (l.maxX <= left || l.minX >= right || l.maxY <= top || l.minY >= bottom) return 0;
+
+  const ayIn = l.ay > top && l.ay < bottom;
+  const byIn = l.by > top && l.by < bottom;
+  const axIn = l.ax > left && l.ax < right;
+  const bxIn = l.bx > left && l.bx < right;
+
+  const hitsL1 = ayIn || bxIn;
+  const hitsL2 = axIn || byIn;
+
+  if (hitsL1 && hitsL2) {
+    const detour =
+      ayIn && byIn
+        ? 2 *
+          Math.min(
+            Math.min(l.ay, l.by) - top + WALL_MARGIN,
+            bottom + WALL_MARGIN - Math.max(l.ay, l.by),
+          )
+        : 2 *
+          Math.min(
+            Math.min(l.ax, l.bx) - left + WALL_MARGIN,
+            right + WALL_MARGIN - Math.max(l.ax, l.bx),
+          );
+    return WALL_COST + Math.max(0, detour) * l.weight;
+  }
+  if (hitsL1 || hitsL2) {
+    const through = runsThroughBox(l.ax, l.ay, l.bx, l.by, left, right, top, bottom);
+    return (through ? ONE_WAY_THROUGH_COST : ONE_WAY_COST) * l.weight;
+  }
+  return runsThroughBox(l.ax, l.ay, l.bx, l.by, left, right, top, bottom) ? THROUGH_COST : 0;
+}
+
 function throughCost(l: BlockLink, placed: readonly Placed[]): number {
   let total = 0;
   for (const p of placed) {
-    if (p !== l.source && p !== l.target && runsThrough(l, p)) total += THROUGH_COST;
+    if (p !== l.source && p !== l.target) total += zoneObstruction(l, p);
   }
   return total;
 }
@@ -139,21 +223,32 @@ export function extent(placed: readonly Placed[]): { width: number; height: numb
   return { width: right - left, height: bottom - top };
 }
 
-function spreadCost(placed: readonly Placed[]): number {
+/**
+ * What the size of an arrangement costs it, and what each unit its links run off the flow
+ * counts in an arrangement of that size.
+ */
+function sizeCost(placed: readonly Placed[]): { spread: number; offFlowWeight: number } {
   const { width, height } = extent(placed);
-  // The longer side of the canvas the arrangement needs: growing along the other side is
-  // free, so the search fills the canvas instead of stretching into a strip.
-  return Math.max(width, height * CANVAS_ASPECT) * 1.2;
+  const narrow =
+    (OFF_FLOW_NONE_ASPECT - width / Math.max(1, height)) /
+    (OFF_FLOW_NONE_ASPECT - OFF_FLOW_FULL_ASPECT);
+  return {
+    // The longer side of the canvas the arrangement needs: growing along the other side is
+    // free, so the search fills the canvas instead of stretching into a strip.
+    spread: Math.max(width, height * CANVAS_ASPECT) * 1.2,
+    offFlowWeight: OFF_FLOW_WEIGHT * Math.min(1, Math.max(0, narrow)),
+  };
 }
 
 /** The cost of the whole arrangement. */
 export function linkCost(links: readonly BlockLink[], placed: readonly Placed[]): number {
-  let total = spreadCost(placed);
+  const { spread, offFlowWeight } = sizeCost(placed);
+  let total = spread;
   for (let i = 0; i < links.length; i++) {
     const s = links[i];
     if (!s) continue;
     updateSegment(s);
-    total += shapeCost(s) + throughCost(s, placed);
+    total += shapeCost(s) + offFlow(s) * offFlowWeight + throughCost(s, placed);
     for (let j = 0; j < i; j++) {
       const t = links[j];
       if (t) total += crossingCost(s, t);
@@ -168,6 +263,8 @@ const touches = (l: BlockLink, a: Placed, b: Placed | undefined) =>
 /**
  * The part of the cost that moving `a` (and `b`) can change. The search compares this before
  * and after a move, which costs far less than evaluating the whole arrangement for every move.
+ * A move can change the size of the arrangement, and with it what running off the flow counts
+ * for every link, so that is summed over them all.
  */
 function movedCost(
   links: readonly BlockLink[],
@@ -176,16 +273,18 @@ function movedCost(
   b: Placed | undefined,
   refreshTouching: boolean,
 ): number {
-  let total = spreadCost(placed);
+  const { spread, offFlowWeight } = sizeCost(placed);
+  let total = spread;
   for (let i = 0; i < links.length; i++) {
     const s = links[i];
     if (!s) continue;
     if (!touches(s, a, b)) {
-      if (runsThrough(s, a)) total += THROUGH_COST;
-      if (b && runsThrough(s, b)) total += THROUGH_COST;
-      continue;
+      total += zoneObstruction(s, a);
+      if (b) total += zoneObstruction(s, b);
+    } else if (refreshTouching) {
+      updateSegment(s);
     }
-    if (refreshTouching) updateSegment(s);
+    total += offFlow(s) * offFlowWeight;
   }
   for (let i = 0; i < links.length; i++) {
     const s = links[i];
@@ -284,17 +383,19 @@ export function evaluateMove(
 function isFreeSide(block: Block, id: string, side: number, flip: 0 | 1): boolean {
   const own = block.nodes.get(id);
   if (!own) return false;
-  const top = (r: Rect) => (flip ? flippedY(block, r) : r.y);
+  const top = (nid: string, r: Rect) => (flip ? flippedY(block, r, nid) : r.y);
   const x = own.x + own.width / 2;
-  const y = top(own) + STATION_CENTER;
+  const ownTop = top(id, own);
+  const y = ownTop + STATION_CENTER;
   for (const [other, r] of block.nodes) {
     if (other === id) continue;
-    const inRow = y > top(r) && y < top(r) + r.height;
+    const otherTop = top(other, r);
+    const inRow = y > otherTop && y < otherTop + r.height;
     const inColumn = x > r.x && x < r.x + r.width;
     if (side === 0 && inRow && r.x > own.x) return false;
     if (side === 1 && inRow && r.x < own.x) return false;
-    if (side === 2 && inColumn && top(r) > top(own)) return false;
-    if (side === 3 && inColumn && top(r) < top(own)) return false;
+    if (side === 2 && inColumn && otherTop > ownTop) return false;
+    if (side === 3 && inColumn && otherTop < ownTop) return false;
   }
   return true;
 }
@@ -330,7 +431,7 @@ export function buildLinks(doc: DavDocument, placed: readonly Placed[]): BlockLi
       anchorOf.set(id, {
         p,
         x: r.x + r.width / 2,
-        y: [r.y + STATION_CENTER, flippedY(p.block, r) + STATION_CENTER],
+        y: [r.y + STATION_CENTER, flippedY(p.block, r, id) + STATION_CENTER],
       });
     }
   }

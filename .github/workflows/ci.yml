@@ -48,6 +48,8 @@ jobs:
           test -f apps/vscode/dist/skill/dav-cli/SKILL.md
           test -f apps/vscode/dist/dynamic-architect-viewer.vsix
           test -f apps/cli/dist/dav.mjs
+      - name: Verify the VSIX holds only what is published
+        run: bash .github/scripts/inspect-packages.sh vsix apps/vscode/dist/dynamic-architect-viewer.vsix
       - name: Verify the generated skill files are committed
         run: git diff --exit-code -- skills
       - uses: actions/upload-artifact@v7

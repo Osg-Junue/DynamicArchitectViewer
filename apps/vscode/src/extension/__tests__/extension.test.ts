@@ -276,6 +276,8 @@ describe('extension commands', () => {
         '~/.copilot/skills',
         '.agents/skills',
         '~/.agents/skills',
+        '.cursor/skills',
+        '~/.cursor/skills',
       ]);
       expect(host.copied).toEqual([
         { from: packaged, to: workspaceTarget },
@@ -291,6 +293,7 @@ describe('extension commands', () => {
         '~/.claude/skills',
         '~/.copilot/skills',
         '~/.agents/skills',
+        '~/.cursor/skills',
       ]);
       expect(host.copied[0]?.to.replaceAll('\\', '/')).toMatch(/\/\.claude\/skills\/dav-diagrams$/);
     });

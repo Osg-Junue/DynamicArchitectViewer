@@ -168,7 +168,7 @@ With `camera: 'follow'`, the default, the camera follows the preview's rules fro
 | `dav.importHtml` | Open the `.dav` text embedded in an exported file |
 | `dav.newFromTemplate` | Create a diagram from a sample |
 | `dav.copyAiPrompt` | Copy a prompt that teaches the language to an AI agent |
-| `dav.installAgentSkill` | Copy the agent skills into a skills directory of Claude Code, Copilot or Codex |
+| `dav.installAgentSkill` | Copy the agent skills into a skills directory of Claude Code, Copilot, Codex or Cursor |
 
 The extension and webview talk through typed messages in `protocol/messages.ts`:
 
@@ -196,6 +196,7 @@ The extension and webview talk through typed messages in `protocol/messages.ts`:
 | `dav-diagrams/assets/examples/` | `examples/` |
 | `dav-reading/scripts/dav-outline.mjs` | `src/skill/outlineEntry.ts`, which runs `outline.ts`, bundled the same way |
 | `dav-reading/references/` | `docs/specification.md` |
+| `dav-cli/references/manual.md` | `apps/cli/README.md`, the manual of the command |
 
 `dav-check` prints the diagnostics of the parser and can format the file. With `--detail` it also prints hints (`src/skill/review.ts`): an edge or packet without a label, a step or packet without a `desc`, a packet that travels where no edge is declared, a diagram without any `code`, and every text that is drawn cut off. Hints are not diagnostics of the language, so the editor does not show them. What is cut off comes from `scene/textCuts.ts`, which asks the same code that draws the text, so the checker cannot disagree with the preview. `--detail` also describes the layout (`src/skill/layoutReport.ts`): the size and proportion of the diagram, the columns and rows its nodes and zones take, and how many connections cross, with notes on a zone stacked in one column, a diagram much taller than wide, and crossings. These lines do not fail the check; they stand in for the look at the preview that an agent cannot take.
 
@@ -203,7 +204,7 @@ With `--map` the checker says which node is where (`src/skill/layoutMap.ts`). It
 
 `dav-outline` prints what a file says as Markdown or JSON: zones and nodes with their labels, every edge, and for each step its packets in the order they travel, what the step changes and what still shows from earlier steps.
 
-`dav-cli` is its `SKILL.md` alone. It carries no script: it has the agent run the npm package with `npx`, under the version of `apps/cli/package.json`. The command is then the one a workflow runs, so the version that checks an exported file in CI is the version that wrote it. A copy in the skill could be another version than the one CI fetches.
+`dav-cli` is its `SKILL.md` and the manual of the command, in which an agent looks up an option or a line the command printed without the other two skills. It carries no script: it has the agent run the npm package with `npx`, under the version of `apps/cli/package.json`. The command is then the one a workflow runs, so the version that checks an exported file in CI is the version that wrote it. A copy in the skill could be another version than the one CI fetches.
 
 The examples in `examples/` and in `dav-diagrams/SKILL.md` pass `dav-check --detail`, and the excerpts in `dav-reading/SKILL.md` are lines of a real outline; tests keep both true. Tests also keep the version in `dav-cli/SKILL.md` the version of the package, and its options the ones the command has.
 

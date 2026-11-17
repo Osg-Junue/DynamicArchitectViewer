@@ -14,6 +14,7 @@ const SKILL_TARGETS: ReadonlyArray<{
   { agent: 'Claude Code', workspace: ['.claude', 'skills'], personal: ['.claude', 'skills'] },
   { agent: 'GitHub Copilot', workspace: ['.github', 'skills'], personal: ['.copilot', 'skills'] },
   { agent: 'Codex', workspace: ['.agents', 'skills'], personal: ['.agents', 'skills'] },
+  { agent: 'Cursor', workspace: ['.cursor', 'skills'], personal: ['.cursor', 'skills'] },
 ];
 
 export async function installAgentSkill(extensionUri: vscode.Uri): Promise<void> {

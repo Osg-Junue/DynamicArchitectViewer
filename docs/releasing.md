@@ -1,6 +1,6 @@
 # Releasing
 
-How to publish the extension in `apps/vscode` to the Visual Studio Marketplace. This is for maintainers.
+How a release is published: the extension in `apps/vscode` to the Visual Studio Marketplace and to Open VSX, and the command line in `apps/cli` to npm. This is for maintainers.
 
 ## Versioning
 
@@ -8,6 +8,7 @@ How to publish the extension in `apps/vscode` to the Visual Studio Marketplace. 
 - `0.x` was a preview, marked with `"preview": true` in `package.json`.
 - Since `1.0.0` the extension is stable, and `"preview"` is gone.
 - The language version follows the major version: every `1.x.x` release is `dav 1`. A change that cannot stay compatible with `dav 1` needs a major release `n.0.0`, which introduces `dav n`. See [Compatibility](specification.md#compatibility).
+- The npm package `dynamic-architect-viewer-cli` is released with the extension, under the same version.
 
 ## Branches
 
@@ -17,40 +18,82 @@ How to publish the extension in `apps/vscode` to the Visual Studio Marketplace. 
 - Both branches take changes only by pull request, with the `check` workflow passing.
 - The Marketplace page and the agent skills link to `main`, so they show the released documentation and images rather than what is still on `develop`.
 
+## How a release is published
+
+Pushing the tag of a release starts the `Release` workflow (`.github/workflows/release.yml`), which publishes everything. Nothing is published from a maintainer's machine.
+
+The workflow stores no token. Each registry is told once to trust the workflow file `release.yml` of this repository, in the GitHub environment `release` (trusted publishing over OpenID Connect). For each run, GitHub Actions gives the workflow a token that says where it runs, and the registry exchanges it for a short-lived one.
+
 ## First-time setup
 
-1. Create a publisher with the ID `osg-junue` in the [Marketplace management page](https://marketplace.visualstudio.com/manage).
-2. In Azure DevOps, create a personal access token with the Marketplace (Manage) scope.
-3. Register the token from `apps/vscode`:
+On GitHub, in the repository's Settings, under Environments, create the environment `release`. Under "Deployment branches and tags", allow only the tags `v*`. A registry trusts the workflow file on any branch; the environment narrows that to the tags of releases.
 
-```bash
-npx vsce login osg-junue
-```
+Then register the workflow in each registry, with the same four values:
 
-## Before publishing
+| Field | Value |
+| :--- | :--- |
+| Owner | `Osg-Junue` |
+| Repository | `DynamicArchitectViewer` |
+| Workflow | `release.yml` |
+| Environment | `release` |
+
+| Registry | Where |
+| :--- | :--- |
+| Visual Studio Marketplace | In the [management page](https://marketplace.visualstudio.com/manage), open the publisher `osg-junue`, then Trusted Publishing, then Create |
+| npm | On npmjs.com, in the settings of the package `dynamic-architect-viewer-cli`, under Trusted Publisher, choose GitHub Actions and allow `npm publish` |
+| Open VSX | On [open-vsx.org](https://open-vsx.org), in Settings, under Trusted Publishers, choose the namespace `osg-junue` |
+
+Open VSX takes the registration only from the owner of the namespace. Whoever creates a namespace can publish to it but does not own it: ownership is claimed in an issue of [EclipseFdn/open-vsx.org](https://github.com/EclipseFdn/open-vsx.org/issues/new/choose). For `osg-junue` it was granted in [issue 15769](https://github.com/EclipseFdn/open-vsx.org/issues/15769).
+
+## Before a release
 
 - [ ] The extension was checked in a real VS Code window.
 - [ ] For a patch or minor release: every change to the language is a [compatible change](specification.md#compatibility).
-- [ ] `version` in `apps/vscode/package.json` and `apps/vscode/CHANGELOG.md` are updated.
-- [ ] The release pull request from `develop` into `main` is merged, and the package is built from `main`: README images are read from `main` on GitHub.
+- [ ] `version` in `apps/vscode/package.json` and in `apps/cli/package.json` is the new version, and `apps/vscode/CHANGELOG.md` has a heading for it in place of "Unreleased".
+- [ ] The version in `skills/dav-cli/SKILL.md`, and in the line for CI (`dynamic-architect-viewer-cli@<version>`) of `README.md` and `apps/cli/README.md`, is the new version. A test fails when the skill and the package differ.
 - [ ] The animations in the READMEs and docs show the current look. [`promo/pv`](../promo/pv/README.md) renders them again.
-- [ ] `npm run check` passes at the repository root.
-- [ ] `npx playwright test` passes in `apps/vscode`.
-- [ ] `version` in `apps/cli/package.json` is the version of the extension, and the version in `skills/dav-cli/SKILL.md` is the same. A test fails when they differ.
+- [ ] The release pull request from `develop` into `main` is merged: README images are read from `main` on GitHub.
 
-## Package and inspect
-
-From the repository root:
+To see what the workflow would publish, without publishing, run it by hand. It builds and inspects the packages and stops there:
 
 ```bash
-npm run package
+gh workflow run Release --ref main
 ```
 
-This creates `apps/vscode/dist/dynamic-architect-viewer.vsix`, which is a ZIP file. Under `extension/`, it should contain only:
+With `--ref develop` it builds what is not released yet.
+
+## Release
+
+Tag the merge commit of the release pull request, and push the tag:
+
+```bash
+git tag -a v<version> -m "DynamicArchitectViewer <version>" <commit>
+git push origin v<version>
+```
+
+The `Release` workflow then:
+
+1. Checks that the tag is on `main`, that it is the version of both packages, and that the changelog has a heading for it.
+2. Runs `npm run check` and the end-to-end tests.
+3. Builds the extension (`dynamic-architect-viewer-<version>.vsix`) and the npm package once, and checks what they hold (see below). The summary of the run gives the SHA-256 of both files.
+4. Publishes the same VSIX to the Visual Studio Marketplace and to Open VSX, and the npm package to npm, each in a job of its own.
+5. Creates a draft GitHub release with the VSIX attached.
+
+A version can be published once in each place. When a job fails, run that job again and not the whole workflow, so that the places that have the version are left alone:
+
+```bash
+gh run rerun <run-id> --failed
+```
+
+The `Playground` workflow runs for the same tag; see [Playground](#playground).
+
+### What the packages hold
+
+`.github/scripts/inspect-packages.sh` fails the workflow when a package holds a file that is not expected in it, or lacks one it needs. The `check` workflow runs it for the extension on every pull request. The VSIX is a ZIP file, and under `extension/` it holds only:
 
 | Path | Contents |
 | :--- | :--- |
-| `dist/extension.cjs` | The extension host, with its dependencies bundled |
+| `dist/extension.cjs`, `dist/chunks/` | The extension host, with its dependencies bundled |
 | `dist/webview/` | The preview webview |
 | `dist/skill/` | The agent skills for the install command |
 | `media/icon.png`, `media/file-icon-*.svg` | The extension icon and `.dav` file icons |
@@ -58,59 +101,24 @@ This creates `apps/vscode/dist/dynamic-architect-viewer.vsix`, which is a ZIP fi
 | `package.json`, `package.nls*.json` | Manifest and translations |
 | `readme.md`, `changelog.md`, `LICENSE.txt` | Documents |
 
-If `src/`, `e2e/`, `node_modules/` or source maps appear, fix `.vscodeignore`.
+If the script reports `src/`, `e2e/`, `node_modules/` or source maps, fix `.vscodeignore`. If it reports a file that belongs in the package, add it to the script.
 
-Note the SHA-256 of the file (`Get-FileHash` in PowerShell). `npm run package` writes other bytes every time, and the GitHub release attaches the file that was published:
+The npm package holds only `package.json`, `README.md`, `LICENSE` and `dist/dav.mjs`.
 
-```bash
-sha256sum apps/vscode/dist/dynamic-architect-viewer.vsix
-```
+## After the workflow
 
-## Publish
-
-From `apps/vscode`, publish the package you inspected:
-
-```bash
-npx vsce publish --packagePath dist/dynamic-architect-viewer.vsix
-```
-
-The Marketplace lists the new version a few minutes later. A version can be published once: a second `vsce publish` answers that it already exists.
-
-Then check that README images appear on the Marketplace page, and tag the merge commit of the release:
-
-```bash
-git tag -a v<version> -m "DynamicArchitectViewer <version>" <commit>
-git push origin v<version>
-```
-
-## Publish the command line
-
-The npm package `dynamic-architect-viewer-cli` in `apps/cli` is released with the extension, under the same version. The first time, log in with `npm login`. From `apps/cli`, look at what the package holds:
-
-```bash
-npm pack --dry-run
-```
-
-It should list only `package.json`, `README.md`, `LICENSE` and `dist/dav.mjs`. `prepack` builds `dist/dav.mjs` first. Then publish:
-
-```bash
-npm publish
-```
-
-The registry serves the new version a few minutes later. Then try it from a folder outside this repository, where `npx` does not take the copy in the workspace:
+- The Marketplace lists the new version a few minutes later. Check that README images appear on the page.
+- Check that the page of the extension on open-vsx.org shows the new version.
+- npm serves the new version a few minutes later. Try it from a folder outside this repository, where `npx` does not take the copy in the workspace:
 
 ```bash
 npx dynamic-architect-viewer-cli@<version> --version
 ```
 
-The READMEs give the version in the line for CI (`dynamic-architect-viewer-cli@<version>`). Update it in `README.md` and `apps/cli/README.md`. The `dav-cli` skill gives it in every command: update it in `skills/dav-cli/SKILL.md` as well. A test fails when it is not the version of the package.
-
-## GitHub release
-
-After the tag is pushed, create the release from it, with the file that was published attached as `dynamic-architect-viewer-<version>.vsix`:
+- Write the notes of the GitHub release, and publish it:
 
 ```bash
-gh release create v<version> dynamic-architect-viewer-<version>.vsix --verify-tag --title "DynamicArchitectViewer <version>" --notes-file notes.md
+gh release edit v<version> --notes-file notes.md --draft=false
 ```
 
 The notes follow the release before:
@@ -118,12 +126,6 @@ The notes follow the release before:
 - A sentence on what the release brings, where to install the extension and the command line, and whether the language stays `dav 1`.
 - Under "New since \<previous version\>", the changes that matter to a reader, grouped by subject. The changelog has the full list.
 - Links that point at the tag (`blob/v<version>/...`), so that they keep showing this release.
-
-The attached file is the one that was published. If `dist/dynamic-architect-viewer.vsix` was built again since, download the published file from the Marketplace and compare it with the SHA-256 you noted:
-
-```bash
-curl -L --compressed -o dynamic-architect-viewer-<version>.vsix https://marketplace.visualstudio.com/_apis/public/gallery/publishers/osg-junue/vsextensions/dynamic-architect-viewer/<version>/vspackage
-```
 
 ## Playground
 

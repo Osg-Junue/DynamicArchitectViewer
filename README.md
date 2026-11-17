@@ -59,7 +59,7 @@ step "The payment provider fails" {
 
 ## Install
 
-Install [DynamicArchitectViewer](https://marketplace.visualstudio.com/items?itemName=osg-junue.dynamic-architect-viewer) from the Visual Studio Marketplace. It needs VS Code 1.96 or later. To try it first, the [playground](https://osg-junue.github.io/DynamicArchitectViewer/) runs its preview and language support in a browser.
+Install [DynamicArchitectViewer](https://marketplace.visualstudio.com/items?itemName=osg-junue.dynamic-architect-viewer) from the Visual Studio Marketplace. It needs VS Code 1.96 or later. In Cursor and other editors that do not read the Marketplace, install it from [Open VSX](https://open-vsx.org/extension/osg-junue/dynamic-architect-viewer). To try it first, the [playground](https://osg-junue.github.io/DynamicArchitectViewer/) runs its preview and language support in a browser.
 
 To build it from source, you also need [Node.js](https://nodejs.org/) 26:
 
@@ -73,11 +73,22 @@ Then open a `.dav` file, or run **DynamicArchitectViewer: New Diagram from Sampl
 
 ## Command line
 
-The `dav` command does what the extension does with a `.dav` file, without the editor: in a terminal or in CI. It is the npm package [`dynamic-architect-viewer-cli`](apps/cli/README.md), which needs Node.js 22.17 or later and has no dependencies.
+The `dav` command does what the extension does with a `.dav` file, without the editor: in a terminal or in CI. It is the npm package [`dynamic-architect-viewer-cli`](https://www.npmjs.com/package/dynamic-architect-viewer-cli), which needs Node.js 22.17 or later and has no dependencies.
+
+Without an install, `npx` fetches the package and runs it:
 
 ```bash
 npx dynamic-architect-viewer-cli export docs/checkout.dav
 ```
+
+Installed, the command is `dav`:
+
+```bash
+npm install --global dynamic-architect-viewer-cli
+dav export docs/checkout.dav
+```
+
+In a project, `npm install --save-dev dynamic-architect-viewer-cli` makes it a development dependency, and `npx dav` runs it.
 
 | Command | Does |
 | :--- | :--- |
@@ -86,10 +97,12 @@ npx dynamic-architect-viewer-cli export docs/checkout.dav
 | `dav format` | Formats files in place. `--check` fails when a file is not formatted |
 | `dav outline` | Prints what a diagram says, with every reference resolved |
 
+[The manual of the command](apps/cli/README.md) has every option, what each command prints, and the exit codes.
+
 `dav export --check` writes nothing and fails when a file is missing or is not what its diagram exports now. In CI, this keeps the SVG in a README up to date:
 
 ```yaml
-- run: npx dynamic-architect-viewer-cli@1.4.0 export --check docs/*.dav
+- run: npx dynamic-architect-viewer-cli@1.5.0 export --check docs/*.dav
 ```
 
 ## AI agent skills
@@ -100,9 +113,9 @@ Three skills teach coding agents to work with `.dav` files. The scripts of the f
 | :--- | :--- | :--- |
 | [`dav-diagrams`](skills/dav-diagrams/SKILL.md) | Writing and changing diagrams: the language, how layout works, how to structure steps, and how much detail a diagram needs | `dav-check` runs the parser and formatter of the editor, and with `--detail` also reports missing descriptions and code and text too long to be shown in full, and describes the layout. With `--map` it says which node is where |
 | [`dav-reading`](skills/dav-reading/SKILL.md) | Reading diagrams: explaining the architecture and the data flows a `.dav` file describes | `dav-outline` prints what the file says, with every reference resolved and the packets of each step in order |
-| [`dav-cli`](skills/dav-cli/SKILL.md) | Exporting diagrams: an SVG or an HTML file of a diagram, shown in a README, and kept up to date from CI. Checking and formatting many files at once | `dav`, from the npm package, with `npx`. The skill carries no script |
+| [`dav-cli`](skills/dav-cli/SKILL.md) | Exporting diagrams: an SVG or an HTML file of a diagram, shown in a README, and kept up to date from CI. Checking and formatting many files at once | `dav`, from the npm package, with `npx`. The skill carries no script, and the [manual of the command](apps/cli/README.md) to look things up in |
 
-**From VS Code:** run **DynamicArchitectViewer: Install AI Agent Skill...** from the Command Palette, then choose Claude Code, GitHub Copilot or Codex, and either the workspace or all projects. It installs all three skills.
+**From VS Code:** run **DynamicArchitectViewer: Install AI Agent Skill...** from the Command Palette, then choose Claude Code, GitHub Copilot, Codex or Cursor, and either the workspace or all projects. It installs all three skills.
 
 ![Installing the skill for Claude Code in this workspace from the Command Palette](docs/media/skill-install.gif)
 
@@ -128,6 +141,7 @@ Then ask your agent as usual, such as "Diagram this repository's login flow in `
 - [Examples](docs/examples.md)
 - [Language specification](docs/specification.md)
 - [How diagrams are laid out](docs/layout.md)
+- [The `dav` command](apps/cli/README.md)
 - [Architecture](docs/architecture.md)
 - [Contributing](CONTRIBUTING.md)
 

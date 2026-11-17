@@ -95,6 +95,15 @@ describe('dav', () => {
     const { status, stdout } = await dav(command, '--help');
     expect(status).toBe(0);
     expect(stdout).toContain(`Usage: dav ${command}`);
+    expect(stdout).toContain('Options:');
+  });
+
+  it.each([
+    ['check', ['--write', '--detail', '--map']],
+    ['outline', ['--json']],
+  ])('the help of %s says what each of its options does', async (command, options) => {
+    const { stdout } = await dav(command, '--help');
+    for (const option of options) expect(stdout).toMatch(new RegExp(`^  ${option} {2,}\\S`, 'm'));
   });
 
   it.each([

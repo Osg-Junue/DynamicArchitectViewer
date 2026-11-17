@@ -143,7 +143,7 @@ This section is for changing the layout code in [`layout/index.ts`](https://gith
 ### Columns
 
 - Rank is the longest path. Cycles are broken by ignoring back edges of a depth-first search in declaration order. Self-loops are ignored.
-- The gap between columns is `max(36, needed - 132) + 16 * edges`, where `edges` is 1 if some group frame ends at the left column, plus 1 if some frame starts at the right one. Frames nested along one edge share its 16 of padding, so the gap does not depend on the nesting. `needed` is `min(180, label width) + 32` for the widest label between those columns. The 132 is the node width (176) minus the station width (44), since a label can use the space beside the stations.
+- The gap between columns is `max(congestionGap, needed - 132) + 16 * edges`, where `edges` is 1 if some group frame ends at the left column, plus 1 if some frame starts at the right one. Frames nested along one edge share its 16 of padding, so the gap does not depend on the nesting. `congestionGap` starts at 36 and widens by 14 per crossing link beyond 2 (up to 148) when long-span edges or degree ≥ 4 hubs cross that column gap (or ≥ 4 links span it). `needed` is `min(180, label width) + 32` for the widest label between those columns. The 132 is the node width (176) minus the station width (44), since a label can use the space beside the stations.
 - The left and top margins are `40 + depth * 16`.
 
 ### Rows
@@ -152,7 +152,7 @@ Each group, and the top level, places two kinds of block: the nodes directly in 
 
 - Blocks with no columns in common go side by side. Overlapping blocks stack with a gap of 28.
 - The initial order is by leftmost column, with column blocks before child groups. Inside a block, the order is declaration order.
-- A node is 176 × 118 whatever its icon, with 14 between rows. Its station center is always 50 below its top, so nodes at the same Y are joined by a level line.
+- A node is 176 × 118 whatever its icon, with 14 between rows (widened up to 34 when long-span edges or degree ≥ 5 hubs add cross-corridor traffic). Its station center is always 50 below its top, so nodes at the same Y are joined by a level line.
 - In the first placement, a column is sorted by the average Y of its already placed predecessors. Nodes with no predecessor go last, and ties use declaration order.
 - A node with self-loops needs `30 + (loops - 1) * 18` above it. The largest requirement in a group level applies to all of that level's rows.
 - A group frame wraps its direct nodes and child groups with a padding of 16, plus 18 at the top for its name. An empty group reserves 160 × 40 in column 0.
@@ -175,39 +175,41 @@ When the column layout leaves a link longer than 700 units (a link used for a ro
 
 1. Each top-level zone is laid out on its own, with the rules above.
 2. The zones start in the columns of a graph that has one node per zone.
-3. Simulated annealing moves zones, swaps them and flips them vertically, scoring link length, crossings, links through other zones, right-to-left links, how far links are from straight, and overall size. Every unit of a link's length counts, and counts again past 700. The size counts as the longer side of a 16:10 canvas the zones fit in, so they fill such a canvas rather than stretch into a strip. A link used for a round trip counts double, since it is traversed twice in its time. A link is off straight by the sideways distance between its two stations, up to 160, counted twice; this applies where no node of either zone stands between them on that side, and a link that cannot be straight counts the full 160.
-4. Each zone slides towards the zones it is linked to, as far as its clearance allows, so that linked neighbors end up one clearance apart.
-5. Zone edges are aligned where that costs almost nothing, and the zones slide together once more.
-6. A zone moves up to 120 units to put the two stations of a link level, or one straight above the other, with nothing between them. It takes the move that straightens the most of its links, as long as the rest of the score rises by less than 120 per link. The best of six seeded runs is kept, counting each straight link as 120 in its favor.
+3. Simulated annealing moves zones, swaps them and flips them vertically, scoring link length, crossings, links through or blocked by other zones (including L-path and perimeter-detour barriers), right-to-left links, links that run upright, how far links are from straight, and overall size. Every unit of a link's length counts, and counts again past 700. The size counts as the longer side of a 16:10 canvas the zones fit in, so they fill such a canvas rather than stretch into a strip. A link used for a round trip counts double, since it is traversed twice in its time. A link is off straight by the sideways distance between its two stations, up to 160, counted twice; this applies where no node of either zone stands between them on that side, and a link that cannot be straight counts the full 160. A link runs upright by what it goes up or down beyond what it goes to the right. In an arrangement no wider than high every such unit counts once more, so that an upright link costs twice a level one, and the zones of a flow stand side by side instead of in a stack. That weight falls evenly to nothing at twice as wide as high: a longer flow has to turn back under itself, or it becomes a strip.
+4. Each zone slides towards the zones it is linked to, as far as its clearance allows, so that linked neighbors end up one clearance apart (60 × 34).
+5. Zone edges are aligned where that costs almost nothing, and the zones slide together once more. On diagrams with up to 20 top-level zones, intra-zone nodes with DAG column slack shift toward external neighbors, nested or loop-bearing zones try a vertical flip, and nodes sharing a parent group and column are reordered by clamped neighbor barycenters and adjacent swaps whenever that lowers crossings or link spans.
+6. A zone moves up to 120 units to put the two stations of a link level, or one straight above the other, with nothing between them. It takes the move that straightens the most of its links, as long as the rest of the score rises by less than 120 per link. The best of six seeded runs is kept, counting each straight link as 120 in its favor (and each crossing anywhere in the diagram as 180 against).
 
-The result is deterministic. Zones no longer share columns, so a column does not line up across the diagram. The search takes about a second at 300 nodes, so the last result is reused until the nodes, groups, edges or round trips change. Edge labels are left out of the search, so typing one never rearranges the zones. A long label can still widen its zone, and the zones to its right then move aside.
+The result is deterministic. Zones no longer share columns, so a column does not line up across the diagram. The search takes under two seconds at 300 nodes, so the last result is reused until the nodes, groups, edges or round trips change. Edge labels are left out of the search, so typing one never rearranges the zones. A long label can still widen its zone, and the zones to its right then move aside.
 
 ### Routing rails
 
 Rails are routed after layout, by `routeEdges` in `scene/route.ts`, once for an arrangement: a rail keeps its course from step to step. A self-loop is not routed; it stays a curve at its station's upper right.
 
-1. **The grid** (`scene/routeGrid.ts`). Routes run on the lines through the middle of every station, 8 units beside every node's area (its station and labels), 12 units inside and outside every zone border, and just past every zone name.
-2. **One route at a time, shortest reach first** (`scene/routeSearch.ts`). A route is the cheapest way over the grid from one station to the other (A*). What it pays for:
+1. **The grid** (`scene/routeGrid.ts`). Routes run on the lines through the middle of every station (plus off-center vertical ports when a zone label sits overhead), 8 units beside every node's station area, 12 units beside wider node label blocks, 12 units inside and outside every zone border, on all four sides of every wall, and along interior tracks added across wide gaps (36+ units). Lines nearer to each other than 7 units, the distance rails keep, become one; a line through a station is always kept.
+2. **Shortest reach first with rip-up & reroute** (`scene/routeSearch.ts`, `scene/route.ts`). A route is the cheapest way over the grid from one station to the other (A*), followed by up to two rip-up-and-reroute passes on winding or crossing routes whenever that lowers the total score. What a step pays for:
 
    | Cost | Amount |
    | --- | --- |
    | Length | 1 per unit |
-   | A turn | 36 |
-   | Crossing a route found earlier | 90 |
+   | Turns (1st / 2nd / 3rd+) | 40 / 52 / 115 |
+   | Crossing an unrelated route | 160 (at a 90° vertex or at the far end of a shared run) |
    | Length inside a zone that holds neither end | 4 per unit |
-   | Length on a line that already carries routes | up to 10% more for two, 50% more for each further one |
+   | Length on a shared stretch | 6–25% per shared-endpoint route; 35–65% per unrelated route |
    | Leaving a node downwards, or reaching one from below | 30 |
+   | Using the top port of a node that has a self-loop | 40 |
+   | Turning within 18 units of either station's outline/labels | 180 |
    | Meeting a station off its middle | 2 per unit |
 
-   Another node's area and a zone's name are closed. A route leaves its own station in a straight line, and enters a node's area only along a line through that station's middle, or through the middle of a linked station that is 12 units or less off it.
-3. **Side by side** (`scene/routeSpread.ts`). Routes that share a line are set 7 units apart, within 42 units, or 28 where they meet a station. Two routes that run together keep their sides round every corner: the one that turns off to the left at the end of their shared run is the left one all along, so they part without crossing. Routes with nothing to tell them apart, such as the two directions between one pair of stations, each keep to the left of their own direction.
+   Another node's area and wider label block are closed to other routes, and walls (zone names, self-loops plus 10 units round them, and loop labels) are closed with a 4-unit guard on non-station lines. A route leaves its own station in a straight line, and enters a node's area only along a line through that station's middle, or through an off-center port within 12 units when linked almost straight or past an overhead wall.
+3. **Side by side** (`scene/routeSpread.ts`). Routes that share a line are ordered by turn preferences, packed into non-overlapping interval tracks, and set up to 7 units apart within 30 units (28 where they meet a station). More of them than that has room for stand nearer, down to 4 units, one more than the 3 a rail is wide: for that the group grows, up to 40 units at a station, which is 44 across, and 20 beside a loop. Only more rails than fit even so stand nearer still. A group is kept outside the areas of the nodes beside it, for which its rails may stand as near as 3.5. Rails of different lines that this leaves nearer than 7 units where they run beside each other are then moved apart, each as little as that takes and in the order they are in. At the top or right port of a station with a self-loop, shared rails are biased away from the upper-right loop quadrant. Two routes that run together keep their sides round every corner: the one that turns off to the left at the end of their shared run is the left one all along, so they part without crossing. Routes with nothing to tell them apart, such as the two directions between one pair of stations, each keep to the left of their own direction.
 4. **The ends.** A route stops 2 units outside its station's outline. One that leaves a node downwards starts below the node's labels instead.
 
 A packet that travels where no edge runs gets a route of its own, found together with the edges. If no route is found at all, the rail is a straight line between the two stations.
 
-**Edge labels** are placed once per arrangement too (`placeLabels` in `scene/rails.ts`). A label goes beside the longest stretch of its rail that no other rail runs beside and that is long enough for it: above or below a level stretch, right or left of an upright one, 7 units away. It keeps clear of stations, node labels, zone names, other edge labels, other rails and the middle of its own rail, where a step puts numbered stops. On a rail too short for that, the label goes 20 units above or 28 below the middle. A label with no free place takes the one that covers the least.
+**Edge labels** are placed once per arrangement too (`placeLabels` in `scene/rails.ts`), placing shorter (more constrained) rails first. A label goes beside the longest stretch of its rail that is long enough for it (preferring unshared stretches, then shared ones): above or below a level stretch, right or left of an upright one, 7, 13 or 19 units away. It keeps clear of stations, node labels, zone names, other edge labels, other rails and the middle of its own rail, where a step puts numbered stops. A loop's label is always written above the middle of its curve, and the other labels keep clear of it as well. On a rail too short for that, the label goes 20 units above or 28 below the middle. A label with no free place takes the one that covers the least.
 
-Routing takes 30 to 40 ms at 100 nodes and about 220 ms at 300, so the last result is reused until a node's or group's place, an edge, an edge label or an `animate` pair changes.
+Routing takes about 30 ms for 100 nodes with as many edges, about 100 ms for 27 nodes with 53 edges, and under a second at 300 nodes: the time grows with the rails that cross and run together more than with the nodes. The routes are reused until a node's or group's place, a node's label text, an edge, the label of a loop or an `animate` pair changes. Any other edge label only has the labels placed again.
 
 ### Invariants
 
@@ -221,5 +223,8 @@ Tests are in `layout/__tests__/layout.test.ts`, `scene/__tests__/scene.test.ts` 
 | Connected rows stay level | `keeps connected rows on one line` |
 | Samples do not gain crossings | `stays within its crossing budget` |
 | Room for self-loops is kept | `self-loop room` |
+| An overview does not get harder to read | `is no harder to read than its budget allows` |
 
 When you add a diagram to the samples or `examples/`, add its limit to `CROSSING_BUDGET`. If a rule change reduces crossings, lower the limit.
+
+`scene/__tests__/quality.test.ts` measures the overview of every example as it is drawn, and of ten larger diagrams in `scene/__tests__/fixtures/`, each with five zones and over twenty nodes: rails that turn three times or more, crossings of the drawn rails, the share of links between zones that point to the right, edge labels written over a rail or another label, and width to height. Its `BUDGET` holds what each diagram measures now. The zones of the larger diagrams are placed by a search that a small change sends another way, so a change to the layout moves their numbers both ways: judge it by all of them together, and move the budget with it.
