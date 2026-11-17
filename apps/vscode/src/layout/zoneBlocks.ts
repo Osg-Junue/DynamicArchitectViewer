@@ -22,12 +22,21 @@ export const VERTICAL_CLEARANCE = 34;
 const COLUMN_GAP = 150;
 const ROW_GAP = 44;
 
-export type ColumnLayout = (doc: DavDocument) => Layout;
+export type ColumnLayout = (
+  doc: DavDocument,
+  rankOverrides?: ReadonlyMap<string, number>,
+) => Layout;
 
 /** Where the search put each zone. It holds no sizes, so it can be applied to resized zones. */
 export type ZonePlacement = ReadonlyMap<
   string,
-  { x: number; y: number; flip: 0 | 1; order?: readonly string[] }
+  {
+    x: number;
+    y: number;
+    flip: 0 | 1;
+    order?: readonly string[];
+    ranks?: Readonly<Record<string, number>>;
+  }
 >;
 
 /** A top-level zone, or a node outside any zone, moved as one rigid piece. */
@@ -41,6 +50,10 @@ export interface Block {
   nodes: Map<string, Rect>;
   /** The zone's own frame first, then the groups nested in it. */
   groups: Map<string, Rect>;
+  /** Group rectangles when `flip === 1`. */
+  groupsFlipped: Map<string, Rect>;
+  /** Per-node reflection constant `c` such that `flippedY = c - rect.y - rect.height`. */
+  reflectConst: ReadonlyMap<string, number>;
 }
 
 export interface Placed {
@@ -124,68 +137,145 @@ export function linksBetweenZones(doc: DavDocument): number {
   }).length;
 }
 
+function computeFlipMetadata(
+  zoneId: string,
+  nodes: ReadonlyArray<{ id: string; parentId?: string }>,
+  nested: ReadonlyArray<{ id: string; parentId?: string }>,
+  loopRoom: number,
+  nodesMap: ReadonlyMap<string, Rect>,
+  groupsMap: ReadonlyMap<string, Rect>,
+): { groupsFlipped: Map<string, Rect>; reflectConst: Map<string, number> } {
+  const groupsFlipped = new Map<string, Rect>();
+  const rootFrame = groupsMap.get(zoneId);
+  if (rootFrame) groupsFlipped.set(zoneId, rootFrame);
+  const reflectConst = new Map<string, number>();
+
+  const visit = (parentKey: string | undefined, shiftY: number): void => {
+    const directNodes = nodes.filter((n) => n.parentId === parentKey);
+    const childGroups = nested.filter((g) => g.parentId === parentKey);
+    const tops: number[] = [];
+    const bots: number[] = [];
+    for (const dn of directNodes) {
+      const r = nodesMap.get(dn.id);
+      if (r) {
+        tops.push(r.y - loopRoom);
+        bots.push(r.y + r.height);
+      }
+    }
+    for (const cg of childGroups) {
+      const gr = groupsMap.get(cg.id);
+      if (gr) {
+        tops.push(gr.y);
+        bots.push(gr.y + gr.height);
+      }
+    }
+    if (tops.length === 0) return;
+    const oldMinTop = Math.min(...tops);
+    const oldMaxBot = Math.max(...bots);
+    const newMinTop = oldMinTop + shiftY;
+    const c = newMinTop + oldMaxBot + loopRoom;
+    for (const dn of directNodes) reflectConst.set(dn.id, c);
+    for (const cg of childGroups) {
+      const gr = groupsMap.get(cg.id);
+      if (!gr) continue;
+      const newGrY = newMinTop + (oldMaxBot - (gr.y + gr.height));
+      groupsFlipped.set(cg.id, { ...gr, y: newGrY });
+      visit(cg.id, newGrY - gr.y);
+    }
+  };
+
+  visit(undefined, 0);
+  return { groupsFlipped, reflectConst };
+}
+
+export function buildSingleZoneBlock(
+  doc: DavDocument,
+  zoneId: string,
+  columnLayout: ColumnLayout,
+  rankOverrides?: ReadonlyMap<string, number>,
+  zoneOf: ReadonlyMap<string, string> = zoneOfGroups(doc.groups),
+  owners: ReadonlyMap<string, string> = ownersOf(doc),
+): Block {
+  const pad = GROUP_PADDING;
+  const nodes = doc.nodes.filter((n) => owners.get(n.id) === zoneId).map((n) => detach(n, zoneId));
+  const nested = doc.groups
+    .filter((g) => g.id !== zoneId && zoneOf.get(g.id) === zoneId)
+    .map((g) => detach(g, zoneId));
+  const ids = new Set(nodes.map((n) => n.id));
+  const edges = doc.edges.filter((e) => ids.has(e.from) && ids.has(e.to));
+  const loopRoom = Math.max(0, ...selfLoopRoom({ edges }).values());
+  const head = GROUP_HEADER + pad + loopRoom;
+  const frame = (width: number, height: number): [string, Rect] => [
+    zoneId,
+    { x: 0, y: 0, width, height },
+  ];
+
+  // A zone with groups inside is laid out like any other, even without nodes: the column
+  // layout gives empty groups their rectangles.
+  if (nodes.length === 0 && nested.length === 0) {
+    const width = EMPTY_GROUP_CONTENT.width + pad * 2;
+    const height = head + EMPTY_GROUP_CONTENT.height + pad;
+    const groupsMap = new Map([frame(width, height)]);
+    return {
+      id: zoneId,
+      width,
+      height,
+      head,
+      contentHeight: EMPTY_GROUP_CONTENT.height,
+      flippable: false,
+      nodes: new Map(),
+      groups: groupsMap,
+      groupsFlipped: new Map(groupsMap),
+      reflectConst: new Map(),
+    };
+  }
+
+  const local = columnLayout({ ...doc, nodes, groups: nested, edges, steps: [] }, rankOverrides);
+  const bounds = enclosingRect([...Object.values(local.nodes), ...Object.values(local.groups)]);
+  const width = bounds.width + pad * 2;
+  const contentHeight = bounds.height;
+  const height = head + contentHeight + pad;
+  const place = (r: Rect): Rect => ({ ...r, x: r.x - bounds.x + pad, y: r.y - bounds.y + head });
+  const nodesMap = new Map(Object.entries(local.nodes).map(([id, r]) => [id, place(r)]));
+  const groupsMap = new Map<string, Rect>([
+    frame(width, height),
+    ...Object.entries(local.groups).map(([id, r]): [string, Rect] => [id, place(r)]),
+  ]);
+  const { groupsFlipped, reflectConst } = computeFlipMetadata(
+    zoneId,
+    nodes,
+    nested,
+    loopRoom,
+    nodesMap,
+    groupsMap,
+  );
+  return {
+    id: zoneId,
+    width,
+    height,
+    head,
+    contentHeight,
+    flippable: loopRoom === 0 && nested.length === 0,
+    nodes: nodesMap,
+    groups: groupsMap,
+    groupsFlipped,
+    reflectConst,
+  };
+}
+
 export function buildBlocks(
   doc: DavDocument,
   columnLayout: ColumnLayout,
+  ranksByZone?: ReadonlyMap<string, ReadonlyMap<string, number>>,
 ): { blocks: Block[]; owners: Map<string, string> } {
   const zoneOf = zoneOfGroups(doc.groups);
   const owners = ownersOf(doc);
 
-  const pad = GROUP_PADDING;
   const blocks: Block[] = [];
   for (const zone of topLevelGroups(doc.groups)) {
-    const nodes = doc.nodes
-      .filter((n) => owners.get(n.id) === zone.id)
-      .map((n) => detach(n, zone.id));
-    const nested = doc.groups
-      .filter((g) => g.id !== zone.id && zoneOf.get(g.id) === zone.id)
-      .map((g) => detach(g, zone.id));
-    const ids = new Set(nodes.map((n) => n.id));
-    const edges = doc.edges.filter((e) => ids.has(e.from) && ids.has(e.to));
-    const loopRoom = Math.max(0, ...selfLoopRoom({ edges }).values());
-    const head = GROUP_HEADER + pad + loopRoom;
-    const frame = (width: number, height: number): [string, Rect] => [
-      zone.id,
-      { x: 0, y: 0, width, height },
-    ];
-
-    // A zone with groups inside is laid out like any other, even without nodes: the column
-    // layout gives empty groups their rectangles.
-    if (nodes.length === 0 && nested.length === 0) {
-      const width = EMPTY_GROUP_CONTENT.width + pad * 2;
-      const height = head + EMPTY_GROUP_CONTENT.height + pad;
-      blocks.push({
-        id: zone.id,
-        width,
-        height,
-        head,
-        contentHeight: EMPTY_GROUP_CONTENT.height,
-        flippable: false,
-        nodes: new Map(),
-        groups: new Map([frame(width, height)]),
-      });
-      continue;
-    }
-
-    const local = columnLayout({ ...doc, nodes, groups: nested, edges, steps: [] });
-    const bounds = enclosingRect([...Object.values(local.nodes), ...Object.values(local.groups)]);
-    const width = bounds.width + pad * 2;
-    const contentHeight = bounds.height;
-    const height = head + contentHeight + pad;
-    const place = (r: Rect): Rect => ({ ...r, x: r.x - bounds.x + pad, y: r.y - bounds.y + head });
-    blocks.push({
-      id: zone.id,
-      width,
-      height,
-      head,
-      contentHeight,
-      flippable: loopRoom === 0 && nested.length === 0,
-      nodes: new Map(Object.entries(local.nodes).map(([id, r]) => [id, place(r)])),
-      groups: new Map([
-        frame(width, height),
-        ...Object.entries(local.groups).map(([id, r]): [string, Rect] => [id, place(r)]),
-      ]),
-    });
+    blocks.push(
+      buildSingleZoneBlock(doc, zone.id, columnLayout, ranksByZone?.get(zone.id), zoneOf, owners),
+    );
   }
   for (const n of doc.nodes) {
     if (owners.get(n.id) !== n.id) continue;
@@ -199,6 +289,8 @@ export function buildBlocks(
       flippable: false,
       nodes: new Map([[n.id, { x: 0, y: 0, width, height }]]),
       groups: new Map(),
+      groupsFlipped: new Map(),
+      reflectConst: new Map(),
     });
   }
   return { blocks, owners };
@@ -257,34 +349,21 @@ export function initialPositions(
   return out;
 }
 
-export function flippedY(block: Block, rect: Rect): number {
+export function flippedY(block: Block, rect: Rect, id?: string): number {
+  const c = id !== undefined ? block.reflectConst.get(id) : undefined;
+  if (c !== undefined) return c - rect.y - rect.height;
   return block.head + block.contentHeight - (rect.y - block.head) - rect.height;
 }
 
-/** Zones can come out wider than they were searched at, and dense meshes need extra corridor room. */
-function keepClear(
-  placed: readonly Placed[],
-  hClear = HORIZONTAL_CLEARANCE,
-  vClear = VERTICAL_CLEARANCE,
-): void {
-  if (vClear > VERTICAL_CLEARANCE) {
-    const byY = [...placed].sort((a, b) => a.y - b.y);
-    byY.forEach((p, i) => {
-      for (const q of byY.slice(0, i)) {
-        const xNear =
-          p.x < q.x + q.block.width + HORIZONTAL_CLEARANCE &&
-          q.x < p.x + p.block.width + HORIZONTAL_CLEARANCE;
-        if (xNear && p.y >= q.y + q.block.height) {
-          p.y = Math.max(p.y, q.y + q.block.height + vClear);
-        }
-      }
-    });
-  }
+/** Zones can come out wider than they were searched at, and may then overlap: push them right. */
+function keepClear(placed: readonly Placed[]): void {
   const byX = [...placed].sort((a, b) => a.x - b.x);
   byX.forEach((p, i) => {
     for (const q of byX.slice(0, i)) {
-      const near = p.y < q.y + q.block.height + vClear && q.y < p.y + p.block.height + vClear;
-      if (near) p.x = Math.max(p.x, q.x + q.block.width + hClear);
+      const near =
+        p.y < q.y + q.block.height + VERTICAL_CLEARANCE &&
+        q.y < p.y + p.block.height + VERTICAL_CLEARANCE;
+      if (near) p.x = Math.max(p.x, q.x + q.block.width + HORIZONTAL_CLEARANCE);
     }
   });
 }
@@ -318,9 +397,14 @@ export function applyZonePlacement(
   doc: DavDocument,
   placement: ZonePlacement,
   columnLayout: ColumnLayout,
+  finishPlaced?: (doc: DavDocument, placed: readonly Placed[]) => void,
 ): Layout {
   const nodeParent = parentMap(doc.nodes);
-  const placed = buildBlocks(doc, columnLayout).blocks.map((block): Placed => {
+  const ranksByZone = new Map<string, ReadonlyMap<string, number>>();
+  for (const [zoneId, entry] of placement) {
+    if (entry.ranks) ranksByZone.set(zoneId, new Map(Object.entries(entry.ranks)));
+  }
+  const placed = buildBlocks(doc, columnLayout, ranksByZone).blocks.map((block): Placed => {
     const entry = placement.get(block.id);
     if (entry?.order) applyNodeOrder(nodeParent, block, entry.order);
     return {
@@ -330,8 +414,8 @@ export function applyZonePlacement(
       flip: entry?.flip ?? 0,
     };
   });
-  const dense = linksBetweenZones(doc) >= topLevelGroups(doc.groups).length * 3;
-  keepClear(placed, dense ? 92 : HORIZONTAL_CLEARANCE, dense ? 54 : VERTICAL_CLEARANCE);
+  keepClear(placed);
+  if (finishPlaced) finishPlaced(doc, placed);
   return toLayout(placed);
 }
 
@@ -345,9 +429,9 @@ export function toLayout(placed: readonly Placed[]): Layout {
     const top = Math.round(p.y - minY + ORIGIN.y);
     const { block } = p;
     for (const [id, r] of block.nodes) {
-      nodes[id] = { ...r, x: left + r.x, y: top + (p.flip ? flippedY(block, r) : r.y) };
+      nodes[id] = { ...r, x: left + r.x, y: top + (p.flip ? flippedY(block, r, id) : r.y) };
     }
-    for (const [id, r] of block.groups) {
+    for (const [id, r] of p.flip ? block.groupsFlipped : block.groups) {
       groups[id] = { ...r, x: left + r.x, y: top + r.y };
     }
   }

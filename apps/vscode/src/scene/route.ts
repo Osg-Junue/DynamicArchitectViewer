@@ -60,24 +60,27 @@ function pathTurns(path: readonly number[]): number {
   return turns;
 }
 
+const dirOf = (p: number, q: number, W: number): number =>
+  q - p === 1 ? 0 : q - p === W ? 1 : q - p === -1 ? 2 : 3;
+
 function evaluatePaths(
   paths: ReadonlyMap<string, number[]>,
   grid: Grid,
   edges: readonly RouteEdge[],
   edgeIndex: ReadonlyMap<string, number>,
 ): { score: number; turnsByEdge: Int32Array; crossingsByEdge: Int32Array } {
-  const { xs, ys, W } = grid;
+  const { xs, ys, W, vertexRoutes } = grid;
   const turnsByEdge = new Int32Array(edges.length);
   const crossingsByEdge = new Int32Array(edges.length);
-  const straightH = new Map<number, number[]>();
-  const straightV = new Map<number, number[]>();
   let windingCount = 0;
   let totalTurns = 0;
   let totalLength = 0;
+  let gridCrossings = 0;
 
   for (const [id, path] of paths) {
     const idx = edgeIndex.get(id) ?? -1;
     if (idx < 0) continue;
+    const h = edges[idx] as RouteEdge;
     const turns = pathTurns(path);
     turnsByEdge[idx] = turns;
     totalTurns += turns;
@@ -88,30 +91,65 @@ function evaluatePaths(
       totalLength +=
         Math.abs((xs[q % W] as number) - (xs[p % W] as number)) +
         Math.abs((ys[(q / W) | 0] as number) - (ys[(p / W) | 0] as number));
-      if (k > 0) {
-        const prev = path[k - 1] as number;
-        if (p - prev === q - p) {
-          const map = Math.abs(q - p) === 1 ? straightH : straightV;
-          const list = map.get(p);
-          if (list) list.push(idx);
-          else map.set(p, [idx]);
-        }
-      }
-    }
-  }
-
-  let gridCrossings = 0;
-  for (const [p, hList] of straightH) {
-    const vList = straightV.get(p);
-    if (!vList) continue;
-    for (const hi of hList) {
-      const h = edges[hi] as RouteEdge;
-      for (const vi of vList) {
+      if (k === 0) continue;
+      const vList = vertexRoutes[p];
+      if (!vList) continue;
+      const d = dirOf(path[k - 1] as number, p, W);
+      const nd = dirOf(p, q, W);
+      const w1 = (d + 2) & 3;
+      const w2 = nd;
+      for (let m = 0; m < vList.length; m++) {
+        const entry = vList[m] as number;
+        const vi = entry >> 4;
+        if (vi <= idx) continue;
         const v = edges[vi] as RouteEdge;
         if (h.from === v.from || h.from === v.to || h.to === v.from || h.to === v.to) continue;
-        gridCrossings++;
-        crossingsByEdge[hi] = (crossingsByEdge[hi] ?? 0) + 1;
-        crossingsByEdge[vi] = (crossingsByEdge[vi] ?? 0) + 1;
+        const u1 = (((entry >> 2) & 3) + 2) & 3;
+        const u2 = entry & 3;
+        if (w2 === u1 || w2 === u2) continue;
+        let crossed = false;
+        if (w1 !== u1 && w1 !== u2) {
+          crossed = u2 === ((u1 + 2) & 3) && w2 === ((w1 + 2) & 3);
+        } else {
+          const fk = d;
+          const aOut = u1 === w1 ? u2 : u1;
+          const sideOutB = w2 === fk ? 0 : w2 === ((fk + 3) & 3) ? -1 : 1;
+          const sideOutA = aOut === fk ? 0 : aOut === ((fk + 3) & 3) ? -1 : 1;
+          let f0 = d;
+          for (let j = k - 1; j >= 1; j--) {
+            const curP = path[j] as number;
+            const d0 = dirOf(path[j - 1] as number, curP, W);
+            const bBack = (d0 + 2) & 3;
+            const curList = vertexRoutes[curP];
+            let entry0 = -1;
+            if (curList) {
+              for (let r = 0; r < curList.length; r++) {
+                const e0 = curList[r] as number;
+                if (e0 >> 4 === vi) {
+                  entry0 = e0;
+                  break;
+                }
+              }
+            }
+            if (entry0 < 0) break;
+            const u10 = (((entry0 >> 2) & 3) + 2) & 3;
+            const u20 = entry0 & 3;
+            const aBack = u10 === f0 ? u20 : u10;
+            if (bBack === aBack && j > 1) {
+              f0 = d0;
+              continue;
+            }
+            const sideInB = bBack === ((f0 + 2) & 3) ? 0 : bBack === ((f0 + 3) & 3) ? -1 : 1;
+            const sideInA = aBack === ((f0 + 2) & 3) ? 0 : aBack === ((f0 + 3) & 3) ? -1 : 1;
+            crossed = Math.sign(sideInB - sideInA) !== Math.sign(sideOutB - sideOutA);
+            break;
+          }
+        }
+        if (crossed) {
+          gridCrossings++;
+          crossingsByEdge[idx] = (crossingsByEdge[idx] ?? 0) + 1;
+          crossingsByEdge[vi] = (crossingsByEdge[vi] ?? 0) + 1;
+        }
       }
     }
   }

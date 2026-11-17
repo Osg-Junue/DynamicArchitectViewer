@@ -85,9 +85,10 @@ export function sides(paths: ReadonlyMap<string, number[]>, W: number): Map<stri
         const near =
           turn(from(pathA[lo] as number, pathB[inB(lo) - step]), back) -
           turn(from(pathA[lo] as number, pathA[lo - 1]), back);
-        // -1: a is on the left of b, for someone travelling with a. With nothing to tell them
-        // apart, any side will do, as long as it is the same one all along.
-        const left = Math.sign(far) || Math.sign(near) || -1;
+        const sf = Math.sign(far);
+        const sn = Math.sign(near);
+        const left =
+          sf !== 0 && sn !== 0 && sf !== sn ? sf * 0.1 : sf && sn ? sf * 2 : sf || sn || -1;
         for (let m = lo; m < hi; m++) {
           const d = heading(pathA[m] as number, pathA[m + 1] as number);
           // Travelling right or up, the left is the side of the smaller coordinate.
@@ -202,26 +203,117 @@ function spread(
   };
   const settle = (group: Stretch[]) => {
     if (group.length < 2) return;
-    const place = new Map(
-      group.map((s) => [s, group.reduce((sum, t) => sum + (s === t ? 0 : beside(s, t)), 0)]),
-    );
-    group.sort(
-      (a, b) => (place.get(a) ?? 0) - (place.get(b) ?? 0) || a.lean - b.lean || a.lo - b.lo,
-    );
+    const n = group.length;
+    const pref: number[][] = Array.from({ length: n }, () => new Array<number>(n).fill(0));
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const w = beside(group[i] as Stretch, group[j] as Stretch);
+        (pref[i] as number[])[j] = w;
+        (pref[j] as number[])[i] = -w;
+      }
+    }
+    const remaining = new Set(Array.from({ length: n }, (_, i) => i));
+    const ordered: number[] = [];
+    while (remaining.size > 0) {
+      let bestIdx = -1;
+      let bestIn = Number.POSITIVE_INFINITY;
+      let bestNet = Number.POSITIVE_INFINITY;
+      for (const i of remaining) {
+        let inWeight = 0;
+        let net = 0;
+        for (const j of remaining) {
+          if (i === j) continue;
+          const w = (pref[i] as number[])[j] ?? 0;
+          if (w > 0) inWeight += w;
+          net += w;
+        }
+        const si = group[i] as Stretch;
+        const sb = bestIdx >= 0 ? (group[bestIdx] as Stretch) : undefined;
+        if (
+          inWeight < bestIn - 1e-9 ||
+          (Math.abs(inWeight - bestIn) <= 1e-9 &&
+            (net < bestNet - 1e-9 ||
+              (Math.abs(net - bestNet) <= 1e-9 &&
+                sb !== undefined &&
+                (si.lean - sb.lean || si.lo - sb.lo) < 0)))
+        ) {
+          bestIdx = i;
+          bestIn = inWeight;
+          bestNet = net;
+        }
+      }
+      remaining.delete(bestIdx);
+      ordered.push(bestIdx);
+    }
+    for (let pass = 0; pass < n; pass++) {
+      let swapped = false;
+      for (let k = 0; k + 1 < n; k++) {
+        const i = ordered[k] as number;
+        const j = ordered[k + 1] as number;
+        if (((pref[i] as number[])[j] ?? 0) > 1e-9) {
+          ordered[k] = j;
+          ordered[k + 1] = i;
+          swapped = true;
+        }
+      }
+      if (!swapped) break;
+    }
+    group.splice(0, n, ...ordered.map((i) => group[i] as Stretch));
+    const tracks = new Array<number>(n).fill(0);
+    let maxTrack = 0;
+    for (let i = 0; i < n; i++) {
+      const si = group[i] as Stretch;
+      let t = 0;
+      for (let j = 0; j < i; j++) {
+        const sj = group[j] as Stretch;
+        if (Math.min(si.hi, sj.hi) - Math.max(si.lo, sj.lo) > -0.5) {
+          t = Math.max(t, (tracks[j] as number) + 1);
+        }
+      }
+      tracks[i] = t;
+      if (t > maxTrack) maxTrack = t;
+    }
+    if (maxTrack === 0) return;
     const bias = loopBias(group, line.upright, line.fixed, nodes);
     const room = bias
-      ? Math.min(PORT_WIDTH, 18)
+      ? Math.min(PORT_WIDTH, Math.max(18, maxTrack * 3.6))
       : group.some((s) => s.port)
         ? PORT_WIDTH
         : BUNDLE_WIDTH;
-    const gap = Math.min(GAP, room / (group.length - 1));
-    group.forEach((s, k) => {
+    let gap = Math.max(3.5, Math.min(GAP, room / maxTrack));
+    let shift = 0;
+    if (!bias) {
+      let minOff = -room;
+      let maxOff = room;
+      const gLo = Math.min(...group.map((s) => s.lo)) + 1;
+      const gHi = Math.max(...group.map((s) => s.hi)) - 1;
+      for (const n of nodes) {
+        const { x, y, width, height } = n.area;
+        if (line.upright) {
+          if (gHi <= y || gLo >= y + height) continue;
+          if (x + width <= line.fixed) minOff = Math.max(minOff, x + width + 1.5 - line.fixed);
+          else if (x >= line.fixed) maxOff = Math.min(maxOff, x - 1.5 - line.fixed);
+        } else {
+          if (gHi <= x || gLo >= x + width) continue;
+          if (y + height <= line.fixed) minOff = Math.max(minOff, y + height + 1.5 - line.fixed);
+          else if (y >= line.fixed) maxOff = Math.min(maxOff, y - 1.5 - line.fixed);
+        }
+      }
+      if (maxOff - minOff >= maxTrack * 3.55) {
+        gap = Math.max(3.5, Math.min(gap, (maxOff - minOff) / maxTrack));
+        const half = (maxTrack * gap) / 2;
+        if (-half < minOff) shift = minOff + half;
+        else if (half > maxOff) shift = maxOff - half;
+      }
+    }
+    group.forEach((s, i) => {
+      const k = tracks[i] as number;
       s.offset =
         bias === 'negative'
-          ? (k - (group.length - 1)) * gap
+          ? (k - maxTrack) * gap
           : bias === 'positive'
             ? k * gap
-            : (k - (group.length - 1) / 2) * gap;
+            : (k - maxTrack / 2) * gap + shift;
       s.shared = true;
     });
   };

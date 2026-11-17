@@ -33,7 +33,10 @@ interface NodePlacement {
   placeholders: Record<string, Rect>;
 }
 
-export function computeColumnLayout(doc: DavDocument): Layout {
+export function computeColumnLayout(
+  doc: DavDocument,
+  rankOverrides?: ReadonlyMap<string, number>,
+): Layout {
   const groupParent = parentMap(doc.groups);
   const nodeParent = parentMap(doc.nodes);
   const childrenOf = new Map<string, string[]>();
@@ -54,6 +57,11 @@ export function computeColumnLayout(doc: DavDocument): Layout {
     doc.nodes.map((n) => n.id),
     doc.edges.map((e): readonly [string, string] => [e.from, e.to]),
   );
+  if (rankOverrides) {
+    for (const [id, r] of rankOverrides) {
+      if (ranks.rank.has(id)) ranks.rank.set(id, r);
+    }
+  }
   const frames = measureFrameEdges(doc, ranks.rank, emptyGroups, childrenOf, nodesOf);
   const plan =
     doc.nodes.length > 0 || emptyGroups.size > 0

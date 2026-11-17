@@ -130,8 +130,6 @@ export class RouteSearch {
    */
   readonly #crowd: readonly [Float64Array, Float64Array];
   readonly #crowdRun: readonly [Uint32Array, Uint32Array];
-  readonly #cross: readonly [Uint8Array, Uint8Array];
-  readonly #crossRun: readonly [Uint32Array, Uint32Array];
   /** The search a crossing was last a door of the goal in, or near enough to an end to ask `#turnsAtEnd`. */
   readonly #goalRun: Uint32Array;
   readonly #endRun: Uint32Array;
@@ -154,8 +152,6 @@ export class RouteSearch {
     this.#friend = new Uint8Array(edgeEnds.length);
     this.#crowd = [new Float64Array(size), new Float64Array(size)];
     this.#crowdRun = [new Uint32Array(size), new Uint32Array(size)];
-    this.#cross = [new Uint8Array(size), new Uint8Array(size)];
-    this.#crossRun = [new Uint32Array(size), new Uint32Array(size)];
     this.#goalRun = new Uint32Array(size);
     this.#endRun = new Uint32Array(size);
     let zones = 0;
@@ -232,31 +228,62 @@ export class RouteSearch {
     return cost;
   }
 
-  /**
-   * How many unrelated routes go straight through crossing `p`, across a route heading there.
-   * Friendly routes that share an endpoint with the link part without crossing.
-   */
-  #crossed(p: number, level: boolean, ix: number, iy: number): number {
-    const { W, H } = this.#grid;
-    const perp = level ? this.#grid.upright : this.#grid.level;
-    const before = level ? (iy > 0 ? p - W : -1) : ix > 0 ? p - 1 : -1;
-    const after = level ? (iy < H - 1 ? p : -1) : ix < W - 1 ? p : -1;
-    if (before < 0 || after < 0) return 0;
-    const bUse = perp.use[before] as number;
-    const aUse = perp.use[after] as number;
-    if (bUse === 0 || aUse === 0) return 0;
-    const which = level ? 0 : 1;
-    if (this.#crossRun[which][p] === this.#run) return this.#cross[which][p] as number;
-    const bList = perp.routes[before];
-    const aList = perp.routes[after];
+  #crossingsAtDivergence(state: number, p: number, d: number, nd: number): number {
+    const vList = this.#grid.vertexRoutes[p];
+    if (!vList) return 0;
+    const friend = this.#friend;
+    const w1 = (d + 2) & 3;
+    const w2 = nd;
     let count = 0;
-    if (!bList || !aList) count = Math.min(bUse, aUse);
-    else {
-      const friend = this.#friend;
-      for (const idx of bList) if (friend[idx] !== 1 && aList.includes(idx)) count++;
+    for (let m = 0; m < vList.length; m++) {
+      const entry = vList[m] as number;
+      const idx = entry >> 4;
+      if (friend[idx] === 1) continue;
+      const u1 = (((entry >> 2) & 3) + 2) & 3;
+      const u2 = entry & 3;
+      if (w2 === u1 || w2 === u2) continue;
+      if (w1 !== u1 && w1 !== u2) {
+        if (u2 === ((u1 + 2) & 3) && w2 === ((w1 + 2) & 3)) count++;
+        continue;
+      }
+      const fk = d;
+      const aOut = u1 === w1 ? u2 : u1;
+      const sideOutB = w2 === fk ? 0 : w2 === ((fk + 3) & 3) ? -1 : 1;
+      const sideOutA = aOut === fk ? 0 : aOut === ((fk + 3) & 3) ? -1 : 1;
+      let curState = this.#cameFrom[state] as number;
+      let f0 = d;
+      const vRoutes = this.#grid.vertexRoutes;
+      while (curState !== -1) {
+        const curP = curState >> 4;
+        const d0 = (curState >> 2) & 3;
+        const bBack = (d0 + 2) & 3;
+        const curList = vRoutes[curP];
+        let entry0 = -1;
+        if (curList) {
+          for (let j = 0; j < curList.length; j++) {
+            const e0 = curList[j] as number;
+            if (e0 >> 4 === idx) {
+              entry0 = e0;
+              break;
+            }
+          }
+        }
+        if (entry0 < 0) break;
+        const u10 = (((entry0 >> 2) & 3) + 2) & 3;
+        const u20 = entry0 & 3;
+        const aBack = u10 === f0 ? u20 : u10;
+        const prevState = this.#cameFrom[curState] as number;
+        if (bBack === aBack && prevState !== -1) {
+          f0 = d0;
+          curState = prevState;
+          continue;
+        }
+        const sideInB = bBack === ((f0 + 2) & 3) ? 0 : bBack === ((f0 + 3) & 3) ? -1 : 1;
+        const sideInA = aBack === ((f0 + 2) & 3) ? 0 : aBack === ((f0 + 3) & 3) ? -1 : 1;
+        if (Math.sign(sideInB - sideInA) !== Math.sign(sideOutB - sideOutA)) count++;
+        break;
+      }
     }
-    this.#crossRun[which][p] = this.#run;
-    this.#cross[which][p] = count;
     return count;
   }
 
@@ -287,7 +314,7 @@ export class RouteSearch {
   /** The crossings a route passes, from its start to its end; undefined when there is no way. */
   find(edge: RouteEdge): number[] | undefined {
     const grid = this.#grid;
-    const { xs, ys, W, H } = grid;
+    const { xs, ys, W, H, vertexUse } = grid;
     const best = this.#best;
     const cameFrom = this.#cameFrom;
     const stamp = this.#stamp;
@@ -451,10 +478,10 @@ export class RouteSearch {
           goalRun[q] === run
             ? (goals.get(q)?.[nd] ?? Number.POSITIVE_INFINITY)
             : Number.POSITIVE_INFINITY;
-        // Charge half on leaving `p` and half on entering `q` so a 1-cell Z-jog cannot dodge a crossing.
-        if (!leaving) step += 0.5 * CROSS * this.#crossed(p, level, ix, iy);
+        if (!leaving && vertexUse[p] !== 0) {
+          step += CROSS * this.#crossingsAtDivergence(state, p, d, nd);
+        }
         if (Number.isFinite(arrival)) step += arrival + (nd === UP ? OWN_LABELS : 0);
-        else step += 0.5 * CROSS * this.#crossed(q, level, nx, ny);
         if (leaving && nd === DOWN) step += OWN_LABELS;
         const next = (q * 4 + nd) * 4 + nextTurns;
         const total = cost + step;

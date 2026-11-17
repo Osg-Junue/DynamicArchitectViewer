@@ -59,6 +59,8 @@ export interface Grid {
   H: number;
   level: Lane;
   upright: Lane;
+  vertexUse: Uint8Array;
+  vertexRoutes: Array<number[] | undefined>;
   ports: Ports[];
   xIndex: Map<number, number>;
   yIndex: Map<number, number>;
@@ -338,6 +340,8 @@ export function buildGrid(
     H: ys.length,
     level: lane(size),
     upright: lane(size),
+    vertexUse: new Uint8Array(size),
+    vertexRoutes: new Array(size),
     ports,
     xIndex: new Map(xs.map((x, i) => [x, i])),
     yIndex: new Map(ys.map((y, i) => [y, i])),
@@ -365,8 +369,12 @@ export function buildGrid(
   return grid;
 }
 
+const stepHeading = (p: number, q: number, W: number): number =>
+  q - p === 1 ? 0 : q - p === W ? 1 : q - p === -1 ? 2 : 3;
+
 /** Notes that a route runs on every stretch of `path`, which makes them dearer for the next. */
 export function occupy(grid: Grid, path: readonly number[], edgeIndex = -1): void {
+  const { W, vertexUse, vertexRoutes } = grid;
   for (let i = 0; i + 1 < path.length; i++) {
     const p = path[i] as number;
     const q = path[i + 1] as number;
@@ -377,12 +385,21 @@ export function occupy(grid: Grid, path: readonly number[], edgeIndex = -1): voi
       const list = l.routes[stretch];
       if (list) list.push(edgeIndex);
       else l.routes[stretch] = [edgeIndex];
+      if (i > 0) {
+        const prev = path[i - 1] as number;
+        const packed = (edgeIndex << 4) | (stepHeading(prev, p, W) << 2) | stepHeading(p, q, W);
+        const vList = vertexRoutes[p];
+        if (vList) vList.push(packed);
+        else vertexRoutes[p] = [packed];
+        vertexUse[p] = Math.min(255, (vertexUse[p] as number) + 1);
+      }
     }
   }
 }
 
 /** Removes a route from every stretch of `path` before re-routing it. */
 export function unoccupy(grid: Grid, path: readonly number[], edgeIndex: number): void {
+  const { vertexUse, vertexRoutes } = grid;
   for (let i = 0; i + 1 < path.length; i++) {
     const p = path[i] as number;
     const q = path[i + 1] as number;
@@ -396,6 +413,16 @@ export function unoccupy(grid: Grid, path: readonly number[], edgeIndex: number)
     }
     if ((l.use[stretch] as number) > 0) {
       l.use[stretch] = (l.use[stretch] as number) - 1;
+    }
+    if (i > 0) {
+      const vList = vertexRoutes[p];
+      if (vList) {
+        for (let m = vList.length - 1; m >= 0; m--) {
+          if ((vList[m] as number) >> 4 === edgeIndex) vList.splice(m, 1);
+        }
+        vertexUse[p] = Math.min(255, vList.length);
+        if (vList.length === 0) vertexRoutes[p] = undefined;
+      }
     }
   }
 }
