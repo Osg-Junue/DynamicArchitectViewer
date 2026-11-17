@@ -3,6 +3,10 @@
 This project follows [Semantic Versioning](https://semver.org/). The `0.x` series was a preview.
 The `dav` language version follows the major version: every `1.x.x` release is `dav 1`.
 
+## 1.5.1 (2026-11-17)
+
+- The command line of this version is on npm, as `dynamic-architect-viewer-cli@1.5.1`. Version 1.5.0 is not: its release failed at npm, so the `dav-cli` skill that the extension 1.5.0 installs names a package that does not exist. Nothing else changes since 1.5.0
+
 ## 1.5.0 (2026-11-17)
 
 - The extension is published to [Open VSX](https://open-vsx.org/extension/osg-junue/dynamic-architect-viewer) as well as to the Visual Studio Marketplace, for Cursor and other editors that install extensions from there
