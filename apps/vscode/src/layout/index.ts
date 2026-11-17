@@ -44,8 +44,8 @@ export type { ZonePlacement } from './zoned';
  * - Last, a node that stands a little off a node it is linked to moves inside its frame to
  *   stand level with it, or straight above it (see `straightenNodes`).
  *
- * When that leaves links too long, placing the zones freely is tried as well, and kept only
- * if it shortens them by more than the crossings it adds are worth (see `searchZones`).
+ * When that leaves links too long or links that cross, placing the zones freely is tried as
+ * well, and kept only if the long links and crossings it leaves weigh less (see `searchZones`).
  */
 export function computeLayout(doc: DavDocument): Layout {
   const search = pendingZoneSearch(doc);
@@ -82,8 +82,11 @@ export function pendingZoneSearch(doc: DavDocument): ZoneSearch | undefined {
   const key = structureKey(doc);
   if (zonePlan?.key === key) return undefined;
   const bare = withoutLabels(doc);
-  // Most diagrams have no link long enough to move a zone for, and that is quick to see.
-  if (longLinkExcess(bare, computeColumnLayout(bare)) > 0) {
+  const columns = computeColumnLayout(bare);
+  // Most diagrams have no link long enough to move a zone for and no crossing to take out,
+  // and that is quick to see. A diagram whose zones are linked across one another can have
+  // short links and still cross where its zones stand in shared columns.
+  if (longLinkExcess(bare, columns) > 0 || countCrossings(bare, columns) > 0) {
     return { key, doc: bare, links: linksBetweenZones(bare) };
   }
   zonePlan = { key, placement: undefined };
@@ -94,7 +97,7 @@ export function adoptZonePlan(key: string, placement: ZonePlacement | undefined)
   zonePlan = { key, placement };
 }
 
-/** Decides whether and where to move the zones of a diagram that has links too long. */
+/** Decides whether and where to move the zones of a diagram that has links too long or crossing. */
 export function searchZones(doc: DavDocument): ZonePlacement | undefined {
   return ifWorthMoving(doc, searchZonePlacement(doc, computeColumnLayout));
 }

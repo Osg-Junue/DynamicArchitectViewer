@@ -3,6 +3,10 @@
 This project follows [Semantic Versioning](https://semver.org/). The `0.x` series was a preview.
 The `dav` language version follows the major version: every `1.x.x` release is `dav 1`.
 
+## 1.5.4 (2026-11-17)
+
+- Placing the zones freely is tried for a diagram whose links cross in shared columns, and no longer only for one whose links are too long there. Zones linked across one another, each link of them short, stood in columns that made their links cross, and the arrangement that takes the crossings out was never looked for. As before, it is kept only where it leaves fewer crossings or less of the links too long. None of the bundled examples changes: those drawn in columns have no crossing there. A diagram that does change is drawn differently, so an exported SVG of it is out of date for `dav export --check` until it is exported again
+
 ## 1.5.3 (2026-11-17)
 
 - A rail no longer runs inside the bundle of rails that another node sends the same way. Where two stations stand a few units off a row, the grid has two lines beside each other there, and a rail took the second one to keep clear of unrelated rails on the first, although the two are drawn together; the rails of both lines were then set in order with no regard to which side each belongs on. An unrelated rail on a line that near now counts as one on the line itself, and a rail that has to cross a bundle either way takes the side outside it. Over 29 test diagrams only one changes, where these crossings at a shared station went from 10 to 5, for one more turn
