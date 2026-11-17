@@ -3,7 +3,7 @@
 This project follows [Semantic Versioning](https://semver.org/). The `0.x` series was a preview.
 The `dav` language version follows the major version: every `1.x.x` release is `dav 1`.
 
-## Unreleased
+## 1.5.3 (2026-11-17)
 
 - A rail no longer runs inside the bundle of rails that another node sends the same way. Where two stations stand a few units off a row, the grid has two lines beside each other there, and a rail took the second one to keep clear of unrelated rails on the first, although the two are drawn together; the rails of both lines were then set in order with no regard to which side each belongs on. An unrelated rail on a line that near now counts as one on the line itself, and a rail that has to cross a bundle either way takes the side outside it. Over 29 test diagrams only one changes, where these crossings at a shared station went from 10 to 5, for one more turn
 - A node that stands a little off a node it is linked to moves to stand level with it, or straight above it, where its group has room. The rail between them stepped aside with two bends: columns, rows and the placing of zones put the node there, although it could stand level without moving anything else. A node moves up to 60 units inside the frame it stands in, together with a node it stands level with where that link would bend otherwise, and only where that straightens more links than it bends and makes none of them cross more. Over 29 test diagrams seven nodes move, in three of them, and the rails that step aside went from 23 to 16 and turns from 808 to 794, with as many crossings and the same size
