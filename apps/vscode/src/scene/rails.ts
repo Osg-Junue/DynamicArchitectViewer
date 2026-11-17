@@ -248,7 +248,7 @@ const STOP_ROOM = 15;
 const LABEL_ABOVE_STOP = 20;
 const LABEL_BELOW_STOP = 28;
 /** Shares of a stretch at which its label is tried, the middle first. */
-const LABEL_SHARES = [0.5, 0.35, 0.65, 0.2, 0.8];
+const LABEL_SHARES = [0.5, 0.35, 0.65, 0.2, 0.8, 0.27, 0.73, 0.12, 0.88, 0.42, 0.58];
 
 /**
  * Finds each label a place beside its own rail: on the longest stretch that no other rail runs
@@ -262,9 +262,9 @@ function placeLabels(
   rails: readonly Route[],
 ): Array<EdgeLabelSpot | undefined> {
   const strokes = rails.flatMap((rail) =>
-    rail.points.slice(0, -1).flatMap((a, i): Array<[Point, Point]> => {
+    rail.points.slice(0, -1).flatMap((a, i): Array<{ rail: Route; a: Point; b: Point }> => {
       const b = rail.points[i + 1];
-      return b ? [[a, b]] : [];
+      return b ? [{ rail, a, b }] : [];
     }),
   );
   const totalLen = (rail: Route): number => {
@@ -319,11 +319,21 @@ function placeLabels(
 
     let best: { spot: EdgeLabelSpot; box: Rect; cost: number } | undefined;
     const consider = (spot: EdgeLabelSpot, left: number, fitCost: number) => {
-      const box = { x: left - 2, y: spot.y - height * 0.8, width: width + 4, height };
-      const cost =
-        [...solid, ...taken, stops].filter((o) => rectOverlaps(box, o)).length * 100 +
-        strokes.filter(([p, q]) => segmentIntersectsRect(p, q, box)).length * 10 +
-        fitCost;
+      const box = {
+        x: left - 2,
+        y: spot.y - EDGE_LABEL_FONT_SIZE,
+        width: width + 4,
+        height: EDGE_LABEL_FONT_SIZE * 1.3,
+      };
+      let cost = fitCost;
+      for (const o of solid) if (rectOverlaps(box, o)) cost += 300;
+      for (const o of taken) if (rectOverlaps(box, o)) cost += 200;
+      if (rectOverlaps(box, stops)) cost += 60;
+      for (const s of strokes) {
+        if (segmentIntersectsRect(s.a, s.b, box)) {
+          cost += s.rail === edge.rail ? 15 : 120;
+        }
+      }
       if (!best || cost < best.cost) best = { spot, box, cost };
     };
     for (const span of spans) {
@@ -331,8 +341,9 @@ function placeLabels(
       for (const share of LABEL_SHARES) {
         const x = span.p.x + (span.q.x - span.p.x) * share;
         const y = span.p.y + (span.q.y - span.p.y) * share;
-        for (const gap of [LABEL_GAP, LABEL_GAP + 6]) {
-          const fitCost = gap === LABEL_GAP ? span.fitCost : span.fitCost + 1;
+        for (const gap of [LABEL_GAP, LABEL_GAP + 6, LABEL_GAP + 12]) {
+          const fitCost =
+            gap === LABEL_GAP ? span.fitCost : span.fitCost + (gap === LABEL_GAP + 6 ? 1 : 2);
           if (level) {
             consider({ x, y: y - gap, anchor: 'middle' }, x - width / 2, fitCost);
             consider({ x, y: y + gap + height * 0.8, anchor: 'middle' }, x - width / 2, fitCost);

@@ -6,6 +6,8 @@ import type { RouteEdge, RouteGroup, RouteNode } from './route';
 const NODE_MARGIN = 8;
 const LABEL_MARGIN = 12;
 const ZONE_MARGIN = 12;
+/** How wide a rail is drawn: `.dav-rail` in `runtime/scene.css` has to say the same. */
+export const RAIL_WIDTH = 3;
 /** Distance between two routes that run on one line. */
 export const RAIL_GAP = 7;
 /**
@@ -59,6 +61,13 @@ export interface Grid {
   H: number;
   level: Lane;
   upright: Lane;
+  /** How many routes pass each crossing: asked before `vertexRoutes`, which is slow to read where empty. */
+  vertexUse: Uint8Array;
+  /**
+   * The routes that pass each crossing, one number each: the route, the heading it came
+   * with and the heading it left with, as `passage` packs them. A route's two ends are not in it.
+   */
+  vertexRoutes: Array<number[] | undefined>;
   ports: Ports[];
   xIndex: Map<number, number>;
   yIndex: Map<number, number>;
@@ -338,6 +347,8 @@ export function buildGrid(
     H: ys.length,
     level: lane(size),
     upright: lane(size),
+    vertexUse: new Uint8Array(size),
+    vertexRoutes: new Array(size),
     ports,
     xIndex: new Map(xs.map((x, i) => [x, i])),
     yIndex: new Map(ys.map((y, i) => [y, i])),
@@ -365,8 +376,79 @@ export function buildGrid(
   return grid;
 }
 
+/** The heading of the step from crossing `p` to its neighbor `q`: right 0, down 1, left 2, up 3. */
+export const headingOf = (p: number, q: number, W: number): number =>
+  q - p === 1 ? 0 : q - p === W ? 1 : q - p === -1 ? 2 : 3;
+
+/** A route's way through a crossing: the heading it comes with and the heading it leaves with. */
+export const passage = (route: number, into: number, out: number): number =>
+  (route << 4) | (into << 2) | out;
+
+/**
+ * On which side of someone heading `forward` an arm of a crossing lies: -1 left, 1 right, 0
+ * straight on or straight behind.
+ */
+const sideOf = (arm: number, forward: number): number =>
+  arm === forward || arm === ((forward + 2) & 3) ? 0 : arm === ((forward + 3) & 3) ? -1 : 1;
+
+/**
+ * Whether a route crosses another one at a crossing it comes to heading `d` and leaves heading
+ * `nd`, where `other` is the other route's passage through that crossing.
+ *
+ * Two routes that both go straight through cross there. Two that run on together do not, yet:
+ * that is asked where they part. And two that part here after running together cross if they
+ * are not on the same sides of each other as where they met: one that joined from the left and
+ * leaves to the right has to get across. `earlier` gives the route's way back from the
+ * crossing, one step a call: the crossing before, times four, plus the heading it was reached
+ * with; -1 when there is none.
+ */
+export function crossesAt(
+  vertexRoutes: Grid['vertexRoutes'],
+  other: number,
+  d: number,
+  nd: number,
+  earlier: () => number,
+): boolean {
+  const back = (d + 2) & 3;
+  const otherBack = (((other >> 2) & 3) + 2) & 3;
+  const otherOn = other & 3;
+  if (nd === otherBack || nd === otherOn) return false;
+  if (back !== otherBack && back !== otherOn) {
+    return otherOn === ((otherBack + 2) & 3) && nd === ((back + 2) & 3);
+  }
+  const route = other >> 4;
+  const parting = sideOf(nd, d) - sideOf(otherBack === back ? otherOn : otherBack, d);
+  let forward = d;
+  for (let step = earlier(); step !== -1; step = earlier()) {
+    const list = vertexRoutes[step >> 2];
+    let there = -1;
+    if (list) {
+      for (let k = 0; k < list.length; k++) {
+        if ((list[k] as number) >> 4 === route) {
+          there = list[k] as number;
+          break;
+        }
+      }
+    }
+    // The other route starts or ends here, at its station: nothing to cross.
+    if (there < 0) return false;
+    const into = step & 3;
+    const cameFrom = (into + 2) & 3;
+    const thereBack = (((there >> 2) & 3) + 2) & 3;
+    const otherFrom = thereBack === forward ? there & 3 : thereBack;
+    if (cameFrom !== otherFrom) {
+      return (
+        Math.sign(sideOf(cameFrom, forward) - sideOf(otherFrom, forward)) !== Math.sign(parting)
+      );
+    }
+    forward = into;
+  }
+  return false;
+}
+
 /** Notes that a route runs on every stretch of `path`, which makes them dearer for the next. */
 export function occupy(grid: Grid, path: readonly number[], edgeIndex = -1): void {
+  const { W, vertexUse, vertexRoutes } = grid;
   for (let i = 0; i + 1 < path.length; i++) {
     const p = path[i] as number;
     const q = path[i + 1] as number;
@@ -377,12 +459,21 @@ export function occupy(grid: Grid, path: readonly number[], edgeIndex = -1): voi
       const list = l.routes[stretch];
       if (list) list.push(edgeIndex);
       else l.routes[stretch] = [edgeIndex];
+      if (i > 0) {
+        const prev = path[i - 1] as number;
+        const packed = passage(edgeIndex, headingOf(prev, p, W), headingOf(p, q, W));
+        const vList = vertexRoutes[p];
+        if (vList) vList.push(packed);
+        else vertexRoutes[p] = [packed];
+        vertexUse[p] = Math.min(255, (vertexUse[p] as number) + 1);
+      }
     }
   }
 }
 
 /** Removes a route from every stretch of `path` before re-routing it. */
 export function unoccupy(grid: Grid, path: readonly number[], edgeIndex: number): void {
+  const { vertexUse, vertexRoutes } = grid;
   for (let i = 0; i + 1 < path.length; i++) {
     const p = path[i] as number;
     const q = path[i + 1] as number;
@@ -396,6 +487,16 @@ export function unoccupy(grid: Grid, path: readonly number[], edgeIndex: number)
     }
     if ((l.use[stretch] as number) > 0) {
       l.use[stretch] = (l.use[stretch] as number) - 1;
+    }
+    if (i > 0) {
+      const vList = vertexRoutes[p];
+      if (vList) {
+        for (let m = vList.length - 1; m >= 0; m--) {
+          if ((vList[m] as number) >> 4 === edgeIndex) vList.splice(m, 1);
+        }
+        vertexUse[p] = Math.min(255, vList.length);
+        if (vList.length === 0) vertexRoutes[p] = undefined;
+      }
     }
   }
 }

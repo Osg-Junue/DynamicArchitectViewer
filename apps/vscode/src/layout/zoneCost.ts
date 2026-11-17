@@ -63,20 +63,33 @@ interface Anchor {
   y: readonly [number, number];
 }
 
+function runsThroughBox(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  left: number,
+  right: number,
+  top: number,
+  bottom: number,
+): boolean {
+  const dx = bx - ax;
+  const dy = by - ay;
+  for (let i = 1; i < 7; i++) {
+    const x = ax + (dx * i) / 7;
+    const y = ay + (dy * i) / 7;
+    if (x > left && x < right && y > top && y < bottom) return true;
+  }
+  return false;
+}
+
 export function runsThrough(link: BlockLink, p: Placed): boolean {
   const right = p.x + p.block.width;
   const bottom = p.y + p.block.height;
   if (link.maxX <= p.x || link.minX >= right || link.maxY <= p.y || link.minY >= bottom) {
     return false;
   }
-  const dx = link.bx - link.ax;
-  const dy = link.by - link.ay;
-  for (let i = 1; i < 7; i++) {
-    const x = link.ax + (dx * i) / 7;
-    const y = link.ay + (dy * i) / 7;
-    if (x > p.x && x < right && y > p.y && y < bottom) return true;
-  }
-  return false;
+  return runsThroughBox(link.ax, link.ay, link.bx, link.by, p.x, right, p.y, bottom);
 }
 
 function updateSegment(l: BlockLink): void {
@@ -132,10 +145,65 @@ function crossingCost(s: BlockLink, t: BlockLink): number {
   return !shareStation(s, t) && properlyCross(s, t) ? CROSSING_COST : 0;
 }
 
+/**
+ * What a zone in the way of both ways round with one bend costs a link: about what the bends
+ * a rail needs to get round it cost, to which the way round its nearer side is added.
+ */
+const WALL_COST = 260;
+/** How far outside a zone a rail runs round it. */
+const WALL_MARGIN = 12;
+/** What a zone in one of the two ways with one bend costs: when the straight line runs through it, and when not. */
+const ONE_WAY_THROUGH_COST = 160;
+const ONE_WAY_COST = 95;
+
+/**
+ * What zone `p`, which is at neither end of link `l`, costs it. A rail takes right-angled
+ * ways, so a zone can be in its way without the straight line between the stations touching
+ * it: of the two ways with one bend, level first or upright first, it can block one or both.
+ * Blocking both, it stands between the stations like a wall, and the rail goes round it. The
+ * amounts are estimates of what the router then pays, not counted from a route.
+ */
+function zoneObstruction(l: BlockLink, p: Placed): number {
+  const left = p.x;
+  const right = left + p.block.width;
+  const top = p.y;
+  const bottom = top + p.block.height;
+  if (l.maxX <= left || l.minX >= right || l.maxY <= top || l.minY >= bottom) return 0;
+
+  const ayIn = l.ay > top && l.ay < bottom;
+  const byIn = l.by > top && l.by < bottom;
+  const axIn = l.ax > left && l.ax < right;
+  const bxIn = l.bx > left && l.bx < right;
+
+  const hitsL1 = ayIn || bxIn;
+  const hitsL2 = axIn || byIn;
+
+  if (hitsL1 && hitsL2) {
+    const detour =
+      ayIn && byIn
+        ? 2 *
+          Math.min(
+            Math.min(l.ay, l.by) - top + WALL_MARGIN,
+            bottom + WALL_MARGIN - Math.max(l.ay, l.by),
+          )
+        : 2 *
+          Math.min(
+            Math.min(l.ax, l.bx) - left + WALL_MARGIN,
+            right + WALL_MARGIN - Math.max(l.ax, l.bx),
+          );
+    return WALL_COST + Math.max(0, detour) * l.weight;
+  }
+  if (hitsL1 || hitsL2) {
+    const through = runsThroughBox(l.ax, l.ay, l.bx, l.by, left, right, top, bottom);
+    return (through ? ONE_WAY_THROUGH_COST : ONE_WAY_COST) * l.weight;
+  }
+  return runsThroughBox(l.ax, l.ay, l.bx, l.by, left, right, top, bottom) ? THROUGH_COST : 0;
+}
+
 function throughCost(l: BlockLink, placed: readonly Placed[]): number {
   let total = 0;
   for (const p of placed) {
-    if (p !== l.source && p !== l.target && runsThrough(l, p)) total += THROUGH_COST;
+    if (p !== l.source && p !== l.target) total += zoneObstruction(l, p);
   }
   return total;
 }
@@ -211,8 +279,8 @@ function movedCost(
     const s = links[i];
     if (!s) continue;
     if (!touches(s, a, b)) {
-      if (runsThrough(s, a)) total += THROUGH_COST;
-      if (b && runsThrough(s, b)) total += THROUGH_COST;
+      total += zoneObstruction(s, a);
+      if (b) total += zoneObstruction(s, b);
     } else if (refreshTouching) {
       updateSegment(s);
     }
@@ -315,17 +383,19 @@ export function evaluateMove(
 function isFreeSide(block: Block, id: string, side: number, flip: 0 | 1): boolean {
   const own = block.nodes.get(id);
   if (!own) return false;
-  const top = (r: Rect) => (flip ? flippedY(block, r) : r.y);
+  const top = (nid: string, r: Rect) => (flip ? flippedY(block, r, nid) : r.y);
   const x = own.x + own.width / 2;
-  const y = top(own) + STATION_CENTER;
+  const ownTop = top(id, own);
+  const y = ownTop + STATION_CENTER;
   for (const [other, r] of block.nodes) {
     if (other === id) continue;
-    const inRow = y > top(r) && y < top(r) + r.height;
+    const otherTop = top(other, r);
+    const inRow = y > otherTop && y < otherTop + r.height;
     const inColumn = x > r.x && x < r.x + r.width;
     if (side === 0 && inRow && r.x > own.x) return false;
     if (side === 1 && inRow && r.x < own.x) return false;
-    if (side === 2 && inColumn && top(r) > top(own)) return false;
-    if (side === 3 && inColumn && top(r) < top(own)) return false;
+    if (side === 2 && inColumn && otherTop > ownTop) return false;
+    if (side === 3 && inColumn && otherTop < ownTop) return false;
   }
   return true;
 }
@@ -361,7 +431,7 @@ export function buildLinks(doc: DavDocument, placed: readonly Placed[]): BlockLi
       anchorOf.set(id, {
         p,
         x: r.x + r.width / 2,
-        y: [r.y + STATION_CENTER, flippedY(p.block, r) + STATION_CENTER],
+        y: [r.y + STATION_CENTER, flippedY(p.block, r, id) + STATION_CENTER],
       });
     }
   }

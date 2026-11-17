@@ -1,5 +1,5 @@
 import type { RouteEdge, RouteNode } from './route';
-import { type Grid, type Lane, PORT_REACH, stationCenter } from './routeGrid';
+import { crossesAt, type Grid, type Lane, PORT_REACH, stationCenter } from './routeGrid';
 
 /** What the 1st, 2nd, and 3rd+ turns cost, as a length. */
 const BEND_COSTS = [40, 52, 115] as const;
@@ -130,8 +130,6 @@ export class RouteSearch {
    */
   readonly #crowd: readonly [Float64Array, Float64Array];
   readonly #crowdRun: readonly [Uint32Array, Uint32Array];
-  readonly #cross: readonly [Uint8Array, Uint8Array];
-  readonly #crossRun: readonly [Uint32Array, Uint32Array];
   /** The search a crossing was last a door of the goal in, or near enough to an end to ask `#turnsAtEnd`. */
   readonly #goalRun: Uint32Array;
   readonly #endRun: Uint32Array;
@@ -154,8 +152,6 @@ export class RouteSearch {
     this.#friend = new Uint8Array(edgeEnds.length);
     this.#crowd = [new Float64Array(size), new Float64Array(size)];
     this.#crowdRun = [new Uint32Array(size), new Uint32Array(size)];
-    this.#cross = [new Uint8Array(size), new Uint8Array(size)];
-    this.#crossRun = [new Uint32Array(size), new Uint32Array(size)];
     this.#goalRun = new Uint32Array(size);
     this.#endRun = new Uint32Array(size);
     let zones = 0;
@@ -232,31 +228,36 @@ export class RouteSearch {
     return cost;
   }
 
+  /** Where the walk back along the way to a state stands, for `#earlier`. */
+  #walk = -1;
+  /** The way back from a state, one step a call, as `crossesAt` asks for it. */
+  readonly #earlier = (): number => {
+    const state = this.#walk;
+    if (state === -1) return -1;
+    this.#walk = this.#cameFrom[state] as number;
+    return state >> 2;
+  };
+
   /**
-   * How many unrelated routes go straight through crossing `p`, across a route heading there.
-   * Friendly routes that share an endpoint with the link part without crossing.
+   * How many unrelated routes a route crosses at crossing `p`, which the way to `state` reaches
+   * heading `d` and leaves heading `nd`. Routes that share a station with the link part without
+   * crossing. What two routes that have run together cost depends on the sides they met on,
+   * which is read off the way to `state`: of two ways to one state only the cheaper is kept, so
+   * a way that would have left the other route without crossing can be lost. The routes are
+   * counted again as they are drawn, in `evaluatePaths`.
    */
-  #crossed(p: number, level: boolean, ix: number, iy: number): number {
-    const { W, H } = this.#grid;
-    const perp = level ? this.#grid.upright : this.#grid.level;
-    const before = level ? (iy > 0 ? p - W : -1) : ix > 0 ? p - 1 : -1;
-    const after = level ? (iy < H - 1 ? p : -1) : ix < W - 1 ? p : -1;
-    if (before < 0 || after < 0) return 0;
-    const bUse = perp.use[before] as number;
-    const aUse = perp.use[after] as number;
-    if (bUse === 0 || aUse === 0) return 0;
-    const which = level ? 0 : 1;
-    if (this.#crossRun[which][p] === this.#run) return this.#cross[which][p] as number;
-    const bList = perp.routes[before];
-    const aList = perp.routes[after];
+  #crossingsAt(state: number, p: number, d: number, nd: number): number {
+    const vertexRoutes = this.#grid.vertexRoutes;
+    const list = vertexRoutes[p];
+    if (!list) return 0;
+    const friend = this.#friend;
     let count = 0;
-    if (!bList || !aList) count = Math.min(bUse, aUse);
-    else {
-      const friend = this.#friend;
-      for (const idx of bList) if (friend[idx] !== 1 && aList.includes(idx)) count++;
+    for (let m = 0; m < list.length; m++) {
+      const other = list[m] as number;
+      if (friend[other >> 4] === 1) continue;
+      this.#walk = this.#cameFrom[state] as number;
+      if (crossesAt(vertexRoutes, other, d, nd, this.#earlier)) count++;
     }
-    this.#crossRun[which][p] = this.#run;
-    this.#cross[which][p] = count;
     return count;
   }
 
@@ -287,7 +288,7 @@ export class RouteSearch {
   /** The crossings a route passes, from its start to its end; undefined when there is no way. */
   find(edge: RouteEdge): number[] | undefined {
     const grid = this.#grid;
-    const { xs, ys, W, H } = grid;
+    const { xs, ys, W, H, vertexUse } = grid;
     const best = this.#best;
     const cameFrom = this.#cameFrom;
     const stamp = this.#stamp;
@@ -451,10 +452,10 @@ export class RouteSearch {
           goalRun[q] === run
             ? (goals.get(q)?.[nd] ?? Number.POSITIVE_INFINITY)
             : Number.POSITIVE_INFINITY;
-        // Charge half on leaving `p` and half on entering `q` so a 1-cell Z-jog cannot dodge a crossing.
-        if (!leaving) step += 0.5 * CROSS * this.#crossed(p, level, ix, iy);
+        if (!leaving && vertexUse[p] !== 0) {
+          step += CROSS * this.#crossingsAt(state, p, d, nd);
+        }
         if (Number.isFinite(arrival)) step += arrival + (nd === UP ? OWN_LABELS : 0);
-        else step += 0.5 * CROSS * this.#crossed(q, level, nx, ny);
         if (leaving && nd === DOWN) step += OWN_LABELS;
         const next = (q * 4 + nd) * 4 + nextTurns;
         const total = cost + step;
