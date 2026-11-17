@@ -40,7 +40,7 @@ a --> b`);
     expect(straightenNodes(document, layout).nodes).toEqual(layout.nodes);
   });
 
-  it('does not bend one link of a node to straighten another', () => {
+  it('moves a node together with the one it stands level with, so that both links stay straight', () => {
     const { document } = parse(`dav 1
 group g {
   node a
@@ -52,8 +52,37 @@ a --> b
 e --> a`);
     // `e` is level with `a`. `b` stands at the bottom of the frame, with `f` just above it.
     const layout: Layout = {
-      nodes: { e: node(150, 250), a: node(450, 250), b: node(750, 280), f: node(750, 120) },
-      groups: { g: { x: 0, y: 0, width: 900, height: 364 } },
+      nodes: { e: node(450, 250), a: node(750, 250), b: node(1050, 280), f: node(1050, 120) },
+      groups: { g: { x: 0, y: 0, width: 1200, height: 364 } },
+    };
+    const { nodes } = straightenNodes(document, layout);
+    expect(nodes.a).toEqual(node(750, 280));
+    expect(nodes.e).toEqual(node(450, 280));
+    expect(nodes.b).toEqual(layout.nodes.b);
+  });
+
+  it('does not bend one link of a node to straighten another', () => {
+    const { document } = parse(`dav 1
+group g {
+  node a
+  node b
+  node e
+  node f
+  node k
+}
+a --> b
+e --> a
+k --> e`);
+    // As above, but `e` is level with `k` too: one of the three links would have to bend.
+    const layout: Layout = {
+      nodes: {
+        k: node(150, 250),
+        e: node(450, 250),
+        a: node(750, 250),
+        b: node(1050, 280),
+        f: node(1050, 120),
+      },
+      groups: { g: { x: 0, y: 0, width: 1200, height: 364 } },
     };
     expect(straightenNodes(document, layout).nodes).toEqual(layout.nodes);
   });

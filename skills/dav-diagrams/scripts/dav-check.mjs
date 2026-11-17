@@ -3239,9 +3239,9 @@ function hn(e, t) {
 		};
 		for (let t in n) if (t !== e[0] && t !== e[1] && mn(n[t], r, 0)) return !1;
 		return !0;
-	}, f = (e) => (c.get(e) ?? []).filter((e) => d(e)).length, p = (e) => {
+	}, f = (e) => [...new Set(e.flatMap((e) => c.get(e) ?? []))], p = (e) => e.filter((e) => d(e)).length, m = (e) => {
 		let t = 0;
-		for (let n of c.get(e) ?? []) {
+		for (let n of e) {
 			let e = u(n);
 			for (let r of s) {
 				if (r === n) continue;
@@ -3250,7 +3250,7 @@ function hn(e, t) {
 			}
 		}
 		return t;
-	}, m = (e, t) => {
+	}, h = (e, t) => {
 		let i = l(e, t), s = a.get(e), c = s ? r[s] : void 0;
 		if (c && (i.x < c.x + 16 || i.x + i.width > c.x + c.width - 16 || i.y < c.y + 18 + 16 || i.y + i.height > c.y + c.height - 16)) return !1;
 		for (let t in n) if (t !== e && mn(i, l(t, n[t]), un)) return !1;
@@ -3258,41 +3258,61 @@ function hn(e, t) {
 		for (let e = s; e; e = o.get(e)) u.add(e);
 		for (let e in r) if (!u.has(e) && mn(i, r[e], dn)) return !1;
 		return !0;
+	}, g = (e, t, r) => {
+		for (let i of e) {
+			let e = n[i];
+			e.x += t, e.y += r;
+		}
+	}, _ = (e, t, r) => {
+		let i = e.map((e) => ({ ...n[e] })), a = () => {
+			e.forEach((e, t) => {
+				n[e] = { ...i[t] };
+			});
+		}, o = f(e), s = p(o);
+		if (g(e, t, r), !e.every((e) => h(e, n[e]))) return a(), 0;
+		let c = p(o) - s;
+		if (c <= 0) return a(), 0;
+		let l = m(o);
+		return a(), l > m(o) ? 0 : c;
+	}, v = (e, t) => {
+		let r = pn(n[e]), i = [e];
+		for (let a of c.get(e) ?? []) {
+			let o = a[0] === e ? a[1] : a[0], s = pn(n[o]);
+			(t === 0 ? Math.abs(s.y - r.y) <= ln : Math.abs(s.x - r.x) < .5) && !i.includes(o) && d(a) && i.push(o);
+		}
+		return i;
 	};
 	for (let t = 0; t < fn; t++) {
 		let t = !1;
 		for (let { id: r } of e.nodes) {
 			let e = n[r];
 			if (!e) continue;
-			let i = {
-				x: e.x,
-				y: e.y
-			}, a = [];
+			let i = [];
 			for (let t of c.get(r) ?? []) {
-				let o = pn(e), s = pn(n[t[0] === r ? t[1] : t[0]]), c = s.y - o.y, l = s.x - o.x;
-				Math.abs(c) > ln && Math.abs(c) <= cn && a.push({
-					x: i.x,
-					y: i.y + c
-				}), Math.abs(l) >= .5 && Math.abs(l) <= cn && a.push({
-					x: i.x + l,
-					y: i.y
+				let a = pn(e), o = pn(n[t[0] === r ? t[1] : t[0]]), s = o.y - a.y, c = o.x - a.x;
+				Math.abs(s) > ln && Math.abs(s) <= cn && i.push({
+					dx: 0,
+					dy: s
+				}), Math.abs(c) >= .5 && Math.abs(c) <= cn && i.push({
+					dx: c,
+					dy: 0
 				});
 			}
-			let o, s, l;
-			for (let t of a) {
-				if (!m(r, {
-					...e,
-					...t
-				})) continue;
-				o ??= f(r), e.x = t.x, e.y = t.y;
-				let n = f(r) - o, a = Math.abs(t.x - i.x) + Math.abs(t.y - i.y), c = n > 0 && (!l || n > l.gain || n === l.gain && a < l.distance), u = !1;
-				c && (e.x = i.x, e.y = i.y, s ??= p(r), e.x = t.x, e.y = t.y, u = p(r) > s), e.x = i.x, e.y = i.y, c && !u && (l = {
-					...t,
-					gain: n,
-					distance: a
-				});
+			let a;
+			for (let { dx: e, dy: t } of i) {
+				let n = v(r, e);
+				for (let i of n.length > 1 ? [[r], n] : [[r]]) {
+					let n = _(i, e, t), r = Math.abs(e) + Math.abs(t);
+					n > 0 && (!a || n > a.gain || n === a.gain && i.length < a.ids.length || n === a.gain && i.length === a.ids.length && r < a.distance) && (a = {
+						ids: i,
+						dx: e,
+						dy: t,
+						gain: n,
+						distance: r
+					});
+				}
 			}
-			l && (e.x = l.x, e.y = l.y, t = !0);
+			a && (g(a.ids, a.dx, a.dy), t = !0);
 		}
 		if (!t) break;
 	}

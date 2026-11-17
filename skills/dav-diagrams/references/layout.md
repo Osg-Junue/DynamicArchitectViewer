@@ -189,7 +189,8 @@ Columns, rows and the placing of zones leave some nodes a few units off a node t
 
 - up to 60 units, to put the two stations level (12 or less apart, which a rail joins with one straight line) or one straight above the other, with no other node between them;
 - only inside the frame it stands in, keeping 14 from other nodes and the room for their loops, and 28 from groups it is not in. Frames do not change;
-- by the move that straightens the most of its links, and by none that bends as many of them as it straightens or makes them cross more, counted on straight lines between stations.
+- together with the nodes it stands level with (for a move up or down) or straight above or below (for a move sideways), where moving alone would bend those links: that move is tried as well, under the same rules for each node;
+- by the move that straightens the most links, then by the one that moves fewer nodes, and by none that bends as many links as it straightens or makes them cross more, counted on straight lines between stations.
 
 Nodes are visited in declaration order, for up to four rounds.
 
