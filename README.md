@@ -113,7 +113,7 @@ Three skills teach coding agents to work with `.dav` files. The scripts of the f
 | :--- | :--- | :--- |
 | [`dav-diagrams`](skills/dav-diagrams/SKILL.md) | Writing and changing diagrams: the language, how layout works, how to structure steps, and how much detail a diagram needs | `dav-check` runs the parser and formatter of the editor, and with `--detail` also reports missing descriptions and code and text too long to be shown in full, and describes the layout. With `--map` it says which node is where |
 | [`dav-reading`](skills/dav-reading/SKILL.md) | Reading diagrams: explaining the architecture and the data flows a `.dav` file describes | `dav-outline` prints what the file says, with every reference resolved and the packets of each step in order |
-| [`dav-cli`](skills/dav-cli/SKILL.md) | Exporting diagrams: an SVG or an HTML file of a diagram, shown in a README, and kept up to date from CI. Checking and formatting many files at once | `dav`, from the npm package, with `npx`. The skill carries no script |
+| [`dav-cli`](skills/dav-cli/SKILL.md) | Exporting diagrams: an SVG or an HTML file of a diagram, shown in a README, and kept up to date from CI. Checking and formatting many files at once | `dav`, from the npm package, with `npx`. The skill carries no script, and the [manual of the command](apps/cli/README.md) to look things up in |
 
 **From VS Code:** run **DynamicArchitectViewer: Install AI Agent Skill...** from the Command Palette, then choose Claude Code, GitHub Copilot, Codex or Cursor, and either the workspace or all projects. It installs all three skills.
 
