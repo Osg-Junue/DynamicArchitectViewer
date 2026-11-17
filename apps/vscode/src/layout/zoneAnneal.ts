@@ -26,6 +26,7 @@ import {
 } from './zoneCost';
 import {
   alignEdges,
+  CHOSEN_STRAIGHT_WORTH,
   compact,
   STRAIGHT_WORTH,
   straighten,
@@ -906,6 +907,8 @@ function searchFrom(
       countCrossings(doc, toLayout(trialPlaced)) * DIAGRAM_CROSSING_COST -
       straightLinks(trialLinks, trialPlaced) * STRAIGHT_WORTH;
     if (score < best.score) {
+      // Straightened further once the score is taken, so that which seed wins does not change.
+      straighten(trialLinks, trialPlaced, CHOSEN_STRAIGHT_WORTH);
       best = { score, placement: snapshot(trialPlaced, trialBaseOrders, ranksByZone) };
     }
   }

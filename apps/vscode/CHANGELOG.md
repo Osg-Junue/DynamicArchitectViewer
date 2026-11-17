@@ -3,6 +3,10 @@
 This project follows [Semantic Versioning](https://semver.org/). The `0.x` series was a preview.
 The `dav` language version follows the major version: every `1.x.x` release is `dav 1`.
 
+## Unreleased
+
+- Where zones are placed freely, fewer rails between two zones step aside on their way. Such a rail joins two stations a few units off level and needs two bends for it, where moving one of the zones that little would make it straight. A zone was moved so only where that raised the rest of the arrangement's cost by less than 120; once the arrangement is chosen, it is now moved where the cost rises by less than 300, and the choice of arrangement stays as it was. Over 22 test diagrams, rails between zones that step aside went from 26 to 17 and their turns from 789 to 773, with as many crossings and the same size. Four of them are drawn differently, so an exported SVG of such a diagram can be out of date for `dav export --check` until it is exported again
+
 ## 1.5.2 (2026-11-17)
 
 - The outline of a zone is drawn 0.75 px wide instead of 1, and 1.25 px instead of 1.75 while a flow moves to or from the zone. Beside the thinner rails the outlines had come to look heavy: at a zoom of 60% the outline of an active zone was as wide as a rail

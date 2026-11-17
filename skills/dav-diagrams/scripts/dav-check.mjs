@@ -3786,37 +3786,37 @@ function _r(e, t, n) {
 	for (let i of e) (!n || i.source === n || i.target === n) && gr(i, t) && r++;
 	return r;
 }
-function vr(e, t) {
+function vr(e, t, n = 120) {
 	q(e);
-	for (let n = 0; n < 4; n++) {
-		let n = !1;
-		for (let r of t) {
-			let i = r.x, a = r.y, o = _r(e, t, r), s = [];
+	for (let r = 0; r < 4; r++) {
+		let r = !1;
+		for (let i of t) {
+			let a = i.x, o = i.y, s = _r(e, t, i), c = [];
 			for (let t of e) {
-				if (t.source !== r && t.target !== r) continue;
-				let e = t.source === r ? 1 : -1, n = (t.bx - t.ax) * e, o = (t.by - t.ay) * e;
-				o !== 0 && Math.abs(o) <= cr && s.push({
-					x: i,
-					y: a + o
-				}), n !== 0 && Math.abs(n) <= cr && s.push({
-					x: i + n,
-					y: a
+				if (t.source !== i && t.target !== i) continue;
+				let e = t.source === i ? 1 : -1, n = (t.bx - t.ax) * e, r = (t.by - t.ay) * e;
+				r !== 0 && Math.abs(r) <= cr && c.push({
+					x: a,
+					y: o + r
+				}), n !== 0 && Math.abs(n) <= cr && c.push({
+					x: a + n,
+					y: o
 				});
 			}
-			let c;
-			for (let n of s) {
-				let s = $n(e, t, r, n.x, n.y, r.flip);
-				if (Number.isNaN(s)) continue;
-				let l = _r(e, t, r) - o, u = Math.abs(n.x - i) + Math.abs(n.y - a);
-				l > 0 && s <= l * 120 && (!c || l > c.gain || l === c.gain && u < c.reach) && (c = {
-					...n,
-					gain: l,
-					reach: u
-				}), r.x = i, r.y = a, Y(e, r, void 0);
+			let l;
+			for (let r of c) {
+				let c = $n(e, t, i, r.x, r.y, i.flip);
+				if (Number.isNaN(c)) continue;
+				let u = _r(e, t, i) - s, d = Math.abs(r.x - a) + Math.abs(r.y - o);
+				u > 0 && c <= u * n && (!l || u > l.gain || u === l.gain && d < l.reach) && (l = {
+					...r,
+					gain: u,
+					reach: d
+				}), i.x = a, i.y = o, Y(e, i, void 0);
 			}
-			c && (r.x = c.x, r.y = c.y, Y(e, r, void 0), n = !0);
+			l && (i.x = l.x, i.y = l.y, Y(e, i, void 0), r = !0);
 		}
-		if (!n) break;
+		if (!r) break;
 	}
 }
 // src/layout/zoneAnneal.ts
@@ -4194,7 +4194,7 @@ function Rr(e, t, { placed: n, links: r, start: i, nodeParent: a, owners: o, zon
 		}
 		Ir(i, a, o, c, l, d) && (_ = nr(e, i), q(_)), vr(_, i);
 		let y = J(_, i) + Ht(e, Dn(i)) * Cr - _r(_, i) * 120;
-		y < g.score && (g = {
+		y < g.score && (vr(_, i, 300), g = {
 			score: y,
 			placement: Ar(i, m, v)
 		});
