@@ -167,7 +167,7 @@ jobs:
         with:
           name: release
           path: release
-      - run: npm publish "release/dynamic-architect-viewer-cli-$VERSION.tgz"
+      - run: npm publish "./release/dynamic-architect-viewer-cli-$VERSION.tgz"
         env:
           VERSION: ${{ needs.build.outputs.version }}
 
