@@ -17,6 +17,7 @@ import {
   ZONE_SEARCH_SEEDS,
 } from '../index';
 import { enclosingRect, STATION_CENTER } from '../metrics';
+import { longLinkExcess } from '../zoned';
 
 /** The larger diagrams of the scene's tests: five zones and over twenty nodes each. */
 const FIXTURES = resolve(__dirname, '../../scene/__tests__/fixtures');
@@ -187,6 +188,28 @@ b1 --> b2`);
     const { nodes } = computeLayout(compact);
     expect(nodes.a1?.x).toBe(nodes.b1?.x);
     expect(nodes.a2?.x).toBe(nodes.b2?.x);
+  });
+
+  it('tries placing the zones freely where their short links cross in shared columns', () => {
+    // Every node of one zone is linked to every node of the other: no link is long, but two
+    // columns cannot hold that without crossings.
+    const lines = [
+      'dav 1',
+      'group a { node a1',
+      'node a2',
+      'node a3 }',
+      'group b { node b1',
+      'node b2',
+      'node b3 }',
+    ];
+    for (const from of ['a1', 'a2', 'a3'])
+      for (const to of ['b1', 'b2', 'b3']) lines.push(`${from} --> ${to}`);
+    const { document: crossed } = parse(lines.join('\n'));
+    const columns = computeColumnLayout(crossed);
+    expect(longLinkExcess(crossed, columns)).toBe(0);
+    expect(countCrossings(crossed, columns)).toBeGreaterThan(0);
+    adoptZonePlan('', undefined);
+    expect(pendingZoneSearch(crossed)).toBeDefined();
   });
 
   it('finds seed by seed what the whole search finds', () => {
