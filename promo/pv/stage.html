@@ -502,8 +502,9 @@
       `<span class="chev">${chev}</span>${icon}<span style="color:${opts.color ?? '#cccccc'}">${label}</span>` +
       (opts.badge ? `<span class="badge" style="color:${opts.badgeColor ?? '#73c991'}">${opts.badge}</span>` : '') + '</div>');
     if (skill) {
-      // The command installs both skills. The first is shown open, as in the recording.
+      // The command installs the three skills. `dav-diagrams` is shown open, as in the recording.
       row(1, '&#x2304;', ICON.folder, '.claude \\ skills', { id: 'skill', color: '#73c991', sel: selected === 'skill', badge: '&#x25CF;', hover: hover === 'skill' });
+      row(2, '&#x203A;', ICON.folder, 'dav-cli', { color: '#73c991', badge: '&#x25CF;' });
       row(2, '&#x2304;', ICON.folder, 'dav-diagrams', { color: '#73c991', badge: '&#x25CF;' });
       for (const f of ['assets', 'references', 'scripts']) row(3, '&#x203A;', ICON.folder, f, { color: '#73c991', badge: '&#x25CF;' });
       row(3, '', ICON.skill, 'SKILL.md', { color: '#73c991', badge: 'U' });

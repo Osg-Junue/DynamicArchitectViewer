@@ -134,7 +134,7 @@ const SKILL_STRINGS = {
     all: 'すべてのプロジェクト',
     placeholder: 'スキルをインストールする場所を選択',
     installed:
-      'スキル（dav-diagrams, dav-reading）を .claude/skills にインストールしました。エージェントの新しいセッションで使えます。',
+      'スキル（dav-diagrams, dav-reading, dav-cli）を .claude/skills にインストールしました。エージェントの新しいセッションで使えます。',
   },
   en: {
     command: 'DynamicArchitectViewer: Install AI Agent Skill...',
@@ -144,7 +144,7 @@ const SKILL_STRINGS = {
     all: 'All projects',
     placeholder: 'Choose where to install the skills',
     installed:
-      'Installed the skills (dav-diagrams, dav-reading) to .claude/skills. They are available in new agent sessions.',
+      'Installed the skills (dav-diagrams, dav-reading, dav-cli) to .claude/skills. They are available in new agent sessions.',
   },
 };
 
@@ -229,6 +229,8 @@ export const CUTS = {
         ['GitHub Copilot', S.all, '~/.copilot/skills'],
         ['Codex', S.workspace, '.agents/skills'],
         ['Codex', S.all, '~/.agents/skills'],
+        ['Cursor', S.workspace, '.cursor/skills'],
+        ['Cursor', S.all, '~/.cursor/skills'],
       ].map(([label, desc, detail]) => ({ label, desc, detail }));
       await st('palette', [{ placeholder: S.placeholder, items: PICKS }]);
       const pick = await ctx.page.evaluate(() => window.stage.where('[data-item="0"]'));
