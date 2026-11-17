@@ -247,6 +247,24 @@ describe('dav-cli/SKILL.md', () => {
     for (const [command] of examples) expect(COMMANDS).toContain(command);
   });
 
+  it('carries the manual of the package, which names only the options the command has', () => {
+    const manual = readFileSync(join(COMMAND_LINE, 'references/manual.md'), 'utf8');
+    const readme = readFileSync(join(ROOT, 'apps/cli/README.md'), 'utf8');
+    const help = [[], ...COMMANDS.map((command) => [command])]
+      .map((command) => dav(dir, ...command, '--help').said)
+      .join('\n');
+    const known = new Set(help.match(/--[a-z][a-z-]*/g));
+    // The options of `npm install` are not the command's.
+    const ofTheCommand = manual.split('\n').filter((line) => !line.includes('npm install'));
+    const named = new Set(ofTheCommand.join('\n').match(/--[a-z][a-z-]*/g));
+
+    // The README of the package, with no link left that would lead out of the skill.
+    expect(manual.split('\n').length).toBe(readme.split('\n').length);
+    expect(manual).not.toMatch(/\]\((?!https?:|#)/);
+    for (const command of COMMANDS) expect(manual).toContain(`## \`dav ${command}\``);
+    expect([...named].filter((option) => !known.has(option))).toEqual([]);
+  });
+
   it('has only examples that run', () => {
     const root = project();
 

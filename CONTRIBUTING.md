@@ -70,7 +70,7 @@ Only make [compatible changes](docs/specification.md#compatibility) to `dav 1`.
 
 **Change the command line**
 
-Update the usage texts in `src/cli/`, both READMEs and `skills/dav-cli/SKILL.md`. A test fails when the skill names an option the command does not have.
+Update the usage texts in `src/cli/`, both READMEs and `skills/dav-cli/SKILL.md`. A test fails when the skill names an option the command does not have. `npm test` and `npm run build` copy `apps/cli/README.md` into the skill, as `skills/dav-cli/references/manual.md`. Commit it with your change, or CI fails.
 **Change the layout**
 
 Read the [exact rules and invariants](docs/layout.md#exact-rules) first.
