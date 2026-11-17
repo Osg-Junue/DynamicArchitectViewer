@@ -2,6 +2,7 @@ import type { DavDocument } from '../model/types';
 import { computeColumnLayout } from './columns';
 import { countCrossings } from './links';
 import type { Layout } from './metrics';
+import { straightenNodes } from './straightenNodes';
 import {
   applyZonePlacement,
   bestOfSeeds,
@@ -40,6 +41,8 @@ export type { ZonePlacement } from './zoned';
  * - Every group wraps its descendants (plus header and padding).
  * - The vertical order is then refined by barycenter sweeps. A result is kept only if it has
  *   fewer crossings, or as many with shorter rails, so refinement never makes a diagram worse.
+ * - Last, a node that stands a little off a node it is linked to moves inside its frame to
+ *   stand level with it, or straight above it (see `straightenNodes`).
  *
  * When that leaves links too long, placing the zones freely is tried as well, and kept only
  * if it shortens them by more than the crossings it adds are worth (see `searchZones`).
@@ -48,9 +51,10 @@ export function computeLayout(doc: DavDocument): Layout {
   const search = pendingZoneSearch(doc);
   if (search) adoptZonePlan(search.key, searchZones(search.doc));
   const placement = hasZonesToPlace(doc) ? zonePlan?.placement : undefined;
-  return placement
+  const placed = placement
     ? applyZonePlacement(doc, placement, computeColumnLayout)
     : computeColumnLayout(doc);
+  return straightenNodes(doc, placed);
 }
 
 /** The last answer: most edits do not change the structure the placement depends on. */

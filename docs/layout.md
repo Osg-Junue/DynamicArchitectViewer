@@ -139,6 +139,7 @@ This section is for changing the layout code in [`layout/index.ts`](../apps/vsco
 2. Compute the X coordinate of each column, shared by the whole diagram.
 3. Place everything from top to bottom along the group hierarchy.
 4. Try other vertical orders, and keep a result only if it is better.
+5. Move single nodes a little where that puts one of their links level or upright. This comes after [placing zones freely](#placing-zones-freely) too.
 
 ### Columns
 
@@ -181,6 +182,16 @@ When the column layout leaves a link longer than 700 units (a link used for a ro
 6. A zone moves up to 120 units to put the two stations of a link level, or one straight above the other, with nothing between them. It takes the move that straightens the most of its links, as long as the rest of the score rises by less than 120 per link. The best of six seeded runs is kept, counting each straight link as 120 in its favor (and each crossing anywhere in the diagram as 180 against). Once a run is scored, its zones are straightened once more with 300 allowed per link: a link a few units off level costs its rail two bends, which the score does not count. Doing this after the score leaves which run is kept as it was.
 
 The result is deterministic. Zones no longer share columns, so a column does not line up across the diagram. The search takes under two seconds at 300 nodes, so the last result is reused until the nodes, groups, edges or round trips change. Edge labels are left out of the search, so typing one never rearranges the zones. A long label can still widen its zone, and the zones to its right then move aside.
+
+### Straightening single nodes
+
+Columns, rows and the placing of zones leave some nodes a few units off a node they are linked to, and the rail between them then steps aside with two bends. Last, `layout/straightenNodes.ts` moves such a node:
+
+- up to 60 units, to put the two stations level (12 or less apart, which a rail joins with one straight line) or one straight above the other, with no other node between them;
+- only inside the frame it stands in, keeping 14 from other nodes and the room for their loops, and 28 from groups it is not in. Frames do not change;
+- by the move that straightens the most of its links, and by none that bends as many of them as it straightens or makes them cross more, counted on straight lines between stations.
+
+Nodes are visited in declaration order, for up to four rounds.
 
 ### Routing rails
 

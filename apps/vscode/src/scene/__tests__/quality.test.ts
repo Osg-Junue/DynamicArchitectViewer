@@ -30,7 +30,7 @@ describe('how readable an overview is', () => {
     '04-event-bus.dav': { winding: 4, crossings: 5, sharedCrossings: 2, jogs: 0, rightward: 0.42, coveredLabels: 0, aspect: 1.25 },
     '05-multi-region.dav': { winding: 1, crossings: 9, sharedCrossings: 0, jogs: 1, rightward: 0.53, coveredLabels: 0, aspect: 1.92 },
     '06-cicd-feedback.dav': { winding: 0, crossings: 0, sharedCrossings: 0, jogs: 0, rightward: 0.1, coveredLabels: 0, aspect: 2.67 },
-    '07-zero-trust-nested.dav': { winding: 1, crossings: 10, sharedCrossings: 5, jogs: 1, rightward: 0.39, coveredLabels: 0, aspect: 1.77 },
+    '07-zero-trust-nested.dav': { winding: 1, crossings: 10, sharedCrossings: 5, jogs: 0, rightward: 0.39, coveredLabels: 0, aspect: 1.77 },
     '08-iot-edge-cloud.dav': { winding: 2, crossings: 5, sharedCrossings: 1, jogs: 0, rightward: 0.43, coveredLabels: 0, aspect: 1.66 },
     '09-dense-mesh.dav': { winding: 0, crossings: 36, sharedCrossings: 4, jogs: 0, rightward: 0.56, coveredLabels: 1, aspect: 1.58 },
     '10-bank-unbalanced.dav': { winding: 2, crossings: 2, sharedCrossings: 4, jogs: 0, rightward: 0.63, coveredLabels: 1, aspect: 1.54 },
