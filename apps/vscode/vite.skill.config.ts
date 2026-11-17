@@ -4,7 +4,7 @@ import { lezer } from '@lezer/generator/rollup';
 import { defineConfig, type Plugin } from 'vite';
 
 const ROOT = resolve(import.meta.dirname, '../..');
-const DOCS_URL = 'https://github.com/Osg-Junue/DynamicArchitectViewer/blob/main/docs/';
+const REPOSITORY_URL = 'https://github.com/Osg-Junue/DynamicArchitectViewer/blob/main/';
 
 /** What is generated into each agent skill. `vite build --mode <key>` builds one of them. */
 const SKILLS = {
@@ -27,8 +27,37 @@ const SKILLS = {
 
 type Skill = (typeof SKILLS)[keyof typeof SKILLS];
 
-/** Skills written by hand in full: nothing is generated into them, so no mode builds them. */
-const HANDWRITTEN = ['dav-cli'];
+/**
+ * Skills without a script, so no mode builds them. Each carries documents alone: the name in
+ * `references/`, and the file of the repository it is a copy of.
+ */
+const WITHOUT_SCRIPT = [
+  { name: 'dav-cli', references: { 'manual.md': 'apps/cli/README.md' } },
+] as const;
+
+/**
+ * A document as a skill carries it. Links to a document the skill carries too stay relative;
+ * the others would lead out of the skill, and point at GitHub.
+ */
+function carriedText(source: string, carried: readonly string[]): string {
+  const kept = ['https?:', '#', ...carried.map((name) => name.replace('.', '\\.'))].join('|');
+  const elsewhere = new RegExp(`\\]\\((?!${kept})([^)]+)\\)`, 'g');
+  const base = new URL(source, REPOSITORY_URL);
+  return readFileSync(resolve(ROOT, source), 'utf8').replace(
+    elsewhere,
+    (_, target: string) => `](${new URL(target, base).href})`,
+  );
+}
+
+/** Writes the documents of a skill anew, so that one it no longer carries does not stay. */
+function writeReferences(skill: string, sources: Readonly<Record<string, string>>): void {
+  const references = resolve(ROOT, 'skills', skill, 'references');
+  rmSync(references, { recursive: true, force: true });
+  mkdirSync(references, { recursive: true });
+  for (const [name, source] of Object.entries(sources)) {
+    writeFileSync(resolve(references, name), carriedText(source, Object.keys(sources)));
+  }
+}
 
 /** The VSIX contains only apps/vscode, so the install command needs its own copy of a skill. */
 function packageSkill(name: string): void {
@@ -39,22 +68,13 @@ function packageSkill(name: string): void {
 
 function assembleSkill(skill: Skill): Plugin {
   const dir = resolve(ROOT, 'skills', skill.name);
-  // Links to a document the skill carries stay relative; the others point at GitHub.
-  const carried = skill.docs.map((name) => name.replace('.', '\\.')).join('|');
-  const elsewhere = new RegExp(`\\]\\((?!https?:|#|${carried})([^)]+)\\)`, 'g');
   return {
     name: 'assemble-skill',
     closeBundle() {
-      const references = resolve(dir, 'references');
-      rmSync(references, { recursive: true, force: true });
-      mkdirSync(references, { recursive: true });
-      for (const name of skill.docs) {
-        const text = readFileSync(resolve(ROOT, 'docs', name), 'utf8').replace(
-          elsewhere,
-          (_, target: string) => `](${new URL(target, DOCS_URL).href})`,
-        );
-        writeFileSync(resolve(references, name), text);
-      }
+      writeReferences(
+        skill.name,
+        Object.fromEntries(skill.docs.map((name) => [name, `docs/${name}`])),
+      );
 
       if (skill.examples) {
         const examples = resolve(dir, 'assets/examples');
@@ -64,8 +84,13 @@ function assembleSkill(skill: Skill): Plugin {
       }
 
       packageSkill(skill.name);
-      // The handwritten skills go with the first build, so that `build:skill` packages them all.
-      if (skill === SKILLS.production) HANDWRITTEN.forEach(packageSkill);
+      // The skills without a script go with the first build, so that `build:skill` covers them all.
+      if (skill === SKILLS.production) {
+        for (const { name, references } of WITHOUT_SCRIPT) {
+          writeReferences(name, references);
+          packageSkill(name);
+        }
+      }
     },
   };
 }
