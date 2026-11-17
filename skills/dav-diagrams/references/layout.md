@@ -49,7 +49,9 @@ Point it the way you want the diagram to read. To put `client` on the left of `a
 
 ### Cycles
 
-If edges form a loop, the node declared first goes on the left:
+If edges form a loop, one of them has to point back, and that one does not count. Which one depends on where the layout first reaches the loop: it searches from the nodes in the order they are declared, following edges in the order they are written, and the node where it enters the loop goes on the left.
+
+A loop that nothing else leads into is entered at its node declared first:
 
 ```dav
 node a
@@ -63,6 +65,25 @@ a ⇄ b
 ```
 
 To swap them, declare `b` first. A self-loop (`a --> a`) never changes the column.
+
+A loop that another node leads into is entered there, whatever the order of its own nodes:
+
+```dav
+node x
+node a
+node b
+x --> b
+a --> b
+b --> a
+```
+
+```text
+x ─── b ⇄ a
+```
+
+`a` is declared before `b` but stands to its right, because the search reaches `b` from `x` first. Most loops of a large diagram are entered like this. A one-way edge that points back without making a loop does the same to its target: `worker --> console` puts `console` to the right of `worker`, wherever `console` is declared.
+
+To keep a pair in the order you want, write it as one two-way edge, `a <-> b`. A two-way edge counts only in the direction it is written, so it makes no loop, and a packet can still run along it either way.
 
 ## Rows: use groups and order
 
@@ -143,7 +164,7 @@ This section is for changing the layout code in [`layout/index.ts`](https://gith
 
 ### Columns
 
-- Rank is the longest path. Cycles are broken by ignoring back edges of a depth-first search in declaration order. Self-loops are ignored.
+- Rank is the longest path. Cycles are broken by ignoring back edges of a depth-first search that starts from each unvisited node in declaration order and follows edges in declaration order. A two-way edge is one edge from its first node to its second. Self-loops are ignored.
 - The gap between columns is `max(congestionGap, needed - 132) + 16 * edges`, where `edges` is 1 if some group frame ends at the left column, plus 1 if some frame starts at the right one. Frames nested along one edge share its 16 of padding, so the gap does not depend on the nesting. `congestionGap` starts at 36 and widens by 14 per crossing link beyond 2 (up to 148) when long-span edges or degree ≥ 4 hubs cross that column gap (or ≥ 4 links span it). `needed` is `min(180, label width) + 32` for the widest label between those columns. The 132 is the node width (176) minus the station width (44), since a label can use the space beside the stations.
 - The left and top margins are `40 + depth * 16`.
 

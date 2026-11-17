@@ -3,6 +3,10 @@
 This project follows [Semantic Versioning](https://semver.org/). The `0.x` series was a preview.
 The `dav` language version follows the major version: every `1.x.x` release is `dav 1`.
 
+## Unreleased
+
+- The `dav-diagrams` skill and the layout guide no longer say that the node declared first goes on the left of every loop. That holds only for a loop that nothing else leads into: the layout enters a loop where its search first reaches it, so in a large diagram a one-way edge that points back could pull a node, and its zone, to the far right where the skill promised the left. They now say how a loop is entered, and that a pair written as one two-way edge keeps the node named first on the left. The skill also says how to write a diagram of about 50 nodes or more: the structure first, checked with `--map`, then the steps a few at a time
+
 ## 1.5.4 (2026-11-17)
 
 - Placing the zones freely is tried for a diagram whose links cross in shared columns, and no longer only for one whose links are too long there. Zones linked across one another, each link of them short, stood in columns that made their links cross, and the arrangement that takes the crossings out was never looked for. As before, it is kept only where it leaves fewer crossings or less of the links too long. None of the bundled examples changes: those drawn in columns have no crossing there. A diagram that does change is drawn differently, so an exported SVG of it is out of date for `dav export --check` until it is exported again
