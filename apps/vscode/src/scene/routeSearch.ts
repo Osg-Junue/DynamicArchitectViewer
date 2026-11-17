@@ -9,6 +9,13 @@ const THROUGH = 4;
 const UNDER_BADGE = 1.25;
 /** What crossing another unrelated route costs, as a length. */
 const CROSS = 160;
+/**
+ * What crossing a route that shares one station with the link costs, as a share of `CROSS`.
+ * Rails that leave one node for nodes stacked beside each other cross where they turn off in
+ * the wrong order. At a quarter of `CROSS` a rail keeps clear of the others where that costs it
+ * about a bend or less; counted in full, rails bent much more to keep clear.
+ */
+export const SHARED_STATION_CROSS = 0.25;
 /** What leaving a node downwards costs: that route starts below the node's labels, away from its station. */
 const OWN_LABELS = 30;
 /** Extra cost to use the top port of a node whose self-loop sits at its upper right. */
@@ -121,7 +128,10 @@ export class RouteSearch {
   readonly #stamp: Uint32Array;
   readonly #heap = new CostHeap();
   #run = 0;
-  /** For the link being searched: 1 for every route that shares a station with it. */
+  /**
+   * For the link being searched: 1 for every route that shares one station with it, 2 for every
+   * route between the same two stations.
+   */
   readonly #friend: Uint8Array;
   /**
    * What `#crowding` and `#crossed` answered in this search, for level and for upright
@@ -217,7 +227,7 @@ export class RouteSearch {
     else {
       const friend = this.#friend;
       let friendly = 0;
-      for (const idx of list) if (friend[idx] === 1) friendly++;
+      for (const idx of list) if (friend[idx] !== 0) friendly++;
       const unrelated = list.length - friendly;
       const fCost = friendly <= 3 ? friendly * 0.06 : 0.18 + (friendly - 3) * 0.25;
       const uCost = unrelated <= 2 ? unrelated * 0.35 : 0.7 + (unrelated - 2) * 0.65;
@@ -239,9 +249,11 @@ export class RouteSearch {
   };
 
   /**
-   * How many unrelated routes a route crosses at crossing `p`, which the way to `state` reaches
-   * heading `d` and leaves heading `nd`. Routes that share a station with the link part without
-   * crossing. What two routes that have run together cost depends on the sides they met on,
+   * How many routes a route crosses at crossing `p`, which the way to `state` reaches heading `d`
+   * and leaves heading `nd`; one that shares a station with the link counts as
+   * `SHARED_STATION_CROSS`, and one between the same two stations not at all. Routes that leave
+   * a station together and part do not cross there, but one can cross the others where it turns
+   * off. What two routes that have run together cost depends on the sides they met on,
    * which is read off the way to `state`: of two ways to one state only the cheaper is kept, so
    * a way that would have left the other route without crossing can be lost. The routes are
    * counted again as they are drawn, in `evaluatePaths`.
@@ -254,9 +266,12 @@ export class RouteSearch {
     let count = 0;
     for (let m = 0; m < list.length; m++) {
       const other = list[m] as number;
-      if (friend[other >> 4] === 1) continue;
+      const shared = friend[other >> 4];
+      if (shared === 2) continue;
       this.#walk = this.#cameFrom[state] as number;
-      if (crossesAt(vertexRoutes, other, d, nd, this.#earlier)) count++;
+      if (crossesAt(vertexRoutes, other, d, nd, this.#earlier)) {
+        count += shared === 1 ? SHARED_STATION_CROSS : 1;
+      }
     }
     return count;
   }
@@ -308,10 +323,15 @@ export class RouteSearch {
     const run = ++this.#run;
     const friend = this.#friend;
     this.#edgeEnds.forEach((ends, idx) => {
-      friend[idx] =
-        ends[0] === edge.from || ends[0] === edge.to || ends[1] === edge.from || ends[1] === edge.to
-          ? 1
-          : 0;
+      const shares =
+        ends[0] === edge.from ||
+        ends[0] === edge.to ||
+        ends[1] === edge.from ||
+        ends[1] === edge.to;
+      const same =
+        (ends[0] === edge.from && ends[1] === edge.to) ||
+        (ends[0] === edge.to && ends[1] === edge.from);
+      friend[idx] = same ? 2 : shares ? 1 : 0;
     });
     const goalRun = this.#goalRun;
     const endRun = this.#endRun;

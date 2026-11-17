@@ -188,6 +188,29 @@ describe('finding routes', () => {
     );
     expect(crossings).toEqual([]);
   });
+
+  it('sends rails to nodes stacked above each other in an order that keeps them apart', () => {
+    // Rails that share a station once counted as never crossing: the one to the top node ran
+    // along the bottom and up past the others, across all three of them.
+    const nodes = [node(100, 900), node(700, 100), node(700, 300), node(700, 500), node(700, 700)];
+    const edges = [1, 2, 3, 4].map((k) => edge(`to${k}`, 0, k));
+    const found = routeEdges(nodes, [], [], edges);
+    const rails = edges.map((e) => stretches(found.get(e.id)?.points ?? []));
+    const side = (p: Point, q: Point, r: Point) =>
+      (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+    const crossings = rails.flatMap((a, i) =>
+      rails
+        .slice(i + 1)
+        .flatMap((b) =>
+          a.flatMap(([p, q]) =>
+            b.filter(
+              ([r, s]) => side(p, q, r) * side(p, q, s) < 0 && side(r, s, p) * side(r, s, q) < 0,
+            ),
+          ),
+        ),
+    );
+    expect(crossings).toEqual([]);
+  });
 });
 
 describe('two routes at a crossing', () => {

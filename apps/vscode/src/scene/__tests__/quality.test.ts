@@ -17,23 +17,23 @@ describe('how readable an overview is', () => {
    */
   // biome-ignore format: one diagram to a line, so that the numbers can be compared down a column.
   const BUDGET: Record<string, Quality> = {
-    '01-infra-ha-failover.dav': { winding: 0, crossings: 0, jogs: 0, rightward: 1, coveredLabels: 0, aspect: 5.04 },
-    '02-screen-flow-checkout.dav': { winding: 0, crossings: 0, jogs: 0, rightward: 1, coveredLabels: 0, aspect: 2.99 },
-    '03-event-driven-async.dav': { winding: 0, crossings: 0, jogs: 0, rightward: 1, coveredLabels: 0, aspect: 6.29 },
-    '04-enterprise-zero-trust-payment.dav': { winding: 0, crossings: 0, jogs: 0, rightward: 1, coveredLabels: 0, aspect: 4.1 },
-    '05-sequence-payment-retry.dav': { winding: 0, crossings: 0, jogs: 0, rightward: 0.4, coveredLabels: 0, aspect: 2.16 },
-    '06-lan-office-network.dav': { winding: 0, crossings: 0, jogs: 0, rightward: 1, coveredLabels: 0, aspect: 5.56 },
-    '07-dynamic-architect-viewer.dav': { winding: 0, crossings: 0, jogs: 0, rightward: 0.4, coveredLabels: 0, aspect: 2.3 },
-    '01-ec-microservices.dav': { winding: 0, crossings: 4, jogs: 0, rightward: 0.47, coveredLabels: 0, aspect: 1.65 },
-    '02-data-pipeline.dav': { winding: 1, crossings: 5, jogs: 1, rightward: 0.5, coveredLabels: 0, aspect: 1.64 },
-    '03-hub-spoke-network.dav': { winding: 0, crossings: 1, jogs: 0, rightward: 0.71, coveredLabels: 0, aspect: 2.85 },
-    '04-event-bus.dav': { winding: 3, crossings: 7, jogs: 0, rightward: 0.42, coveredLabels: 0, aspect: 1.25 },
-    '05-multi-region.dav': { winding: 1, crossings: 9, jogs: 1, rightward: 0.53, coveredLabels: 0, aspect: 1.92 },
-    '06-cicd-feedback.dav': { winding: 0, crossings: 0, jogs: 0, rightward: 0.1, coveredLabels: 0, aspect: 2.67 },
-    '07-zero-trust-nested.dav': { winding: 1, crossings: 10, jogs: 1, rightward: 0.39, coveredLabels: 0, aspect: 1.77 },
-    '08-iot-edge-cloud.dav': { winding: 2, crossings: 5, jogs: 0, rightward: 0.43, coveredLabels: 0, aspect: 1.66 },
-    '09-dense-mesh.dav': { winding: 0, crossings: 36, jogs: 0, rightward: 0.56, coveredLabels: 1, aspect: 1.58 },
-    '10-bank-unbalanced.dav': { winding: 2, crossings: 2, jogs: 0, rightward: 0.63, coveredLabels: 1, aspect: 1.54 },
+    '01-infra-ha-failover.dav': { winding: 0, crossings: 0, sharedCrossings: 0, jogs: 0, rightward: 1, coveredLabels: 0, aspect: 5.04 },
+    '02-screen-flow-checkout.dav': { winding: 0, crossings: 0, sharedCrossings: 0, jogs: 0, rightward: 1, coveredLabels: 0, aspect: 2.99 },
+    '03-event-driven-async.dav': { winding: 0, crossings: 0, sharedCrossings: 0, jogs: 0, rightward: 1, coveredLabels: 0, aspect: 6.29 },
+    '04-enterprise-zero-trust-payment.dav': { winding: 0, crossings: 0, sharedCrossings: 1, jogs: 0, rightward: 1, coveredLabels: 0, aspect: 4.1 },
+    '05-sequence-payment-retry.dav': { winding: 0, crossings: 0, sharedCrossings: 0, jogs: 0, rightward: 0.4, coveredLabels: 0, aspect: 2.16 },
+    '06-lan-office-network.dav': { winding: 0, crossings: 0, sharedCrossings: 0, jogs: 0, rightward: 1, coveredLabels: 0, aspect: 5.56 },
+    '07-dynamic-architect-viewer.dav': { winding: 0, crossings: 0, sharedCrossings: 0, jogs: 0, rightward: 0.4, coveredLabels: 0, aspect: 2.3 },
+    '01-ec-microservices.dav': { winding: 0, crossings: 4, sharedCrossings: 0, jogs: 0, rightward: 0.47, coveredLabels: 0, aspect: 1.65 },
+    '02-data-pipeline.dav': { winding: 1, crossings: 5, sharedCrossings: 0, jogs: 1, rightward: 0.5, coveredLabels: 0, aspect: 1.64 },
+    '03-hub-spoke-network.dav': { winding: 0, crossings: 1, sharedCrossings: 0, jogs: 0, rightward: 0.71, coveredLabels: 0, aspect: 2.85 },
+    '04-event-bus.dav': { winding: 4, crossings: 5, sharedCrossings: 2, jogs: 0, rightward: 0.42, coveredLabels: 0, aspect: 1.25 },
+    '05-multi-region.dav': { winding: 1, crossings: 9, sharedCrossings: 0, jogs: 1, rightward: 0.53, coveredLabels: 0, aspect: 1.92 },
+    '06-cicd-feedback.dav': { winding: 0, crossings: 0, sharedCrossings: 0, jogs: 0, rightward: 0.1, coveredLabels: 0, aspect: 2.67 },
+    '07-zero-trust-nested.dav': { winding: 1, crossings: 10, sharedCrossings: 5, jogs: 1, rightward: 0.39, coveredLabels: 0, aspect: 1.77 },
+    '08-iot-edge-cloud.dav': { winding: 2, crossings: 5, sharedCrossings: 1, jogs: 0, rightward: 0.43, coveredLabels: 0, aspect: 1.66 },
+    '09-dense-mesh.dav': { winding: 0, crossings: 36, sharedCrossings: 4, jogs: 0, rightward: 0.56, coveredLabels: 1, aspect: 1.58 },
+    '10-bank-unbalanced.dav': { winding: 2, crossings: 2, sharedCrossings: 4, jogs: 0, rightward: 0.63, coveredLabels: 1, aspect: 1.54 },
   };
   const examples = readdirSync(resolve(__dirname, '../../../../../examples')).sort();
   const diagrams = [
@@ -50,6 +50,9 @@ describe('how readable an overview is', () => {
     const now = qualityOf(dsl);
     expect(now.winding, 'rails that turn three times or more').toBeLessThanOrEqual(budget.winding);
     expect(now.crossings, 'crossings as drawn').toBeLessThanOrEqual(budget.crossings);
+    expect(now.sharedCrossings, 'crossings of rails that share a station').toBeLessThanOrEqual(
+      budget.sharedCrossings,
+    );
     expect(now.jogs, 'rails between zones that step aside').toBeLessThanOrEqual(budget.jogs);
     expect(now.coveredLabels, 'labels written over something').toBeLessThanOrEqual(
       budget.coveredLabels,

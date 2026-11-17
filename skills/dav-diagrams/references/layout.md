@@ -194,6 +194,7 @@ Rails are routed after layout, by `routeEdges` in `scene/route.ts`, once for an 
    | Length | 1 per unit |
    | Turns (1st / 2nd / 3rd+) | 40 / 52 / 115 |
    | Crossing an unrelated route | 160 (at a 90° vertex or at the far end of a shared run) |
+   | Crossing a route that shares one station | 40; nothing for a route between the same two stations |
    | Length inside a zone that holds neither end | 4 per unit |
    | Length on a shared stretch | 6–25% per shared-endpoint route; 35–65% per unrelated route |
    | Leaving a node downwards, or reaching one from below | 30 |
