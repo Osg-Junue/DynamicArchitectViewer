@@ -1,0 +1,199 @@
+name: Release
+
+# Publishes a release when its tag is pushed: the extension to the Visual Studio Marketplace and
+# to Open VSX, the command line to npm, and a draft GitHub release that carries the extension.
+# Run it by hand to build and inspect the packages without publishing anything.
+#
+# No token is stored: each registry trusts this workflow file in the `release` environment
+# (trusted publishing over OpenID Connect). docs/releasing.md says how that is set up.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+# A release that is running finishes: a version can be published only once.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # Builds both packages once. Every job after it publishes these files, so that all places carry
+  # the same bytes. This job holds no permission to publish.
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Check the versions
+        id: version
+        run: |
+          version="$(node -p "require('./apps/vscode/package.json').version")"
+          cli="$(node -p "require('./apps/cli/package.json').version")"
+          if [ "$cli" != "$version" ]; then
+            echo "::error::apps/cli is $cli and apps/vscode is $version. They are released under one version."
+            exit 1
+          fi
+          if ! grep -q "^## $version (" apps/vscode/CHANGELOG.md; then
+            echo "::error::apps/vscode/CHANGELOG.md has no heading for $version."
+            exit 1
+          fi
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+              echo "::error::The tag is $GITHUB_REF_NAME and the packages are $version."
+              exit 1
+            fi
+            # README images are read from main, and main holds what was released.
+            git fetch --no-tags origin main
+            if ! git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD; then
+              echo "::error::The tag $GITHUB_REF_NAME is not on main."
+              exit 1
+            fi
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - run: npm ci
+      - run: npm run check
+      - name: Install the browser for the end-to-end tests
+        run: npx playwright install --with-deps chromium
+        working-directory: apps/vscode
+      - name: End-to-end tests
+        run: npx playwright test
+        working-directory: apps/vscode
+      - name: Package the extension and the command line
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir release
+          npm run package
+          cp apps/vscode/dist/dynamic-architect-viewer.vsix "release/dynamic-architect-viewer-$VERSION.vsix"
+          npm pack --workspace=apps/cli --pack-destination "$PWD/release"
+          git diff --exit-code -- skills
+      - name: Inspect the packages
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          bash .github/scripts/inspect-packages.sh vsix "release/dynamic-architect-viewer-$VERSION.vsix"
+          bash .github/scripts/inspect-packages.sh cli "release/dynamic-architect-viewer-cli-$VERSION.tgz"
+          {
+            echo "### Packages of $VERSION"
+            echo '```'
+            (cd release && sha256sum -- *)
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release
+          path: release
+          if-no-files-found: error
+
+  # One job for each place, so that a failed one can be run again without the others: a second
+  # publish of the same version is refused everywhere.
+  marketplace:
+    name: Visual Studio Marketplace
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      # For vsce, in the version of the lock file.
+      - run: npm ci
+      - uses: actions/download-artifact@v8
+        with:
+          name: release
+          path: release
+      - run: npx vsce publish --oidc --packagePath "release/dynamic-architect-viewer-$VERSION.vsix"
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+
+  open-vsx:
+    name: Open VSX
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: release
+          path: release
+      # Given no token, ovsx asks Open VSX for a short-lived one (trusted publishing). The
+      # registry gives it because the owner of the namespace has registered this workflow.
+      - run: npx --yes ovsx@1.4.0 publish "release/dynamic-architect-viewer-$VERSION.vsix"
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+
+  npm:
+    name: npm
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: release
+          path: release
+      - run: npm publish "release/dynamic-architect-viewer-cli-$VERSION.tgz"
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+
+  # A draft: the notes are written by hand, and the release is published once they are.
+  github-release:
+    name: GitHub release
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: release
+          path: release
+      - run: |
+          file="release/dynamic-architect-viewer-$VERSION.vsix"
+          if gh release view "v$VERSION" > /dev/null 2>&1; then
+            gh release upload "v$VERSION" "$file" --clobber
+          else
+            gh release create "v$VERSION" "$file" --draft --verify-tag \
+              --title "DynamicArchitectViewer $VERSION" \
+              --notes "Notes to be written. See docs/releasing.md."
+          fi
