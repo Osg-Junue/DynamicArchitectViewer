@@ -7,6 +7,7 @@ import { format, parse } from '../../dsl';
 import { computeLayout, zonesPlacedFreely } from '../../layout';
 import { zoneOfNodes } from '../../model/zones';
 import { SAMPLE_TEMPLATES } from '../../samples';
+import { anchorsOf } from '../carriedDocs';
 import { layoutMap } from '../layoutMap';
 import { crossingsByZone, layoutReport, leftLinks, NOTE_CODES } from '../layoutReport';
 import { HINT_CODES, reviewDetail } from '../review';
@@ -77,6 +78,26 @@ describe.each([
     }
     for (const [, script] of text.matchAll(/<skill-dir>\/(scripts\/[\w.-]+)/g)) {
       expect(() => readFileSync(join(skillDir, script ?? ''))).not.toThrow();
+    }
+  });
+});
+
+describe('the references of dav-diagrams', () => {
+  const references = join(WRITING, 'references');
+
+  it('leave out the exact rules of the layout guide, which are for contributors', () => {
+    const guide = readFileSync(join(references, 'layout.md'), 'utf8');
+    expect(guide).not.toContain('\n## Exact rules');
+    expect(guide).toContain('\n## Recipes');
+  });
+
+  it('link only to headings they carry, or to the repository', () => {
+    for (const name of readdirSync(references)) {
+      const text = readFileSync(join(references, name), 'utf8');
+      for (const [, doc, anchor] of text.matchAll(/\]\((?:([\w-]+\.md))?#([\w-]+)\)/g)) {
+        const target = readFileSync(join(references, doc ?? name), 'utf8');
+        expect([...anchorsOf(target)], `${name}: ${doc ?? ''}#${anchor}`).toContain(anchor);
+      }
     }
   });
 });

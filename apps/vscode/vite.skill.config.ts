@@ -2,6 +2,7 @@ import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } f
 import { resolve } from 'node:path';
 import { lezer } from '@lezer/generator/rollup';
 import { defineConfig, type Plugin } from 'vite';
+import { anchorsOf, HEADING_LINK, keptText, LEFT_OUT } from './src/skill/carriedDocs.ts';
 import { specificationForSkill, withSpecification } from './src/skill/specificationText.ts';
 
 const ROOT = resolve(import.meta.dirname, '../..');
@@ -43,17 +44,28 @@ const WITHOUT_SCRIPT = [
 ] as const;
 
 /**
- * A document as a skill carries it. Links to a document the skill carries too stay relative;
- * the others would lead out of the skill, and point at GitHub.
+ * A document as a skill carries it, `sources` naming the file of each document the skill carries.
+ * Links to a document the skill carries too stay relative; the others would lead out of the
+ * skill, and point at GitHub, as do links into a part of a document that the skill leaves out.
  */
-function carriedText(source: string, carried: readonly string[]): string {
-  const kept = ['https?:', '#', ...carried.map((name) => name.replace('.', '\\.'))].join('|');
-  const elsewhere = new RegExp(`\\]\\((?!${kept})([^)]+)\\)`, 'g');
-  const base = new URL(source, REPOSITORY_URL);
-  return readFileSync(resolve(ROOT, source), 'utf8').replace(
-    elsewhere,
-    (_, target: string) => `](${new URL(target, base).href})`,
+function carriedText(name: string, sources: Readonly<Record<string, string>>): string {
+  const read = (doc: string) =>
+    keptText(doc, readFileSync(resolve(ROOT, sources[doc] as string), 'utf8'));
+  const carried = Object.keys(sources).map((doc) => doc.replace('.', '\\.'));
+  const elsewhere = new RegExp(
+    `\\]\\((?!${['https?:', '#', ...carried].join('|')})([^)]+)\\)`,
+    'g',
   );
+  const base = new URL(sources[name] as string, REPOSITORY_URL);
+  return read(name)
+    .replace(HEADING_LINK, (link, doc: string | undefined, anchor: string) => {
+      const target = doc ?? name;
+      const source = sources[target];
+      if (source === undefined || LEFT_OUT[target] === undefined) return link;
+      if (anchorsOf(read(target)).has(anchor)) return link;
+      return `](${new URL(`${source}#${anchor}`, REPOSITORY_URL).href})`;
+    })
+    .replace(elsewhere, (_, target: string) => `](${new URL(target, base).href})`);
 }
 
 /** Writes the documents of a skill anew, so that one it no longer carries does not stay. */
@@ -61,8 +73,8 @@ function writeReferences(skill: string, sources: Readonly<Record<string, string>
   const references = resolve(ROOT, 'skills', skill, 'references');
   rmSync(references, { recursive: true, force: true });
   mkdirSync(references, { recursive: true });
-  for (const [name, source] of Object.entries(sources)) {
-    writeFileSync(resolve(references, name), carriedText(source, Object.keys(sources)));
+  for (const name of Object.keys(sources)) {
+    writeFileSync(resolve(references, name), carriedText(name, sources));
   }
 }
 

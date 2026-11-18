@@ -1,6 +1,6 @@
 # How diagrams are laid out
 
-`.dav` files have no coordinates. You describe what connects to what, and the layout follows. This guide explains what to write to get the arrangement you want. The [exact rules](#exact-rules) for contributors are at the end.
+`.dav` files have no coordinates. You describe what connects to what, and the layout follows. This guide explains what to write to get the arrangement you want. The [exact rules](#exact-rules) are for contributors: writing a diagram needs none of them.
 
 ## The short version
 

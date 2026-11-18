@@ -249,7 +249,7 @@ export function layoutReport(doc: DavDocument): LayoutReport {
     const count = leftward.length;
     notes.push({
       code: 'left-links',
-      message: `${count === 1 ? 'One connection between zones points' : `${count} connections between zones point`} left, against the reading direction: ${leftward.slice(0, LEFT_LINKS_NAMED).join('; ')}${count > LEFT_LINKS_NAMED ? '; and more' : ''}. The zones are placed freely, and a link between zones sets no column. Leave a link whose edge is written as you mean: pointing left is the price of shorter links that cross less. Change only an edge written other than you mean, such as a call back written one way, which becomes one two-way edge that names the node on the left first. references/large-diagrams.md has more.`,
+      message: `${count === 1 ? 'One connection between zones points' : `${count} connections between zones point`} left, against the reading direction: ${leftward.slice(0, LEFT_LINKS_NAMED).join('; ')}${count > LEFT_LINKS_NAMED ? '; and more' : ''}. The zones are placed freely, and a link between zones sets no column, whichever way it is written. Leave a link whose edge is written as you mean: pointing left is the price of shorter links that cross less. Change only an edge written other than you mean, such as a call back written one way, which becomes one two-way edge that names the node on the left first. Nesting two zones in one zone that is a real boundary makes the links between them point right, since edges set the columns inside a zone, though crossings can rise. references/large-diagrams.md has more.`,
     });
   }
   if (crossings > 0) {
