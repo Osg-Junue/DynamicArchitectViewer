@@ -229,6 +229,7 @@ There is no icon for a product. Pick the kind, and name the product in `sub`: `[
 | `6 columns x 4 rows of nodes` | How many different places the nodes take across and down. A node with `visible: false` keeps its place and is counted |
 | `0 crossings` | Pairs of connections that cross, counted on straight lines between the nodes. The drawn rails go round nodes, so it is a guide. A `note` names the pairs |
 | `"Backend" 3 x 2` | The columns and rows the nodes of that zone take |
+| `"GCP" × "GCP"–"External" 44` | In a diagram with zones: 44 times a connection inside "GCP" crosses one between "GCP" and "External". Each crossing is counted once, by the zones each of its two connections joins |
 
 The layout is chosen as a whole, so one more edge, even a self-loop, can move zones to other places. Read the lines again after every change to the structure.
 
@@ -238,6 +239,7 @@ Compare them with the picture you had in mind:
 - **A zone of one column** holds nodes that no edge orders. That is right for peers, such as replicas or separate stores. If one of them feeds another, declare that edge.
 - **Wider than tall is usual:** the bundled examples are between 2 : 1 and 6 : 1. A diagram taller than wide usually has such a stacked zone. Act on the proportion only when the checker adds the note `tall-diagram`: without it, a diagram outside that range is in order.
 - **Crossings** often go away when two nodes of one column swap their declarations.
+- **Many crossings between connections of one kind,** such as `"GCP"–"External" × "GCP"–"External"`, come from the order of the nodes at one end. Where the zones of a large diagram are placed freely, nodes directly in a zone are sorted by where their connections lead, but zones nested in it keep the order they are declared in: put such nodes directly in the zone, or declare the nested zones in the order of what they connect to. Many between a connection inside a zone and ones that leave it mean those run across the zone.
 
 ### Finding where a node is
 

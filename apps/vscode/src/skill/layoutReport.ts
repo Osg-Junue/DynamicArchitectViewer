@@ -1,8 +1,8 @@
 import { type BackEdge, backEdgesOf, computeLayout, type Rect } from '../layout';
-import { linksOf, properlyCross, segmentsOf, shareStation } from '../layout/links';
+import { linksOf, properlyCross, type Segment, segmentsOf, shareStation } from '../layout/links';
 import { enclosingRect } from '../layout/metrics';
 import type { DavDocument } from '../model/types';
-import { ancestorIds, idPair, parentMap, topLevelGroups } from '../model/zones';
+import { ancestorIds, idPair, parentMap, topLevelGroups, zoneOfNodes } from '../model/zones';
 import { arrowOf } from './outline';
 import type { Hint } from './review';
 
@@ -23,6 +23,8 @@ const STACK_FROM = 4;
 const TALL_FROM = 1.5;
 /** How many crossings are named; the count says how many there are. */
 const CROSSINGS_NAMED = 3;
+/** How many pairs of kinds of connections are given with their crossings; the rest are summed. */
+const KINDS_NAMED = 10;
 
 /** Nodes of a row or column share a coordinate exactly, up to rounding. */
 const distinct = (values: readonly number[]): number => new Set(values.map(Math.round)).size;
@@ -33,6 +35,55 @@ const grid = (rects: readonly Rect[]): string => `${columns(rects)} x ${rows(rec
 
 const proportion = (width: number, height: number): string =>
   width >= height ? `${(width / height).toFixed(1)} : 1` : `1 : ${(height / width).toFixed(1)}`;
+
+/** Two connections that cross, as straight lines between their stations. */
+export type CrossingPair = readonly [Segment, Segment];
+
+/**
+ * How many crossings there are between connections of each two kinds, most first. The kind of
+ * a connection is the zones it joins: one zone for a connection inside it, two for one between
+ * them. A zone is one at the top level, with the zones inside it, and a node outside every zone
+ * stands for itself. Each crossing is counted once, so the counts add up to the crossings.
+ */
+export function crossingsByZone(
+  doc: DavDocument,
+  pairs: readonly CrossingPair[],
+): Array<{ zones: string; count: number }> {
+  const zoneOf = zoneOfNodes(doc);
+  const zones = topLevelGroups(doc.groups);
+  // Zones are named in the order of the file, and nodes outside every zone after them.
+  const order = new Map<string, number>([
+    ...zones.map((g, i): [string, number] => [g.id, i]),
+    ...doc.nodes.map((n, i): [string, number] => [n.id, zones.length + i]),
+  ]);
+  const rank = (piece: string): number => order.get(piece) ?? 0;
+  const called = new Map(zones.map((g) => [g.id, `"${g.label || g.id}"`]));
+  const name = (piece: string): string => called.get(piece) ?? piece;
+  /** What a connection joins: `"A"` inside zone A, `"A"–"B"` between two. */
+  const kindOf = (s: Segment) => {
+    const [a = '', b = ''] = [zoneOf.get(s.from) ?? s.from, zoneOf.get(s.to) ?? s.to].sort(
+      (p, q) => rank(p) - rank(q),
+    );
+    return {
+      key: idPair(a, b),
+      rank: [rank(a), rank(b)] as const,
+      text: a === b ? name(a) : `${name(a)}–${name(b)}`,
+    };
+  };
+  const tally = new Map<string, { zones: string; count: number }>();
+  for (const [s, t] of pairs) {
+    const [one, other] = [kindOf(s), kindOf(t)].sort(
+      (p, q) => p.rank[0] - q.rank[0] || p.rank[1] - q.rank[1],
+    );
+    if (!one || !other) continue;
+    const key = idPair(one.key, other.key);
+    const seen = tally.get(key);
+    if (seen) seen.count++;
+    else tally.set(key, { zones: `${one.text} × ${other.text}`, count: 1 });
+  }
+  // Ties stay in the order they were first met, which follows the edges as written.
+  return [...tally.values()].sort((a, b) => b.count - a.count);
+}
 
 /**
  * Whether an edge that closes a loop is worth a note. A loop of two nodes is mostly a request
@@ -68,12 +119,13 @@ export function layoutReport(doc: DavDocument): LayoutReport {
   const height = Math.round(all.height);
   // The pairs of connections that cross, as the layout counts them: on straight lines.
   const segments = segmentsOf(linksOf(doc), layout);
-  const crossing = segments.flatMap((s, i) =>
+  const crossingPairs = segments.flatMap((s, i) =>
     segments
       .slice(i + 1)
       .filter((t) => !shareStation(s, t) && properlyCross(s, t))
-      .map((t) => `${s.from} --> ${s.to} and ${t.from} --> ${t.to}`),
+      .map((t): CrossingPair => [s, t]),
   );
+  const crossing = crossingPairs.map(([s, t]) => `${s.from} --> ${s.to} and ${t.from} --> ${t.to}`);
   const crossings = crossing.length;
 
   const summary = [
@@ -89,6 +141,20 @@ export function layoutReport(doc: DavDocument): LayoutReport {
   if (zones.length > 0) {
     summary.push(
       `layout: zones, as columns x rows of nodes: ${zones.map(({ g, rects }) => `"${g.label || g.id}" ${grid(rects)}`).join(', ')}`,
+    );
+  }
+  if (zones.length > 0 && crossings > 0) {
+    const kinds = crossingsByZone(doc, crossingPairs);
+    const rest = kinds.slice(KINDS_NAMED);
+    const restCrossings = rest.reduce((sum, { count }) => sum + count, 0);
+    const byZone = `${kinds
+      .slice(0, KINDS_NAMED)
+      .map(({ zones: joined, count }) => `${joined} ${count}`)
+      .join(
+        ', ',
+      )}${rest.length > 0 ? `, and ${restCrossings} more in ${rest.length} other pairs` : ''}`;
+    summary.push(
+      `layout: crossings by the zones the two connections join, "A" for one inside a zone and "A"–"B" for one between two: ${byZone}`,
     );
   }
 

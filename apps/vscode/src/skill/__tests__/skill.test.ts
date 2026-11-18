@@ -7,6 +7,7 @@ import { format, KEYWORDS, parse } from '../../dsl';
 import { computeLayout } from '../../layout';
 import { COLOR_NAMES, ICON_NAMES } from '../../model/types';
 import { SAMPLE_TEMPLATES } from '../../samples';
+import { crossingsByZone } from '../layoutReport';
 import { reviewDetail } from '../review';
 
 const ROOT = resolve(__dirname, '../../../../..');
@@ -75,6 +76,31 @@ describe.each([
     for (const [, script] of text.matchAll(/<skill-dir>\/(scripts\/[\w.-]+)/g)) {
       expect(() => readFileSync(join(skillDir, script ?? ''))).not.toThrow();
     }
+  });
+});
+
+describe('crossings by zone', () => {
+  const { document } = parse(
+    'dav 1\ngroup l "L" {\n  node a\n  node b\n}\ngroup r "R" {\n  node c\n  node d\n}\nnode x\n',
+  );
+  // Only the ends of a connection decide its kind; where it is drawn does not matter here.
+  const link = (from: string, to: string) => ({ from, to, ax: 0, ay: 0, bx: 0, by: 0 });
+
+  it('counts each crossing once, by the zones that each of its two connections joins', () => {
+    expect(
+      crossingsByZone(document, [
+        [link('a', 'c'), link('b', 'd')],
+        [link('a', 'b'), link('c', 'x')],
+        [link('c', 'x'), link('a', 'b')],
+        [link('a', 'c'), link('b', 'x')],
+      ]),
+    ).toEqual([
+      // A connection inside a zone is named by the zone, one between two by both, and a node
+      // outside every zone by its ID. The zones come in the order of the file.
+      { zones: '"L" × "R"–x', count: 2 },
+      { zones: '"L"–"R" × "L"–"R"', count: 1 },
+      { zones: '"L"–"R" × "L"–x', count: 1 },
+    ]);
   });
 });
 
@@ -456,6 +482,20 @@ describe('dav-check', () => {
         // A crossing is named by the two connections that cross.
         if (crossings > 0)
           expect(stdout).toMatch(/note crossings: .*: \w+ --> \w+ and \w+ --> \w+/);
+        // Without zones, there is nothing to count them by.
+        expect(stdout).not.toContain('crossings by the zones');
+      });
+
+      it('gives the crossings by the zones that the two connections join', () => {
+        // Inside one zone, a and c share a column and b and d the next, each linked to both.
+        const { stdout } = lines(
+          good(
+            'group z "Z" {\n  node a "A"\n  node c "C"\n  node b "B"\n  node d "D"\n}\na --> b : "x"\na --> d : "y"\nc --> b : "z"\nc --> d : "w"',
+          ),
+        );
+        expect(stdout).toContain(
+          ': layout: crossings by the zones the two connections join, "A" for one inside a zone and "A"–"B" for one between two: "Z" × "Z" 1\n',
+        );
       });
 
       it('notes an edge left out of a loop, with the loop and where its far end stands', () => {

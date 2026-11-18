@@ -166,6 +166,14 @@ docs/checkout.dav: layout: zones, as columns x rows of nodes: "Backend" 2 x 1
 | `0 crossings` | Pairs of connections that cross, counted on straight lines between the nodes. The drawn lines go round nodes, so it is a guide |
 | `"Backend" 2 x 1` | The columns and rows the nodes of that zone take |
 
+For a diagram with zones and crossings, one more line says which connections cross:
+
+```
+docs/shop.dav: layout: crossings by the zones the two connections join, "A" for one inside a zone and "A"–"B" for one between two: "GCP" × "GCP"–"External" 44, "GCP" × "GCP" 28, "GCP"–"External" × "GCP"–"External" 13
+```
+
+`"GCP" × "GCP"–"External" 44` says that 44 times a connection inside "GCP" crosses one between "GCP" and "External". A zone is one at the top level, with the zones inside it, and a node outside every zone is named by its ID. Each crossing is counted once, so the counts add up to the crossings. The ten kinds with the most are given, and the rest summed.
+
 [How diagrams are laid out](https://github.com/Osg-Junue/DynamicArchitectViewer/blob/main/docs/layout.md) says what to write to get another arrangement.
 
 ### The map, with `--map`
