@@ -48,7 +48,7 @@ With `--detail`, the checker says where a diagram that compiles says less than i
 | `animate-without-label` | A packet has no label | Name what is sent, such as `"POST /orders"` |
 | `animate-without-desc` | A packet has no `desc` | Say what the message does or decides |
 | `no-code` | Three packets or more, and none of them shows `code` | Attach the request, query, event or response that matters most to one to three of them |
-| `text-cut` | A text is too long for its place, and is drawn cut off with `…` | Shorten the text the message names. The label of a node can leave detail to `sub`, and the label of a packet to `desc` |
+| `text-cut` | A text is too long for its place, and is drawn cut off with `…` | Shorten the text the message names. The label of a node can leave detail to `sub`, and the label of a packet to `desc`. A zone's name is not checked: only a zone one column wide is narrow enough to cut a name of usual length, with room for about 20 Latin letters or 11 Japanese characters, and the layout line of zones gives each zone's columns |
 
 ## The layout
 

@@ -23,7 +23,7 @@ Follow the workflow in order. Do not skip step 5: the checker is the only way to
    Do not invent components. If a fact is missing and the user cannot be asked, leave it out. A reply on a connection is not another connection: where a scene shows the reply, write that edge as `<->`, even if the facts name only the call. Where no scene shows a reply, the edge stays one-way. When changing an existing `.dav` file, edit it in place and keep its IDs and comments.
 
    **Count them.** About 50 nodes or more, or 4 zones or more with edges between them, make a large diagram: read [references/large-diagrams.md](references/large-diagrams.md) before step 2.
-2. **Declare the structure:** `node`, `group`, then edges. Write each edge as the facts give it, from the caller: edges set the columns, so a caller stands to the left of what it calls, and [Getting the layout you want](#getting-the-layout-you-want) says what to do with a call that runs back. Declare an edge for every way a packet will go, a self-loop (`api --> api`) for a node that retries or changes state on its own included.
+2. **Declare the structure:** `node`, `group`, then edges. Write each edge as the facts give it, from the caller: edges set the columns, so a caller stands to the left of what it calls, and [Getting the layout you want](#getting-the-layout-you-want) says what to do with a call that runs back. Declare an edge for every way a packet will go, a self-loop (`api --> api`) for a node that retries or changes state on its own included. Write the file with your file tools, not through a shell heredoc, which takes the quotes and backticks of a `.dav` file for its own.
 3. **Script the steps,** one scene per `step`. See [Scripting steps](#scripting-steps).
 4. **Fill in the detail** until the file meets [What a detailed diagram has](#what-a-detailed-diagram-has).
 5. **Validate, format and review.** `<skill-dir>` is the directory that contains this file:
@@ -70,7 +70,7 @@ Nothing wraps except `desc`. A longer text is cut off with `…`, and `--detail`
 | `animate` `desc` | 170, in up to four lines | 95 |
 | `code` | 10 lines of 55 characters | 10 lines of 35 |
 
-A zone's name is as wide as its zone: about 20 Latin letters or 11 Japanese characters in a zone one column wide, more in a wider one. The checker does not report a zone name that is cut off. When an official name is longer than its place, keep a short label and give the full name in `sub` or in a `desc`.
+A zone's name is as wide as its zone. Only a zone one column wide is narrow enough to cut a name of usual length: it has room for about 20 Latin letters or 11 Japanese characters, and a zone two columns wide for about 50 or 25. The checker reports every other text that is cut off, but not a zone's name, so once the structure is settled, find the zones of one column in the line of zones of `--detail`, such as `"External" 1 x 5`, and shorten each of their names that is longer. No other name needs counting. When an official name is longer than its place, keep a short label and give the full name in `sub` or in a `desc`.
 
 The column to read depends on the characters, not on the language of the diagram: SQL, JSON and HTTP are Latin letters in a Japanese diagram too, so a line of `code` fits about 55 there as well.
 
@@ -172,12 +172,14 @@ Reserved words, which cannot be IDs: `dav`, `title`, `group`, `node`, `step`, `d
 
 The `:` before an edge or `animate` label is required. Attribute blocks are `[key: value, key: value]`, one block to a statement: `[desc: "...", parallel: true]`, never `[desc: "..."] [parallel: true]`. `code` is contextual inside `animate { ... }`, so `node code` remains a valid ID.
 
-| Arrow | Line | Direction | In `animate` |
+| Arrow | Line | Direction | Written in `animate` |
 | :--- | :--- | :--- | :--- |
 | `-->` | Solid | One way | One way |
 | `..>` | Dashed | One way | Not allowed |
 | `<->` | Solid | Both | There and back |
 | `<.>` | Dashed | Both | Not allowed |
+
+A packet runs along a dashed edge as well, written `-->` or `<->`: in the example above, `animate api <-> backup` runs along `api <.> backup`.
 
 When the two directions of a two-way edge carry different things, name both in its label: `hvac <-> gw : "Status / setpoints"`. Two one-way edges in opposite directions would make a loop, and the layout leaves one of them out.
 
@@ -199,7 +201,7 @@ There is no icon for a product. Pick the kind, and name the product in `sub`: `[
 
 - **Edges set the column.** A node sits to the right of whatever points at it, and the longest path wins. Where the zones are placed freely, this holds inside each zone, and a link between zones sets no column.
 - **Groups keep nodes together.** Declaration order breaks ties from top to bottom, so swap two declarations to swap two nodes in a column.
-- **The zones of a large diagram follow their links, not their declarations,** and only zones nested in one zone are sure to stand together. `--detail` says `zones placed freely` when this happens, and names each link between zones that points left in a note `left-links`. [references/large-diagrams.md](references/large-diagrams.md) says how to choose the zones.
+- **The zones of a large diagram follow their links, not the order of their declarations,** and only zones nested in one zone are sure to stand together. The search that places them starts from the order of the declarations and prefers links that point right, so moving a declaration or turning an edge between zones can move zones too, but not into an order you choose. `--detail` says `zones placed freely` when this happens, and names each link between zones that points left in a note `left-links`. [references/large-diagrams.md](references/large-diagrams.md) says how to choose the zones.
 - **In a cycle, the node reached first goes on the left.** Columns come from a search that starts at the nodes in the order they are declared and follows edges in the order they are written, and the edge that closes a loop does not count. A loop that nothing else leads into is entered at its node declared first. A loop that another node leads into is entered there, whatever the order of its own nodes: in a large diagram, that is most loops. `--detail` names the edge left out in a note `back-edge`, with the loop, the column its far end took, and the node to declare earlier to start the loop elsewhere. Where the zones are placed freely, only a loop inside one zone leaves an edge out.
 - **A one-way edge that points back pulls its target to the right of its source,** and the target's zone with it, unless the search reached the source through that target. A command sent back to a device, an on-call engineer who opens a console on the far left, a webhook that an outside service calls back with, or a subscription to a topic that stands further right, is such an edge. Write it as one two-way edge: a two-way edge counts only in the direction it is written, and a packet can run along it either way.
 - **A two-way edge names first the node that belongs on the left.** For a request and its response, that is the caller: `api <-> db`. For a call against the reading direction, it is the node called: `gw <-> svc`, where `svc` sends commands to `gw`. A job that reads a store is the caller too: `etl --> db`, or `db <-> etl` where the database belongs on the left. Never turn a one-way edge round for the layout: its arrow would then say that the other node calls.
@@ -213,7 +215,7 @@ When it matters which node is where, because the user asks how the diagram looks
 | Statement | Lasts for | Use it to |
 | :--- | :--- | :--- |
 | `desc` | This step | Explain what happens, in one or two sentences |
-| `focus` | This step | Dim everything except the listed nodes and groups |
+| `focus` | This step | Dim everything except the listed nodes and groups: `focus api, db` |
 | `state` | **This step and all later ones,** from the start of the step | Change a badge, color or visibility |
 | `animate` | This step | Move a packet between two nodes |
 
@@ -222,11 +224,11 @@ When it matters which node is where, because the user asks how the diagram looks
 - **Order packets deliberately.** Each `animate` is one phase, played in order. `[parallel: true]` joins the preceding one, for work that really is concurrent.
 - **Run packets along declared edges.** A packet without an edge has no line to follow, and `--detail` reports it with the hops to send instead or the edges to make two-way. For replies, make the edge `<->` or declare a separate reverse edge, and send a reply back through every node the request came through. Leave out a reply that tells nothing new, such as a plain success at the end of a long path. Two edges in opposite directions do not need an `id`, but a second edge in the same direction does.
 - **Use `<->` in `animate` for a call and its answer,** when the answer needs no words of its own. Use two packets when the answer matters, such as an error.
-- **Clean up `state`.** Badges and colors carry over. To end one, write `badge: ""` or `color: none`, or a badge from step 2 will still be showing in step 8. Where one scenario ends and another begins, clear the last one's badges and colors in the first step of the next.
+- **Clean up `state`.** Badges and colors carry over. To end one, write `badge: ""` or `color: none` in the first step where it no longer holds, or a badge from step 2 will still be showing in step 8. Where one scenario ends and another begins, clear the last one's badges and colors in the first step of the next.
 - **Show a status where it holds.** A `state` shows from the start of its step, before its first packet moves: a step shows what holds while it plays. To show a status that a packet of a step brings about, such as a job paused by a request, set it in the next step, which then shows the outcome. Where a scenario ends on such a status, such as an order paid at last, give it a short last step with that `state` and a `desc`: otherwise it is never seen, because the scenario ends before it shows and the next one starts by clearing it.
 - **Let `animate` and `state` set the emphasis.** Their targets are emphasized automatically, so add `focus` only for nodes that have neither. Any of the three dims the other nodes and hides the edges that do not join two emphasized nodes, so `focus` on both ends of an edge is also how to keep that edge on screen.
 - **Reveal things that appear later.** Declare them with `visible: false`, then use `state` with `visible: true`. To target an edge from `state`, the edge needs `[id: name]`.
-- **Use self-loops for internal work,** such as retries or state transitions: `order --> order : "Retry"`, then `animate order --> order`. A self-loop connects no other component, so it adds nothing to the facts: declare one where a step animates that work, and for an action whose target the facts do not name, such as logging an error, rather than inventing a store. Self-loops cannot use `<->` or `<.>`.
+- **Use self-loops for internal work,** such as retries or state transitions: `order --> order : "Retry"`, then `animate order --> order`. A self-loop connects no other component, so it adds nothing to the facts: declare one where a step animates that work, and for an action whose target the facts do not name, such as logging an error, rather than inventing a store. One self-loop carries packets of any label; a second one on the same node needs an `id`, like any second edge in the same direction. Self-loops cannot use `<->` or `<.>`.
 
 ### Writing `desc`
 
@@ -290,6 +292,7 @@ Keep it to the lines that matter, at most 10 lines of 55 characters. Break a lon
 | `code json "{ "id": 1 }"` | Escape the quotes, or use the backtick form | `syntax-error` |
 | `code json "Title" "{ ... }"` | Only the backtick form takes a title | `syntax-error` |
 | `animate a --> b : "x" [desc: "y"] [parallel: true]` | One block: `[desc: "y", parallel: true]` | `syntax-error` |
+| `gw --> gw : "Buffer"` and `gw --> gw : "Install"` | One self-loop carries both packets; a second needs `[id: ...]` | `duplicate-edge` |
 | `animate a --> b` with no label or `desc` | `animate a --> b : "What" [desc: "Why"]` | hint `animate-without-desc` |
 | `animate api --> app` when only `app --> gw` and `gw --> api` exist | Send the reply the way it really goes: `animate api --> gw`, then `animate gw --> app`, over `<->` edges | hint `animate-without-edge` |
 | `node db "PostgreSQL primary database server"` | `node db "Orders DB" [sub: "PostgreSQL"]` | hint `text-cut` |
@@ -298,7 +301,7 @@ Keep it to the lines that matter, at most 10 lines of 55 characters. Break a lon
 
 Read these only when needed:
 
-- [references/large-diagrams.md](references/large-diagrams.md): before writing a diagram of about 50 nodes or more, or one whose zones link across one another
+- [references/large-diagrams.md](references/large-diagrams.md): before writing a diagram of about 50 nodes or more, or of 4 zones or more with edges between them
 - [references/checker.md](references/checker.md): when the checker prints a line or a code you do not know, and to read the layout lines and the map
 - [references/specification.md](references/specification.md): the grammar, every attribute and every diagnostic
 - [references/layout.md](references/layout.md): recipes and the exact placement rules
