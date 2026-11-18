@@ -60,3 +60,29 @@ describe('rails that share a line', () => {
     expect(lla).toBeGreaterThan(lsr);
   });
 });
+
+describe('rails on two lines close together', () => {
+  // As `grid`, with one more row 0.7 below the fourth: rows through two stations can stand
+  // that near, and the rails on each are moved apart afterwards.
+  const near = {
+    W,
+    xs: Array.from({ length: W }, (_, i) => i * 100),
+    ys: [0, 100, 200, 300, 300.7, 400, 500, 600, 700, 800],
+  } as unknown as Grid;
+
+  it('put the rail that turns off nearer the station on the side it comes from', () => {
+    // Both rails come down and turn right to `t`: `a` on the upper row at column 2, `b` on
+    // the row just below at column 5. Kept in the order of their rows, `b` would come down
+    // across `a`; above it, the two do not cross.
+    const nodes = [node(2, 0), node(5, 0), node(9, 3)];
+    const edges = [edge('a', 0, 2), edge('b', 1, 2)];
+    const paths = new Map([
+      ['a', run([2, 0], [2, 3], [9, 3])],
+      ['b', run([5, 0], [5, 4], [9, 4])],
+    ]);
+    const rails = apart(cornersOf(paths, near), sides(paths, W), edges, nodes);
+    const levelAt = (id: string) => rails.get(id)?.points[1]?.y as number;
+    expect(levelAt('b')).toBeLessThan(levelAt('a'));
+    expect(levelAt('a') - levelAt('b')).toBeGreaterThanOrEqual(7 - 0.01);
+  });
+});
