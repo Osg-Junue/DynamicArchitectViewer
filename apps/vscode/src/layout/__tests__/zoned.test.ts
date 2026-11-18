@@ -18,7 +18,7 @@ import {
   ZONE_SEARCH_SEEDS,
 } from '../index';
 import { enclosingRect, STATION_CENTER } from '../metrics';
-import { longLinkExcess } from '../zoned';
+import { longLinkExcess, structureKey } from '../zoned';
 
 /** The larger diagrams of the scene's tests: five zones and over twenty nodes each. */
 const FIXTURES = resolve(__dirname, '../../scene/__tests__/fixtures');
@@ -240,6 +240,18 @@ b1 --> b2`);
     // Laying out another diagram first, so that this is computed again and not remembered.
     computeLayout(parse(bigDiagram(7)).document);
     expect(computeLayout(parse(bigDiagram()).document)).toEqual(layout);
+  });
+
+  it('places the zones the same whatever the steps, round trips between zones included', () => {
+    // Long links between zones, travelled there and back: once, they counted double.
+    const dsl = bigDiagram().replace(
+      'step "Hop" {',
+      'step "Round trips" {\n  animate z0n0 <-> z3n5\n  animate z0n0 <-> z5n5\n}\nstep "Hop" {',
+    );
+    const withSteps = parse(dsl).document;
+    const withoutSteps = { ...withSteps, steps: [] };
+    expect(structureKey(withSteps)).toBe(structureKey(withoutSteps));
+    expect(searchZones(withSteps)).toEqual(searchZones(withoutSteps));
   });
 
   it('leaves out only the edges of loops inside a zone, since links between zones set no column', () => {

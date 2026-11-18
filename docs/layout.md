@@ -7,7 +7,7 @@
 - **Edges decide the column.** Things flow from left to right.
 - **Groups decide what stays together.**
 - **Declaration order breaks ties**, from top to bottom.
-- **Steps never move anything while they play.** A node stays in the same place for the whole diagram.
+- **Steps never move anything.** A node stays in the same place for the whole diagram, and writing steps never rearranges it.
 
 The same file always produces the same layout.
 
@@ -140,8 +140,6 @@ lb --> db
 
 **`animate` adds no connection.** Nodes joined only by `animate` are placed as if unconnected. Add an edge if the position matters.
 
-**A packet that goes there and back weighs on where zones go.** A round trip, `animate a <-> b`, travels its edge twice in its time, so that edge counts twice when the layout decides whether to [place the zones freely](#placing-zones-freely), and where. Adding one can move zones, even though no step moves anything while it plays. Where that moves them for the worse, send the call and its answer as two one-way packets: `animate a --> b`, then `animate b --> a`. A one-way packet does not weigh on the layout.
-
 **A self-loop adds room above every row.** Each node gets the room the tallest loop of the diagram needs, so stations stay level from one zone to the next and the rails between them stay straight.
 
 **A node outside a zone stands lower than the zone's top.** The first row of a group starts as far down as the first row of the deepest group nested in it. A zone's frame pushes its stations down by its header and by the room for loops, and without this a rail from a station outside a zone to one inside it would have to step down.
@@ -158,8 +156,8 @@ This section is for changing the layout code in [`layout/index.ts`](../apps/vsco
 
 | | |
 | :--- | :--- |
-| Uses | `node` and `group` declarations and nesting, edges (including label width and the number of self-loops), and which edges a packet travels there and back (`animate a <-> b`), since those count double when zones are [placed freely](#placing-zones-freely) |
-| Ignores | Everything else in a `step`: one-way `animate`, `desc`, `focus`, `state` |
+| Uses | `node` and `group` declarations and nesting, and edges (including label width and the number of self-loops) |
+| Ignores | `step`, `animate`, `focus`, `state` |
 | Returns | A plain, JSON-serializable rectangle for each node and group (`Layout`) |
 | Exported HTML | Embeds the `Layout` computed at export, so later rule changes do not affect exported files |
 
@@ -202,16 +200,16 @@ Crossings are counted on straight lines between station centers (`countCrossings
 
 ### Placing zones freely
 
-When the column layout leaves a link longer than 700 units (a link used for a round trip counts double) or two links that cross, on straight lines between stations, and there are at least two top-level zones, `layout/zoned.ts` tries another arrangement. It is kept if its long links and crossings weigh less than those of the column layout, counting each unit of a link beyond 700 once and a crossing as 700 units. Zones linked across one another can cross in shared columns with every link short: placing them freely can take the crossings out. A chain of zones has no crossings in columns but is a strip dozens of times wider than high; freeing its zones at the price of one crossing is worth it.
+When the column layout leaves a link longer than 700 units or two links that cross, on straight lines between stations, and there are at least two top-level zones, `layout/zoned.ts` tries another arrangement. It is kept if its long links and crossings weigh less than those of the column layout, counting each unit of a link beyond 700 once and a crossing as 700 units. Zones linked across one another can cross in shared columns with every link short: placing them freely can take the crossings out. A chain of zones has no crossings in columns but is a strip dozens of times wider than high; freeing its zones at the price of one crossing is worth it.
 
 1. Each top-level zone is laid out on its own, with the rules above.
 2. The zones start in the columns of a graph that has one node per zone.
-3. Simulated annealing moves zones, swaps them and flips them vertically, scoring link length, crossings, links through or blocked by other zones (including L-path and perimeter-detour barriers), right-to-left links, links that run upright, how far links are from straight, and overall size. Every unit of a link's length counts, and counts again past 700. The size counts as the longer side of a 16:10 canvas the zones fit in, so they fill such a canvas rather than stretch into a strip. A link used for a round trip counts double, since it is traversed twice in its time. A link is off straight by the sideways distance between its two stations, up to 160, counted twice; this applies where no node of either zone stands between them on that side, and a link that cannot be straight counts the full 160. A link runs upright by what it goes up or down beyond what it goes to the right. In an arrangement no wider than high every such unit counts once more, so that an upright link costs twice a level one, and the zones of a flow stand side by side instead of in a stack. That weight falls evenly to nothing at twice as wide as high: a longer flow has to turn back under itself, or it becomes a strip.
+3. Simulated annealing moves zones, swaps them and flips them vertically, scoring link length, crossings, links through or blocked by other zones (including L-path and perimeter-detour barriers), right-to-left links, links that run upright, how far links are from straight, and overall size. Every unit of a link's length counts, and counts again past 700. The size counts as the longer side of a 16:10 canvas the zones fit in, so they fill such a canvas rather than stretch into a strip. A link is off straight by the sideways distance between its two stations, up to 160, counted twice; this applies where no node of either zone stands between them on that side, and a link that cannot be straight counts the full 160. A link runs upright by what it goes up or down beyond what it goes to the right. In an arrangement no wider than high every such unit counts once more, so that an upright link costs twice a level one, and the zones of a flow stand side by side instead of in a stack. That weight falls evenly to nothing at twice as wide as high: a longer flow has to turn back under itself, or it becomes a strip.
 4. Each zone slides towards the zones it is linked to, as far as its clearance allows, so that linked neighbors end up one clearance apart (60 × 34).
 5. Zone edges are aligned where that costs almost nothing, and the zones slide together once more. On diagrams with up to 20 top-level zones, intra-zone nodes with DAG column slack shift toward external neighbors, nested or loop-bearing zones try a vertical flip, and nodes sharing a parent group and column are reordered by clamped neighbor barycenters and adjacent swaps whenever that lowers crossings or link spans.
 6. A zone moves up to 120 units to put the two stations of a link level, or one straight above the other, with nothing between them. It takes the move that straightens the most of its links, as long as the rest of the score rises by less than 120 per link. The best of six seeded runs is kept, counting each straight link as 120 in its favor (and each crossing anywhere in the diagram as 180 against). Once a run is scored, its zones are straightened once more with 300 allowed per link: a link a few units off level costs its rail two bends, which the score does not count. Doing this after the score leaves which run is kept as it was.
 
-The result is deterministic. Zones no longer share columns, so a column does not line up across the diagram. The search takes under two seconds at 300 nodes, so the last result is reused until the nodes, groups, edges or round trips change. Edge labels are left out of the search, so typing one never rearranges the zones. A long label can still widen its zone, and the zones to its right then move aside.
+The result is deterministic. Zones no longer share columns, so a column does not line up across the diagram. The search takes under two seconds at 300 nodes, so the last result is reused until the nodes, groups or edges change. Edge labels are left out of the search, so typing one never rearranges the zones. A long label can still widen its zone, and the zones to its right then move aside.
 
 ### Straightening single nodes
 

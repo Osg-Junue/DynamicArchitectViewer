@@ -109,8 +109,7 @@ describe('links between zones that point left', () => {
     // a --> c points left too, but inside one zone, where the columns come from the edges.
     expect(leftLinks(document, { nodes: { a: at(400), b: at(0), c: at(0), x: at(800) } })).toEqual([
       'a --> b, from "L" into "R"',
-      // A two-way edge counts as written, so the note gives it the other way round as well.
-      'x <-> a, into "L" (write a <-> x)',
+      'x <-> a, into "L"',
     ]);
   });
 

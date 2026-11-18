@@ -105,8 +105,7 @@ export function crossingsByZone(
 /**
  * The connections between two zones whose second node stands to the left of their first, as
  * `--map` would say `left` of them, named as written with the zones they leave and enter. A
- * node outside every zone stands for itself. A two-way edge counts only in the direction it is
- * written, so it is given written the other way round as well, which counts the other way.
+ * node outside every zone stands for itself.
  */
 export function leftLinks(doc: DavDocument, layout: Pick<Layout, 'nodes'>): string[] {
   const zoneOf = zoneOfNodes(doc);
@@ -131,9 +130,7 @@ export function leftLinks(doc: DavDocument, layout: Pick<Layout, 'nodes'>): stri
           : from
             ? `, out of ${from}`
             : '';
-    const turned =
-      e.direction === 'bidirectional' ? ` (write ${e.to} ${arrowOf(e)} ${e.from})` : '';
-    return [`${e.from} ${arrowOf(e)} ${e.to}${across}${turned}`];
+    return [`${e.from} ${arrowOf(e)} ${e.to}${across}`];
   });
 }
 
@@ -252,7 +249,7 @@ export function layoutReport(doc: DavDocument): LayoutReport {
     const count = leftward.length;
     notes.push({
       code: 'left-links',
-      message: `${count === 1 ? 'One connection between zones points' : `${count} connections between zones point`} left, against the reading direction: ${leftward.slice(0, LEFT_LINKS_NAMED).join('; ')}${count > LEFT_LINKS_NAMED ? '; and more' : ''}. The zones are placed freely, so a connection between zones sets no column. A two-way edge counts only in the direction it is written: write it the other way round, as given, and run the checker again. A one-way call back can become one two-way edge that names the node on the left first. Any other one-way call points where the search put the zones, for shorter links that cross less: nest zones that belong together, or leave it. references/large-diagrams.md has more.`,
+      message: `${count === 1 ? 'One connection between zones points' : `${count} connections between zones point`} left, against the reading direction: ${leftward.slice(0, LEFT_LINKS_NAMED).join('; ')}${count > LEFT_LINKS_NAMED ? '; and more' : ''}. The zones are placed freely, so a connection between zones sets no column, and a few links that point left are the price of shorter links that cross less. Change one only where it is written other than you mean: a two-way edge counts in the direction it is written, so check that it names the node you want on the left first, and a one-way call back can become one two-way edge that does. Nest zones that belong together. Otherwise leave it: turning an edge to turn one link can move whole zones. references/large-diagrams.md has more.`,
     });
   }
   if (crossings > 0) {

@@ -7,8 +7,6 @@ import {
   HORIZONTAL_CLEARANCE,
   LONG_LINK,
   type Placed,
-  pairKey,
-  roundTrips,
   VERTICAL_CLEARANCE,
 } from './zoneBlocks';
 
@@ -43,8 +41,6 @@ export interface BlockLink extends Segment {
   targetX: number;
   sourceY: readonly [number, number];
   targetY: readonly [number, number];
-  /** A round trip covers the rail twice in its time, so its length counts double. */
-  weight: number;
   /**
    * The ways a straight rail could join the two stations, for each flip of the source and of
    * the target (`source.flip * 2 + target.flip`): bits for a target to the right, to the left,
@@ -129,8 +125,8 @@ function shapeCost(l: BlockLink): number {
     offStraight(l) * OFF_STRAIGHT_WEIGHT +
     // Every unit of a link counts, and counts again past a comfortable length. Counting only
     // the part past that length left the search with no reason to bring zones together.
-    length * l.weight +
-    Math.max(0, length * l.weight - LONG_LINK) +
+    length +
+    Math.max(0, length - LONG_LINK) +
     (dx < -60 ? 260 - dx * 0.3 : 0)
   );
 }
@@ -191,11 +187,11 @@ function zoneObstruction(l: BlockLink, p: Placed): number {
             Math.min(l.ax, l.bx) - left + WALL_MARGIN,
             right + WALL_MARGIN - Math.max(l.ax, l.bx),
           );
-    return WALL_COST + Math.max(0, detour) * l.weight;
+    return WALL_COST + Math.max(0, detour);
   }
   if (hitsL1 || hitsL2) {
     const through = runsThroughBox(l.ax, l.ay, l.bx, l.by, left, right, top, bottom);
-    return (through ? ONE_WAY_THROUGH_COST : ONE_WAY_COST) * l.weight;
+    return through ? ONE_WAY_THROUGH_COST : ONE_WAY_COST;
   }
   return runsThroughBox(l.ax, l.ay, l.bx, l.by, left, right, top, bottom) ? THROUGH_COST : 0;
 }
@@ -424,7 +420,6 @@ function openWays(source: Block, from: string, target: Block, to: string): Block
 
 /** The links between the zones placed as `placed`. A link inside one zone moves with it. */
 export function buildLinks(doc: DavDocument, placed: readonly Placed[]): BlockLink[] {
-  const trips = roundTrips(doc);
   const anchorOf = new Map<string, Anchor>();
   for (const p of placed) {
     for (const [id, r] of p.block.nodes) {
@@ -449,7 +444,6 @@ export function buildLinks(doc: DavDocument, placed: readonly Placed[]): BlockLi
         targetY: b.y,
         from: e.from,
         to: e.to,
-        weight: trips.has(pairKey(e.from, e.to)) ? 2 : 1,
         open: openWays(a.p.block, e.from, b.p.block, e.to),
         ax: 0,
         ay: 0,

@@ -76,23 +76,14 @@ export function hasZonesToPlace(doc: Pick<DavDocument, 'groups'>): boolean {
 
 export const pairKey = (a: string, b: string): string => (a < b ? idPair(a, b) : idPair(b, a));
 
-export function roundTrips(doc: DavDocument): Set<string> {
-  const pairs = new Set<string>();
-  for (const step of doc.steps) {
-    for (const a of step.animations) {
-      if (a.direction === 'bidirectional') pairs.add(pairKey(a.from, a.to));
-    }
-  }
-  return pairs;
-}
-
-/** How much the links exceed a comfortable length; a round trip's length counts double. */
+/**
+ * How much the links exceed a comfortable length. Steps do not count: a packet that goes there
+ * and back moves nothing, so that writing steps never rearranges a diagram.
+ */
 export function longLinkExcess(doc: DavDocument, layout: Layout): number {
-  const trips = roundTrips(doc);
   let excess = 0;
   for (const s of segmentsOf(linksOf(doc), layout)) {
-    const weight = trips.has(pairKey(s.from, s.to)) ? 2 : 1;
-    excess += Math.max(0, Math.hypot(s.ax - s.bx, s.ay - s.by) * weight - LONG_LINK);
+    excess += Math.max(0, Math.hypot(s.ax - s.bx, s.ay - s.by) - LONG_LINK);
   }
   return excess;
 }
@@ -103,7 +94,6 @@ export function structureKey(doc: DavDocument): string {
     doc.nodes.map((n) => [n.id, n.parentId ?? '']),
     doc.groups.map((g) => [g.id, g.parentId ?? '']),
     doc.edges.map((e) => [e.from, e.to]),
-    [...roundTrips(doc)].sort(),
   ]);
 }
 
