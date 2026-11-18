@@ -56,7 +56,7 @@ With `--detail`, the checker describes the layout that the preview draws. The la
 
 ```
 docs/shop.dav: layout: 2251 x 1620 (1.4 : 1), 8 columns x 19 rows of nodes, 85 crossings
-docs/shop.dav: layout: zones, as columns x rows of nodes: "Clients" 1 x 2, "GCP" 6 x 7, "External" 1 x 12
+docs/shop.dav: layout: zones placed freely, as columns x rows of nodes: "Clients" 1 x 2, "GCP" 6 x 7, "External" 1 x 12
 docs/shop.dav: layout: crossings by the zones the two connections join, "A" for one inside a zone and "A"–"B" for one between two: "GCP" × "GCP"–"External" 44, "GCP" × "GCP" 28, "GCP"–"External" × "GCP"–"External" 13
 ```
 
@@ -65,12 +65,13 @@ docs/shop.dav: layout: crossings by the zones the two connections join, "A" for 
 | `2251 x 1620 (1.4 : 1)` | The size of the whole diagram and its proportion. One node takes 176 x 118 |
 | `8 columns x 19 rows of nodes` | How many different places the nodes take across and down. A node with `visible: false` keeps its place and is counted |
 | `85 crossings` | Pairs of connections that cross, counted on straight lines between the nodes. The drawn lines go round nodes, so it is a guide |
-| `"GCP" 6 x 7` | Given for a diagram with zones: the columns and rows that the nodes of that zone take, those of the zones inside it included |
+| `zones placed freely` | Given for a diagram with zones: `placed freely` where the search [placed the zones](https://github.com/Osg-Junue/DynamicArchitectViewer/blob/main/docs/layout.md#placing-zones-freely), so that they share no columns and a link between them sets none, or `in shared columns` |
+| `"GCP" 6 x 7` | The columns and rows that the nodes of that zone take, those of the zones inside it included |
 | `"GCP" × "GCP"–"External" 44` | Given for a diagram with zones and crossings: 44 times, a connection inside "GCP" crosses one between "GCP" and "External". A zone is one at the top level, with the zones inside it, and a node outside every zone is named by its ID. Each crossing is counted once, so the counts add up to the crossings. The ten kinds with the most are given, and the rest summed |
 
-The layout is chosen as a whole, so one more edge, even a self-loop, can move zones to other places. Read the lines again after every change to the structure, and compare them with the picture you had in mind:
+The layout is chosen as a whole, so one more edge, even a self-loop, or a packet that goes there and back (`animate a <-> b`), can move zones to other places. Read the lines again after every change to the structure, and compare them with the picture you had in mind:
 
-- **A flow should read across.** In a diagram laid out in columns, count the nodes on the longest path from an entry point: the diagram should have about that many columns. Fewer means that an edge points the wrong way or is missing. Zones that are [placed freely](https://github.com/Osg-Junue/DynamicArchitectViewer/blob/main/docs/layout.md#placing-zones-freely) share no columns, so such a diagram counts more.
+- **A flow should read across.** In a diagram laid out in columns, count the nodes on the longest path from an entry point: the diagram should have about that many columns. Fewer means that an edge points the wrong way or is missing. Zones that are placed freely share no columns, so such a diagram counts more: the line of zones says which it is.
 - **A zone of one column** holds nodes that no edge puts in order. That is right for peers, such as replicas or separate stores. If one of them feeds another, declare that edge.
 - **Wider than tall is usual.** The bundled examples are between 2 : 1 and 6 : 1. A diagram taller than wide usually has a zone of one column. Act on the proportion only when the note `tall-diagram` is given: without it, a diagram outside that range is in order.
 - **Crossings** often go away when two nodes of one column swap their declarations.
@@ -85,6 +86,7 @@ With `--detail`, the checker points at shapes of the layout that are often not w
 | `tall-diagram` | The diagram is more than 1.5 times as tall as it is wide | Nodes that no edge puts in order are stacked in one column. Where one of them really feeds another, declare that edge, and it moves to the right |
 | `stacked-zone` | A zone holds 4 nodes or more directly, all in one column, because no edge runs between them | Leave it for peers, such as replicas or separate stores. If one of them feeds another, declare that edge, and they spread to the right |
 | `back-edge` | An edge closes a loop, so it does not count for the columns. The note gives the loop, where the layout came into it, and the columns of the two ends of the edge. A loop of two nodes, such as a request and its response, is named only where the node declared later stands on the left | The node where the layout came into the loop stands on its left. To start the loop at another of its nodes, declare that node before the one the note names. [How diagrams are laid out](https://github.com/Osg-Junue/DynamicArchitectViewer/blob/main/docs/layout.md#cycles) explains loops |
+| `left-links` | The zones are placed freely, and connections between two zones point left, against the reading direction. The note names up to five of them, with the zones they leave and enter. A link between zones that are placed freely sets no column, so such a link is not a `back-edge` | Write a call back as one two-way edge that names the node on the left first. Nest zones that belong together. [Writing a large diagram](https://github.com/Osg-Junue/DynamicArchitectViewer/blob/main/docs/large-diagrams.md#read-what-the-checker-says) says more |
 | `crossings` | Connections cross, counted on straight lines between the nodes. The note names up to three of the pairs | Swapping the declarations of two nodes that share a column often removes a crossing. In a diagram with zones, the layout line of crossings by zone says which kinds of connections cross |
 
 ## The map

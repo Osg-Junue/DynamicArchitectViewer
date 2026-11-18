@@ -7,7 +7,7 @@
 - **Edges decide the column.** Things flow from left to right.
 - **Groups decide what stays together.**
 - **Declaration order breaks ties**, from top to bottom.
-- **Steps never move anything.** A node stays in the same place for the whole diagram.
+- **Steps never move anything while they play.** A node stays in the same place for the whole diagram.
 
 The same file always produces the same layout.
 
@@ -138,7 +138,9 @@ lb --> db
 
 **The zones of a large diagram are not in the order they are declared.** Where links in columns would run longer than 700 units or cross, the layout [places the top-level zones freely](#placing-zones-freely) wherever that leaves less of both, and their order then follows their links. Zones nested in one zone stay together inside its frame, so nest the zones that belong together. Do not nest everything: with one top-level zone there is nothing to place freely, and a large diagram stands in shared columns, which can make it much taller and give it more crossings.
 
-**`animate` does not affect layout.** Nodes joined only by `animate` are placed as if unconnected. Add an edge if the position matters.
+**`animate` adds no connection.** Nodes joined only by `animate` are placed as if unconnected. Add an edge if the position matters.
+
+**A packet that goes there and back weighs on where zones go.** A round trip, `animate a <-> b`, travels its edge twice in its time, so that edge counts twice when the layout decides whether to [place the zones freely](#placing-zones-freely), and where. Adding one can move zones, even though no step moves anything while it plays.
 
 **A self-loop adds room above every row.** Each node gets the room the tallest loop of the diagram needs, so stations stay level from one zone to the next and the rails between them stay straight.
 
@@ -156,8 +158,8 @@ This section is for changing the layout code in [`layout/index.ts`](../apps/vsco
 
 | | |
 | :--- | :--- |
-| Uses | `node` and `group` declarations and nesting, and edges (including label width and the number of self-loops) |
-| Ignores | `step`, `animate`, `focus`, `state` |
+| Uses | `node` and `group` declarations and nesting, edges (including label width and the number of self-loops), and which edges a packet travels there and back (`animate a <-> b`), since those count double when zones are [placed freely](#placing-zones-freely) |
+| Ignores | Everything else in a `step`: one-way `animate`, `desc`, `focus`, `state` |
 | Returns | A plain, JSON-serializable rectangle for each node and group (`Layout`) |
 | Exported HTML | Embeds the `Layout` computed at export, so later rule changes do not affect exported files |
 

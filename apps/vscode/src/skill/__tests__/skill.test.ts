@@ -4,10 +4,12 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { format, KEYWORDS, parse } from '../../dsl';
-import { computeLayout } from '../../layout';
+import { computeLayout, zonesPlacedFreely } from '../../layout';
 import { COLOR_NAMES, ICON_NAMES } from '../../model/types';
+import { zoneOfNodes } from '../../model/zones';
 import { SAMPLE_TEMPLATES } from '../../samples';
-import { crossingsByZone, NOTE_CODES } from '../layoutReport';
+import { layoutMap } from '../layoutMap';
+import { crossingsByZone, layoutReport, leftLinks, NOTE_CODES } from '../layoutReport';
 import { HINT_CODES, reviewDetail } from '../review';
 
 const ROOT = resolve(__dirname, '../../../../..');
@@ -95,6 +97,49 @@ describe('references/checker.md', () => {
     const reference = readFileSync(join(dir, 'references/checker.md'), 'utf8');
     expect(codesUnder(reference, 'Hints')).toEqual([...HINT_CODES]);
     expect(codesUnder(reference, 'Notes')).toEqual([...NOTE_CODES]);
+  });
+});
+
+describe('links between zones that point left', () => {
+  it('names a link between two zones, or a zone and a node, whose end stands to the left', () => {
+    const { document } = parse(
+      'dav 1\ngroup l "L" {\n  node a\n  node c\n}\ngroup r "R" {\n  node b\n}\nnode x\na --> b\nb --> x\nx <-> a\na --> c\n',
+    );
+    const at = (x: number) => ({ x, y: 0, width: 176, height: 118 });
+    // a --> c points left too, but inside one zone, where the columns come from the edges.
+    expect(leftLinks(document, { nodes: { a: at(400), b: at(0), c: at(0), x: at(800) } })).toEqual([
+      'a --> b, from "L" into "R"',
+      'x <-> a, into "L"',
+    ]);
+  });
+
+  const fixtures = join(ROOT, 'apps/vscode/src/scene/__tests__/fixtures');
+  it.each(readdirSync(fixtures).sort())('%s: are told as the map tells them', (file) => {
+    const { document } = parse(readFileSync(join(fixtures, file), 'utf8'));
+    const { summary, notes } = layoutReport(document);
+    const free = zonesPlacedFreely(document);
+    expect(summary).toContainEqual(
+      expect.stringMatching(`^layout: zones ${free ? 'placed freely' : 'in shared columns'}, `),
+    );
+    // The lines of the map for connections that run left, between two pieces of the layout.
+    const zoneOf = zoneOfNodes(document);
+    const piece = (id: string) => zoneOf.get(id) ?? id;
+    const left = layoutMap(document).flatMap((line) => {
+      const [, from = '', arrow, to = ''] =
+        /^(\w+) (\S+) (\w+): (?:left|up and left|down and left)\b/.exec(line) ?? [];
+      return arrow && piece(from) !== piece(to) ? [`${from} ${arrow} ${to}`] : [];
+    });
+    const note = notes.find((n) => n.code === 'left-links')?.message ?? '';
+    if (!free || left.length === 0) {
+      expect(note).toBe('');
+      return;
+    }
+    expect(note).toMatch(
+      left.length === 1
+        ? /^One connection between zones points left/
+        : new RegExp(`^${left.length} connections between zones point left`),
+    );
+    for (const named of left.slice(0, 5)) expect(note).toContain(`${named}, `);
   });
 });
 
@@ -469,7 +514,7 @@ describe('dav-check', () => {
           ),
         );
         expect(stdout).toContain(
-          'layout: zones, as columns x rows of nodes: "Front" 2 x 1, "Back" 1 x 1',
+          'layout: zones in shared columns, as columns x rows of nodes: "Front" 2 x 1, "Back" 1 x 1',
         );
       });
 

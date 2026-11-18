@@ -59,6 +59,11 @@ export function computeLayout(doc: DavDocument): Layout {
   return straightenNodes(doc, placed);
 }
 
+/** Whether `computeLayout` places the zones of a diagram freely, rather than in shared columns. */
+export function zonesPlacedFreely(doc: DavDocument): boolean {
+  return zonePlacementOf(doc) !== undefined;
+}
+
 /** Where the zones are placed freely, searched for first if need be; `undefined` in columns. */
 function zonePlacementOf(doc: DavDocument): ZonePlacement | undefined {
   const search = pendingZoneSearch(doc);

@@ -1,4 +1,11 @@
-import { type BackEdge, backEdgesOf, computeLayout, type Rect } from '../layout';
+import {
+  type BackEdge,
+  backEdgesOf,
+  computeLayout,
+  type Layout,
+  type Rect,
+  zonesPlacedFreely,
+} from '../layout';
 import { linksOf, properlyCross, type Segment, segmentsOf, shareStation } from '../layout/links';
 import { enclosingRect } from '../layout/metrics';
 import type { DavDocument } from '../model/types';
@@ -24,7 +31,15 @@ const TALL_FROM = 1.5;
 /** How many crossings are named; the count says how many there are. */
 const CROSSINGS_NAMED = 3;
 /** Every code a note is given with, in the order that the checker's reference lists them. */
-export const NOTE_CODES = ['tall-diagram', 'stacked-zone', 'back-edge', 'crossings'] as const;
+export const NOTE_CODES = [
+  'tall-diagram',
+  'stacked-zone',
+  'back-edge',
+  'left-links',
+  'crossings',
+] as const;
+/** How many connections that point left are named; the count says how many there are. */
+const LEFT_LINKS_NAMED = 5;
 /** How many pairs of kinds of connections are given with their crossings; the rest are summed. */
 const KINDS_NAMED = 10;
 
@@ -88,6 +103,38 @@ export function crossingsByZone(
 }
 
 /**
+ * The connections between two zones whose second node stands to the left of their first, as
+ * `--map` would say `left` of them, named as written with the zones they leave and enter. A
+ * node outside every zone stands for itself.
+ */
+export function leftLinks(doc: DavDocument, layout: Pick<Layout, 'nodes'>): string[] {
+  const zoneOf = zoneOfNodes(doc);
+  const called = new Map(doc.groups.map((g) => [g.id, `"${g.label || g.id}"`]));
+  const zoneName = (node: string): string | undefined => {
+    const zone = zoneOf.get(node);
+    return zone === undefined ? undefined : called.get(zone);
+  };
+  return doc.edges.flatMap((e) => {
+    if (e.from === e.to || (zoneOf.get(e.from) ?? e.from) === (zoneOf.get(e.to) ?? e.to)) {
+      return [];
+    }
+    const [segment] = segmentsOf([[e.from, e.to]], layout);
+    // As the map counts it: a node less than a unit aside stands straight above or below.
+    if (!segment || Math.round(segment.bx - segment.ax) > -1) return [];
+    const [from, to] = [zoneName(e.from), zoneName(e.to)];
+    const across =
+      from && to
+        ? `, from ${from} into ${to}`
+        : to
+          ? `, into ${to}`
+          : from
+            ? `, out of ${from}`
+            : '';
+    return [`${e.from} ${arrowOf(e)} ${e.to}${across}`];
+  });
+}
+
+/**
  * Whether an edge that closes a loop is worth a note. A loop of two nodes is mostly a request
  * and its response, laid out as the guide says: the node of the two declared first on the left.
  * It is told only where the other one stands there, having been reached first from elsewhere.
@@ -140,9 +187,11 @@ export function layoutReport(doc: DavDocument): LayoutReport {
   const zones = topLevelGroups(doc.groups)
     .map((g) => ({ g, rects: inside(g.id).flatMap((n) => rectOf(n.id)) }))
     .filter(({ rects }) => rects.length > 0);
+  // Placed freely, zones share no columns, and a link between them sets none.
+  const free = zones.length > 0 && zonesPlacedFreely(doc);
   if (zones.length > 0) {
     summary.push(
-      `layout: zones, as columns x rows of nodes: ${zones.map(({ g, rects }) => `"${g.label || g.id}" ${grid(rects)}`).join(', ')}`,
+      `layout: zones ${free ? 'placed freely' : 'in shared columns'}, as columns x rows of nodes: ${zones.map(({ g, rects }) => `"${g.label || g.id}" ${grid(rects)}`).join(', ')}`,
     );
   }
   if (zones.length > 0 && crossings > 0) {
@@ -188,6 +237,15 @@ export function layoutReport(doc: DavDocument): LayoutReport {
     if (told.has(pair) || !surprising(edge, declared)) continue;
     told.add(pair);
     notes.push({ code: 'back-edge', message: backEdgeNote(doc, edge, columnOf) });
+  }
+  // In columns, only an edge left out of a loop points left, and `back-edge` names it.
+  const leftward = free ? leftLinks(doc, layout) : [];
+  if (leftward.length > 0) {
+    const count = leftward.length;
+    notes.push({
+      code: 'left-links',
+      message: `${count === 1 ? 'One connection between zones points' : `${count} connections between zones point`} left, against the reading direction: ${leftward.slice(0, LEFT_LINKS_NAMED).join('; ')}${count > LEFT_LINKS_NAMED ? '; and more' : ''}. The zones are placed freely, and a connection between zones sets no column: they go where their links come out shorter and cross less. Write a call back as one two-way edge that names the node on the left first, and nest zones that belong together; references/large-diagrams.md has more.`,
+    });
   }
   if (crossings > 0) {
     notes.push({
