@@ -107,7 +107,9 @@ describe('crossing reduction', () => {
   });
 
   it('counts only proper crossings, not rails that share a station', () => {
-    const fan = layoutOf('node a\nnode b\nnode c\nstep "S" {\n  static a --> b\n  static a --> c\n}');
+    const fan = layoutOf(
+      'node a\nnode b\nnode c\nstep "S" {\n  static a --> b\n  static a --> c\n}',
+    );
     expect(countCrossings(fan.document, fan.layout)).toBe(0);
   });
 
@@ -207,7 +209,9 @@ step "S" {
     expect(x('c')).toBeLessThan(x('a'));
     // A self-loop closes no loop of columns, and a two-way edge counts one way only.
     expect(
-      backEdgesOf(layoutOf('node a\nnode b\nstep "S" {\n  static a --> a\n  static a <-> b\n}').document),
+      backEdgesOf(
+        layoutOf('node a\nnode b\nstep "S" {\n  static a --> a\n  static a <-> b\n}').document,
+      ),
     ).toEqual([]);
   });
 

@@ -3,6 +3,7 @@ import {
   type BlockLink,
   evaluateMove,
   extent,
+  type FlowContext,
   isClear,
   linkCost,
   refreshSegments,
@@ -57,19 +58,28 @@ function alignmentCandidates(a: Placed, b: Placed): Array<{ x: number; y: number
 }
 
 /** Lines up zone edges where that barely costs anything, so that the result reads as tidy. */
-export function alignEdges(links: readonly BlockLink[], placed: readonly Placed[]): void {
-  let current = linkCost(links, placed);
+export function alignEdges(
+  links: readonly BlockLink[],
+  placed: readonly Placed[],
+  ctx?: FlowContext,
+): void {
+  let current = linkCost(links, placed, ctx);
   let base = current;
-  const tryAlign = (a: Placed, to: { x: number; y: number }) => {
+  const linked = new Set<string>();
+  for (const l of links) {
+    linked.add(`${l.source.block.id}\0${l.target.block.id}`);
+    linked.add(`${l.target.block.id}\0${l.source.block.id}`);
+  }
+  const tryAlign = (a: Placed, to: { x: number; y: number }, tol: number) => {
     const prevX = a.x;
     const prevY = a.y;
     const moved = to.x !== prevX || to.y !== prevY;
     if (!moved || Math.abs(to.x - prevX) > ALIGN_REACH || Math.abs(to.y - prevY) > ALIGN_REACH) {
       return;
     }
-    const change = evaluateMove(links, placed, a, to.x, to.y, a.flip);
+    const change = evaluateMove(links, placed, a, to.x, to.y, a.flip, undefined, 0, 0, 0, ctx);
     if (Number.isNaN(change)) return;
-    if (current + change <= base + ALIGN_TOLERANCE) {
+    if (current + change <= base + tol) {
       current += change;
       base = Math.min(base, current);
     } else {
@@ -82,7 +92,9 @@ export function alignEdges(links: readonly BlockLink[], placed: readonly Placed[
     for (const a of placed) {
       for (const b of placed) {
         if (a === b) continue;
-        for (const to of alignmentCandidates(a, b)) tryAlign(a, to);
+        const tol =
+          !ctx?.preserveFlow || linked.has(`${a.block.id}\0${b.block.id}`) ? ALIGN_TOLERANCE : 0;
+        for (const to of alignmentCandidates(a, b)) tryAlign(a, to, tol);
       }
     }
   }
@@ -93,27 +105,37 @@ export function alignEdges(links: readonly BlockLink[], placed: readonly Placed[
  * and keeps the clearances. The search leaves a zone wherever a random move last helped;
  * this closes the gaps it left, so that linked neighbors end up one clearance apart.
  */
-export function tighten(links: readonly BlockLink[], placed: readonly Placed[]): void {
+export function tighten(
+  links: readonly BlockLink[],
+  placed: readonly Placed[],
+  ctx?: FlowContext,
+): void {
+  const pullWeight = (l: BlockLink, moverId: string): number => {
+    if (l.role === 'primary') return 1;
+    if (l.role === 'return') return 0.08;
+    return l.auxTouch && ctx?.auxiliaryZones.has(moverId) ? 0.8 : 0.05;
+  };
   for (let round = 0; round < 10; round++) {
     let moved = false;
     for (const a of placed) {
-      // Where its links would have no length at all.
+      // Where its links would have no length at all, weighted so return/static links don't drag primary layers.
       let sumX = 0;
       let sumY = 0;
-      let count = 0;
+      let wTotal = 0;
       for (const l of links) {
+        const w = pullWeight(l, a.block.id);
         if (l.source === a) {
-          sumX += l.bx - l.sourceX;
-          sumY += l.by - l.sourceY[a.flip];
-          count++;
+          sumX += (l.bx - l.sourceX) * w;
+          sumY += (l.by - l.sourceY[a.flip]) * w;
+          wTotal += w;
         } else if (l.target === a) {
-          sumX += l.ax - l.targetX;
-          sumY += l.ay - l.targetY[a.flip];
-          count++;
+          sumX += (l.ax - l.targetX) * w;
+          sumY += (l.ay - l.targetY[a.flip]) * w;
+          wTotal += w;
         }
       }
-      if (count === 0) continue;
-      const target = { x: sumX / count, y: sumY / count };
+      if (wTotal === 0) continue;
+      const target = { x: sumX / wTotal, y: sumY / wTotal };
       for (const axis of ['x', 'y'] as const) {
         for (const step of TIGHTEN_STEPS) {
           for (;;) {
@@ -128,6 +150,11 @@ export function tighten(links: readonly BlockLink[], placed: readonly Placed[]):
               axis === 'x' ? next : a.x,
               axis === 'y' ? next : a.y,
               a.flip,
+              undefined,
+              0,
+              0,
+              0,
+              ctx,
             );
             if (Number.isNaN(change)) break;
             if (change < 0) {
@@ -167,6 +194,7 @@ function moveTogether(
   far: readonly Placed[],
   axis: Axis,
   aside: boolean,
+  ctx?: FlowContext,
 ): boolean {
   const { across, acrossSize, acrossClearance } = AXES[axis];
   const home = far.map((p) => ({ x: p.x, y: p.y }));
@@ -182,7 +210,7 @@ function moveTogether(
     const { width, height } = extent(placed);
     return width <= outer.width && height <= outer.height;
   };
-  let best = { cost: linkCost(links, placed), along: 0, step: 0 };
+  let best = { cost: linkCost(links, placed, ctx), along: 0, step: 0 };
   /** Tries the moves that start with that step aside, and tells what stops the part. */
   const slide = (step: number): { stopped: Placed; stopper: Placed } | undefined => {
     put(0, step);
@@ -203,7 +231,7 @@ function moveTogether(
     for (let along = room; along >= COMPACT_MIN_SHIFT; along /= 2) {
       put(along, step);
       if (step !== 0 && !fits()) continue;
-      const cost = linkCost(links, placed);
+      const cost = linkCost(links, placed, ctx);
       if (cost < best.cost) {
         best = { cost, along, step };
         break;
@@ -240,6 +268,7 @@ export function compact(
   links: readonly BlockLink[],
   placed: readonly Placed[],
   aside: boolean,
+  ctx?: FlowContext,
 ): void {
   for (let round = 0; round < COMPACT_ROUNDS; round++) {
     let moved = false;
@@ -247,7 +276,7 @@ export function compact(
       const ordered = [...placed].sort((a, b) => a[axis] - b[axis]);
       for (let cut = 1; cut < ordered.length; cut++) {
         const near = ordered.slice(0, cut);
-        if (moveTogether(links, placed, near, ordered.slice(cut), axis, aside)) moved = true;
+        if (moveTogether(links, placed, near, ordered.slice(cut), axis, aside, ctx)) moved = true;
       }
     }
     if (!moved) break;
@@ -298,6 +327,7 @@ export function straighten(
   links: readonly BlockLink[],
   placed: readonly Placed[],
   worth = STRAIGHT_WORTH,
+  ctx?: FlowContext,
 ): void {
   refreshSegments(links);
   for (let round = 0; round < 4; round++) {
@@ -317,7 +347,7 @@ export function straighten(
       }
       let best: { x: number; y: number; gain: number; reach: number } | undefined;
       for (const to of moves) {
-        const change = evaluateMove(links, placed, a, to.x, to.y, a.flip);
+        const change = evaluateMove(links, placed, a, to.x, to.y, a.flip, undefined, 0, 0, 0, ctx);
         if (Number.isNaN(change)) continue;
         const gain = straightLinks(links, placed, a) - before;
         const reach = Math.abs(to.x - homeX) + Math.abs(to.y - homeY);

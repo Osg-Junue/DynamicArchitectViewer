@@ -1,5 +1,11 @@
 import type { DavDocument } from '../model/types';
-import { analyzeFlow, type FlowAnalysis, type TransitionRole } from './flow';
+import {
+  analyzeFlow,
+  type FlowAnalysis,
+  type PrimaryCorridor,
+  primaryCorridors,
+  type TransitionRole,
+} from './flow';
 import { properlyCross, type Segment, shareStation } from './links';
 import { type Rect, STATION_CENTER } from './metrics';
 import {
@@ -33,6 +39,106 @@ const OFF_FLOW_NONE_ASPECT = 2;
 /** What two links between zones cost for crossing, and one for running through a zone. */
 const CROSSING_COST = 250;
 const THROUGH_COST = 130;
+const STAGE_OVERLAP_COST = 2400;
+const LAYER_INTRUSION_COST = 1200;
+
+export interface FlowContext {
+  preserveFlow: boolean;
+  zoneStage: ReadonlyMap<string, number>;
+  auxiliaryZones: ReadonlySet<string>;
+  stagePairs: ReadonlyArray<readonly [string, string]>;
+  /** Pendant feedback branches (`za -> zb`) aligned under/above `za` without drifting upstream of `za`. */
+  pendantPairs: ReadonlyArray<readonly [string, string]>;
+  corridors: readonly PrimaryCorridor[];
+  /** Pre-indexed block slots for zero-allocation `flowPenalty` checks in `anneal`. */
+  slotOf: ReadonlyMap<string, number>;
+  slots: Array<Placed | undefined>;
+  stagePairIdx: ReadonlyArray<readonly [number, number]>;
+  pendantPairIdx: ReadonlyArray<readonly [number, number]>;
+  corridorIdx: ReadonlyArray<{ a: number; b: number; allowed: ReadonlySet<string> }>;
+}
+
+/** Builds stage progression and primary-corridor metadata for `zoneCost`. */
+export function buildFlowContext(
+  flow: FlowAnalysis,
+  owners: ReadonlyMap<string, string>,
+  preserveFlow: boolean,
+): FlowContext {
+  const allNbrs = new Map<string, Set<string>>();
+  const outPrimary = new Map<string, Set<string>>();
+  const returnPairs = new Set<string>();
+  const rawStagePairs: Array<readonly [string, string]> = [];
+  const seenStagePairs = new Set<string>();
+
+  for (const c of flow.connections) {
+    const za = owners.get(c.from) ?? c.from;
+    const zb = owners.get(c.to) ?? c.to;
+    if (za === zb) continue;
+    if (!allNbrs.has(za)) allNbrs.set(za, new Set());
+    if (!allNbrs.has(zb)) allNbrs.set(zb, new Set());
+    allNbrs.get(za)?.add(zb);
+    allNbrs.get(zb)?.add(za);
+    if (c.role === 'return') {
+      returnPairs.add(`${za}\0${zb}`);
+      continue;
+    }
+    if (c.role !== 'primary') continue;
+    if (flow.auxiliaryZones.has(za) || flow.auxiliaryZones.has(zb)) continue;
+    if (!outPrimary.has(za)) outPrimary.set(za, new Set());
+    outPrimary.get(za)?.add(zb);
+    if ((flow.zoneStage.get(za) ?? 0) < (flow.zoneStage.get(zb) ?? 0)) {
+      const dirKey = `${za}\0${zb}`;
+      if (!seenStagePairs.has(dirKey)) {
+        seenStagePairs.add(dirKey);
+        rawStagePairs.push([za, zb]);
+      }
+    }
+  }
+
+  // Keep pendant local feedback loops (single neighbor `za`, returns to `za`, no further primary
+  // targets while `za` advances elsewhere) free to stack above/below `za` without sliding left of `za`.
+  const stagePairs: Array<readonly [string, string]> = [];
+  const pendantPairs: Array<readonly [string, string]> = [];
+  for (const pair of rawStagePairs) {
+    const [za, zb] = pair;
+    const isPendantFeedback =
+      (allNbrs.get(zb)?.size ?? 0) === 1 &&
+      returnPairs.has(`${zb}\0${za}`) &&
+      (outPrimary.get(zb)?.size ?? 0) === 0 &&
+      (outPrimary.get(za)?.size ?? 0) > 1;
+    if (isPendantFeedback) pendantPairs.push(pair);
+    else stagePairs.push(pair);
+  }
+
+  const corridors = primaryCorridors(flow, owners);
+  const blockIds = [...new Set([...flow.zoneStage.keys(), ...owners.values()])];
+  const slotOf = new Map<string, number>(blockIds.map((id, i) => [id, i]));
+  const indexPairs = (pairs: ReadonlyArray<readonly [string, string]>) =>
+    pairs.flatMap(([a, b]) => {
+      const ia = slotOf.get(a);
+      const ib = slotOf.get(b);
+      return ia !== undefined && ib !== undefined ? ([[ia, ib]] as const) : [];
+    });
+  const corridorIdx = corridors.flatMap(({ a, b, allowed }) => {
+    const ia = slotOf.get(a);
+    const ib = slotOf.get(b);
+    return ia !== undefined && ib !== undefined ? [{ a: ia, b: ib, allowed }] : [];
+  });
+
+  return {
+    preserveFlow,
+    zoneStage: flow.zoneStage,
+    auxiliaryZones: flow.auxiliaryZones,
+    stagePairs,
+    pendantPairs,
+    corridors,
+    slotOf,
+    slots: new Array<Placed | undefined>(blockIds.length),
+    stagePairIdx: indexPairs(stagePairs),
+    pendantPairIdx: indexPairs(pendantPairs),
+    corridorIdx,
+  };
+}
 
 /** A link between two blocks; its `Segment` part is refreshed by every cost evaluation. */
 export interface BlockLink extends Segment {
@@ -122,27 +228,57 @@ function offStraight(l: BlockLink): number {
   return off;
 }
 
-const crossingWeight = (l: BlockLink): number =>
-  l.role === 'primary' ? 1 : l.role === 'return' ? 0.85 : 0.7;
+const crossingWeight = (l: BlockLink, preserveFlow: boolean): number =>
+  preserveFlow
+    ? l.role === 'primary'
+      ? 1.2
+      : l.role === 'return'
+        ? 0.7
+        : 0.5
+    : l.role === 'primary'
+      ? 1
+      : l.role === 'return'
+        ? 0.85
+        : 0.7;
 
-const throughWeight = (l: BlockLink): number =>
-  l.role === 'primary' ? 1 : l.role === 'return' ? 0.8 : 0.75;
+const throughWeight = (l: BlockLink, preserveFlow: boolean): number =>
+  preserveFlow
+    ? l.role === 'primary'
+      ? 1.2
+      : l.role === 'return'
+        ? 0.75
+        : 0.6
+    : l.role === 'primary'
+      ? 1
+      : l.role === 'return'
+        ? 0.8
+        : 0.75;
 
-function shapeCost(l: BlockLink): number {
+function shapeCost(l: BlockLink, preserveFlow: boolean): number {
   const dx = l.bx - l.ax;
   const length = Math.hypot(dx, l.by - l.ay);
   if (l.role === 'return') {
     // Return/feedback links flow right-to-left naturally and should not distort forward zones.
-    return offStraight(l) * 0.8 + length * 0.35;
+    return offStraight(l) * 0.6 + length * 0.15;
   }
   if (l.role === 'static') {
-    const lengthScale = l.auxTouch ? 0.6 : 0.2;
-    const straightScale = l.auxTouch ? 1.2 : 0.5;
+    const lengthScale = l.auxTouch ? 0.35 : 0.05;
+    const straightScale = l.auxTouch ? 1.0 : 0.3;
     return offStraight(l) * straightScale + length * lengthScale;
   }
-  const backward = dx < -30 ? 450 + (-dx) * 0.45 : dx < 0 ? 120 : 0;
+  const backward = preserveFlow
+    ? dx <= 0
+      ? 2200 + -dx * 4.0
+      : dx < 40
+        ? (40 - dx) * 10
+        : 0
+    : dx < -30
+      ? 450 + -dx * 0.45
+      : dx < 0
+        ? 120
+        : 0;
   return (
-    offStraight(l) * OFF_STRAIGHT_WEIGHT +
+    offStraight(l) * (preserveFlow ? 2.5 : OFF_STRAIGHT_WEIGHT) +
     // Every unit of a link counts, and counts again past a comfortable length. Counting only
     // the part past that length left the search with no reason to bring zones together.
     length +
@@ -159,10 +295,10 @@ function offFlow(l: BlockLink): number {
   return l.role === 'static' ? raw * 0.25 : raw;
 }
 
-function crossingCost(s: BlockLink, t: BlockLink): number {
+function crossingCost(s: BlockLink, t: BlockLink, preserveFlow: boolean): number {
   if (s.maxX < t.minX || t.maxX < s.minX || s.maxY < t.minY || t.maxY < s.minY) return 0;
   return !shareStation(s, t) && properlyCross(s, t)
-    ? CROSSING_COST * Math.min(crossingWeight(s), crossingWeight(t))
+    ? CROSSING_COST * Math.min(crossingWeight(s, preserveFlow), crossingWeight(t, preserveFlow))
     : 0;
 }
 
@@ -221,9 +357,9 @@ function zoneObstruction(l: BlockLink, p: Placed): number {
   return runsThroughBox(l.ax, l.ay, l.bx, l.by, left, right, top, bottom) ? THROUGH_COST : 0;
 }
 
-function throughCost(l: BlockLink, placed: readonly Placed[]): number {
+function throughCost(l: BlockLink, placed: readonly Placed[], preserveFlow: boolean): number {
   let total = 0;
-  const w = throughWeight(l);
+  const w = throughWeight(l, preserveFlow);
   for (const p of placed) {
     if (p !== l.source && p !== l.target) total += zoneObstruction(l, p) * w;
   }
@@ -249,31 +385,97 @@ export function extent(placed: readonly Placed[]): { width: number; height: numb
  * What the size of an arrangement costs it, and what each unit its links run off the flow
  * counts in an arrangement of that size.
  */
-function sizeCost(placed: readonly Placed[]): { spread: number; offFlowWeight: number } {
+function sizeCost(
+  placed: readonly Placed[],
+  preserveFlow: boolean,
+): { spread: number; offFlowWeight: number } {
   const { width, height } = extent(placed);
   const narrow =
     (OFF_FLOW_NONE_ASPECT - width / Math.max(1, height)) /
     (OFF_FLOW_NONE_ASPECT - OFF_FLOW_FULL_ASPECT);
+  const minFlow = preserveFlow ? 0.35 : 0;
   return {
     // The longer side of the canvas the arrangement needs: growing along the other side is
     // free, so the search fills the canvas instead of stretching into a strip.
     spread: Math.max(width, height * CANVAS_ASPECT) * 1.2,
-    offFlowWeight: OFF_FLOW_WEIGHT * Math.min(1, Math.max(0, narrow)),
+    offFlowWeight: OFF_FLOW_WEIGHT * Math.min(1, Math.max(minFlow, narrow)),
   };
 }
 
+function flowPenalty(placed: readonly Placed[], ctx?: FlowContext): number {
+  if (!ctx?.preserveFlow) return 0;
+  const { slots, slotOf, stagePairIdx, pendantPairIdx, corridorIdx } = ctx;
+  slots.fill(undefined);
+  for (let i = 0; i < placed.length; i++) {
+    const p = placed[i];
+    if (!p) continue;
+    const idx = slotOf.get(p.block.id);
+    if (idx !== undefined) slots[idx] = p;
+  }
+
+  let penalty = 0;
+  for (let i = 0; i < stagePairIdx.length; i++) {
+    const pair = stagePairIdx[i];
+    if (!pair) continue;
+    const u = slots[pair[0]];
+    const v = slots[pair[1]];
+    if (!u || !v) continue;
+    const overlap = u.x + u.block.width + HORIZONTAL_CLEARANCE - v.x;
+    if (overlap > 0) penalty += STAGE_OVERLAP_COST + overlap * 3.0;
+  }
+  for (let i = 0; i < pendantPairIdx.length; i++) {
+    const pair = pendantPairIdx[i];
+    if (!pair) continue;
+    const u = slots[pair[0]];
+    const v = slots[pair[1]];
+    if (!u || !v) continue;
+    const leftDrift = u.x - v.x;
+    if (leftDrift > 0) penalty += STAGE_OVERLAP_COST + leftDrift * 3.0;
+  }
+  for (let i = 0; i < corridorIdx.length; i++) {
+    const c = corridorIdx[i];
+    if (!c) continue;
+    const ra = slots[c.a];
+    const rb = slots[c.b];
+    if (!ra || !rb) continue;
+    const ax = ra.x + ra.block.width / 2;
+    const bx = rb.x + rb.block.width / 2;
+    const minX = Math.min(ax, bx);
+    const maxX = Math.max(ax, bx);
+    const bandTop = Math.min(ra.y, rb.y);
+    const bandBot = Math.max(ra.y + ra.block.height, rb.y + rb.block.height);
+    for (let j = 0; j < placed.length; j++) {
+      const rc = placed[j];
+      if (!rc || rc === ra || rc === rb || c.allowed.has(rc.block.id)) continue;
+      const cx = rc.x + rc.block.width / 2;
+      if (cx > minX && cx < maxX && rc.y < bandBot && rc.y + rc.block.height > bandTop) {
+        penalty += LAYER_INTRUSION_COST;
+      }
+    }
+  }
+  return penalty;
+}
+
 /** The cost of the whole arrangement. */
-export function linkCost(links: readonly BlockLink[], placed: readonly Placed[]): number {
-  const { spread, offFlowWeight } = sizeCost(placed);
-  let total = spread;
+export function linkCost(
+  links: readonly BlockLink[],
+  placed: readonly Placed[],
+  ctx?: FlowContext,
+): number {
+  const preserveFlow = ctx?.preserveFlow ?? false;
+  const { spread, offFlowWeight } = sizeCost(placed, preserveFlow);
+  let total = spread + flowPenalty(placed, ctx);
   for (let i = 0; i < links.length; i++) {
     const s = links[i];
     if (!s) continue;
     updateSegment(s);
-    total += shapeCost(s) + offFlow(s) * offFlowWeight + throughCost(s, placed);
+    total +=
+      shapeCost(s, preserveFlow) +
+      offFlow(s) * offFlowWeight +
+      throughCost(s, placed, preserveFlow);
     for (let j = 0; j < i; j++) {
       const t = links[j];
-      if (t) total += crossingCost(s, t);
+      if (t) total += crossingCost(s, t, preserveFlow);
     }
   }
   return total;
@@ -294,14 +496,16 @@ function movedCost(
   a: Placed,
   b: Placed | undefined,
   refreshTouching: boolean,
+  ctx?: FlowContext,
 ): number {
-  const { spread, offFlowWeight } = sizeCost(placed);
-  let total = spread;
+  const preserveFlow = ctx?.preserveFlow ?? false;
+  const { spread, offFlowWeight } = sizeCost(placed, preserveFlow);
+  let total = spread + flowPenalty(placed, ctx);
   for (let i = 0; i < links.length; i++) {
     const s = links[i];
     if (!s) continue;
     if (!touches(s, a, b)) {
-      const w = throughWeight(s);
+      const w = throughWeight(s, preserveFlow);
       total += zoneObstruction(s, a) * w;
       if (b) total += zoneObstruction(s, b) * w;
     } else if (refreshTouching) {
@@ -312,10 +516,10 @@ function movedCost(
   for (let i = 0; i < links.length; i++) {
     const s = links[i];
     if (!s || !touches(s, a, b)) continue;
-    total += shapeCost(s) + throughCost(s, placed);
+    total += shapeCost(s, preserveFlow) + throughCost(s, placed, preserveFlow);
     for (let j = 0; j < links.length; j++) {
       const t = links[j];
-      if (t && j !== i && (j > i || !touches(t, a, b))) total += crossingCost(s, t);
+      if (t && j !== i && (j > i || !touches(t, a, b))) total += crossingCost(s, t, preserveFlow);
     }
   }
   return total;
@@ -363,6 +567,7 @@ export function evaluateMove(
   nextOX = 0,
   nextOY = 0,
   nextOFlip: 0 | 1 = 0,
+  ctx?: FlowContext,
 ): number {
   const prevAX = a.x;
   const prevAY = a.y;
@@ -390,7 +595,7 @@ export function evaluateMove(
   }
   if (!clear) return Number.NaN;
 
-  const before = movedCost(links, placed, a, other, false);
+  const before = movedCost(links, placed, a, other, false, ctx);
   a.x = nextAX;
   a.y = nextAY;
   a.flip = nextAFlip;
@@ -399,7 +604,7 @@ export function evaluateMove(
     other.y = nextOY;
     other.flip = nextOFlip;
   }
-  return movedCost(links, placed, a, other, true) - before;
+  return movedCost(links, placed, a, other, true, ctx) - before;
 }
 
 /** No other node of the zone stands beside the node on that side: 0 right, 1 left, 2 below, 3 above. */

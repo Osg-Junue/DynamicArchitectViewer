@@ -119,7 +119,10 @@ export function stepConnections(
     accumulateStatement(acc, s.from, s.to, s.style, s.direction, 'static', s.label, s.color);
   }
   return [...acc.values()].map((entry) => {
-    const base = toConnection(entry, canonicalIds.get(entry.key) ?? implicitEdgeId(entry.from, entry.to));
+    const base = toConnection(
+      entry,
+      canonicalIds.get(entry.key) ?? implicitEdgeId(entry.from, entry.to),
+    );
     const result: StepConnection = { ...base };
     if (entry.staticColor !== undefined) result.staticColor = entry.staticColor;
     if (entry.staticLabel !== undefined) result.staticLabel = entry.staticLabel;

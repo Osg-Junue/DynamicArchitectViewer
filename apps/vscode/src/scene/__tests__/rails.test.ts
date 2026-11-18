@@ -332,32 +332,33 @@ describe('the rails of a diagram', () => {
     expect(rail && 'points' in rail && rail.points.length).toBe(2);
   });
 
-  it.each(
-    LARGE_DIAGRAMS.filter(([, dsl]) => selfLoopNodeIds(parse(dsl).document).size > 0),
-  )('%s: no label of another edge is written over the label of a loop', (_, dsl) => {
-    // A loop's label has a place of its own, above its curve, where the rails that leave the
-    // same station run past: their labels must keep clear of it.
-    const doc = parse(dsl).document;
-    const layout = computeLayout(doc);
-    let checked = 0;
-    for (let i = 0; i < doc.steps.length; i++) {
-      const view = resolveView(doc, layout, i);
-      const areaOf = (e: ResolvedView['edges'][number]): Rect[] =>
-        e.label && e.labelAt ? [edgeLabelArea(e.label, e.labelAt)] : [];
-      const ofLoops = view.edges.filter((e) => e.from === e.to).flatMap(areaOf);
-      if (ofLoops.length === 0) continue;
-      checked++;
-      for (const e of view.edges.filter((e) => e.from !== e.to)) {
-        for (const area of areaOf(e)) {
-          expect(
-            ofLoops.some((loop) => rectOverlaps(area, loop)),
-            `label of ${e.id} over the label of a loop`,
-          ).toBe(false);
+  it.each(LARGE_DIAGRAMS.filter(([, dsl]) => selfLoopNodeIds(parse(dsl).document).size > 0))(
+    '%s: no label of another edge is written over the label of a loop',
+    (_, dsl) => {
+      // A loop's label has a place of its own, above its curve, where the rails that leave the
+      // same station run past: their labels must keep clear of it.
+      const doc = parse(dsl).document;
+      const layout = computeLayout(doc);
+      let checked = 0;
+      for (let i = 0; i < doc.steps.length; i++) {
+        const view = resolveView(doc, layout, i);
+        const areaOf = (e: ResolvedView['edges'][number]): Rect[] =>
+          e.label && e.labelAt ? [edgeLabelArea(e.label, e.labelAt)] : [];
+        const ofLoops = view.edges.filter((e) => e.from === e.to).flatMap(areaOf);
+        if (ofLoops.length === 0) continue;
+        checked++;
+        for (const e of view.edges.filter((e) => e.from !== e.to)) {
+          for (const area of areaOf(e)) {
+            expect(
+              ofLoops.some((loop) => rectOverlaps(area, loop)),
+              `label of ${e.id} over the label of a loop`,
+            ).toBe(false);
+          }
         }
       }
-    }
-    expect(checked).toBeGreaterThan(0);
-  });
+      expect(checked).toBeGreaterThan(0);
+    },
+  );
 
   it('is drawn as wide as the routing takes a rail to be', () => {
     // The width is in the stylesheet, and the least distance between two rails is worked

@@ -1,7 +1,7 @@
 import { synthesizedConnections } from '../model/connections';
 import type { DavConnection, DavDocument } from '../model/types';
-import { idPair, parentMap, topLevelGroups, zoneOfGroups, zoneOfNodes } from '../model/zones';
-import { analyzeFlow, type FlowAnalysis, flowPairKey } from './flow';
+import { parentMap, topLevelGroups, zoneOfGroups, zoneOfNodes } from '../model/zones';
+import { analyzeFlow, canReach, type FlowAnalysis, flowPairKey } from './flow';
 import { linksOf, segmentsOf } from './links';
 import {
   EMPTY_GROUP_CONTENT,
@@ -22,6 +22,7 @@ export const LONG_LINK = 700;
 export const HORIZONTAL_CLEARANCE = 60;
 export const VERTICAL_CLEARANCE = 34;
 const COLUMN_GAP = 150;
+const STAGE_GAP = 80;
 const ROW_GAP = 44;
 
 /**
@@ -33,6 +34,7 @@ export type ColumnLayout = (
   doc: DavDocument,
   rankOverrides?: ReadonlyMap<string, number>,
   connections?: readonly DavConnection[],
+  flow?: FlowAnalysis,
 ) => Layout;
 
 /** Where the search put each zone. It holds no sizes, so it can be applied to resized zones. */
@@ -77,7 +79,7 @@ export function hasZonesToPlace(doc: Pick<DavDocument, 'groups'>): boolean {
   return topLevelGroups(doc.groups).length >= MIN_ZONES;
 }
 
-export const pairKey = (a: string, b: string): string => (a < b ? idPair(a, b) : idPair(b, a));
+export const pairKey = flowPairKey;
 
 /**
  * How much the links exceed a comfortable length. Steps do not count: a packet that goes there
@@ -93,11 +95,22 @@ export function longLinkExcess(doc: DavDocument, layout: Layout): number {
 
 /** Everything the placement of the zones depends on, so other edits can reuse the last one. */
 export function structureKey(doc: DavDocument): string {
-  const flow = analyzeFlow(doc);
+  const connections = synthesizedConnections(doc);
+  const flow = analyzeFlow(doc, connections);
+  const dirByPair = new Map(connections.map((c) => [pairKey(c.from, c.to), c.direction]));
+  const selfLoops = [
+    ...new Set(connections.filter((c) => c.from === c.to).map((c) => c.from)),
+  ].sort();
   return JSON.stringify([
     doc.nodes.map((n) => [n.id, n.parentId ?? '']),
     doc.groups.map((g) => [g.id, g.parentId ?? '']),
-    flow.connections.map((c) => [c.from, c.to, c.role]),
+    flow.connections.map((c) => [
+      c.from,
+      c.to,
+      c.role,
+      c.role === 'static' ? (dirByPair.get(pairKey(c.from, c.to)) ?? 'forward') : '',
+    ]),
+    selfLoops,
   ]);
 }
 
@@ -199,6 +212,91 @@ function computeFlipMetadata(
   return { groupsFlipped, reflectConst };
 }
 
+/** Builds local role classification and acyclic forward ranking edges inside one top-level zone. */
+export function intraZoneFlow(
+  ids: ReadonlySet<string>,
+  connections: readonly DavConnection[],
+  docFlow: FlowAnalysis,
+  owners: ReadonlyMap<string, string>,
+): FlowAnalysis {
+  const localConns = docFlow.connections.filter((c) => ids.has(c.from) && ids.has(c.to));
+  const primaryConns = localConns.filter((c) => c.role === 'primary');
+  const staticConns = localConns.filter((c) => c.role === 'static');
+  const bidirStatic = new Set<string>();
+  for (const c of connections) {
+    if (c.direction === 'bidirectional') {
+      bidirStatic.add(pairKey(c.from, c.to));
+    }
+  }
+
+  // Score each node's external pull: negative = pulled left (receives from earlier stage), positive = pulled right (feeds later stage).
+  const extBias = new Map<string, number>();
+  const myZone = [...ids].map((id) => owners.get(id)).find((z) => z !== undefined);
+  const myStage = myZone !== undefined ? (docFlow.zoneStage.get(myZone) ?? 0) : 0;
+  for (const c of docFlow.connections) {
+    const inFrom = ids.has(c.from);
+    const inTo = ids.has(c.to);
+    if (inFrom === inTo) continue;
+    const other = inFrom ? c.to : c.from;
+    const otherZone = owners.get(other) ?? other;
+    const otherStage = docFlow.zoneStage.get(otherZone) ?? myStage;
+    const delta = otherStage - myStage;
+    const w = c.role === 'primary' ? 3 : c.role === 'static' ? 1 : 0.2;
+    const self = inFrom ? c.from : c.to;
+    const sign = delta !== 0 ? Math.sign(delta) : inFrom ? 1 : -1;
+    extBias.set(self, (extBias.get(self) ?? 0) + sign * w);
+  }
+
+  const forwardEdges: Array<readonly [string, string]> = [];
+  if (primaryConns.length === 0) {
+    for (const c of staticConns) {
+      const k = pairKey(c.from, c.to);
+      if (bidirStatic.has(k) && (extBias.get(c.from) ?? 0) > (extBias.get(c.to) ?? 0)) {
+        forwardEdges.push([c.to, c.from]);
+      } else {
+        forwardEdges.push([c.from, c.to]);
+      }
+    }
+  } else {
+    const adj = new Map<string, Set<string>>();
+    const add = (u: string, v: string) => {
+      let s = adj.get(u);
+      if (!s) {
+        s = new Set();
+        adj.set(u, s);
+      }
+      s.add(v);
+    };
+    for (const c of primaryConns) {
+      add(c.from, c.to);
+      forwardEdges.push([c.from, c.to]);
+    }
+    for (const c of staticConns) {
+      const k = pairKey(c.from, c.to);
+      let u = c.from;
+      let v = c.to;
+      if (bidirStatic.has(k) && (extBias.get(u) ?? 0) > (extBias.get(v) ?? 0)) {
+        u = c.to;
+        v = c.from;
+      }
+      if (!canReach(adj, v, u)) {
+        add(u, v);
+        forwardEdges.push([u, v]);
+      }
+    }
+  }
+
+  return {
+    connections: localConns,
+    byPair: new Map(),
+    forwardEdges,
+    hasAnimate: primaryConns.length > 0 || localConns.some((c) => c.role === 'return'),
+    zoneStage: new Map(),
+    auxiliaryZones: new Set(),
+    primaryZonePairs: new Set(),
+  };
+}
+
 /** One top-level zone laid out on its own, as a piece the search moves about. */
 export function buildSingleZoneBlock(
   doc: DavDocument,
@@ -207,6 +305,7 @@ export function buildSingleZoneBlock(
   rankOverrides?: ReadonlyMap<string, number>,
   zoneOf: ReadonlyMap<string, string> = zoneOfGroups(doc.groups),
   owners: ReadonlyMap<string, string> = ownersOf(doc),
+  docFlow: FlowAnalysis = analyzeFlow(doc),
 ): Block {
   const pad = GROUP_PADDING;
   const nodes = doc.nodes.filter((n) => owners.get(n.id) === zoneId).map((n) => detach(n, zoneId));
@@ -251,6 +350,7 @@ export function buildSingleZoneBlock(
     { ...doc, nodes, groups: nested, steps: loopSteps },
     rankOverrides,
     connections,
+    intraZoneFlow(ids, connections, docFlow, owners),
   );
   const bounds = enclosingRect([...Object.values(local.nodes), ...Object.values(local.groups)]);
   const width = bounds.width + pad * 2;
@@ -288,6 +388,7 @@ export function buildBlocks(
   doc: DavDocument,
   columnLayout: ColumnLayout,
   ranksByZone?: ReadonlyMap<string, ReadonlyMap<string, number>>,
+  docFlow: FlowAnalysis = analyzeFlow(doc),
 ): { blocks: Block[]; owners: Map<string, string> } {
   const zoneOf = zoneOfGroups(doc.groups);
   const owners = ownersOf(doc);
@@ -295,7 +396,15 @@ export function buildBlocks(
   const blocks: Block[] = [];
   for (const zone of topLevelGroups(doc.groups)) {
     blocks.push(
-      buildSingleZoneBlock(doc, zone.id, columnLayout, ranksByZone?.get(zone.id), zoneOf, owners),
+      buildSingleZoneBlock(
+        doc,
+        zone.id,
+        columnLayout,
+        ranksByZone?.get(zone.id),
+        zoneOf,
+        owners,
+        docFlow,
+      ),
     );
   }
   for (const n of doc.nodes) {
@@ -317,6 +426,53 @@ export function buildBlocks(
   return { blocks, owners };
 }
 
+/** Partitions blocks into primary stage columns (left-to-right by `zoneStage`) and auxiliary bands. */
+export function stageColumns(
+  blocks: readonly Block[],
+  flow: FlowAnalysis,
+): { primary: Block[]; auxiliary: Block[]; columns: Block[][] } {
+  const primary = blocks.filter((b) => !flow.auxiliaryZones.has(b.id));
+  const auxiliary = blocks.filter((b) => flow.auxiliaryZones.has(b.id));
+  if (primary.length === 0) {
+    primary.push(...auxiliary);
+    auxiliary.length = 0;
+  }
+  const stageNumbers = [...new Set(primary.map((b) => flow.zoneStage.get(b.id) ?? 0))].sort(
+    (a, b) => a - b,
+  );
+  const columns = stageNumbers.map((stage) =>
+    primary.filter((b) => (flow.zoneStage.get(b.id) ?? 0) === stage),
+  );
+  return { primary, auxiliary, columns };
+}
+
+/**
+ * Whether the staged left-to-right flow fits without strip wrapping (true for real multi-layer
+ * architectures, false for static-only graphs or ultra-wide 6+ zone strips that wrap across rows).
+ */
+export function shouldPreserveFlow(blocks: readonly Block[], flow: FlowAnalysis): boolean {
+  if (!flow.hasAnimate) return false;
+  const { auxiliary, columns } = stageColumns(blocks, flow);
+  if (columns.length === 0) return true;
+  const maxWidthOfCols = columns.reduce(
+    (sum, col) => sum + Math.max(...col.map((b) => b.width)),
+    Math.max(0, columns.length - 1) * STAGE_GAP,
+  );
+  if (columns.length >= 6 && maxWidthOfCols > 3200) return false;
+  const tallestPrimary = Math.max(
+    0,
+    ...columns.map(
+      (col) => col.reduce((s, b) => s + b.height, 0) + Math.max(0, col.length - 1) * ROW_GAP,
+    ),
+  );
+  const auxExtra =
+    auxiliary.length > 0
+      ? Math.max(...auxiliary.map((b) => b.height)) + VERTICAL_CLEARANCE + 24
+      : 0;
+  const stagedHeight = tallestPrimary + auxExtra;
+  return maxWidthOfCols / Math.max(1, stagedHeight) <= 10;
+}
+
 /**
  * Starting point for zone placement: arranges primary blocks left-to-right by flow stage,
  * wraps over-wide synthetic chains into compact rows, and places auxiliary cross-cutting zones
@@ -330,29 +486,14 @@ export function initialPositions(
   flow: FlowAnalysis = analyzeFlow(doc),
 ): Map<string, { x: number; y: number }> {
   const blockById = new Map(blocks.map((b) => [b.id, b]));
-  const primary = blocks.filter((b) => !flow.auxiliaryZones.has(b.id));
-  const auxiliary = blocks.filter((b) => flow.auxiliaryZones.has(b.id));
+  const { auxiliary, columns } = stageColumns(blocks, flow);
 
-  // If every zone was marked auxiliary, fall back to treating all blocks as primary.
-  if (primary.length === 0) {
-    primary.push(...auxiliary);
-    auxiliary.length = 0;
-  }
-
-  const stageNumbers = [...new Set(primary.map((b) => flow.zoneStage.get(b.id) ?? 0))].sort(
-    (a, b) => a - b,
-  );
-  const columns: Block[][] = stageNumbers.map((stage) =>
-    primary.filter((b) => (flow.zoneStage.get(b.id) ?? 0) === stage),
-  );
-
-  // Check if primary columns have many linear stages (e.g. long 8+ zone chains); fall back
-  // to column-grid grouping or wrap rows only when primary backbone is over-wide.
+  // Check if primary columns form an ultra-wide synthetic strip; wrap rows only when needed.
   const maxWidthOfCols = columns.reduce(
     (sum, col) => sum + Math.max(...col.map((b) => b.width)),
     Math.max(0, columns.length - 1) * COLUMN_GAP,
   );
-  if (columns.length >= 6 && maxWidthOfCols > 3200) {
+  if (!shouldPreserveFlow(blocks, flow)) {
     // Wrap long chains cleanly left-to-right across 2..3 horizontal bands.
     const rowWidthTarget = Math.max(1600, maxWidthOfCols / Math.ceil(columns.length / 4));
     const rows: Block[][][] = [[]];
@@ -425,7 +566,7 @@ export function initialPositions(
       out.set(b.id, { x, y });
       y += b.height + ROW_GAP;
     }
-    x += Math.max(...column.map((b) => b.width)) + COLUMN_GAP;
+    x += Math.max(...column.map((b) => b.width)) + STAGE_GAP;
   }
 
   placeAuxiliaryBlocks(auxiliary, blockById, owners, flow, out);
@@ -470,7 +611,27 @@ function placeAuxiliaryBlocks(
       const nb = blockById.get(n);
       return p && nb && !flow.auxiliaryZones.has(n) ? [p.x + nb.width / 2] : [];
     });
-    return xs.length > 0 ? xs.reduce((s, v) => s + v, 0) / xs.length : midX;
+    const mean = xs.length > 0 ? xs.reduce((s, v) => s + v, 0) / xs.length : midX;
+    // Keep auxiliary blocks that receive primary edges rightward of those source stations.
+    let minTargetCenter = Number.NEGATIVE_INFINITY;
+    const block = blockById.get(id);
+    if (block) {
+      for (const c of flow.connections) {
+        if (c.role !== 'primary') continue;
+        const bu = owners.get(c.from);
+        const bv = owners.get(c.to);
+        if (bv !== id || !bu || bu === id || flow.auxiliaryZones.has(bu)) continue;
+        const sp = out.get(bu);
+        const sn = blockById.get(bu)?.nodes.get(c.from);
+        const tn = block.nodes.get(c.to);
+        if (sp && sn && tn) {
+          const srcX = sp.x + sn.x + sn.width / 2;
+          const relTargetX = tn.x + tn.width / 2;
+          minTargetCenter = Math.max(minTargetCenter, srcX + 24 - relTargetX + block.width / 2);
+        }
+      }
+    }
+    return Math.max(mean, minTargetCenter);
   };
 
   // Sort auxiliary blocks by barycenter X and alternate below/above bands so they stay clear.

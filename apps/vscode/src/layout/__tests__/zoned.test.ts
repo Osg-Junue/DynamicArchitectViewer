@@ -109,7 +109,12 @@ describe('zoned placement', () => {
     const links: string[] = [];
     for (let n = 0; n < 8; n++) lines.push(`  node e${n}`);
     lines.push('}', 'group front {', '  node f0', '  node f1', '  node f2', '  node f3', '}');
-    links.push('  animate f0 --> f2', '  animate f1 --> f2', '  animate f2 --> f3', '  animate e0 --> f0');
+    links.push(
+      '  animate f0 --> f2',
+      '  animate f1 --> f2',
+      '  animate f2 --> f3',
+      '  animate e0 --> f0',
+    );
     for (let n = 0; n < 8; n++) links.push(`  animate e${n} --> f${n < 2 ? 1 : 2}`);
     for (let z = 0; z < 7; z++) {
       lines.push(`group z${z} {`);
@@ -149,7 +154,8 @@ describe('zoned placement', () => {
       lines.push(`group z${z} {`);
       for (let n = 0; n < 6; n++) lines.push(`  node z${z}n${n}`);
       lines.push('}');
-      for (let n = 1; n < 6; n++) links.push(`  animate z${z}n${n - (n % 3 === 0 ? 2 : 1)} --> z${z}n${n}`);
+      for (let n = 1; n < 6; n++)
+        links.push(`  animate z${z}n${n - (n % 3 === 0 ? 2 : 1)} --> z${z}n${n}`);
       if (z > 0) links.push(`  animate z${z - 1}n5 --> z${z}n0`);
       if (z > 2) links.push(`  animate z${z - 3}n1 --> z${z}n5`);
     }
@@ -284,7 +290,10 @@ step "S" {
     const LONG = 'A label long enough to widen the gap between two columns';
     const labeled = (label: string) =>
       parse(
-        bigDiagram().replace('step "Hop"', `step "Static" {\n  static z1n0 --> z1n1 : "${label}"\n}\nstep "Hop"`),
+        bigDiagram().replace(
+          'step "Hop"',
+          `step "Static" {\n  static z1n0 --> z1n1 : "${label}"\n}\nstep "Hop"`,
+        ),
       ).document;
 
     it('leaves everything in place for a label that fits the gap', () => {

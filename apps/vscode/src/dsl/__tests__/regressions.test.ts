@@ -87,7 +87,9 @@ describe('color values', () => {
   });
 
   it('treats color names case-insensitively', () => {
-    const { document, diagnostics } = parse('node a [color: Red]\nnode b [color: YELLOW]\nstep "s" {}');
+    const { document, diagnostics } = parse(
+      'node a [color: Red]\nnode b [color: YELLOW]\nstep "s" {}',
+    );
     expect(diagnostics).toEqual([]);
     expect(document.nodes.map((n) => n.color)).toEqual(['red', 'yellow']);
   });

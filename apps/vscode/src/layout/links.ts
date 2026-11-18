@@ -70,3 +70,14 @@ export function crossingsOf(segments: readonly Segment[]): number {
 export function countCrossings(doc: DavDocument, layout: Layout): number {
   return crossingsOf(segmentsOf(linksOf(doc), layout));
 }
+
+/** Crossings between straight segments of `'primary'` connections. */
+export function primaryCrossingsOf(
+  connections: ReadonlyArray<{ from: string; to: string; role: string }>,
+  layout: Pick<Layout, 'nodes'>,
+): number {
+  const primaryLinks: Link[] = connections
+    .filter((c) => c.role === 'primary')
+    .map((c) => [c.from, c.to]);
+  return crossingsOf(segmentsOf(primaryLinks, layout));
+}

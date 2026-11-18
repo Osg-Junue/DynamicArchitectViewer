@@ -1,4 +1,5 @@
 import type { DavDocument } from '../model/types';
+import { analyzeFlow, flowPairKey } from './flow';
 import { type Link, linksOf, properlyCross, type Segment, shareStation } from './links';
 import {
   GROUP_HEADER,
@@ -9,6 +10,7 @@ import {
   STATION_CENTER,
   selfLoopRoom,
 } from './metrics';
+import { ownersOf } from './zoneBlocks';
 
 /** How far a node moves to put one of its links level or upright. */
 const REACH = 60;
@@ -51,6 +53,8 @@ export function straightenNodes(doc: DavDocument, layout: Layout): Layout {
   const loopRoom = selfLoopRoom(doc);
   const parentOf = new Map(doc.nodes.map((n) => [n.id, n.parentId]));
   const groupParent = new Map(doc.groups.map((g) => [g.id, g.parentId]));
+  const flow = analyzeFlow(doc);
+  const owners = ownersOf(doc);
   const links = linksOf(doc);
   const linksAt = new Map<string, Link[]>();
   for (const link of links) {
@@ -144,9 +148,26 @@ export function straightenNodes(doc: DavDocument, layout: Layout): Layout {
       });
     };
     const touched = linksOfAll(ids);
+    const interZonePrimaryBefore: Array<{ from: string; to: string; linkDx: number }> = [];
+    if (dx !== 0) {
+      for (const link of touched) {
+        const conn = flow.byPair.get(flowPairKey(link[0], link[1]));
+        if (conn?.role === 'primary' && owners.get(conn.from) !== owners.get(conn.to)) {
+          const linkDx =
+            stationOf(nodes[conn.to] as Rect).x - stationOf(nodes[conn.from] as Rect).x;
+          interZonePrimaryBefore.push({ from: conn.from, to: conn.to, linkDx });
+        }
+      }
+    }
     const before = straightOf(touched);
     shift(ids, dx, dy);
-    if (!ids.every((id) => isClear(id, nodes[id] as Rect))) {
+    if (
+      interZonePrimaryBefore.some(({ from, to, linkDx }) => {
+        const nextDx = stationOf(nodes[to] as Rect).x - stationOf(nodes[from] as Rect).x;
+        return linkDx > 0 ? nextDx <= 0 : nextDx < linkDx;
+      }) ||
+      !ids.every((id) => isClear(id, nodes[id] as Rect))
+    ) {
       goHome();
       return 0;
     }

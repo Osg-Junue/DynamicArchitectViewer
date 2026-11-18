@@ -2,8 +2,8 @@ import { synthesizedConnections } from '../model/connections';
 import { pushToMap } from '../model/text';
 import type { DavDocument } from '../model/types';
 import { parentMap, topLevelGroups, zoneOfGroups } from '../model/zones';
-import { analyzeFlow } from './flow';
-import { countCrossings, type Link, linksOf } from './links';
+import { analyzeFlow, type FlowAnalysis, flowPairKey } from './flow';
+import { countCrossings, type Link, linksOf, primaryCrossingsOf } from './links';
 import { NODE_SIZE, ORIGIN, type Rect, STATION_CENTER } from './metrics';
 import { computeRanks, type RankResult } from './ranks';
 import {
@@ -13,14 +13,18 @@ import {
   type ColumnLayout,
   flippedY,
   initialPositions,
+  intraZoneFlow,
   type Placed,
+  shouldPreserveFlow,
   toLayout,
   type ZonePlacement,
 } from './zoneBlocks';
 import {
   type BlockLink,
+  buildFlowContext,
   buildLinks,
   evaluateMove,
+  type FlowContext,
   isClear,
   linkCost,
   refreshSegments,
@@ -81,8 +85,13 @@ function restore(placed: readonly Placed[], poses: readonly Pose[]): void {
   });
 }
 
-function anneal(links: readonly BlockLink[], placed: Placed[], random: () => number): void {
-  let current = linkCost(links, placed);
+function anneal(
+  links: readonly BlockLink[],
+  placed: Placed[],
+  random: () => number,
+  ctx?: FlowContext,
+): void {
+  let current = linkCost(links, placed, ctx);
   let best = current;
   const bestState = posesOf(placed);
   let temperature = START_TEMPERATURE;
@@ -134,6 +143,7 @@ function anneal(links: readonly BlockLink[], placed: Placed[], random: () => num
       nextOX,
       nextOY,
       nextOFlip,
+      ctx,
     );
     if (Number.isNaN(change)) continue;
     if (change <= 0 || random() < Math.exp(-change / temperature)) {
@@ -271,6 +281,8 @@ interface ZoneSlackMeta {
 interface Arrangement {
   placed: Placed[];
   links: BlockLink[];
+  flow: FlowAnalysis;
+  flowCtx: FlowContext;
   start: ReadonlyMap<string, { x: number; y: number }>;
   nodeParent: ReadonlyMap<string, string | undefined>;
   owners: ReadonlyMap<string, string>;
@@ -292,9 +304,24 @@ function cloneBlockNodes(block: Block): Block {
   };
 }
 
+function diagramCrossingPenalty(
+  doc: DavDocument,
+  layout: ReturnType<typeof toLayout>,
+  flow: FlowAnalysis,
+  preserveFlow: boolean,
+): number {
+  const total = countCrossings(doc, layout);
+  if (total === 0) return 0;
+  if (!preserveFlow) return total * DIAGRAM_CROSSING_COST;
+  return total * DIAGRAM_CROSSING_COST + primaryCrossingsOf(flow.connections, layout) * 160;
+}
+
 function arrange(doc: DavDocument, columnLayout: ColumnLayout): Arrangement {
-  const { blocks, owners } = buildBlocks(doc, columnLayout);
-  const start = initialPositions(doc, blocks, owners, columnLayout);
+  const flow = analyzeFlow(doc);
+  const { blocks, owners } = buildBlocks(doc, columnLayout, undefined, flow);
+  const preserveFlow = shouldPreserveFlow(blocks, flow);
+  const flowCtx = buildFlowContext(flow, owners, preserveFlow);
+  const start = initialPositions(doc, blocks, owners, columnLayout, flow);
   const placed: Placed[] = blocks.map((block) => ({ block, x: 0, y: 0, flip: 0 }));
   const connections = synthesizedConnections(doc);
   const adj = new Map<string, string[]>();
@@ -313,17 +340,8 @@ function arrange(doc: DavDocument, columnLayout: ColumnLayout): Arrangement {
       if (!topIds.has(block.id) || block.nodes.size < 2) continue;
       const nodeIds = doc.nodes.filter((n) => owners.get(n.id) === block.id).map((n) => n.id);
       const idSet = new Set(nodeIds);
-      const intraConns = connections.filter((e) => idSet.has(e.from) && idSet.has(e.to) && e.from !== e.to);
-      const intraSteps = doc.steps.map((s) => ({
-        ...s,
-        animations: s.animations.filter((a) => idSet.has(a.from) && idSet.has(a.to)),
-        statics: s.statics.filter((st) => idSet.has(st.from) && idSet.has(st.to)),
-      }));
-      const intraFlow = analyzeFlow(
-        { ...doc, nodes: doc.nodes.filter((n) => idSet.has(n.id)), groups: [], steps: intraSteps },
-        intraConns,
-      );
-      const intraEdges = intraFlow.forwardEdges;
+      const localFlow = intraZoneFlow(idSet, connections, flow, owners);
+      const intraEdges = localFlow.forwardEdges;
       const ranks = computeRanks(nodeIds, intraEdges);
       const maxRank = Math.max(0, ...ranks.rank.values());
       if (maxRank < 1) continue;
@@ -347,7 +365,9 @@ function arrange(doc: DavDocument, columnLayout: ColumnLayout): Arrangement {
   }
   return {
     placed,
-    links: buildLinks(doc, placed),
+    links: buildLinks(doc, placed, flow),
+    flow,
+    flowCtx,
     start,
     nodeParent: parentMap(doc.nodes),
     owners,
@@ -376,6 +396,8 @@ function optimizeZoneSlackRanks(
   baseOrders: Map<string, readonly string[]>,
   slackMeta: ReadonlyMap<string, ZoneSlackMeta>,
   blockCache: Map<string, Block>,
+  flow: FlowAnalysis,
+  flowCtx: FlowContext,
 ): Map<string, Readonly<Record<string, number>>> {
   const chosenByZone = new Map<string, Readonly<Record<string, number>>>();
   if (slackMeta.size === 0) return chosenByZone;
@@ -430,7 +452,11 @@ function optimizeZoneSlackRanks(
         for (let c = loR; c <= hiR; c++) {
           const absX = zoneLeft + (colRelXs[c] as number) + NODE_SIZE.width / 2;
           let cost = c * 2;
-          for (const v of extNeighbors) cost += Math.abs(absX - centerX(v));
+          for (const v of extNeighbors) {
+            const role = flow.byPair.get(flowPairKey(u, v))?.role ?? 'static';
+            const rw = role === 'primary' ? 1.0 : role === 'return' ? 0.25 : 0.1;
+            cost += Math.abs(absX - centerX(v)) * rw;
+          }
           cost += Math.max(0, (counts[c] ?? 0) - minCount) * balanceWeight;
           if (cost < bestCost) {
             bestCost = cost;
@@ -462,15 +488,16 @@ function optimizeZoneSlackRanks(
       triedKeys.add(cacheKey);
 
       if (curTotal === undefined) {
-        const curLinks = buildLinks(doc, placed);
+        const curLinks = buildLinks(doc, placed, flow);
         refreshSegments(curLinks);
         curTotal =
-          linkCost(curLinks, placed) + countCrossings(doc, layoutNow) * DIAGRAM_CROSSING_COST;
+          linkCost(curLinks, placed, flowCtx) +
+          diagramCrossingPenalty(doc, layoutNow, flow, flowCtx.preserveFlow);
       }
 
       let cached = blockCache.get(cacheKey);
       if (!cached) {
-        cached = buildSingleZoneBlock(doc, zoneId, columnLayout, cand, zoneOf, owners);
+        cached = buildSingleZoneBlock(doc, zoneId, columnLayout, cand, zoneOf, owners, flow);
         blockCache.set(cacheKey, cached);
       }
       const nextBlock = cloneBlockNodes(cached);
@@ -478,11 +505,11 @@ function optimizeZoneSlackRanks(
         p.block = nextBlock;
         p.x = tryX;
         if (isClear(p, placed)) {
-          const tLinks = buildLinks(doc, placed);
+          const tLinks = buildLinks(doc, placed, flow);
           refreshSegments(tLinks);
           const score =
-            linkCost(tLinks, placed) +
-            countCrossings(doc, toLayout(placed)) * DIAGRAM_CROSSING_COST;
+            linkCost(tLinks, placed, flowCtx) +
+            diagramCrossingPenalty(doc, toLayout(placed), flow, flowCtx.preserveFlow);
           if (score < curTotal - 1) {
             curTotal = score;
             bestBlock = nextBlock;
@@ -520,6 +547,7 @@ function refineZoneNodeOrder(
   adj: ReadonlyMap<string, readonly string[]>,
   docLinks: readonly Link[],
   richRefine: boolean,
+  flow: FlowAnalysis,
 ): boolean {
   let minX = Number.POSITIVE_INFINITY;
   let minY = Number.POSITIVE_INFINITY;
@@ -552,6 +580,7 @@ function refineZoneNodeOrder(
   const segU = new Int32Array(maxSegs);
   const segV = new Int32Array(maxSegs);
   const segSame = new Uint8Array(maxSegs);
+  const segRole = new Uint8Array(maxSegs);
   const segAx = new Float64Array(maxSegs);
   const segAy = new Float64Array(maxSegs);
   const segBx = new Float64Array(maxSegs);
@@ -571,6 +600,8 @@ function refineZoneNodeOrder(
     segU[m] = u;
     segV[m] = v;
     segSame[m] = owners.get(from) === owners.get(to) ? 1 : 0;
+    const role = flow.byPair.get(flowPairKey(from, to))?.role ?? 'static';
+    segRole[m] = role === 'primary' ? 2 : role === 'return' ? 1 : 0;
     const ax = nodeX[u] as number;
     const bx = nodeX[v] as number;
     const ay = nodeY[u] as number;
@@ -630,8 +661,9 @@ function refineZoneNodeOrder(
       const ay = segAy[i] as number;
       const by = segBy[i] as number;
       const dy = Math.abs(ay - by);
-      span += dy;
-      if (richRefine && segSame[i] === 1 && dy >= 1) broken += 0.6;
+      const ri = segRole[i] as number;
+      span += dy * (ri === 2 ? 1 : ri === 1 ? 0.35 : 0.2);
+      if (richRefine && segSame[i] === 1 && dy >= 1) broken += ri === 2 ? 0.9 : 0.2;
       const sMinX = segMinX[i] as number;
       const sMaxX = segMaxX[i] as number;
       const sMinY = segMinY[i] as number;
@@ -673,7 +705,10 @@ function refineZoneNodeOrder(
             Math.sign(dx2 * (by - tay) - dy2 * (bx - tax)) <
           0
         ) {
-          cross++;
+          const rj = segRole[j] as number;
+          const minR = Math.min(ri, rj);
+          const maxR = Math.max(ri, rj);
+          cross += minR === 2 ? 2.5 : maxR === 2 ? 1.2 : 0.5;
         }
       }
     }
@@ -721,7 +756,9 @@ function refineZoneNodeOrder(
               const clampedY = Math.min(zBot, Math.max(zTop, rawY));
               const dx = Math.abs((nodeX[oIdx] as number) - sx);
               const sameZ = owners.get(other) === p.block.id ? 2.5 : 1;
-              const w = sameZ / Math.max(160, dx * 0.8);
+              const role = flow.byPair.get(flowPairKey(id, other))?.role ?? 'static';
+              const rw = role === 'primary' ? 1 : role === 'return' ? 0.35 : 0.2;
+              const w = (sameZ * rw) / Math.max(160, dx * 0.8);
               wSum += w;
               ySum += clampedY * w;
             } else {
@@ -764,41 +801,48 @@ function refineZoneNodeOrder(
 
         if (!richRefine) continue;
         const byScreenY = [...items].sort((a, b) => (p.flip ? b[1].y - a[1].y : a[1].y - b[1].y));
-        for (let k = 0; k + 1 < byScreenY.length; k++) {
-          const pairA = byScreenY[k];
-          const pairB = byScreenY[k + 1];
-          if (!pairA || !pairB) continue;
-          const [idA, rA] = pairA;
-          const [idB, rB] = pairB;
-          const idxA = idToIdx.get(idA) as number;
-          const idxB = idToIdx.get(idB) as number;
-          const mark = collectTouched([idxA, idxB]);
-          if (touchedBuf.length === 0) continue;
-          const before = evalTouched(mark);
-          const prevRYA = rA.y;
-          const prevRYB = rB.y;
-          const prevNYA = nodeY[idxA] as number;
-          const prevNYB = nodeY[idxB] as number;
-          rA.y = prevRYB;
-          rB.y = prevRYA;
-          nodeY[idxA] = top + (p.flip ? flippedY(p.block, rA, idA) : rA.y) + STATION_CENTER;
-          nodeY[idxB] = top + (p.flip ? flippedY(p.block, rB, idB) : rB.y) + STATION_CENTER;
-          syncTouchedSegs();
-          const after = evalTouched(mark);
-          const dScore = after.cross - before.cross + (after.broken - before.broken);
-          const dSpan = after.span - before.span;
-          if (dScore < -1e-6 || (Math.abs(dScore) <= 1e-6 && dSpan < -0.5)) {
-            byScreenY[k] = [idB, rB];
-            byScreenY[k + 1] = [idA, rA];
-            changed = true;
-            anyChanged = true;
-          } else {
-            rA.y = prevRYA;
-            rB.y = prevRYB;
-            nodeY[idxA] = prevNYA;
-            nodeY[idxB] = prevNYB;
-            syncTouchedSegs();
+        for (let pass = 0; pass < 3; pass++) {
+          let swapped = false;
+          for (let a = 0; a < byScreenY.length; a++) {
+            for (let b = a + 1; b < byScreenY.length; b++) {
+              const pairA = byScreenY[a];
+              const pairB = byScreenY[b];
+              if (!pairA || !pairB) continue;
+              const [idA, rA] = pairA;
+              const [idB, rB] = pairB;
+              const idxA = idToIdx.get(idA) as number;
+              const idxB = idToIdx.get(idB) as number;
+              const mark = collectTouched([idxA, idxB]);
+              if (touchedBuf.length === 0) continue;
+              const before = evalTouched(mark);
+              const prevRYA = rA.y;
+              const prevRYB = rB.y;
+              const prevNYA = nodeY[idxA] as number;
+              const prevNYB = nodeY[idxB] as number;
+              rA.y = prevRYB;
+              rB.y = prevRYA;
+              nodeY[idxA] = top + (p.flip ? flippedY(p.block, rA, idA) : rA.y) + STATION_CENTER;
+              nodeY[idxB] = top + (p.flip ? flippedY(p.block, rB, idB) : rB.y) + STATION_CENTER;
+              syncTouchedSegs();
+              const after = evalTouched(mark);
+              const dScore = after.cross - before.cross + (after.broken - before.broken);
+              const dSpan = after.span - before.span;
+              if (dScore < -1e-6 || (Math.abs(dScore) <= 1e-6 && dSpan < -0.5)) {
+                byScreenY[a] = [idB, rB];
+                byScreenY[b] = [idA, rA];
+                changed = true;
+                anyChanged = true;
+                swapped = true;
+              } else {
+                rA.y = prevRYA;
+                rB.y = prevRYB;
+                nodeY[idxA] = prevNYA;
+                nodeY[idxB] = prevNYB;
+                syncTouchedSegs();
+              }
+            }
           }
+          if (!swapped) break;
         }
       }
     });
@@ -828,6 +872,8 @@ function searchFrom(
   {
     placed,
     links,
+    flow,
+    flowCtx,
     start,
     nodeParent,
     owners,
@@ -847,8 +893,8 @@ function searchFrom(
     p.y = at.y;
     p.flip = 0;
   }
-  anneal(links, placed, seededRandom(seed * 104729));
-  tighten(links, placed);
+  anneal(links, placed, seededRandom(seed * 104729), flowCtx);
+  tighten(links, placed, flowCtx);
   const tightened = posesOf(placed);
   let best = NOTHING_FOUND;
   // Stepping aside is judged by the cost between zones alone, and can cost more in
@@ -857,13 +903,13 @@ function searchFrom(
   for (const aside of [false, true]) {
     const trialPlaced = clonePlaced(placed, tightened);
     const trialBaseOrders = new Map(baseOrders);
-    let trialLinks = buildLinks(doc, trialPlaced);
+    let trialLinks = buildLinks(doc, trialPlaced, flow);
     refreshSegments(trialLinks);
-    compact(trialLinks, trialPlaced, aside);
-    alignEdges(trialLinks, trialPlaced);
+    compact(trialLinks, trialPlaced, aside, flowCtx);
+    alignEdges(trialLinks, trialPlaced, flowCtx);
     // Lining up edges moves zones a little; close what that opened.
-    tighten(trialLinks, trialPlaced);
-    compact(trialLinks, trialPlaced, aside);
+    tighten(trialLinks, trialPlaced, flowCtx);
+    compact(trialLinks, trialPlaced, aside, flowCtx);
 
     const ranksByZone = optimizeZoneSlackRanks(
       doc,
@@ -876,11 +922,13 @@ function searchFrom(
       trialBaseOrders,
       slackMeta,
       blockCache,
+      flow,
+      flowCtx,
     );
     if (ranksByZone.size > 0) {
-      trialLinks = buildLinks(doc, trialPlaced);
+      trialLinks = buildLinks(doc, trialPlaced, flow);
       refreshSegments(trialLinks);
-      tighten(trialLinks, trialPlaced);
+      tighten(trialLinks, trialPlaced, flowCtx);
     }
 
     // The annealing only turns over zones that mirror as a whole. One with groups in it or
@@ -888,16 +936,16 @@ function searchFrom(
     // only where the whole score is lower for it.
     if (richRefine && trialPlaced.some((p) => !p.block.flippable && p.block.nodes.size >= 2)) {
       let curFlipScore =
-        linkCost(trialLinks, trialPlaced) +
-        countCrossings(doc, toLayout(trialPlaced)) * DIAGRAM_CROSSING_COST;
+        linkCost(trialLinks, trialPlaced, flowCtx) +
+        diagramCrossingPenalty(doc, toLayout(trialPlaced), flow, flowCtx.preserveFlow);
       for (const p of trialPlaced) {
         if (p.block.flippable || p.block.nodes.size < 2) continue;
         const prevFlip = p.flip;
         p.flip = prevFlip === 0 ? 1 : 0;
         refreshTouchingSegments(trialLinks, p, undefined);
         const nextFlipScore =
-          linkCost(trialLinks, trialPlaced) +
-          countCrossings(doc, toLayout(trialPlaced)) * DIAGRAM_CROSSING_COST;
+          linkCost(trialLinks, trialPlaced, flowCtx) +
+          diagramCrossingPenalty(doc, toLayout(trialPlaced), flow, flowCtx.preserveFlow);
         if (nextFlipScore < curFlipScore - 1) {
           curFlipScore = nextFlipScore;
         } else {
@@ -907,19 +955,19 @@ function searchFrom(
       }
     }
 
-    if (refineZoneNodeOrder(trialPlaced, nodeParent, owners, adj, docLinks, richRefine)) {
-      trialLinks = buildLinks(doc, trialPlaced);
+    if (refineZoneNodeOrder(trialPlaced, nodeParent, owners, adj, docLinks, richRefine, flow)) {
+      trialLinks = buildLinks(doc, trialPlaced, flow);
       refreshSegments(trialLinks);
     }
     // Last, since sliding would undo it.
-    straighten(trialLinks, trialPlaced);
+    straighten(trialLinks, trialPlaced, STRAIGHT_WORTH, flowCtx);
     const score =
-      linkCost(trialLinks, trialPlaced) +
-      countCrossings(doc, toLayout(trialPlaced)) * DIAGRAM_CROSSING_COST -
+      linkCost(trialLinks, trialPlaced, flowCtx) +
+      diagramCrossingPenalty(doc, toLayout(trialPlaced), flow, flowCtx.preserveFlow) -
       straightLinks(trialLinks, trialPlaced) * STRAIGHT_WORTH;
     if (score < best.score) {
       // Straightened further once the score is taken, so that which seed wins does not change.
-      straighten(trialLinks, trialPlaced, CHOSEN_STRAIGHT_WORTH);
+      straighten(trialLinks, trialPlaced, CHOSEN_STRAIGHT_WORTH, flowCtx);
       best = { score, placement: snapshot(trialPlaced, trialBaseOrders, ranksByZone) };
     }
   }

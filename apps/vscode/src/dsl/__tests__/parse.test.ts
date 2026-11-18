@@ -163,15 +163,27 @@ describe('hasFatalError', () => {
 describe('parse: diagnostics', () => {
   const cases: Array<[string, string, DiagnosticCode[]]> = [
     ['missing step', 'node a', ['missing-step']],
-    ['top-level edge syntax rejected', 'node a\nnode b\na --> b\nstep "s" {}', ['syntax-error', 'syntax-error', 'syntax-error']],
+    [
+      'top-level edge syntax rejected',
+      'node a\nnode b\na --> b\nstep "s" {}',
+      ['syntax-error', 'syntax-error', 'syntax-error'],
+    ],
     ['legacy dav header rejected', 'dav 1\nnode a\nstep "s" {}', ['syntax-error', 'syntax-error']],
     ['duplicate title', 'title "a"\ntitle "b"\nstep "s" {}', ['duplicate-title']],
     ['duplicate node id', 'node a\nnode a\nstep "s" {}', ['duplicate-id']],
     ['id shared across kinds', 'node a\ngroup a {}\nstep "s" {}', ['duplicate-id']],
     ['undefined static endpoint', 'node a\nstep "s" { static a --> b }', ['undefined-reference']],
-    ['static to group', 'node a\ngroup g {}\nstep "s" { static a --> g }', ['reference-kind-mismatch']],
+    [
+      'static to group',
+      'node a\ngroup g {}\nstep "s" { static a --> g }',
+      ['reference-kind-mismatch'],
+    ],
     ['undefined focus', 'step "s" { focus x }', ['undefined-reference']],
-    ['self-loop in animate and static', 'node a\nstep "s" { animate a --> a\n  static a ..> a }', []],
+    [
+      'self-loop in animate and static',
+      'node a\nstep "s" { animate a --> a\n  static a ..> a }',
+      [],
+    ],
     [
       'bidirectional self-loop in static',
       'node a\nstep "s" { static a <-> a }',
@@ -182,28 +194,24 @@ describe('parse: diagnostics', () => {
       'node a\nstep "s" { static a <.> a }',
       ['invalid-self-arrow'],
     ],
-    [
-      'round trip on a self-loop',
-      'node a\nstep "s" { animate a <-> a }',
-      ['invalid-self-arrow'],
-    ],
+    ['round trip on a self-loop', 'node a\nstep "s" { animate a <-> a }', ['invalid-self-arrow']],
     [
       'dashed round trip on a self-loop',
       'node a\nstep "s" { animate a <.> a }',
       ['invalid-self-arrow'],
     ],
-    [
-      'undefined state target',
-      'step "s" { state x [visible: true] }',
-      ['undefined-reference'],
-    ],
+    ['undefined state target', 'step "s" { state x [visible: true] }', ['undefined-reference']],
     [
       'animate to group',
       'node a\ngroup g {}\nstep "s" { animate a --> g }',
       ['reference-kind-mismatch'],
     ],
     ['unknown attribute', 'node a [shape: box]\nstep "s" {}', ['unknown-attribute']],
-    ['unknown static attribute', 'node a\nnode b\nstep "s" { static a --> b [parallel: true] }', ['unknown-attribute']],
+    [
+      'unknown static attribute',
+      'node a\nnode b\nstep "s" { static a --> b [parallel: true] }',
+      ['unknown-attribute'],
+    ],
     ['duplicate attribute', 'node a [sub: "x", sub: "y"]\nstep "s" {}', ['duplicate-attribute']],
     ['string attr type', 'node a [sub: 1]\nstep "s" {}', ['invalid-attribute-value']],
     ['bool attr type', 'node a [visible: "no"]\nstep "s" {}', ['invalid-attribute-value']],

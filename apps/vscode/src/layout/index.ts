@@ -2,13 +2,15 @@ import { synthesizedConnections } from '../model/connections';
 import type { DavDocument } from '../model/types';
 import { topLevelGroups } from '../model/zones';
 import { computeColumnLayout } from './columns';
-import { countCrossings } from './links';
-import type { Layout } from './metrics';
+import { analyzeFlow, countCorridorIntrusions, primaryCorridors } from './flow';
+import { countCrossings, primaryCrossingsOf } from './links';
+import type { Layout, Rect } from './metrics';
 import { type BackEdge, computeRanks } from './ranks';
 import { straightenNodes } from './straightenNodes';
 import {
   applyZonePlacement,
   bestOfSeeds,
+  buildBlocks,
   hasZonesToPlace,
   LONG_LINK,
   linksBetweenZones,
@@ -17,6 +19,7 @@ import {
   SEEDS,
   searchZonePlacement,
   searchZonePlacementFrom,
+  shouldPreserveFlow,
   structureKey,
   withoutLabels,
   type ZonePlacement,
@@ -165,9 +168,49 @@ export function pickSeedSearch(found: ReadonlyMap<number, SeedSearch>): ZonePlac
 function ifWorthMoving(doc: DavDocument, placement: ZonePlacement): ZonePlacement | undefined {
   const columns = computeColumnLayout(doc);
   const zoned = applyZonePlacement(doc, placement, computeColumnLayout);
-  // A crossing is worth one link that is a whole comfortable length too long: placing the
-  // zones freely may add one where it saves more than that, and not otherwise.
-  const burden = (layout: Layout): number =>
-    longLinkExcess(doc, layout) + countCrossings(doc, layout) * LONG_LINK;
+  const flow = analyzeFlow(doc);
+  const owners = ownersOf(doc);
+
+  // Strip-mode chains (e.g. ultra-wide synthetic strips) intentionally wrap rows backwards across
+  // row breaks, so judge them purely by link length + crossings as before.
+  const { blocks } = buildBlocks(doc, computeColumnLayout, undefined, flow);
+  if (!shouldPreserveFlow(blocks, flow)) {
+    const burden = (layout: Layout): number =>
+      longLinkExcess(doc, layout) + countCrossings(doc, layout) * LONG_LINK;
+    return burden(zoned) < burden(columns) ? placement : undefined;
+  }
+
+  const corridors = primaryCorridors(flow, owners);
+
+  const burden = (layout: Layout): number => {
+    let backwards = 0;
+    for (const c of flow.connections) {
+      if (c.role !== 'primary') continue;
+      const za = owners.get(c.from) ?? c.from;
+      const zb = owners.get(c.to) ?? c.to;
+      if (za === zb) continue;
+      const ra = layout.nodes[c.from];
+      const rb = layout.nodes[c.to];
+      if (ra && rb && rb.x + rb.width / 2 <= ra.x + ra.width / 2) backwards++;
+    }
+    const blockRect = new Map<string, Rect>();
+    for (const g of topLevelGroups(doc.groups)) {
+      if (layout.groups[g.id]) blockRect.set(g.id, layout.groups[g.id] as Rect);
+    }
+    for (const n of doc.nodes) {
+      if (!owners.has(n.id) || owners.get(n.id) === n.id) {
+        if (layout.nodes[n.id]) blockRect.set(n.id, layout.nodes[n.id] as Rect);
+      }
+    }
+    const intrusions = countCorridorIntrusions(corridors, blockRect);
+    const priCross = primaryCrossingsOf(flow.connections, layout);
+    return (
+      backwards * LONG_LINK * 3 +
+      intrusions * LONG_LINK * 2 +
+      priCross * 300 +
+      countCrossings(doc, layout) * LONG_LINK +
+      longLinkExcess(doc, layout)
+    );
+  };
   return burden(zoned) < burden(columns) ? placement : undefined;
 }

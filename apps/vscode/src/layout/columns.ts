@@ -2,7 +2,7 @@ import { synthesizedConnections } from '../model/connections';
 import { EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH, pushToMap, textWidth } from '../model/text';
 import type { DavConnection, DavDocument } from '../model/types';
 import { ancestorIds, parentMap } from '../model/zones';
-import { analyzeFlow } from './flow';
+import { analyzeFlow, type FlowAnalysis } from './flow';
 import { crossingsOf, type Link, segmentsOf } from './links';
 import {
   EMPTY_GROUP_CONTENT,
@@ -38,6 +38,7 @@ export function computeColumnLayout(
   doc: DavDocument,
   rankOverrides?: ReadonlyMap<string, number>,
   connections: readonly DavConnection[] = synthesizedConnections(doc),
+  flow: FlowAnalysis = analyzeFlow(doc, connections),
 ): Layout {
   const groupParent = parentMap(doc.groups);
   const nodeParent = parentMap(doc.nodes);
@@ -55,7 +56,6 @@ export function computeColumnLayout(
   // that stations stay level from one zone to the next and a rail between them runs straight.
   const tallestLoop = Math.max(0, ...selfLoopRoom(doc).values());
   const loopRoom = new Map(doc.nodes.map((n) => [n.id, tallestLoop]));
-  const flow = analyzeFlow(doc, connections);
   const ranks = computeRanks(
     doc.nodes.map((n) => n.id),
     flow.forwardEdges,

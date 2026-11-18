@@ -1,9 +1,5 @@
 import { type Layout, type Rect, rectOverlaps, stationRect } from '../layout';
-import {
-  selfLoopNodeIds,
-  synthesizedConnections,
-  unorderedPairKey,
-} from '../model/connections';
+import { selfLoopNodeIds, synthesizedConnections, unorderedPairKey } from '../model/connections';
 import { EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH } from '../model/text';
 import type { DavDocument } from '../model/types';
 import { ancestorIds, parentMap } from '../model/zones';

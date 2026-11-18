@@ -1,16 +1,16 @@
 import type { SyntaxNode } from '@lezer/common';
 import { isBlank, trimWhitespaceEnd } from '../model/text';
-import {
-  type Animation,
-  type CodeBlock,
-  type DavDocument,
-  type DavGroup,
-  type DavNode,
-  type DavStep,
-  type Direction,
-  type LineStyle,
-  type StateOverride,
-  type StaticLink,
+import type {
+  Animation,
+  CodeBlock,
+  DavDocument,
+  DavGroup,
+  DavNode,
+  DavStep,
+  Direction,
+  LineStyle,
+  StateOverride,
+  StaticLink,
 } from '../model/types';
 import { type ParsedAttrs, readAttributes, readStringLiteral, type ValidAttr } from './attributes';
 import type { Diagnostic, DiagnosticCode, Severity } from './diagnostics';

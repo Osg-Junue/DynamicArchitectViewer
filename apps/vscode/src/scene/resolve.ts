@@ -20,7 +20,14 @@ import { ancestorIds, parentMap, zoneOfNodes } from '../model/zones';
 import { placePhaseCallouts } from './calloutPlace';
 import { expandRect, type Point, type Rail } from './geometry';
 import { THEME_COLOR } from './paint';
-import { badgeArea, type EdgeLabelSpot, edgeLabelArea, nodeBody, RailRouter, zoneNameArea } from './rails';
+import {
+  badgeArea,
+  type EdgeLabelSpot,
+  edgeLabelArea,
+  nodeBody,
+  RailRouter,
+  zoneNameArea,
+} from './rails';
 import { PHASE_MS, pacePhases } from './timing';
 
 export const DEFAULT_FLOW_COLOR = THEME_COLOR.accent;

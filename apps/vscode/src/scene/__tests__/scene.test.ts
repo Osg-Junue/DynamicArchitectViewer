@@ -311,7 +311,9 @@ describe('buildScene', () => {
   });
 
   it('draws zone names above the rails', () => {
-    const doc = parse('group g "Zone" {\n  node a\n}\nnode b\nstep "S" {\n  animate a --> b\n}\n').document;
+    const doc = parse(
+      'group g "Zone" {\n  node a\n}\nnode b\nstep "S" {\n  animate a --> b\n}\n',
+    ).document;
     const scene = buildScene(resolveView(doc, computeLayout(doc), null));
     const layerOf = (name: string) =>
       scene.children.findIndex((c) => typeof c !== 'string' && c.attrs.class === name);
@@ -322,9 +324,7 @@ describe('buildScene', () => {
 
   it('makes a round trip only when the animate arrow is bidirectional', () => {
     const packetFor = (arrow: string) => {
-      const doc = parse(
-        `node a\nnode b\nstep "S" {\n  animate a ${arrow} b\n}\n`,
-      ).document;
+      const doc = parse(`node a\nnode b\nstep "S" {\n  animate a ${arrow} b\n}\n`).document;
       const packet = resolveView(doc, computeLayout(doc), 0).phases[0]?.[0];
       if (!packet) throw new Error('missing packet');
       return packet;
@@ -597,7 +597,9 @@ describe('self-loops', () => {
 
   it('reserves room above the node, and keeps rows level and groups around the loop', () => {
     const plain = sourced('node a\nnode b\nstep "S" {\n  animate a --> b\n}').layout;
-    const looped = sourced('node a\nnode b\nstep "S" {\n  animate a --> a\n  animate a --> b\n}').layout;
+    const looped = sourced(
+      'node a\nnode b\nstep "S" {\n  animate a --> a\n  animate a --> b\n}',
+    ).layout;
     expect((looped.nodes.a as Rect).y).toBeGreaterThan((plain.nodes.a as Rect).y);
     expect((looped.nodes.a as Rect).y).toBe((looped.nodes.b as Rect).y);
 
@@ -724,9 +726,7 @@ describe('focus from state and static', () => {
   });
 
   it('lights both nodes of a static connection and colors its line', () => {
-    const view = stepView(
-      'node a\nnode b\nnode c\nstep "S" {\n  static a --> b [color: red]\n}\n',
-    );
+    const view = stepView('node a\nnode b\nnode c\nstep "S" {\n  static a --> b [color: red]\n}\n');
     expect(view.nodes.map((n) => [n.id, n.dimmed])).toEqual([
       ['a', false],
       ['b', false],
