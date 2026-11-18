@@ -17,7 +17,7 @@ import {
  */
 export type TextCut =
   | { kind: 'node-label' | 'node-sub' | 'node-badge'; node: string; text: string }
-  | { kind: 'edge-label'; from: string; to: string; text: string }
+  | { kind: 'edge-label'; id: string; from: string; to: string; text: string }
   | { kind: 'state-badge'; step: number; target: string; text: string }
   | { kind: 'packet-label' | 'packet-desc'; step: number; from: string; to: string; text: string }
   | { kind: 'code-lines'; step: number; from: string; to: string; lines: number }
@@ -46,7 +46,7 @@ export function textCuts(doc: DavDocument): TextCut[] {
   }
   for (const e of doc.edges) {
     if (e.label && isCut(e.label, EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH)) {
-      cuts.push({ kind: 'edge-label', from: e.from, to: e.to, text: e.label });
+      cuts.push({ kind: 'edge-label', id: e.id, from: e.from, to: e.to, text: e.label });
     }
   }
   for (const step of doc.steps) {

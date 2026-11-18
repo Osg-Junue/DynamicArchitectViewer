@@ -1,5 +1,6 @@
 import type { Animation, DavDocument, DavStep } from '../model/types';
 import { CALLOUT_CODE_MAX_LINES, type TextCut, textCuts } from '../scene/textCuts';
+import { arrowOf } from './outline';
 import { carries } from './packets';
 
 /**
@@ -11,6 +12,18 @@ export interface Hint {
   code: string;
   message: string;
 }
+
+/** Every code a hint is given with, in the order that the checker's reference lists them. */
+export const HINT_CODES = [
+  'edge-without-label',
+  'step-without-desc',
+  'empty-step',
+  'animate-without-edge',
+  'animate-without-label',
+  'animate-without-desc',
+  'no-code',
+  'text-cut',
+] as const;
 
 /** From how many packets on a diagram without any `code` is worth pointing out. */
 const CODE_WORTH_FROM = 3;
@@ -95,8 +108,10 @@ function cutHint(cut: TextCut, doc: DavDocument): string {
       return `The badge of node ${cut.node} is too long and is cut off: "${cut.text}". A badge is a word or two.`;
     case 'state-badge':
       return `${where}the badge set on ${cut.target} is too long and is cut off: "${cut.text}". A badge is a word or two.`;
-    case 'edge-label':
-      return `The label of ${cut.from} --> ${cut.to} is too long and is cut off: "${cut.text}". Shorten it.`;
+    case 'edge-label': {
+      const edge = doc.edges.find((e) => e.id === cut.id);
+      return `The label of ${cut.from} ${edge ? arrowOf(edge) : '-->'} ${cut.to} is too long and is cut off: "${cut.text}". Shorten it.`;
+    }
     case 'packet-label':
       return `${where}the label of the packet from ${cut.from} to ${cut.to} is too long and is cut off: "${cut.text}". Keep the label short, and move the rest into desc.`;
     case 'packet-desc':
@@ -104,13 +119,13 @@ function cutHint(cut: TextCut, doc: DavDocument): string {
     case 'code-lines':
       return `${where}the code of the packet from ${cut.from} to ${cut.to} has ${cut.lines} lines, and a callout shows ${CALLOUT_CODE_MAX_LINES}. Keep the lines that matter.`;
     case 'code-width':
-      return `${where}line ${cut.line} of the code of the packet from ${cut.from} to ${cut.to} is too wide and is cut off. Break it, or shorten it to about 55 characters.`;
+      return `${where}line ${cut.line} of the code of the packet from ${cut.from} to ${cut.to} is too wide and is cut off. Break it, or shorten it to about 55 characters, or 35 Japanese ones.`;
   }
 }
 
 export function reviewDetail(doc: DavDocument): Hint[] {
   const hints: Hint[] = [];
-  const hint = (code: string, message: string) => {
+  const hint = (code: (typeof HINT_CODES)[number], message: string) => {
     hints.push({ code, message });
   };
 
@@ -118,7 +133,7 @@ export function reviewDetail(doc: DavDocument): Hint[] {
     if (!e.label) {
       hint(
         'edge-without-label',
-        `${e.from} --> ${e.to} has no label. Say what travels on it or how the two are related, such as : "HTTPS".`,
+        `${e.from} ${arrowOf(e)} ${e.to} has no label. Say what travels on it or how the two are related, such as : "HTTPS".`,
       );
     }
   }

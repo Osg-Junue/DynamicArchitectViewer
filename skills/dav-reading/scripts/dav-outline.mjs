@@ -1,11 +1,33 @@
 // Generated from apps/vscode/src/skill/outlineEntry.ts. Do not edit.
 import { readFileSync as e } from "node:fs";
-// src/model/types.ts
-var t = /* @__PURE__ */ "server.container.function.runtime.database.cache.queue.storage.lb.firewall.cdn.cloud.building.router.hub.wifi.external.auth.ai.api.mail.monitor.schedule.search.logic.webhook.payment.key.screen.modal.browser.desktop.mobile.terminal.device.printer.chat.sheet.file.user.users.bot".split(".");
-function n(e) {
-	return t.includes(e);
+// src/model/text.ts
+var t = /\p{White_Space}+$/u, n = /\P{White_Space}/u;
+function r(e) {
+	return !n.test(e);
 }
-var r = [
+function i(e) {
+	return e.replace(t, "");
+}
+function a(e, t) {
+	let n = e.replace(/\r\n?/g, "\n").replace(/\t/g, "  ").split("\n"), a = (e) => e !== void 0 && r(e);
+	if (t?.stripAllOuterBlankLines) {
+		for (; a(n[0]);) n.shift();
+		for (; a(n[n.length - 1]);) n.pop();
+	} else n.length > 1 && (a(n[0]) && n.shift(), a(n[n.length - 1]) && n.pop());
+	let o = n.map(i), s = Infinity;
+	for (let e of o) {
+		if (e.length === 0) continue;
+		let t = /^ */.exec(e)?.[0].length ?? 0;
+		t < s && (s = t);
+	}
+	return !Number.isFinite(s) || s === 0 ? o.join("\n") : o.map((e) => e.length > 0 ? e.slice(s) : "").join("\n");
+}
+// src/model/types.ts
+var o = /* @__PURE__ */ "server.container.function.runtime.database.cache.queue.storage.lb.firewall.cdn.cloud.building.router.hub.wifi.external.auth.ai.api.mail.monitor.schedule.search.logic.webhook.payment.key.screen.modal.browser.desktop.mobile.terminal.device.printer.chat.sheet.file.user.users.bot".split(".");
+function s(e) {
+	return o.includes(e);
+}
+var c = [
 	"red",
 	"orange",
 	"yellow",
@@ -16,10 +38,10 @@ var r = [
 	"pink",
 	"gray"
 ];
-function i(e) {
-	return r.includes(e);
+function l(e) {
+	return c.includes(e);
 }
-var a = "none", o = [
+var u = "none", d = [
 	"dav",
 	"title",
 	"group",
@@ -32,10 +54,10 @@ var a = "none", o = [
 	"true",
 	"false"
 ];
-function s(e, t) {
+function f(e, t) {
 	return `${e}->${t}`;
 }
-var c = {
+var p = {
 	node: {
 		icon: "icon",
 		sub: "string",
@@ -61,7 +83,7 @@ var c = {
 		desc: "string",
 		code: "string"
 	}
-}, l = {
+}, m = {
 	node: /* @__PURE__ */ new Set([
 		"badge",
 		"visible",
@@ -69,12 +91,12 @@ var c = {
 	]),
 	group: /* @__PURE__ */ new Set(["color"]),
 	edge: /* @__PURE__ */ new Set(["visible", "color"])
-}, u = [
+}, h = [
 	"-->",
 	"..>",
 	"<->",
 	"<.>"
-], d = {
+], g = {
 	"-->": {
 		style: "solid",
 		direction: "forward"
@@ -92,17 +114,17 @@ var c = {
 		direction: "bidirectional"
 	}
 };
-new Set(o);
+new Set(d);
 // src/dsl/suggest.ts
-function f(e, t) {
+function _(e, t) {
 	let n, r = 3, i = e.toLowerCase();
 	for (let e of t) {
-		let t = e.length <= 3 ? 1 : 2, a = p(i, e);
+		let t = e.length <= 3 ? 1 : 2, a = v(i, e);
 		a <= t && a < r && (n = e, r = a);
 	}
 	return n;
 }
-function p(e, t) {
+function v(e, t) {
 	let n = Array.from({ length: t.length + 1 }, (e, t) => t);
 	for (let r = 1; r <= e.length; r++) {
 		let i = n[0] ?? 0, a = r;
@@ -114,60 +136,42 @@ function p(e, t) {
 	}
 	return n[t.length] ?? 0;
 }
-// src/model/text.ts
-function m(e, t) {
-	let n = e.replace(/\r\n?/g, "\n").replace(/\t/g, "  ");
-	if (!t?.stripAllOuterBlankLines && !n.includes("\n")) return n.trim();
-	let r = n.split("\n");
-	if (t?.stripAllOuterBlankLines) {
-		for (; r.length > 0 && r[0]?.trim() === "";) r.shift();
-		for (; r.length > 0 && r[r.length - 1]?.trim() === "";) r.pop();
-		if (r.length === 0) return "";
-	} else r.length > 0 && r[0]?.trim() === "" && r.shift(), r.length > 0 && r[r.length - 1]?.trim() === "" && r.pop();
-	let i = r.map((e) => e.trimEnd()), a = Infinity;
-	for (let e of i) {
-		if (e.length === 0) continue;
-		let t = /^ */.exec(e)?.[0].length ?? 0;
-		t < a && (a = t);
-	}
-	return !Number.isFinite(a) || a === 0 ? i.join("\n") : i.map((e) => e.length > 0 ? e.slice(a) : "").join("\n");
-}
 // ../../node_modules/@lezer/common/dist/index.js
-var h = 1024, g = 0, _ = class {
+var y = 1024, b = 0, x = class {
 	constructor(e, t) {
 		this.from = e, this.to = t;
 	}
-}, v = class {
+}, S = class {
 	constructor(e = {}) {
-		this.id = g++, this.perNode = !!e.perNode, this.deserialize = e.deserialize || (() => {
+		this.id = b++, this.perNode = !!e.perNode, this.deserialize = e.deserialize || (() => {
 			throw Error("This node type doesn't define a deserialize function");
 		}), this.combine = e.combine || null;
 	}
 	add(e) {
 		if (this.perNode) throw RangeError("Can't add per-node props to node types");
-		return typeof e != "function" && (e = x.match(e)), (t) => {
+		return typeof e != "function" && (e = T.match(e)), (t) => {
 			let n = e(t);
 			return n === void 0 ? null : [this, n];
 		};
 	}
 };
-v.closedBy = new v({ deserialize: (e) => e.split(" ") }), v.openedBy = new v({ deserialize: (e) => e.split(" ") }), v.group = new v({ deserialize: (e) => e.split(" ") }), v.isolate = new v({ deserialize: (e) => {
+S.closedBy = new S({ deserialize: (e) => e.split(" ") }), S.openedBy = new S({ deserialize: (e) => e.split(" ") }), S.group = new S({ deserialize: (e) => e.split(" ") }), S.isolate = new S({ deserialize: (e) => {
 	if (e && e != "rtl" && e != "ltr" && e != "auto") throw RangeError("Invalid value for isolate: " + e);
 	return e || "auto";
-} }), v.contextHash = new v({ perNode: !0 }), v.lookAhead = new v({ perNode: !0 }), v.mounted = new v({ perNode: !0 });
-var y = class {
+} }), S.contextHash = new S({ perNode: !0 }), S.lookAhead = new S({ perNode: !0 }), S.mounted = new S({ perNode: !0 });
+var C = class {
 	constructor(e, t, n, r = !1) {
 		this.tree = e, this.overlay = t, this.parser = n, this.bracketed = r;
 	}
 	static get(e) {
-		return e && e.props && e.props[v.mounted.id];
+		return e && e.props && e.props[S.mounted.id];
 	}
-}, b = Object.create(null), x = class e {
+}, w = Object.create(null), T = class e {
 	constructor(e, t, n, r = 0) {
 		this.name = e, this.props = t, this.id = n, this.flags = r;
 	}
 	static define(t) {
-		let n = t.props && t.props.length ? Object.create(null) : b, r = +!!t.top | (t.skipped ? 2 : 0) | (t.error ? 4 : 0) | (t.name == null ? 8 : 0), i = new e(t.name || "", n, t.id, r);
+		let n = t.props && t.props.length ? Object.create(null) : w, r = +!!t.top | (t.skipped ? 2 : 0) | (t.error ? 4 : 0) | (t.name == null ? 8 : 0), i = new e(t.name || "", n, t.id, r);
 		if (t.props) {
 			for (let e of t.props) if (Array.isArray(e) || (e = e(i)), e) {
 				if (e[0].perNode) throw RangeError("Can't store a per-node prop on a node type");
@@ -194,7 +198,7 @@ var y = class {
 	is(e) {
 		if (typeof e == "string") {
 			if (this.name == e) return !0;
-			let t = this.prop(v.group);
+			let t = this.prop(S.group);
 			return t ? t.indexOf(e) > -1 : !1;
 		}
 		return this.id == e;
@@ -203,15 +207,15 @@ var y = class {
 		let t = Object.create(null);
 		for (let n in e) for (let r of n.split(" ")) t[r] = e[n];
 		return (e) => {
-			for (let n = e.prop(v.group), r = -1; r < (n ? n.length : 0); r++) {
+			for (let n = e.prop(S.group), r = -1; r < (n ? n.length : 0); r++) {
 				let i = t[r < 0 ? e.name : n[r]];
 				if (i) return i;
 			}
 		};
 	}
 };
-x.none = new x("", Object.create(null), 0, 8);
-var S = class e {
+T.none = new T("", Object.create(null), 0, 8);
+var E = class e {
 	constructor(e) {
 		this.types = e;
 		for (let t = 0; t < e.length; t++) if (e[t].id != t) throw RangeError("Node type ids should correspond to array positions when creating a node set");
@@ -228,15 +232,15 @@ var S = class e {
 					i.combine && i.id in r && (n = i.combine(r[i.id], n)), r[i.id] = n;
 				}
 			}
-			n.push(r ? new x(e.name, r, e.id, e.flags) : e);
+			n.push(r ? new T(e.name, r, e.id, e.flags) : e);
 		}
 		return new e(n);
 	}
-}, C = /* @__PURE__ */ new WeakMap(), w = /* @__PURE__ */ new WeakMap(), T;
+}, D = /* @__PURE__ */ new WeakMap(), O = /* @__PURE__ */ new WeakMap(), k;
 (function(e) {
 	e[e.ExcludeBuffers = 1] = "ExcludeBuffers", e[e.IncludeAnonymous = 2] = "IncludeAnonymous", e[e.IgnoreMounts = 4] = "IgnoreMounts", e[e.IgnoreOverlays = 8] = "IgnoreOverlays", e[e.EnterBracketed = 16] = "EnterBracketed";
-})(T ||= {});
-var E = class e {
+})(k ||= {});
+var A = class e {
 	constructor(e, t, n, r, i) {
 		if (this.type = e, this.children = t, this.positions = n, this.length = r, this.props = null, i && i.length) {
 			this.props = Object.create(null);
@@ -244,7 +248,7 @@ var E = class e {
 		}
 	}
 	toString() {
-		let e = y.get(this);
+		let e = C.get(this);
 		if (e && !e.overlay) return e.tree.toString();
 		let t = "";
 		for (let e of this.children) {
@@ -254,29 +258,29 @@ var E = class e {
 		return this.type.name ? (/\W/.test(this.type.name) && !this.type.isError ? JSON.stringify(this.type.name) : this.type.name) + (t.length ? "(" + t + ")" : "") : t;
 	}
 	cursor(e = 0) {
-		return new I(this.topNode, e);
+		return new L(this.topNode, e);
 	}
 	cursorAt(e, t = 0, n = 0) {
-		let r = new I(C.get(this) || this.topNode);
-		return r.moveTo(e, t), C.set(this, r._tree), r;
+		let r = new L(D.get(this) || this.topNode);
+		return r.moveTo(e, t), D.set(this, r._tree), r;
 	}
 	get topNode() {
-		return new M(this, 0, 0, null);
+		return new P(this, 0, 0, null);
 	}
 	resolve(e, t = 0) {
-		let n = A(C.get(this) || this.topNode, e, t, !1);
-		return C.set(this, n), n;
+		let n = M(D.get(this) || this.topNode, e, t, !1);
+		return D.set(this, n), n;
 	}
 	resolveInner(e, t = 0) {
-		let n = A(w.get(this) || this.topNode, e, t, !0);
-		return w.set(this, n), n;
+		let n = M(O.get(this) || this.topNode, e, t, !0);
+		return O.set(this, n), n;
 	}
 	resolveStack(e, t = 0) {
-		return re(this, e, t);
+		return oe(this, e, t);
 	}
 	iterate(e) {
-		let { enter: t, leave: n, from: r = 0, to: i = this.length } = e, a = e.mode || 0, o = (a & T.IncludeAnonymous) > 0;
-		for (let e = this.cursor(a | T.IncludeAnonymous);;) {
+		let { enter: t, leave: n, from: r = 0, to: i = this.length } = e, a = e.mode || 0, o = (a & k.IncludeAnonymous) > 0;
+		for (let e = this.cursor(a | k.IncludeAnonymous);;) {
 			let a = !1;
 			if (e.from <= i && e.to >= r && (!o && e.type.isAnonymous || t(e) !== !1)) {
 				if (e.firstChild()) continue;
@@ -297,14 +301,14 @@ var E = class e {
 		return e;
 	}
 	balance(t = {}) {
-		return this.children.length <= 8 ? this : B(x.none, this.children, this.positions, 0, this.children.length, 0, this.length, (t, n, r) => new e(this.type, t, n, r, this.propValues), t.makeTree || ((t, n, r) => new e(x.none, t, n, r)));
+		return this.children.length <= 8 ? this : B(T.none, this.children, this.positions, 0, this.children.length, 0, this.length, (t, n, r) => new e(this.type, t, n, r, this.propValues), t.makeTree || ((t, n, r) => new e(T.none, t, n, r)));
 	}
 	static build(e) {
-		return ie(e);
+		return se(e);
 	}
 };
-E.empty = new E(x.none, [], [], 0);
-var D = class e {
+A.empty = new A(T.none, [], [], 0);
+var ee = class e {
 	constructor(e, t) {
 		this.buffer = e, this.index = t;
 	}
@@ -329,12 +333,12 @@ var D = class e {
 	fork() {
 		return new e(this.buffer, this.index);
 	}
-}, O = class e {
+}, j = class e {
 	constructor(e, t, n) {
 		this.buffer = e, this.length = t, this.set = n;
 	}
 	get type() {
-		return x.none;
+		return T.none;
 	}
 	toString() {
 		let e = [];
@@ -350,7 +354,7 @@ var D = class e {
 	}
 	findChild(e, t, n, r, i) {
 		let { buffer: a } = this, o = -1;
-		for (let s = e; s != t && !(k(i, r, a[s + 1], a[s + 2]) && (o = s, n > 0)); s = a[s + 3]);
+		for (let s = e; s != t && !(te(i, r, a[s + 1], a[s + 2]) && (o = s, n > 0)); s = a[s + 3]);
 		return o;
 	}
 	slice(t, n, r) {
@@ -363,7 +367,7 @@ var D = class e {
 		return new e(a, o, this.set);
 	}
 };
-function k(e, t, n, r) {
+function te(e, t, n, r) {
 	switch (e) {
 		case -2: return n < t;
 		case -1: return r >= t && n < t;
@@ -373,39 +377,39 @@ function k(e, t, n, r) {
 		case 4: return !0;
 	}
 }
-function A(e, t, n, r) {
+function M(e, t, n, r) {
 	for (; e.from == e.to || (n < 1 ? e.from >= t : e.from > t) || (n > -1 ? e.to <= t : e.to < t);) {
-		let t = !r && e instanceof M && e.index < 0 ? null : e.parent;
+		let t = !r && e instanceof P && e.index < 0 ? null : e.parent;
 		if (!t) return e;
 		e = t;
 	}
-	let i = r ? 0 : T.IgnoreOverlays;
-	if (r) for (let r = e, a = r.parent; a; r = a, a = r.parent) r instanceof M && r.index < 0 && a.enter(t, n, i)?.from != r.from && (e = a);
+	let i = r ? 0 : k.IgnoreOverlays;
+	if (r) for (let r = e, a = r.parent; a; r = a, a = r.parent) r instanceof P && r.index < 0 && a.enter(t, n, i)?.from != r.from && (e = a);
 	for (;;) {
 		let r = e.enter(t, n, i);
 		if (!r) return e;
 		e = r;
 	}
 }
-var j = class {
+var N = class {
 	cursor(e = 0) {
-		return new I(this, e);
+		return new L(this, e);
 	}
 	getChild(e, t = null, n = null) {
-		let r = ee(this, e, t, n);
+		let r = ne(this, e, t, n);
 		return r.length ? r[0] : null;
 	}
 	getChildren(e, t = null, n = null) {
-		return ee(this, e, t, n);
+		return ne(this, e, t, n);
 	}
 	resolve(e, t = 0) {
-		return A(this, e, t, !1);
+		return M(this, e, t, !1);
 	}
 	resolveInner(e, t = 0) {
-		return A(this, e, t, !0);
+		return M(this, e, t, !0);
 	}
 	matchContext(e) {
-		return N(this.parent, e);
+		return F(this.parent, e);
 	}
 	enterUnfinishedNodesBefore(e) {
 		let t = this.childBefore(e), n = this;
@@ -422,7 +426,7 @@ var j = class {
 	get next() {
 		return this.parent;
 	}
-}, M = class e extends j {
+}, P = class e extends N {
 	constructor(e, t, n, r) {
 		super(), this._tree = e, this.from = t, this.index = n, this._parent = r;
 	}
@@ -439,20 +443,20 @@ var j = class {
 		for (let o = this;;) {
 			for (let { children: s, positions: c } = o._tree, l = n > 0 ? s.length : -1; t != l; t += n) {
 				let l = s[t], u = c[t] + o.from, d;
-				if (a & T.EnterBracketed && l instanceof E && (d = y.get(l)) && !d.overlay && d.bracketed && r >= u && r <= u + l.length || k(i, r, u, u + l.length)) {
-					if (l instanceof O) {
-						if (a & T.ExcludeBuffers) continue;
+				if (a & k.EnterBracketed && l instanceof A && (d = C.get(l)) && !d.overlay && d.bracketed && r >= u && r <= u + l.length || te(i, r, u, u + l.length)) {
+					if (l instanceof j) {
+						if (a & k.ExcludeBuffers) continue;
 						let e = l.findChild(0, l.buffer.length, n, r - u, i);
-						if (e > -1) return new P(new te(o, l, t, u), null, e);
-					} else if (a & T.IncludeAnonymous || !l.type.isAnonymous || L(l)) {
+						if (e > -1) return new I(new re(o, l, t, u), null, e);
+					} else if (a & k.IncludeAnonymous || !l.type.isAnonymous || R(l)) {
 						let s;
-						if (!(a & T.IgnoreMounts) && (s = y.get(l)) && !s.overlay) return new e(s.tree, u, t, o);
+						if (!(a & k.IgnoreMounts) && (s = C.get(l)) && !s.overlay) return new e(s.tree, u, t, o);
 						let c = new e(l, u, t, o);
-						return a & T.IncludeAnonymous || !c.type.isAnonymous ? c : c.nextChild(n < 0 ? l.children.length - 1 : 0, n, r, i, a);
+						return a & k.IncludeAnonymous || !c.type.isAnonymous ? c : c.nextChild(n < 0 ? l.children.length - 1 : 0, n, r, i, a);
 					}
 				}
 			}
-			if (a & T.IncludeAnonymous || !o.type.isAnonymous || (t = o.index >= 0 ? o.index + n : n < 0 ? -1 : o._parent._tree.children.length, o = o._parent, !o)) return null;
+			if (a & k.IncludeAnonymous || !o.type.isAnonymous || (t = o.index >= 0 ? o.index + n : n < 0 ? -1 : o._parent._tree.children.length, o = o._parent, !o)) return null;
 		}
 	}
 	get firstChild() {
@@ -472,8 +476,8 @@ var j = class {
 	}
 	enter(t, n, r = 0) {
 		let i;
-		if (!(r & T.IgnoreOverlays) && (i = y.get(this._tree)) && i.overlay) {
-			let a = t - this.from, o = r & T.EnterBracketed && i.bracketed;
+		if (!(r & k.IgnoreOverlays) && (i = C.get(this._tree)) && i.overlay) {
+			let a = t - this.from, o = r & k.EnterBracketed && i.bracketed;
 			for (let { from: t, to: r } of i.overlay) if ((n > 0 || o ? t <= a : t < a) && (n < 0 || o ? r >= a : r > a)) return new e(i.tree, i.overlay[0].from + this.from, -1, this);
 		}
 		return this.nextChild(0, 1, t, n, r);
@@ -502,7 +506,7 @@ var j = class {
 		return this._tree.toString();
 	}
 };
-function ee(e, t, n, r) {
+function ne(e, t, n, r) {
 	let i = e.cursor(), a = [];
 	if (!i.firstChild()) return a;
 	if (n != null) {
@@ -513,7 +517,7 @@ function ee(e, t, n, r) {
 		if (i.type.is(t) && a.push(i.node), !i.nextSibling()) return r == null ? a : [];
 	}
 }
-function N(e, t, n = t.length - 1) {
+function F(e, t, n = t.length - 1) {
 	for (let r = e; n >= 0; r = r.parent) {
 		if (!r) return !1;
 		if (!r.type.isAnonymous) {
@@ -523,11 +527,11 @@ function N(e, t, n = t.length - 1) {
 	}
 	return !0;
 }
-var te = class {
+var re = class {
 	constructor(e, t, n, r) {
 		this.parent = e, this.buffer = t, this.index = n, this.start = r;
 	}
-}, P = class e extends j {
+}, I = class e extends N {
 	get name() {
 		return this.type.name;
 	}
@@ -560,7 +564,7 @@ var te = class {
 		return this.type.prop(e);
 	}
 	enter(t, n, r = 0) {
-		if (r & T.ExcludeBuffers) return null;
+		if (r & k.ExcludeBuffers) return null;
 		let { buffer: i } = this.context, a = i.findChild(this.index + 4, i.buffer[this.index + 3], n > 0 ? 1 : -1, t - this.context.start, n);
 		return a < 0 ? null : new e(this.context, this, a);
 	}
@@ -587,50 +591,50 @@ var te = class {
 			let a = n.buffer[this.index + 1];
 			e.push(n.slice(r, i, a)), t.push(0);
 		}
-		return new E(this.type, e, t, this.to - this.from);
+		return new A(this.type, e, t, this.to - this.from);
 	}
 	toString() {
 		return this.context.buffer.childString(this.index);
 	}
 };
-function F(e) {
+function ie(e) {
 	if (!e.length) return null;
 	let t = 0, n = e[0];
 	for (let r = 1; r < e.length; r++) {
 		let i = e[r];
 		(i.from > n.from || i.to < n.to) && (n = i, t = r);
 	}
-	let r = n instanceof M && n.index < 0 ? null : n.parent, i = e.slice();
-	return r ? i[t] = r : i.splice(t, 1), new ne(i, n);
+	let r = n instanceof P && n.index < 0 ? null : n.parent, i = e.slice();
+	return r ? i[t] = r : i.splice(t, 1), new ae(i, n);
 }
-var ne = class {
+var ae = class {
 	constructor(e, t) {
 		this.heads = e, this.node = t;
 	}
 	get next() {
-		return F(this.heads);
+		return ie(this.heads);
 	}
 };
-function re(e, t, n) {
+function oe(e, t, n) {
 	let r = e.resolveInner(t, n), i = null;
-	for (let e = r instanceof M ? r : r.context.parent; e; e = e.parent) if (e.index < 0) {
+	for (let e = r instanceof P ? r : r.context.parent; e; e = e.parent) if (e.index < 0) {
 		let a = e.parent;
 		(i ||= [r]).push(a.resolve(t, n)), e = a;
 	} else {
-		let a = y.get(e.tree);
+		let a = C.get(e.tree);
 		if (a && a.overlay && a.overlay[0].from <= t && a.overlay[a.overlay.length - 1].to >= t) {
-			let o = new M(a.tree, a.overlay[0].from + e.from, -1, e);
-			(i ||= [r]).push(A(o, t, n, !1));
+			let o = new P(a.tree, a.overlay[0].from + e.from, -1, e);
+			(i ||= [r]).push(M(o, t, n, !1));
 		}
 	}
-	return i ? F(i) : r;
+	return i ? ie(i) : r;
 }
-var I = class {
+var L = class {
 	get name() {
 		return this.type.name;
 	}
 	constructor(e, t = 0) {
-		if (this.buffer = null, this.stack = [], this.index = 0, this.bufferNode = null, this.mode = t & ~T.EnterBracketed, e instanceof M) this.yieldNode(e);
+		if (this.buffer = null, this.stack = [], this.index = 0, this.bufferNode = null, this.mode = t & ~k.EnterBracketed, e instanceof P) this.yieldNode(e);
 		else {
 			this._tree = e.context.parent, this.buffer = e.context;
 			for (let t = e._parent; t; t = t._parent) this.stack.unshift(t.index);
@@ -646,7 +650,7 @@ var I = class {
 		return this.type = t || r.set.types[r.buffer[e]], this.from = n + r.buffer[e + 1], this.to = n + r.buffer[e + 2], !0;
 	}
 	yield(e) {
-		return e ? e instanceof M ? (this.buffer = null, this.yieldNode(e)) : (this.buffer = e.context, this.yieldBuf(e.index, e.type)) : !1;
+		return e ? e instanceof P ? (this.buffer = null, this.yieldNode(e)) : (this.buffer = e.context, this.yieldBuf(e.index, e.type)) : !1;
 	}
 	toString() {
 		return this.buffer ? this.buffer.buffer.childString(this.index) : this._tree.toString();
@@ -669,12 +673,12 @@ var I = class {
 		return this.enterChild(-1, e, -2);
 	}
 	enter(e, t, n = this.mode) {
-		return this.buffer ? n & T.ExcludeBuffers ? !1 : this.enterChild(1, e, t) : this.yield(this._tree.enter(e, t, n));
+		return this.buffer ? n & k.ExcludeBuffers ? !1 : this.enterChild(1, e, t) : this.yield(this._tree.enter(e, t, n));
 	}
 	parent() {
-		if (!this.buffer) return this.yieldNode(this.mode & T.IncludeAnonymous ? this._tree._parent : this._tree.parent);
+		if (!this.buffer) return this.yieldNode(this.mode & k.IncludeAnonymous ? this._tree._parent : this._tree.parent);
 		if (this.stack.length) return this.yieldBuf(this.stack.pop());
-		let e = this.mode & T.IncludeAnonymous ? this.buffer.parent : this.buffer.parent.nextSignificantParent();
+		let e = this.mode & k.IncludeAnonymous ? this.buffer.parent : this.buffer.parent.nextSignificantParent();
 		return this.buffer = null, this.yieldNode(e);
 	}
 	sibling(e) {
@@ -705,7 +709,7 @@ var I = class {
 		} else ({index: t, _parent: n} = this._tree);
 		for (; n; {index: t, _parent: n} = n) if (t > -1) for (let r = t + e, i = e < 0 ? -1 : n._tree.children.length; r != i; r += e) {
 			let e = n._tree.children[r];
-			if (this.mode & T.IncludeAnonymous || e instanceof O || !e.type.isAnonymous || L(e)) return !1;
+			if (this.mode & k.IncludeAnonymous || e instanceof j || !e.type.isAnonymous || R(e)) return !1;
 		}
 		return !0;
 	}
@@ -738,8 +742,8 @@ var I = class {
 			}
 			r = this.stack[--i];
 		}
-		for (let e = n; e < this.stack.length; e++) t = new P(this.buffer, t, this.stack[e]);
-		return this.bufferNode = new P(this.buffer, t, this.index);
+		for (let e = n; e < this.stack.length; e++) t = new I(this.buffer, t, this.stack[e]);
+		return this.bufferNode = new I(this.buffer, t, this.index);
 	}
 	get tree() {
 		return this.buffer ? null : this._tree._tree;
@@ -762,10 +766,10 @@ var I = class {
 		}
 	}
 	matchContext(e) {
-		if (!this.buffer) return N(this.node.parent, e);
+		if (!this.buffer) return F(this.node.parent, e);
 		let { buffer: t } = this.buffer, { types: n } = t.set;
 		for (let r = e.length - 1, i = this.stack.length - 1; r >= 0; i--) {
-			if (i < 0) return N(this._tree, e, r);
+			if (i < 0) return F(this._tree, e, r);
 			let a = n[t.buffer[this.stack[i]]];
 			if (!a.isAnonymous) {
 				if (e[r] && e[r] != a.name) return !1;
@@ -775,17 +779,17 @@ var I = class {
 		return !0;
 	}
 };
-function L(e) {
-	return e.children.some((e) => e instanceof O || !e.type.isAnonymous || L(e));
+function R(e) {
+	return e.children.some((e) => e instanceof j || !e.type.isAnonymous || R(e));
 }
-function ie(e) {
-	let { buffer: t, nodeSet: n, maxBufferLength: r = h, reused: i = [], minRepeatType: a = n.types.length } = e, o = Array.isArray(t) ? new D(t, t.length) : t, s = n.types, c = 0, l = 0;
-	function u(e, t, h, v, y, b) {
+function se(e) {
+	let { buffer: t, nodeSet: n, maxBufferLength: r = y, reused: i = [], minRepeatType: a = n.types.length } = e, o = Array.isArray(t) ? new ee(t, t.length) : t, s = n.types, c = 0, l = 0;
+	function u(e, t, _, v, y, b) {
 		let { id: x, start: S, end: C, size: w } = o, T = l, E = c;
 		if (w < 0) {
 			if (o.next(), w == -1) {
 				let t = i[x];
-				h.push(t), v.push(S - e);
+				_.push(t), v.push(S - e);
 				return;
 			}
 			if (w == -3) {
@@ -798,11 +802,11 @@ function ie(e) {
 			}
 			throw RangeError(`Unrecognized record size: ${w}`);
 		}
-		let D = s[x], k, A, j = S - e;
-		if (C - S <= r && (A = g(o.pos - t, y))) {
-			let t = new Uint16Array(A.size - A.skip), r = o.pos - A.size, i = t.length;
-			for (; o.pos > r;) i = _(A.start, t, i);
-			k = new O(t, C - A.start, n), j = A.start - e;
+		let D = s[x], O, k, A = S - e;
+		if (C - S <= r && (k = h(o.pos - t, y))) {
+			let t = new Uint16Array(k.size - k.skip), r = o.pos - k.size, i = t.length;
+			for (; o.pos > r;) i = g(k.start, t, i);
+			O = new j(t, C - k.start, n), A = k.start - e;
 		} else {
 			let e = o.pos - w;
 			o.next();
@@ -810,10 +814,10 @@ function ie(e) {
 			for (; o.pos > e;) c >= 0 && o.id == c && o.size >= 0 ? (o.end <= g - r && (p(t, s, S, h, o.end, g, c, _, E), h = t.length, g = o.end, _ = l), o.next()) : b > 2500 ? d(S, e, t, s) : (c >= 0 && o.size == -1 && i[o.id].type == n.types[c] && (h < t.length && p(t, s, S, h, o.end, g, c, _, E), h = t.length + 1, g = o.start, _ = l), u(S, e, t, s, c, b + 1));
 			if (c >= 0 && h > 0 && h < t.length && p(t, s, S, h, S, g, c, _, E), t.reverse(), s.reverse(), c > -1 && h > 0) {
 				let e = f(D, E);
-				k = B(D, t, s, 0, t.length, 0, C - S, e, e);
-			} else k = m(D, t, s, C - S, T - C, E);
+				O = B(D, t, s, 0, t.length, 0, C - S, e, e);
+			} else O = m(D, t, s, C - S, T - C, E);
 		}
-		h.push(k), v.push(j);
+		_.push(O), v.push(A);
 	}
 	function d(e, t, i, a) {
 		let s = [], c = 0, l = -1;
@@ -826,15 +830,15 @@ function ie(e) {
 		if (c) {
 			let t = new Uint16Array(c * 4), r = s[s.length - 2];
 			for (let e = s.length - 3, n = 0; e >= 0; e -= 3) t[n++] = s[e], t[n++] = s[e + 1] - r, t[n++] = s[e + 2] - r, t[n++] = n;
-			i.push(new O(t, s[2] - r, n)), a.push(r - e);
+			i.push(new j(t, s[2] - r, n)), a.push(r - e);
 		}
 	}
 	function f(e, t) {
 		return (n, r, i) => {
 			let a = 0, o = n.length - 1, s, c;
-			if (o >= 0 && (s = n[o]) instanceof E) {
+			if (o >= 0 && (s = n[o]) instanceof A) {
 				if (!o && s.type == e && s.length == i) return s;
-				(c = s.prop(v.lookAhead)) && (a = r[o] + s.length + c - i);
+				(c = s.prop(S.lookAhead)) && (a = r[o] + s.length + c - i);
 			}
 			return m(e, n, r, i, a, t);
 		};
@@ -846,16 +850,16 @@ function ie(e) {
 	}
 	function m(e, t, n, r, i, a, o) {
 		if (a) {
-			let e = [v.contextHash, a];
+			let e = [S.contextHash, a];
 			o = o ? [e].concat(o) : [e];
 		}
 		if (i > 25) {
-			let e = [v.lookAhead, i];
+			let e = [S.lookAhead, i];
 			o = o ? [e].concat(o) : [e];
 		}
-		return new E(e, t, n, r, o);
+		return new A(e, t, n, r, o);
 	}
-	function g(e, t) {
+	function h(e, t) {
 		let n = o.fork(), i = 0, s = 0, c = 0, l = n.end - r, u = {
 			size: 0,
 			start: 0,
@@ -881,37 +885,37 @@ function ie(e) {
 		}
 		return (t < 0 || i == e) && (u.size = i, u.start = s, u.skip = c), u.size > 4 ? u : void 0;
 	}
-	function _(e, t, n) {
+	function g(e, t, n) {
 		let { id: r, start: i, end: s, size: u } = o;
 		if (o.next(), u >= 0 && r < a) {
 			let a = n;
 			if (u > 4) {
 				let r = o.pos - (u - 4);
-				for (; o.pos > r;) n = _(e, t, n);
+				for (; o.pos > r;) n = g(e, t, n);
 			}
 			t[--n] = a, t[--n] = s - e, t[--n] = i - e, t[--n] = r;
 		} else u == -3 ? c = r : u == -4 && (l = r);
 		return n;
 	}
-	let y = [], b = [];
-	for (; o.pos > 0;) u(e.start || 0, e.bufferStart || 0, y, b, -1, 0);
-	let x = e.length ?? (y.length ? b[0] + y[0].length : 0);
-	return new E(s[e.topID], y.reverse(), b.reverse(), x);
+	let _ = [], v = [];
+	for (; o.pos > 0;) u(e.start || 0, e.bufferStart || 0, _, v, -1, 0);
+	let b = e.length ?? (_.length ? v[0] + _[0].length : 0);
+	return new A(s[e.topID], _.reverse(), v.reverse(), b);
 }
-var R = /* @__PURE__ */ new WeakMap();
+var ce = /* @__PURE__ */ new WeakMap();
 function z(e, t) {
-	if (!e.isAnonymous || t instanceof O || t.type != e) return 1;
-	let n = R.get(t);
+	if (!e.isAnonymous || t instanceof j || t.type != e) return 1;
+	let n = ce.get(t);
 	if (n == null) {
 		n = 1;
 		for (let r of t.children) {
-			if (r.type != e || !(r instanceof E)) {
+			if (r.type != e || !(r instanceof A)) {
 				n = 1;
 				break;
 			}
 			n += z(e, r);
 		}
-		R.set(t, n);
+		ce.set(t, n);
 	}
 	return n;
 }
@@ -943,9 +947,9 @@ function B(e, t, n, r, i, a, o, s, c) {
 	}
 	return p(t, n, r, i, 0), (s || c)(d, f, o);
 }
-var ae = class {
+var le = class {
 	startParse(e, t, n) {
-		return typeof e == "string" && (e = new oe(e)), n = n ? n.length ? n.map((e) => new _(e.from, e.to)) : [new _(0, 0)] : [new _(0, e.length)], this.createParse(e, t || [], n);
+		return typeof e == "string" && (e = new ue(e)), n = n ? n.length ? n.map((e) => new x(e.from, e.to)) : [new x(0, 0)] : [new x(0, e.length)], this.createParse(e, t || [], n);
 	}
 	parse(e, t, n) {
 		let r = this.startParse(e, t, n);
@@ -954,7 +958,7 @@ var ae = class {
 			if (e) return e;
 		}
 	}
-}, oe = class {
+}, ue = class {
 	constructor(e) {
 		this.string = e;
 	}
@@ -971,9 +975,9 @@ var ae = class {
 		return this.string.slice(e, t);
 	}
 };
-new v({ perNode: !0 });
+new S({ perNode: !0 });
 // ../../node_modules/@lezer/lr/dist/index.js
-var se = class e {
+var de = class e {
 	constructor(e, t, n, r, i, a, o, s, c, l = 0, u) {
 		this.p = e, this.stack = t, this.state = n, this.reducePos = r, this.pos = i, this.score = a, this.buffer = o, this.bufferBase = s, this.curContext = c, this.lookAhead = l, this.parent = u;
 	}
@@ -1069,7 +1073,7 @@ var se = class e {
 		n && this.storeNode(e, this.pos, t, 4), this.storeNode(0, this.pos, t, n ? 8 : 4), this.pos = this.reducePos = t, this.score -= 190;
 	}
 	canShift(e) {
-		for (let t = new ce(this);;) {
+		for (let t = new fe(this);;) {
 			let n = this.p.parser.stateSlot(t.state, 4) || this.p.parser.hasAction(t.state, e);
 			if (n == 0) return !1;
 			if (!(n & 65536)) return !0;
@@ -1186,7 +1190,7 @@ var se = class e {
 	constructor(e, t) {
 		this.tracker = e, this.context = t, this.hash = e.strict ? e.hash(t) : 0;
 	}
-}, ce = class {
+}, fe = class {
 	constructor(e) {
 		this.start = e, this.state = e.state, this.stack = e.stack, this.base = this.stack.length;
 	}
@@ -1196,7 +1200,7 @@ var se = class e {
 		let r = this.start.p.parser.getGoto(this.stack[this.base - 3], t, !0);
 		this.state = r;
 	}
-}, le = class e {
+}, pe = class e {
 	constructor(e, t, n) {
 		this.stack = e, this.pos = t, this.index = n, this.buffer = e.buffer, this.index == 0 && this.maybeNext();
 	}
@@ -1250,7 +1254,7 @@ var U = class {
 	constructor() {
 		this.start = -1, this.value = -1, this.end = -1, this.extended = -1, this.lookAhead = 0, this.mask = 0, this.context = 0;
 	}
-}, W = new U(), ue = class {
+}, W = new U(), me = class {
 	constructor(e, t) {
 		this.input = e, this.ranges = t, this.chunk = "", this.chunkOff = 0, this.chunk2 = "", this.chunk2Pos = 0, this.next = -1, this.token = W, this.rangeIndex = 0, this.pos = this.chunkPos = t[0].from, this.range = t[0], this.end = t[t.length - 1].to, this.readNext();
 	}
@@ -1345,11 +1349,11 @@ var U = class {
 	}
 	token(e, t) {
 		let { parser: n } = t.p;
-		K(this.data, e, t, this.id, n.data, n.tokenPrecTable);
+		ge(this.data, e, t, this.id, n.data, n.tokenPrecTable);
 	}
 };
 G.prototype.contextual = G.prototype.fallback = G.prototype.extend = !1;
-var de = class {
+var he = class {
 	constructor(e, t, n) {
 		this.precTable = t, this.elseToken = n, this.data = typeof e == "string" ? H(e) : e;
 	}
@@ -1357,7 +1361,7 @@ var de = class {
 		let n = e.pos, r = 0;
 		for (;;) {
 			let n = e.next < 0, i = e.resolveOffset(1, 1);
-			if (K(this.data, e, t, 0, this.data, this.precTable), e.token.value > -1) break;
+			if (ge(this.data, e, t, 0, this.data, this.precTable), e.token.value > -1) break;
 			if (this.elseToken == null) return;
 			if (n || r++, i == null) break;
 			e.reset(i, e.token);
@@ -1365,14 +1369,14 @@ var de = class {
 		r && (e.reset(n, e.token), e.acceptToken(this.elseToken, r));
 	}
 };
-de.prototype.contextual = G.prototype.fallback = G.prototype.extend = !1;
-function K(e, t, n, r, i, a) {
+he.prototype.contextual = G.prototype.fallback = G.prototype.extend = !1;
+function ge(e, t, n, r, i, a) {
 	let o = 0, s = 1 << r, { dialect: c } = n.p.parser;
 	scan: for (; (s & e[o]) != 0;) {
 		let n = e[o + 1];
 		for (let r = o + 3; r < n; r += 2) if ((e[r + 1] & s) > 0) {
 			let n = e[r];
-			if (c.allows(n) && (t.token.value == -1 || t.token.value == n || pe(n, t.token.value, i, a))) {
+			if (c.allows(n) && (t.token.value == -1 || t.token.value == n || ve(n, t.token.value, i, a))) {
 				t.acceptToken(n);
 				break;
 			}
@@ -1394,31 +1398,31 @@ function K(e, t, n, r, i, a) {
 		break;
 	}
 }
-function fe(e, t, n) {
+function _e(e, t, n) {
 	for (let r = t, i; (i = e[r]) != 65535; r++) if (i == n) return r - t;
 	return -1;
 }
-function pe(e, t, n, r) {
-	let i = fe(n, r, t);
-	return i < 0 || fe(n, r, e) < i;
+function ve(e, t, n, r) {
+	let i = _e(n, r, t);
+	return i < 0 || _e(n, r, e) < i;
 }
-var q = typeof process < "u" && process.env && /\bparse\b/.test(process.env.LOG), me = null;
-function he(e, t, n) {
-	let r = e.cursor(T.IncludeAnonymous);
+var K = typeof process < "u" && process.env && /\bparse\b/.test(process.env.LOG), ye = null;
+function be(e, t, n) {
+	let r = e.cursor(k.IncludeAnonymous);
 	for (r.moveTo(t);;) if (!(n < 0 ? r.childBefore(t) : r.childAfter(t))) for (;;) {
 		if ((n < 0 ? r.to < t : r.from > t) && !r.type.isError) return n < 0 ? Math.max(0, Math.min(r.to - 1, t - 25)) : Math.min(e.length, Math.max(r.from + 1, t + 25));
 		if (n < 0 ? r.prevSibling() : r.nextSibling()) break;
 		if (!r.parent()) return n < 0 ? 0 : e.length;
 	}
 }
-var ge = class {
+var xe = class {
 	constructor(e, t) {
 		this.fragments = e, this.minRepeat = t, this.i = 0, this.fragment = null, this.safeFrom = -1, this.safeTo = -1, this.trees = [], this.start = [], this.index = [], this.lastRepeat = null, this.lastRepeatPos = -1, this.nextFragment();
 	}
 	nextFragment() {
 		let e = this.fragment = this.i == this.fragments.length ? null : this.fragments[this.i++];
 		if (e) {
-			for (this.safeFrom = e.openStart ? he(e.tree, e.from + e.offset, 1) - e.offset : e.from, this.safeTo = e.openEnd ? he(e.tree, e.to + e.offset, -1) - e.offset : e.to; this.trees.length;) this.trees.pop(), this.start.pop(), this.index.pop();
+			for (this.safeFrom = e.openStart ? be(e.tree, e.from + e.offset, 1) - e.offset : e.from, this.safeTo = e.openEnd ? be(e.tree, e.to + e.offset, -1) - e.offset : e.to; this.trees.length;) this.trees.pop(), this.start.pop(), this.index.pop();
 			this.trees.push(e.tree), this.start.push(-e.offset), this.index.push(0), this.nextStart = this.safeFrom;
 		} else this.nextStart = 1e9;
 	}
@@ -1437,17 +1441,17 @@ var ge = class {
 			}
 			let i = n.children[r], a = this.start[t] + n.positions[r];
 			if (a > e) return this.nextStart = a, null;
-			if (i instanceof E) {
+			if (i instanceof A) {
 				let n = a > this.lastRepeatPos && i.type.id >= this.minRepeat;
 				if (a == e || n) {
 					let t = a + i.length, r;
-					if (a >= this.safeFrom && t <= this.safeTo && (!(r = i.prop(v.lookAhead)) || t + r < this.fragment.to) && (n && (this.lastRepeat = i, this.lastRepeatPos = a), a == e)) return i;
+					if (a >= this.safeFrom && t <= this.safeTo && (!(r = i.prop(S.lookAhead)) || t + r < this.fragment.to) && (n && (this.lastRepeat = i, this.lastRepeatPos = a), a == e)) return i;
 				}
 				this.index[t]++, a + i.length >= Math.max(this.safeFrom, e) && (this.trees.push(i), this.start.push(a), this.index.push(0));
 			} else this.index[t]++, this.nextStart = a + i.length;
 		}
 	}
-}, _e = class {
+}, Se = class {
 	constructor(e, t) {
 		this.stream = t, this.tokens = [], this.mainToken = null, this.actions = [], this.tokens = e.tokenizers.map((e) => new U());
 	}
@@ -1490,21 +1494,21 @@ var ge = class {
 		let { state: i } = e, { parser: a } = e.p, { data: o } = a;
 		for (let e = 0; e < 2; e++) for (let s = a.stateSlot(i, e ? 2 : 1);; s += 3) {
 			if (o[s] == 65535) {
-				if (o[s + 1] == 1) s = J(o, s + 2);
+				if (o[s + 1] == 1) s = q(o, s + 2);
 				else {
-					r == 0 && o[s + 1] == 2 && (r = this.putAction(J(o, s + 2), t, n, r));
+					r == 0 && o[s + 1] == 2 && (r = this.putAction(q(o, s + 2), t, n, r));
 					break;
 				}
 			}
-			o[s] == t && (r = this.putAction(J(o, s + 1), t, n, r));
+			o[s] == t && (r = this.putAction(q(o, s + 1), t, n, r));
 		}
 		return r;
 	}
-}, ve = class {
+}, Ce = class {
 	constructor(e, t, n, r) {
-		this.parser = e, this.input = t, this.ranges = r, this.recovering = 0, this.nextStackID = 9812, this.minStackPos = 0, this.reused = [], this.stoppedAt = null, this.lastBigReductionStart = -1, this.lastBigReductionSize = 0, this.bigReductionCount = 0, this.stream = new ue(t, r), this.tokens = new _e(e, this.stream), this.topTerm = e.top[1];
+		this.parser = e, this.input = t, this.ranges = r, this.recovering = 0, this.nextStackID = 9812, this.minStackPos = 0, this.reused = [], this.stoppedAt = null, this.lastBigReductionStart = -1, this.lastBigReductionSize = 0, this.bigReductionCount = 0, this.stream = new me(t, r), this.tokens = new Se(e, this.stream), this.topTerm = e.top[1];
 		let { from: i } = r[0];
-		this.stacks = [se.start(this, e.top[0], i)], this.fragments = n.length && this.stream.end - i > e.bufferLength * 4 ? new ge(n, e.minRepeatTerm) : null;
+		this.stacks = [de.start(this, e.top[0], i)], this.fragments = n.length && this.stream.end - i > e.bufferLength * 4 ? new xe(n, e.minRepeatTerm) : null;
 	}
 	get parsedPos() {
 		return this.minStackPos;
@@ -1530,14 +1534,14 @@ var ge = class {
 			}
 		}
 		if (!n.length) {
-			let e = r && Se(r);
-			if (e) return q && console.log("Finish with " + this.stackID(e)), this.stackToTree(e);
-			if (this.parser.strict) throw q && r && console.log("Stuck with token " + (this.tokens.mainToken ? this.parser.getName(this.tokens.mainToken.value) : "none")), SyntaxError("No parse at " + t);
+			let e = r && De(r);
+			if (e) return K && console.log("Finish with " + this.stackID(e)), this.stackToTree(e);
+			if (this.parser.strict) throw K && r && console.log("Stuck with token " + (this.tokens.mainToken ? this.parser.getName(this.tokens.mainToken.value) : "none")), SyntaxError("No parse at " + t);
 			this.recovering ||= 5;
 		}
 		if (this.recovering && r) {
 			let e = this.stoppedAt != null && r[0].pos > this.stoppedAt ? r[0] : this.runRecovery(r, i, n);
-			if (e) return q && console.log("Force-finish " + this.stackID(e)), this.stackToTree(e.forceAll());
+			if (e) return K && console.log("Force-finish " + this.stackID(e)), this.stackToTree(e.forceAll());
 		}
 		if (this.recovering) {
 			let e = this.recovering == 1 ? 1 : this.recovering * 3;
@@ -1572,28 +1576,28 @@ var ge = class {
 		let i = e.curContext && e.curContext.tracker.strict, a = i ? e.curContext.hash : 0;
 		for (; n;) {
 			let o = this.parser.nodeSet.types[n.type.id] == n.type ? this.parser.getGoto(e.state, n.type.id) : -1;
-			if (o > -1 && n.length && (!i || (n.prop(v.contextHash) || 0) == a)) return e.useNode(n, o, t), n;
+			if (o > -1 && n.length && (!i || (n.prop(S.contextHash) || 0) == a)) return e.useNode(n, o, t), n;
 			if (n.children.length == 0 || n.positions[0] > 0) break;
 			let s = n.children[0];
-			if (s instanceof E && (!r || s.type.id >= this.parser.minRepeatTerm)) n = s;
+			if (s instanceof A && (!r || s.type.id >= this.parser.minRepeatTerm)) n = s;
 			else break;
 		}
 		return null;
 	}
 	advanceStack(e, t, n) {
-		let r = e.pos, { parser: i } = this, a = q ? this.stackID(e) + " -> " : "";
+		let r = e.pos, { parser: i } = this, a = K ? this.stackID(e) + " -> " : "";
 		if (this.stoppedAt != null && r > this.stoppedAt) return e.forceReduce() ? e : null;
 		if (this.fragments) {
 			let t = e.reducePos < r && e.buffer.length && e.buffer[e.buffer.length - 2] <= e.reducePos && this.fragments.lastRepeatPos == e.reducePos && this.tryReuse(e, e.reducePos, this.fragments.lastRepeat, !0) || this.tryReuse(e, r, this.fragments.nodeAt(r), !1);
-			if (t) return q && console.log(a + this.stackID(e) + ` (via reuse of ${i.getName(t.type.id)})`), !0;
+			if (t) return K && console.log(a + this.stackID(e) + ` (via reuse of ${i.getName(t.type.id)})`), !0;
 		}
 		let o = i.stateSlot(e.state, 4);
-		if (o > 0) return e.reduce(o), q && console.log(a + this.stackID(e) + ` (via always-reduce ${i.getName(o & 65535)})`), !0;
+		if (o > 0) return e.reduce(o), K && console.log(a + this.stackID(e) + ` (via always-reduce ${i.getName(o & 65535)})`), !0;
 		if (e.stack.length >= 8400) for (; e.stack.length > 6e3 && e.forceReduce(););
 		let s = this.tokens.getActions(e);
 		for (let o = 0; o < s.length;) {
 			let c = s[o++], l = s[o++], u = s[o++], d = o == s.length || !n, f = d ? e : e.split(), p = this.tokens.mainToken;
-			if (f.apply(c, l, p ? p.start : f.pos, u), q && console.log(a + this.stackID(f) + ` (via ${c & 65536 ? `reduce of ${i.getName(c & 65535)}` : "shift"} for ${i.getName(l)} @ ${r}${f == e ? "" : ", split"})`), d) return !0;
+			if (f.apply(c, l, p ? p.start : f.pos, u), K && console.log(a + this.stackID(f) + ` (via ${c & 65536 ? `reduce of ${i.getName(c & 65535)}` : "shift"} for ${i.getName(l)} @ ${r}${f == e ? "" : ", split"})`), d) return !0;
 			f.pos > r ? t.push(f) : n.push(f);
 		}
 		return !1;
@@ -1602,24 +1606,24 @@ var ge = class {
 		let n = e.pos;
 		for (;;) {
 			if (!this.advanceStack(e, null, null)) return !1;
-			if (e.pos > n) return ye(e, t), !0;
+			if (e.pos > n) return we(e, t), !0;
 		}
 	}
 	runRecovery(e, t, n) {
 		let r = null, i = !1;
 		for (let a = 0; a < e.length; a++) {
-			let o = e[a], s = t[a << 1], c = t[(a << 1) + 1], l = q ? this.stackID(o) + " -> " : "";
-			if (o.deadEnd && (i || (i = !0, o.restart(), q && console.log(l + this.stackID(o) + " (restarted)"), this.advanceFully(o, n)))) continue;
+			let o = e[a], s = t[a << 1], c = t[(a << 1) + 1], l = K ? this.stackID(o) + " -> " : "";
+			if (o.deadEnd && (i || (i = !0, o.restart(), K && console.log(l + this.stackID(o) + " (restarted)"), this.advanceFully(o, n)))) continue;
 			let u = o.split(), d = l;
-			for (let e = 0; e < 10 && u.forceReduce() && (q && console.log(d + this.stackID(u) + " (via force-reduce)"), !this.advanceFully(u, n)); e++) q && (d = this.stackID(u) + " -> ");
-			for (let e of o.recoverByInsert(s)) q && console.log(l + this.stackID(e) + " (via recover-insert)"), this.advanceFully(e, n);
-			this.stream.end > o.pos ? (c == o.pos && (c++, s = 0), o.recoverByDelete(s, c), q && console.log(l + this.stackID(o) + ` (via recover-delete ${this.parser.getName(s)})`), ye(o, n)) : (!r || r.score < u.score) && (r = u);
+			for (let e = 0; e < 10 && u.forceReduce() && (K && console.log(d + this.stackID(u) + " (via force-reduce)"), !this.advanceFully(u, n)); e++) K && (d = this.stackID(u) + " -> ");
+			for (let e of o.recoverByInsert(s)) K && console.log(l + this.stackID(e) + " (via recover-insert)"), this.advanceFully(e, n);
+			this.stream.end > o.pos ? (c == o.pos && (c++, s = 0), o.recoverByDelete(s, c), K && console.log(l + this.stackID(o) + ` (via recover-delete ${this.parser.getName(s)})`), we(o, n)) : (!r || r.score < u.score) && (r = u);
 		}
 		return r;
 	}
 	stackToTree(e) {
-		return e.close(), E.build({
-			buffer: le.create(e),
+		return e.close(), A.build({
+			buffer: pe.create(e),
 			nodeSet: this.parser.nodeSet,
 			topID: this.topTerm,
 			maxBufferLength: this.parser.bufferLength,
@@ -1630,11 +1634,11 @@ var ge = class {
 		});
 	}
 	stackID(e) {
-		let t = (me ||= /* @__PURE__ */ new WeakMap()).get(e);
-		return t || me.set(e, t = String.fromCodePoint(this.nextStackID++)), t + e;
+		let t = (ye ||= /* @__PURE__ */ new WeakMap()).get(e);
+		return t || ye.set(e, t = String.fromCodePoint(this.nextStackID++)), t + e;
 	}
 };
-function ye(e, t) {
+function we(e, t) {
 	for (let n = 0; n < t.length; n++) {
 		let r = t[n];
 		if (r.pos == e.pos && r.sameState(e)) {
@@ -1644,14 +1648,14 @@ function ye(e, t) {
 	}
 	t.push(e);
 }
-var be = class {
+var Te = class {
 	constructor(e, t, n) {
 		this.source = e, this.flags = t, this.disabled = n;
 	}
 	allows(e) {
 		return !this.disabled || this.disabled[e] == 0;
 	}
-}, xe = class e extends ae {
+}, Ee = class e extends le {
 	constructor(e) {
 		if (super(), this.wrappers = [], e.version != 14) throw RangeError(`Parser version (${e.version}) doesn't match runtime version (14)`);
 		let t = e.nodeNames.split(" ");
@@ -1664,7 +1668,7 @@ var be = class {
 		}
 		if (e.nodeProps) for (let t of e.nodeProps) {
 			let e = t[0];
-			typeof e == "string" && (e = v[e]);
+			typeof e == "string" && (e = S[e]);
 			for (let n = 1; n < t.length;) {
 				let r = t[n++];
 				if (r >= 0) i(r, e, t[n++]);
@@ -1675,21 +1679,21 @@ var be = class {
 				}
 			}
 		}
-		this.nodeSet = new S(t.map((t, i) => x.define({
+		this.nodeSet = new E(t.map((t, i) => T.define({
 			name: i >= this.minRepeatTerm ? void 0 : t,
 			id: i,
 			props: r[i],
 			top: n.indexOf(i) > -1,
 			error: i == 0,
 			skipped: e.skippedNodes && e.skippedNodes.indexOf(i) > -1
-		}))), e.propSources && (this.nodeSet = this.nodeSet.extend(...e.propSources)), this.strict = !1, this.bufferLength = h;
+		}))), e.propSources && (this.nodeSet = this.nodeSet.extend(...e.propSources)), this.strict = !1, this.bufferLength = y;
 		let a = H(e.tokenData);
 		this.context = e.context, this.specializerSpecs = e.specialized || [], this.specialized = new Uint16Array(this.specializerSpecs.length);
 		for (let e = 0; e < this.specializerSpecs.length; e++) this.specialized[e] = this.specializerSpecs[e].term;
-		this.specializers = this.specializerSpecs.map(Ce), this.states = H(e.states, Uint32Array), this.data = H(e.stateData), this.goto = H(e.goto), this.maxTerm = e.maxTerm, this.tokenizers = e.tokenizers.map((e) => typeof e == "number" ? new G(a, e) : e), this.topRules = e.topRules, this.dialects = e.dialects || {}, this.dynamicPrecedences = e.dynamicPrecedences || null, this.tokenPrecTable = e.tokenPrec, this.termNames = e.termNames || null, this.maxNode = this.nodeSet.types.length - 1, this.dialect = this.parseDialect(), this.top = this.topRules[Object.keys(this.topRules)[0]];
+		this.specializers = this.specializerSpecs.map(Oe), this.states = H(e.states, Uint32Array), this.data = H(e.stateData), this.goto = H(e.goto), this.maxTerm = e.maxTerm, this.tokenizers = e.tokenizers.map((e) => typeof e == "number" ? new G(a, e) : e), this.topRules = e.topRules, this.dialects = e.dialects || {}, this.dynamicPrecedences = e.dynamicPrecedences || null, this.tokenPrecTable = e.tokenPrec, this.termNames = e.termNames || null, this.maxNode = this.nodeSet.types.length - 1, this.dialect = this.parseDialect(), this.top = this.topRules[Object.keys(this.topRules)[0]];
 	}
 	createParse(e, t, n) {
-		let r = new ve(this, e, t, n);
+		let r = new Ce(this, e, t, n);
 		for (let i of this.wrappers) r = i(r, e, t, n);
 		return r;
 	}
@@ -1707,11 +1711,11 @@ var be = class {
 		let n = this.data;
 		for (let r = 0; r < 2; r++) for (let i = this.stateSlot(e, r ? 2 : 1), a;; i += 3) {
 			if ((a = n[i]) == 65535) {
-				if (n[i + 1] == 1) a = n[i = J(n, i + 2)];
-				else if (n[i + 1] == 2) return J(n, i + 2);
+				if (n[i + 1] == 1) a = n[i = q(n, i + 2)];
+				else if (n[i + 1] == 2) return q(n, i + 2);
 				else break;
 			}
-			if (a == t || a == 0) return J(n, i + 1);
+			if (a == t || a == 0) return q(n, i + 1);
 		}
 		return 0;
 	}
@@ -1728,10 +1732,10 @@ var be = class {
 		let n = this.stateSlot(e, 4), r = n ? t(n) : void 0;
 		for (let n = this.stateSlot(e, 1); r == null; n += 3) {
 			if (this.data[n] == 65535) {
-				if (this.data[n + 1] == 1) n = J(this.data, n + 2);
+				if (this.data[n + 1] == 1) n = q(this.data, n + 2);
 				else break;
 			}
-			r = t(J(this.data, n + 1));
+			r = t(q(this.data, n + 1));
 		}
 		return r;
 	}
@@ -1739,7 +1743,7 @@ var be = class {
 		let t = [];
 		for (let n = this.stateSlot(e, 1);; n += 3) {
 			if (this.data[n] == 65535) {
-				if (this.data[n + 1] == 1) n = J(this.data, n + 2);
+				if (this.data[n + 1] == 1) n = q(this.data, n + 2);
 				else break;
 			}
 			if (!(this.data[n + 2] & 1)) {
@@ -1763,7 +1767,7 @@ var be = class {
 			let i = t.specializers.find((t) => t.from == e.external);
 			if (!i) return e;
 			let a = Object.assign(Object.assign({}, e), { external: i.to });
-			return n.specializers[r] = Ce(a), a;
+			return n.specializers[r] = Oe(a), a;
 		})), t.contextTracker && (n.context = t.contextTracker), t.dialect && (n.dialect = this.parseDialect(t.dialect)), t.strict != null && (n.strict = t.strict), t.wrap && (n.wrappers = n.wrappers.concat(t.wrap)), t.bufferLength != null && (n.bufferLength = t.bufferLength), n;
 	}
 	hasWrappers() {
@@ -1790,16 +1794,16 @@ var be = class {
 		}
 		let r = null;
 		for (let e = 0; e < t.length; e++) if (!n[e]) for (let n = this.dialects[t[e]], i; (i = this.data[n++]) != 65535;) (r ||= new Uint8Array(this.maxTerm + 1))[i] = 1;
-		return new be(e, n, r);
+		return new Te(e, n, r);
 	}
 	static deserialize(t) {
 		return new e(t);
 	}
 };
-function J(e, t) {
+function q(e, t) {
 	return e[t] | e[t + 1] << 16;
 }
-function Se(e) {
+function De(e) {
 	let t = null;
 	for (let n of e) {
 		let e = n.p.stoppedAt;
@@ -1807,7 +1811,7 @@ function Se(e) {
 	}
 	return t;
 }
-function Ce(e) {
+function Oe(e) {
 	if (e.external) {
 		let t = +!!e.extend;
 		return (n, r) => e.external(n, r) << 1 | t;
@@ -1815,7 +1819,7 @@ function Ce(e) {
 	return e.get;
 }
 // src/dsl/grammar/dav.grammar
-var we = {
+var ke = {
 	__proto__: null,
 	dav: 10,
 	title: 16,
@@ -1829,7 +1833,7 @@ var we = {
 	state: 80,
 	animate: 84,
 	code: 91
-}, Te = xe.deserialize({
+}, Ae = Ee.deserialize({
 	version: 14,
 	states: ".WQkQPOOOrQPO'#CzOOQO'#Dg'#DgOOQO'#D^'#D^QYQPOOQYQPOOOwQPO'#C_O|QPO'#CcO!RQPO'#CxO!WQPO'#CfO!]QPO'#C}O!bQPO,59fOOQO-E7[-E7[OOQO,58y,58yOOQO,58},58}O!gQPO,59dO#UQPO,59QO#aQPO,59iO#fQPO1G/QOOQO'#Ch'#ChO$QQPO'#CkOOQO1G/O1G/OO$]QPO1G/OO$wQPO'#CwOOQO1G.l1G.lO#[QPO1G.lO#XQPO1G.lO%SQPO'#DPOOQO1G/T1G/TO%eQPO'#C|OOQO7+$l7+$lO%jQPO7+$lOOQO'#Cm'#CmO&RQPO'#ClOOQO,59V,59VO&WQPO,59VOOQO7+$j7+$jOOQO'#D`'#D`O&`QPO,59cOOQO,59c,59cOOQO7+$W7+$WO#[QPO7+$WOOQO'#Di'#DiOOQO'#Da'#DaO&kQPO,59kOOQO,59k,59kO&|QPO'#DQO'RQPO'#DRO'WQPO'#DTO']QPO'#DVOOQO,59h,59hOOQO<<HW<<HWO'bQPO,59WO'vQPO1G.qO(RQPO1G.qOOQO1G.q1G.qOOQO-E7^-E7^OOQO1G.}1G.}OOQO<<Gr<<GrOOQO-E7_-E7_OOQO1G/V1G/VOOQO,59l,59lO(ZQPO,59mO(oQPO,59oO(tQPO,59qOOQO'#Dh'#DhOOQO1G.r1G.rOOQO'#Cq'#CqOOQO,59y,59yOOQO7+$]7+$]O(yQPO7+$]OOQO-E7]-E7]O)UQPO'#DbO)ZQPO1G/XOOQO1G/Z1G/ZO)oQPO1G/]OOQO<<Gw<<GwP)tQPO'#D_OOQO,59|,59|OOQO-E7`-E7`O)|QPO7+$wO*hQPO'#DXOOQO<<Hc<<HcO*sQPO<<HcO+XQPO<<HcOOQO'#Dc'#DcO+`QPO,59sOOQO,59s,59sO+kQPO'#DYOOQOAN=}AN=}O+yQPOAN=}OOQO-E7a-E7aOOQO1G/_1G/_OOQO'#D['#D[O,_QPO,59tOOQO,59t,59tO,mQPO,59tOOQOG23iG23iOOQO1G/`1G/`O,uQPO1G/`OOQO7+$z7+$z",
 	stateData: "-T~O!YOSPOS~OSPOWVOZXOmWOrYO~OTUO~PYOoZO~OU]O~OX^O~OS_O~OS`O~OXaO~OSbO~OXcO^dOSlaWlaZlamlarla!Wlaila~OXcO^dOjgO~OjkO~O^dOcmOSniWniZnimnirni!Wni~OSpO]rObpO~O^dOSliWliZlimlirli!Wliili~OZXOiwOmWO~Ob!OOi}Ov!POx!QOz!RO~OX!SO~O^dOSnqWnqZnqmnqrnq!Wnq~Oc!UO~O]!XOh!VO~OZXOi!ZOmWO~Ob!OOi!^Ov!POx!QOz!RO~OX!_O~OS!`O~OS!aO~OS!bO~OS!cOU!cOX!cOd!cOf!eOg!eO~OSpO]!gObpO~O]!gOh!hO~Oh!jObuaiuavuaxuazua~O^dO~Oo!mO~OSpO]!nObpO~OS!pO~Oh!jObuiiuivuixuizui~OS!rO~OSpObpO~O^dOcmOj!sObyqiyqvyqxyqzyq~Ob!OOi!yO}!zO~Oj!sObyyiyyvyyxyyzyy~O^dO~P*sOb!OOi#OO}!zO~OS#POT#POX#QO!P#RO~Oj!sOby!Riy!Rvy!Rxy!Rzy!R~O!P#UOb|ai|a}|a~OX#VO!P#UO~O!P#WOb|ii|i}|i~O",
@@ -1856,32 +1860,32 @@ var we = {
 	topRules: { Document: [0, 2] },
 	specialized: [{
 		term: 4,
-		get: (e) => we[e] || -1
+		get: (e) => ke[e] || -1
 	}],
 	tokenPrec: 0
-}), Ee = /* @__PURE__ */ new Set([
+}), je = /* @__PURE__ */ new Set([
 	"String",
 	"Number",
 	"Color",
 	"Identifier",
 	"Boolean"
 ]);
-function De(e) {
-	return Te.parse(e);
+function Me(e) {
+	return Ae.parse(e);
 }
-function Y(e) {
+function J(e) {
 	let t = [];
 	for (let n = e.firstChild; n; n = n.nextSibling) t.push(n);
 	return t;
 }
-function Oe(e) {
-	for (let t = e.firstChild; t; t = t.nextSibling) if (Ee.has(t.name)) return t;
+function Ne(e) {
+	for (let t = e.firstChild; t; t = t.nextSibling) if (je.has(t.name)) return t;
 	return null;
 }
-function X(e, t) {
+function Y(e, t) {
 	return e.slice(t.from, t.to);
 }
-function ke(e) {
+function Pe(e) {
 	let t = [], n = e.length >= 2 && e.endsWith("\""), r = e.slice(1, n ? -1 : void 0), i = "";
 	for (let e = 0; e < r.length; e++) {
 		let n = r[e];
@@ -1915,21 +1919,21 @@ function ke(e) {
 		invalid: t
 	};
 }
-function Ae(e) {
+function Fe(e) {
 	let t = e.startsWith("```"), n = e.length >= (t ? 6 : 3) && e.endsWith("```");
-	return m(e.slice(t ? 3 : 0, n ? -3 : void 0));
+	return a(e.slice(t ? 3 : 0, n ? -3 : void 0));
 }
 // src/dsl/attributes.ts
-var je = {
+var Ie = {
 	string: "\"...\"",
 	bool: "true | false",
-	color: r.join(" | "),
-	stateColor: [...r, a].join(" | "),
-	icon: t.join(" | "),
+	color: c.join(" | "),
+	stateColor: [...c, u].join(" | "),
+	icon: o.join(" | "),
 	ident: "identifier"
 };
-function Me(e, t, n) {
-	let { value: r, invalid: i } = ke(X(e, t));
+function Le(e, t, n) {
+	let { value: r, invalid: i } = Pe(Y(e, t));
 	for (let e of i) {
 		let r = t.from + e.offset;
 		n("invalid-escape", "error", {
@@ -1939,14 +1943,14 @@ function Me(e, t, n) {
 	}
 	return r;
 }
-function Ne(e, t, n, r) {
+function Re(e, t, n, r) {
 	let i = /* @__PURE__ */ new Map();
 	if (t) {
-		let a = c[n], o = /* @__PURE__ */ new Set();
+		let a = p[n], o = /* @__PURE__ */ new Set();
 		for (let s of t.getChildren("Attribute")) {
-			let t = s.getChild("AttrName"), c = Oe(s);
+			let t = s.getChild("AttrName"), c = Ne(s);
 			if (!t || !c) continue;
-			let l = X(e, t), u = Object.hasOwn(a, l) ? a[l] : void 0;
+			let l = Y(e, t), u = Object.hasOwn(a, l) ? a[l] : void 0;
 			if (!u) {
 				r("unknown-attribute", "warning", t, {
 					name: l,
@@ -1955,7 +1959,7 @@ function Ne(e, t, n, r) {
 				continue;
 			}
 			o.has(l) && r("duplicate-attribute", "warning", t, { name: l }), o.add(l);
-			let d = Pe(e, l, u, c, r);
+			let d = ze(e, l, u, c, r);
 			d !== void 0 && i.set(l, {
 				value: d,
 				node: c
@@ -1968,56 +1972,56 @@ function Ne(e, t, n, r) {
 		value: (e) => i.get(e)?.value
 	};
 }
-function Pe(e, t, n, r, i) {
-	let a = X(e, r), o = () => {
+function ze(e, t, n, r, i) {
+	let a = Y(e, r), o = () => {
 		i("invalid-attribute-value", "error", r, {
 			name: t,
-			expected: je[n]
+			expected: Ie[n]
 		});
 	};
 	switch (n) {
-		case "string": return r.name === "String" ? Me(e, r, i) : o();
+		case "string": return r.name === "String" ? Le(e, r, i) : o();
 		case "bool": return r.name === "Boolean" ? a === "true" : o();
 		case "ident": return r.name === "Identifier" ? a : o();
 		case "color":
-		case "stateColor": return r.name !== "Identifier" && r.name !== "Color" ? o() : Fe(a, r, n === "stateColor", i);
-		case "icon": return r.name === "Identifier" ? Ie(a, r, i) : o();
+		case "stateColor": return r.name !== "Identifier" && r.name !== "Color" ? o() : Be(a, r, n === "stateColor", i);
+		case "icon": return r.name === "Identifier" ? Ve(a, r, i) : o();
 	}
 }
-function Fe(e, t, n, o) {
-	let s = e.toLowerCase();
-	if (i(s)) return s;
-	if (n && s === "none") return a;
-	o("invalid-color", "error", t, {
+function Be(e, t, n, r) {
+	let i = e.toLowerCase();
+	if (l(i)) return i;
+	if (n && i === "none") return u;
+	r("invalid-color", "error", t, {
 		value: e,
-		suggestion: (t.name === "Color" ? void 0 : f(e, r)) ?? "",
-		names: (n ? [...r, a] : r).join(", ")
+		suggestion: (t.name === "Color" ? void 0 : _(e, c)) ?? "",
+		names: (n ? [...c, u] : c).join(", ")
 	});
 }
-function Ie(e, r, i) {
-	let a = e.toLowerCase();
-	if (n(a)) return a;
-	i("unknown-icon", "error", r, {
+function Ve(e, t, n) {
+	let r = e.toLowerCase();
+	if (s(r)) return r;
+	n("unknown-icon", "error", t, {
 		icon: e,
-		suggestion: f(e, t) ?? ""
+		suggestion: _(e, o) ?? ""
 	});
 }
 // src/dsl/sourceMap.ts
-function Z(e) {
+function X(e) {
 	return {
 		from: e.from,
 		to: e.to
 	};
 }
 // src/dsl/analyze.ts
-var Le = {
+var He = {
 	style: "solid",
 	direction: "forward"
 };
-function Re(e) {
-	return new ze(e).run();
+function Ue(e) {
+	return new We(e).run();
 }
-var ze = class {
+var We = class {
 	text;
 	diagnostics = [];
 	elements = /* @__PURE__ */ new Map();
@@ -2040,14 +2044,14 @@ var ze = class {
 		this.text = e;
 	}
 	run() {
-		let e = De(this.text).topNode;
+		let e = Me(this.text).topNode;
 		this.collectSyntaxErrors(e);
 		let t = e.getChild("Header");
 		t ? this.readHeader(t) : this.report("missing-header", "error", {
 			from: 0,
 			to: 0
 		});
-		for (let t of Y(e)) switch (t.name) {
+		for (let t of J(e)) switch (t.name) {
 			case "Title":
 				this.readTitle(t);
 				break;
@@ -2075,7 +2079,7 @@ var ze = class {
 		let t = /* @__PURE__ */ new Set(), n = e.cursor();
 		do {
 			if (!n.type.isError || t.has(n.from)) continue;
-			if (t.add(n.from), n.from >= this.text.trimEnd().length) {
+			if (t.add(n.from), n.from >= i(this.text).length) {
 				if (t.size > 1) continue;
 				let e = this.text.length;
 				this.report("unexpected-eof", "error", {
@@ -2084,17 +2088,21 @@ var ze = class {
 				});
 				continue;
 			}
-			let e = n.to > n.from ? X(this.text, n) : /^\S+/.exec(this.text.slice(n.from))?.[0] ?? "", r = e.length > 24 ? `${e.slice(0, 24)}…` : e;
+			let e = n.to > n.from ? Y(this.text, n) : /^\S+/.exec(this.text.slice(n.from))?.[0] ?? "", r = (e) => (e.length > 24 ? `${e.slice(0, 24)}…` : e).split("\n")[0] ?? "", a = n.node.prevSibling, o = n.node.parent?.name === "Code" && !n.node.parent.getChild("CodeFence") && a?.name === "String" && e.startsWith("\"") && !this.text.slice(a.to, n.from).includes("\n") ? Y(this.text, a) : void 0;
 			this.report("syntax-error", "error", {
 				from: n.from,
 				to: Math.max(n.to, n.from + e.length)
-			}, { token: r.split("\n")[0] ?? "" });
+			}, o === void 0 ? { token: r(e) } : {
+				token: r(e),
+				hint: "code-title",
+				title: `"${r(o.slice(1, -1))}"`
+			});
 		} while (n.next());
 	}
 	readHeader(e) {
 		let t = e.getChild("Number");
 		if (!t) return;
-		let n = X(this.text, t);
+		let n = Y(this.text, t);
 		this.doc.version = Number(n), n !== "1" && this.report("unsupported-version", "error", t, { version: n });
 	}
 	readTitle(e) {
@@ -2104,7 +2112,7 @@ var ze = class {
 	readGroup(e, t) {
 		let n = e.getChild("Identifier");
 		if (!n) return;
-		let r = X(this.text, n), i = this.readAttributes(e.getChild("Attributes"), "group"), a = {
+		let r = Y(this.text, n), i = this.readAttributes(e.getChild("Attributes"), "group"), a = {
 			id: r,
 			label: this.readChildString(e, "Label") ?? r
 		};
@@ -2116,18 +2124,18 @@ var ze = class {
 			id: r,
 			from: e.from,
 			to: e.to,
-			idRange: Z(n)
+			idRange: X(n)
 		});
 		s && this.doc.groups.push(a);
 		let c = e.getChild("GroupBody");
 		if (!c) return;
 		let l = s ? r : t;
-		for (let e of Y(c)) e.name === "Group" ? this.readGroup(e, l) : e.name === "Node" && this.readNode(e, l);
+		for (let e of J(c)) e.name === "Group" ? this.readGroup(e, l) : e.name === "Node" && this.readNode(e, l);
 	}
 	readNode(e, t) {
 		let n = e.getChild("Identifier");
 		if (!n) return;
-		let r = X(this.text, n), i = this.readAttributes(e.getChild("Attributes"), "node"), a = {
+		let r = Y(this.text, n), i = this.readAttributes(e.getChild("Attributes"), "node"), a = {
 			id: r,
 			label: this.readChildString(e, "Label") ?? r,
 			icon: i.value("icon") ?? "server",
@@ -2144,51 +2152,51 @@ var ze = class {
 			id: r,
 			from: e.from,
 			to: e.to,
-			idRange: Z(n)
+			idRange: X(n)
 		}) && this.doc.nodes.push(a);
 	}
 	readEdge(e) {
 		let t = e.getChildren("Identifier"), n = e.getChild("Arrow"), [r, i] = t;
 		if (!r || !i || !n) return;
-		let a = X(this.text, r), o = X(this.text, i), c = X(this.text, n), l = d[c] ?? Le;
-		a === o && l.direction === "bidirectional" && this.report("invalid-self-arrow", "error", n, {
-			arrow: c,
-			suggestion: l.style === "dashed" ? "..>" : "-->"
+		let a = Y(this.text, r), o = Y(this.text, i), s = Y(this.text, n), c = g[s] ?? He;
+		a === o && c.direction === "bidirectional" && this.report("invalid-self-arrow", "error", n, {
+			arrow: s,
+			suggestion: c.style === "dashed" ? "..>" : "-->"
 		});
-		let u = this.readAttributes(e.getChild("Attributes"), "edge"), f = u.get("id"), p = {
-			id: f?.value ?? s(a, o),
-			explicitId: f !== void 0,
+		let l = this.readAttributes(e.getChild("Attributes"), "edge"), u = l.get("id"), d = {
+			id: u?.value ?? f(a, o),
+			explicitId: u !== void 0,
 			from: a,
 			to: o,
-			style: l.style,
-			direction: l.direction,
-			visible: u.value("visible") ?? !0
-		}, m = this.readChildString(e, "EdgeLabel");
-		m !== void 0 && (p.label = m);
-		let h = u.value("color");
-		h !== void 0 && (p.color = h), f ? this.declare({
+			style: c.style,
+			direction: c.direction,
+			visible: l.value("visible") ?? !0
+		}, p = this.readChildString(e, "EdgeLabel");
+		p !== void 0 && (d.label = p);
+		let m = l.value("color");
+		m !== void 0 && (d.color = m), u ? this.declare({
 			kind: "edge",
-			id: p.id,
+			id: d.id,
 			from: e.from,
 			to: e.to,
-			idRange: Z(f.node)
-		}) : this.elements.has(p.id) ? this.report("duplicate-edge", "error", e, {
+			idRange: X(u.node)
+		}) : this.elements.has(d.id) ? this.report("duplicate-edge", "error", e, {
 			from: a,
 			to: o
-		}) : this.elements.set(p.id, {
+		}) : this.elements.set(d.id, {
 			kind: "edge",
-			id: p.id,
+			id: d.id,
 			from: e.from,
 			to: e.to
 		}), this.references.push({
 			id: a,
-			range: Z(r),
+			range: X(r),
 			allowed: ["node"]
 		}, {
 			id: o,
-			range: Z(i),
+			range: X(i),
 			allowed: ["node"]
-		}), this.doc.edges.push(p);
+		}), this.doc.edges.push(d);
 	}
 	readStep(e) {
 		let t = {
@@ -2199,13 +2207,13 @@ var ze = class {
 			states: [],
 			animations: []
 		}, n = e.getChild("StepBody");
-		for (let e of n ? Y(n) : []) switch (e.name) {
+		for (let e of n ? J(n) : []) switch (e.name) {
 			case "Focus":
 				for (let n of e.getChildren("Identifier")) {
-					let e = X(this.text, n);
+					let e = Y(this.text, n);
 					t.focus.push(e), this.references.push({
 						id: e,
-						range: Z(n),
+						range: X(n),
 						allowed: ["node", "group"]
 					});
 				}
@@ -2223,7 +2231,7 @@ var ze = class {
 	readState(e, t) {
 		let n = e.getChild("Identifier");
 		if (!n) return;
-		let r = X(this.text, n), i = e.getChild("Attributes"), a = this.readAttributes(i, "state");
+		let r = Y(this.text, n), i = e.getChild("Attributes"), a = this.readAttributes(i, "state");
 		i && i.getChildren("Attribute").length === 0 && this.report("empty-state", "warning", e);
 		let o = { target: r }, s = a.value("visible");
 		s !== void 0 && (o.visible = s);
@@ -2232,7 +2240,7 @@ var ze = class {
 		let l = a.value("color");
 		l !== void 0 && (o.color = l), t.states.push(o), this.references.push({
 			id: r,
-			range: Z(n),
+			range: X(n),
 			allowed: [
 				"node",
 				"group",
@@ -2244,56 +2252,56 @@ var ze = class {
 		});
 	}
 	readAnimate(e, t) {
-		let [n, r] = e.getChildren("Identifier"), i = e.getChild("Arrow");
-		if (!n || !r || !i) return;
-		let a = X(this.text, i), o = d[a] ?? Le;
-		o.style === "dashed" ? this.report("invalid-animate-arrow", "error", i, {
-			arrow: a,
-			suggestion: o.direction === "bidirectional" ? "<->" : "-->"
-		}) : o.direction === "bidirectional" && X(this.text, n) === X(this.text, r) && this.report("invalid-self-arrow", "error", i, {
-			arrow: a,
+		let [n, i] = e.getChildren("Identifier"), a = e.getChild("Arrow");
+		if (!n || !i || !a) return;
+		let o = Y(this.text, a), s = g[o] ?? He;
+		s.style === "dashed" ? this.report("invalid-animate-arrow", "error", a, {
+			arrow: o,
+			suggestion: s.direction === "bidirectional" ? "<->" : "-->"
+		}) : s.direction === "bidirectional" && Y(this.text, n) === Y(this.text, i) && this.report("invalid-self-arrow", "error", a, {
+			arrow: o,
 			suggestion: "-->"
 		});
-		let s = this.readAttributes(e.getChild("Attributes"), "animate"), c = {
-			from: X(this.text, n),
-			to: X(this.text, r),
-			direction: o.direction,
-			parallel: s.value("parallel") ?? !1
-		}, l = this.readChildString(e, "EdgeLabel");
-		l !== void 0 && (c.label = l);
-		let u = s.value("color");
-		u !== void 0 && (c.color = u);
-		let f = s.value("icon");
-		f !== void 0 && (c.icon = f);
-		let p = [], m = s.value("desc");
+		let c = this.readAttributes(e.getChild("Attributes"), "animate"), l = {
+			from: Y(this.text, n),
+			to: Y(this.text, i),
+			direction: s.direction,
+			parallel: c.value("parallel") ?? !1
+		}, u = this.readChildString(e, "EdgeLabel");
+		u !== void 0 && (l.label = u);
+		let d = c.value("color");
+		d !== void 0 && (l.color = d);
+		let f = c.value("icon");
+		f !== void 0 && (l.icon = f);
+		let p = [], m = c.value("desc");
 		m !== void 0 && m.length > 0 && p.push(m);
 		let h = e.getChild("AnimateBody");
-		p.push(...this.readDescList(h)), p.length > 0 && (c.description = p.join("\n"));
-		let g = !1, _, v = s.get("code");
-		if (v !== void 0 && (g = !0, v.value.trim().length > 0 && (_ = { body: v.value })), h) for (let e of Y(h)) {
+		p.push(...this.readDescList(h)), p.length > 0 && (l.description = p.join("\n"));
+		let _ = !1, v, y = c.get("code");
+		if (y !== void 0 && (_ = !0, r(y.value) || (v = { body: y.value })), h) for (let e of J(h)) {
 			if (e.name !== "Code") continue;
-			g && this.report("duplicate-code", "warning", e), g = !0;
+			_ && this.report("duplicate-code", "warning", e), _ = !0;
 			let t = this.readCode(e);
-			t !== void 0 && (_ = t);
+			t !== void 0 && (v = t);
 		}
-		_ !== void 0 && (c.code = _), t.animations.push(c), this.references.push({
-			id: c.from,
-			range: Z(n),
+		v !== void 0 && (l.code = v), t.animations.push(l), this.references.push({
+			id: l.from,
+			range: X(n),
 			allowed: ["node"]
 		}, {
-			id: c.to,
-			range: Z(r),
+			id: l.to,
+			range: X(i),
 			allowed: ["node"]
 		});
 	}
 	readCode(e) {
-		let t = e.getChild("CodeLang"), n = e.getChild("String"), r = e.getChild("CodeFence"), i, a;
-		if (r ? (n && (i = this.readString(n)), a = Ae(X(this.text, r))) : n && (a = this.readString(n)), a === void 0 || a.trim().length === 0) return;
-		let o = { body: a };
-		return t && (o.lang = X(this.text, t)), i !== void 0 && (o.title = i), o;
+		let t = e.getChild("CodeLang"), n = e.getChild("String"), i = e.getChild("CodeFence"), a, o;
+		if (i ? (n && (a = this.readString(n)), o = Fe(Y(this.text, i))) : n && (o = this.readString(n)), o === void 0 || r(o)) return;
+		let s = { body: o };
+		return t && (s.lang = Y(this.text, t)), a !== void 0 && (s.title = a), s;
 	}
 	readString(e) {
-		return Me(this.text, e, this.reportFn);
+		return Le(this.text, e, this.reportFn);
 	}
 	readChildString(e, t) {
 		let n = (t ? e.getChild(t) : e)?.getChild("String");
@@ -2302,14 +2310,14 @@ var ze = class {
 	readDescList(e) {
 		if (!e) return [];
 		let t = [];
-		for (let n of Y(e)) if (n.name === "Desc") {
+		for (let n of J(e)) if (n.name === "Desc") {
 			let e = this.readChildString(n);
 			e !== void 0 && t.push(e);
 		}
 		return t;
 	}
 	readAttributes(e, t) {
-		return Ne(this.text, e, t, this.reportFn);
+		return Re(this.text, e, t, this.reportFn);
 	}
 	declare(e) {
 		return this.elements.has(e.id) ? (this.report("duplicate-id", "error", e.idRange ?? e, { id: e.id }), !1) : (this.elements.set(e.id, e), !0);
@@ -2326,7 +2334,7 @@ var ze = class {
 		for (let e of this.stateChecks) {
 			let t = this.elements.get(e.target);
 			if (!t) continue;
-			let n = l[t.kind];
+			let n = m[t.kind];
 			for (let [r, i] of e.attrs) n.has(r) || this.report("attribute-not-applicable", "warning", i.node, {
 				name: r,
 				kind: t.kind
@@ -2342,12 +2350,12 @@ var ze = class {
 			args: r
 		});
 	}
-}, Q = u.map((e) => e.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
-new RegExp(Q), RegExp(`(?:${Q})\\s*\\w*$`), RegExp(`${Q}|^\\s*animate\\b`);
+}, Z = h.map((e) => e.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+new RegExp(Z), RegExp(`(?:${Z})\\s*\\w*$`), RegExp(`${Z}|^\\s*animate\\b`);
 // src/dsl/diagnostics.ts
-var Be = {
+var Ge = {
 	ja: {
-		"syntax-error": "構文エラー: \"{token}\" は解釈できません",
+		"syntax-error": "構文エラー: \"{token}\" は解釈できません{hint}",
 		"unexpected-eof": "入力が途中で終わっています（\"}\" や \"]\" の閉じ忘れの可能性があります）",
 		"missing-header": "先頭に \"dav 1\" が必要です",
 		"unsupported-version": "DSL バージョン {version} には対応していません（対応: 1）",
@@ -2357,7 +2365,7 @@ var Be = {
 		"undefined-reference": "\"{id}\" は定義されていません",
 		"reference-kind-mismatch": "\"{id}\" は{actual}です（{expected}を指定してください）",
 		"unknown-attribute": "属性 \"{name}\" は{owner}では使えません",
-		"duplicate-attribute": "属性 \"{name}\" が重複しています（後の値が使われます）",
+		"duplicate-attribute": "属性 \"{name}\" が重複しています（無視されなかった最後の値が使われます）",
 		"invalid-attribute-value": "属性 \"{name}\" の値が不正です（期待: {expected}）",
 		"unknown-icon": "アイコン \"{icon}\" は存在しません{suggestion}",
 		"invalid-color": "色 \"{value}\" は不正です{suggestion}（使用可: {names}）",
@@ -2366,10 +2374,10 @@ var Be = {
 		"invalid-escape": "エスケープシーケンス \"{sequence}\" は使えません（使用可: \\\" \\\\ \\n \\t）",
 		"attribute-not-applicable": "属性 \"{name}\" は{kind}には適用されません",
 		"empty-state": "state に属性が指定されていません",
-		"duplicate-code": "code は1つの animate に1つだけ指定できます（後の値が使われます）"
+		"duplicate-code": "code は1つの animate に1つだけ指定できます（空でない最後のものが使われます）"
 	},
 	en: {
-		"syntax-error": "Syntax error: unexpected \"{token}\"",
+		"syntax-error": "Syntax error: unexpected \"{token}\"{hint}",
 		"unexpected-eof": "Unexpected end of input (a closing \"}\" or \"]\" may be missing)",
 		"missing-header": "The document must start with \"dav 1\"",
 		"unsupported-version": "DSL version {version} is not supported (supported: 1)",
@@ -2377,20 +2385,20 @@ var Be = {
 		"duplicate-id": "ID \"{id}\" is already in use",
 		"duplicate-edge": "Duplicate edge from \"{from}\" to \"{to}\". Specify [id: ...] for additional edges",
 		"undefined-reference": "\"{id}\" is not defined",
-		"reference-kind-mismatch": "\"{id}\" is a {actual} (expected {expected})",
+		"reference-kind-mismatch": "\"{id}\" is {actual} (expected {expected})",
 		"unknown-attribute": "Attribute \"{name}\" is not allowed on {owner}",
-		"duplicate-attribute": "Duplicate attribute \"{name}\" (the last value wins)",
+		"duplicate-attribute": "Duplicate attribute \"{name}\" (the last value that is not ignored is used)",
 		"invalid-attribute-value": "Invalid value for attribute \"{name}\" (expected {expected})",
 		"unknown-icon": "Unknown icon \"{icon}\"{suggestion}",
 		"invalid-color": "Invalid color \"{value}\"{suggestion}. Use one of: {names}",
 		"invalid-animate-arrow": "Dashed arrow \"{arrow}\" cannot be used in animate{suggestion}",
 		"invalid-self-arrow": "Bidirectional arrow \"{arrow}\" cannot form a self-loop{suggestion}",
 		"invalid-escape": "Invalid escape sequence \"{sequence}\" (allowed: \\\" \\\\ \\n \\t)",
-		"attribute-not-applicable": "Attribute \"{name}\" does not apply to a {kind}",
+		"attribute-not-applicable": "Attribute \"{name}\" does not apply to {kind}",
 		"empty-state": "state has no attributes",
-		"duplicate-code": "Only one code block is allowed per animate (the last value wins)"
+		"duplicate-code": "Only one code block is allowed per animate (the last one that is not empty is used)"
 	}
-}, Ve = {
+}, Ke = {
 	ja: {
 		node: "ノード",
 		group: "グループ",
@@ -2399,57 +2407,62 @@ var Be = {
 		animate: "animate"
 	},
 	en: {
-		node: "node",
-		group: "group",
-		edge: "edge",
-		state: "state",
-		animate: "animate"
+		node: "a node",
+		group: "a group",
+		edge: "an edge",
+		state: "a state",
+		animate: "an animate"
 	}
-}, He = {
+}, qe = {
 	ja: "（もしかして \"{value}\"？）",
 	en: " (did you mean \"{value}\"?)"
-}, Ue = /* @__PURE__ */ new Set([
+};
+Object.keys(Ge.en);
+var Je = {
+	ja: { "code-title": "。1行形式の code にはタイトルを付けられません。{title} がタイトルなら消すか、タイトルを残すならコードを ``` の行で囲んでください" },
+	en: { "code-title": ". A one-line code takes no title: if {title} is one, remove it, or put the code between lines of ``` to keep it" }
+}, Ye = /* @__PURE__ */ new Set([
 	"owner",
 	"kind",
 	"actual",
 	"expected"
 ]);
-function We(e, t = "en") {
-	return Be[t][e.code].replace(/\{(\w+)\}/g, (n, r) => {
+function Xe(e, t = "en") {
+	return Ge[t][e.code].replace(/\{(\w+)\}/g, (n, r) => {
 		let i = e.args[r] ?? "";
-		return r === "suggestion" ? i ? He[t].replace("{value}", i) : "" : Ue.has(r) ? i.split(/\s*\|\s*/).map((e) => Ve[t][e] ?? e).join(t === "ja" ? "・" : " or ") : i;
+		return r === "suggestion" ? i ? qe[t].replace("{value}", i) : "" : r === "hint" ? (Je[t][i] ?? "").replace("{title}", () => e.args.title ?? "") : Ye.has(r) ? i.split(/\s*\|\s*/).map((e) => Ke[t][e] ?? e).join(t === "ja" ? "・" : " or ") : i;
 	});
 }
 // src/skill/lines.ts
-var Ge = (e) => e.replace(/\p{Cc}+/gu, (e) => /^\t+$/.test(e) ? e : " "), Ke = (e, t) => e.from === t.from && e.to === t.to || e.direction === "bidirectional" && e.from === t.to && e.to === t.from, qe = "Usage: node dav-outline.mjs [--json] <file.dav>", Je = 0, Ye = 1, Xe = 2, $ = (e) => e.direction === "bidirectional" ? e.style === "dashed" ? "<.>" : "<->" : e.style === "dashed" ? "..>" : "-->";
-function Ze(e, t) {
+var Ze = (e) => e.replace(/\p{Cc}+/gu, (e) => /^\t+$/.test(e) ? e : " "), Qe = (e, t) => e.from === t.from && e.to === t.to || e.direction === "bidirectional" && e.from === t.to && e.to === t.from, $e = "Usage: node dav-outline.mjs [--json] <file.dav>", et = 0, tt = 1, nt = 2, Q = (e) => e.direction === "bidirectional" ? e.style === "dashed" ? "<.>" : "<->" : e.style === "dashed" ? "..>" : "-->";
+function $(e, t) {
 	let n = e.steps.find((e) => e.states.some((e) => e.target === t && e.visible));
 	return n ? n.index + 1 : 0;
 }
-function Qe(e, t) {
+function rt(e, t) {
 	let n = [];
 	for (let e of t.animations) {
 		let t = n[n.length - 1];
 		e.parallel && t ? t.push(e) : n.push([e]);
 	}
 	return n.flatMap((t, n) => t.map((r, i) => {
-		let a = e.edges.find((e) => Ke(e, r)), o = {
+		let a = e.edges.find((e) => Qe(e, r)), o = {
 			number: `${n + 1}${t.length > 1 ? String.fromCharCode(97 + i) : ""}`,
 			from: r.from,
 			to: r.to,
 			roundTrip: r.direction === "bidirectional"
 		};
-		return r.label && (o.label = r.label), r.description && (o.desc = r.description), r.icon && (o.icon = r.icon), r.color && (o.color = r.color), r.code?.body.trim() && (o.code = { body: r.code.body.trim() }, r.code.lang && (o.code.lang = r.code.lang), r.code.title && (o.code.title = r.code.title)), a && (o.edge = `${a.from} ${$(a)} ${a.to}`), o;
+		return r.label && (o.label = r.label), r.description && (o.desc = r.description), r.icon && (o.icon = r.icon), r.color && (o.color = r.color), r.code?.body.trim() && (o.code = { body: r.code.body.trim() }, r.code.lang && (o.code.lang = r.code.lang), r.code.title && (o.code.title = r.code.title)), a && (o.edge = `${a.from} ${Q(a)} ${a.to}`), o;
 	}));
 }
-function $e(e) {
+function it(e) {
 	let t = (t) => {
 		let n = {
 			id: t.id,
 			label: t.label,
 			icon: t.icon
 		};
-		return t.sub && (n.sub = t.sub), t.badge && (n.badge = t.badge), t.color && (n.color = t.color), t.visible || (n.shownFromStep = Ze(e, t.id)), n;
+		return t.sub && (n.sub = t.sub), t.badge && (n.badge = t.badge), t.color && (n.color = t.color), t.visible || (n.shownFromStep = $(e, t.id)), n;
 	}, n = (r) => {
 		let i = e.groups.find((e) => e.id === r), a = {
 			id: r,
@@ -2462,9 +2475,9 @@ function $e(e) {
 		let n = {
 			from: t.from,
 			to: t.to,
-			arrow: $(t)
+			arrow: Q(t)
 		};
-		return t.label && (n.label = t.label), t.explicitId && (n.id = t.id), t.color && (n.color = t.color), t.visible || (n.shownFromStep = Ze(e, t.id)), n;
+		return t.label && (n.label = t.label), t.explicitId && (n.id = t.id), t.color && (n.color = t.color), t.visible || (n.shownFromStep = $(e, t.id)), n;
 	}), i = e.edges.filter((e) => e.from !== e.to), a = (e) => i.some((t) => t.to === e), o = (e) => i.some((t) => t.from === e), s = /* @__PURE__ */ new Map(), c = e.steps.map((t) => {
 		let n = t.index + 1, r = t.states.map((e) => {
 			let t = [];
@@ -2486,14 +2499,14 @@ function $e(e) {
 			focus: t.focus,
 			changes: r,
 			stillShowing: i,
-			phases: Qe(e, t)
+			phases: rt(e, t)
 		};
 		return t.description.trim() && (a.desc = t.description.trim()), a;
 	}), l = new Set(e.steps.flatMap((e) => [
 		...e.focus,
 		...e.states.map((e) => e.target),
 		...e.animations.flatMap((e) => [e.from, e.to])
-	])), u = (t) => e.steps.some((e) => e.animations.some((e) => Ke(t, e)));
+	])), u = (t) => e.steps.some((e) => e.animations.some((e) => Qe(t, e)));
 	return {
 		title: e.title,
 		counts: {
@@ -2510,10 +2523,10 @@ function $e(e) {
 		unconnected: e.nodes.filter((e) => !a(e.id) && !o(e.id)).map((e) => e.id),
 		steps: c,
 		neverInAStep: e.steps.length > 0 ? e.nodes.filter((e) => !l.has(e.id)).map((e) => e.id) : [],
-		edgesWithoutPackets: e.steps.length > 0 ? e.edges.filter((e) => !u(e)).map((e) => `${e.from} ${$(e)} ${e.to}`) : []
+		edgesWithoutPackets: e.steps.length > 0 ? e.edges.filter((e) => !u(e)).map((e) => `${e.from} ${Q(e)} ${e.to}`) : []
 	};
 }
-function et(e, t, n) {
+function at(e, t, n) {
 	let r = new Map(t.nodes.map((e) => [e.id, e.label])), i = (e) => r.has(e) ? `${r.get(e)} (${e})` : e, a = (e) => e.from === e.to ? `${i(e.from)} ↻ (on itself)` : `${i(e.from)} ${e.roundTrip ? "⇄" : "→"} ${i(e.to)}`, o = [], { counts: s } = n;
 	o.push(`# ${n.title || "(no title)"}`), o.push(""), o.push(`${e}: ${s.nodes} nodes, ${s.zones} zones, ${s.edges} edges, ${s.steps} steps`);
 	let c = (e) => e === void 0 ? "" : e === 0 ? "; hidden, and no step shows it" : `; hidden until step ${e}`, l = (e, t) => `${t}- ${e.label} (${e.id}): ${e.icon}${e.sub ? `; ${e.sub}` : ""}${e.badge ? `; badge "${e.badge}"` : ""}${e.color ? `; ${e.color}` : ""}${c(e.shownFromStep)}`, u = (e, t) => {
@@ -2561,23 +2574,23 @@ function et(e, t, n) {
 			e.phases.length === 0 && o.push("No packet travels in this step.");
 		}
 	}
-	return (n.neverInAStep.length > 0 || n.edgesWithoutPackets.length > 0) && (o.push("", "## Not part of any step", ""), d("Nodes no step touches", n.neverInAStep), d("Edges no packet rides", n.edgesWithoutPackets, (e) => e)), `${o.map(Ge).join("\n")}\n`;
+	return (n.neverInAStep.length > 0 || n.edgesWithoutPackets.length > 0) && (o.push("", "## Not part of any step", ""), d("Nodes no step touches", n.neverInAStep), d("Edges no packet rides", n.edgesWithoutPackets, (e) => e)), `${o.map(Ze).join("\n")}\n`;
 }
-function tt(t, n = qe) {
-	if (t.includes("--help") || t.includes("-h")) return console.log(n), Je;
+function ot(t, n = $e) {
+	if (t.includes("--help") || t.includes("-h")) return console.log(n), et;
 	let r = t.filter((e) => e !== "--json"), [i] = r;
-	if (r.length !== 1 || !i || i.startsWith("-")) return console.error(n), Xe;
+	if (r.length !== 1 || !i || i.startsWith("-")) return console.error(n), nt;
 	let a;
 	try {
 		a = e(i, "utf8").replace(/^﻿/, "");
 	} catch (e) {
-		return console.error(`${i}: ${e instanceof Error ? e.message : String(e)}`), Xe;
+		return console.error(`${i}: ${e instanceof Error ? e.message : String(e)}`), nt;
 	}
-	let { document: o, diagnostics: s } = Re(a), c = $e(o);
-	console.log(t.includes("--json") ? JSON.stringify(c, null, 2) : et(i, o, c));
+	let { document: o, diagnostics: s } = Ue(a), c = it(o);
+	console.log(t.includes("--json") ? JSON.stringify(c, null, 2) : at(i, o, c));
 	let l = s.filter((e) => e.severity === "error");
-	for (let e of l) console.error(Ge(`${i}: error ${e.code}: ${We(e)}`));
-	return l.length > 0 ? Ye : Je;
+	for (let e of l) console.error(Ze(`${i}: error ${e.code}: ${Xe(e)}`));
+	return l.length > 0 ? tt : et;
 }
 // src/skill/outlineEntry.ts
-process.exitCode = tt(process.argv.slice(2));
+process.exitCode = ot(process.argv.slice(2));

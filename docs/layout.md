@@ -1,13 +1,13 @@
 # How diagrams are laid out
 
-`.dav` files have no coordinates. You describe what connects to what, and the layout follows. This guide explains what to write to get the arrangement you want. The [exact rules](#exact-rules) for contributors are at the end.
+`.dav` files have no coordinates. You describe what connects to what, and the layout follows. This guide explains what to write to get the arrangement you want. The [exact rules](#exact-rules) are for contributors: writing a diagram needs none of them.
 
 ## The short version
 
 - **Edges decide the column.** Things flow from left to right.
 - **Groups decide what stays together.**
 - **Declaration order breaks ties**, from top to bottom.
-- **Steps never move anything.** A node stays in the same place for the whole diagram.
+- **Steps never move anything.** A node stays in the same place for the whole diagram, and writing steps never rearranges it.
 
 The same file always produces the same layout.
 
@@ -49,7 +49,7 @@ Point it the way you want the diagram to read. To put `client` on the left of `a
 
 ### Cycles
 
-If edges form a loop, one of them has to point back, and that one does not count. Which one depends on where the layout first reaches the loop: it searches from the nodes in the order they are declared, following edges in the order they are written, and the node where it enters the loop goes on the left.
+If edges form a loop, one of them has to point back, and that one does not count. Which one depends on where the layout first reaches the loop: it searches depth first from the nodes in the order they are declared, following edges in the order they are written, and the node where it enters the loop goes on the left.
 
 A loop that nothing else leads into is entered at its node declared first:
 
@@ -66,7 +66,7 @@ a ⇄ b
 
 To swap them, declare `b` first. A self-loop (`a --> a`) never changes the column.
 
-A loop that another node leads into is entered there, whatever the order of its own nodes:
+A loop is entered at the first of its nodes the search reaches, which can be a node that another node leads into, as here, where `x` is declared first:
 
 ```dav
 node x
@@ -81,9 +81,11 @@ b --> a
 x ─── b ⇄ a
 ```
 
-`a` is declared before `b` but stands to its right, because the search reaches `b` from `x` first. Most loops of a large diagram are entered like this. A one-way edge that points back without making a loop does the same to its target: `worker --> console` puts `console` to the right of `worker`, wherever `console` is declared.
+`a` is declared before `b` but stands to its right, because the search reaches `b` from `x` first. Most loops of a large diagram are entered like this. A one-way edge that points back without making a loop does the same to its target, unless it runs between zones [placed freely](#placing-zones-freely): `worker --> console` puts `console` to the right of `worker`, wherever `console` is declared.
 
 To keep a pair in the order you want, write it as one two-way edge, `a <-> b`. A two-way edge counts only in the direction it is written, so it makes no loop, and a packet can still run along it either way.
+
+`dav check --detail` names the edges left out like this in notes `back-edge`, one for each pair of nodes and direction: the loop as the search went round it, where the layout came into the loop, and the columns its two ends took. Where that loop has two nodes, it is named only when the node declared later stands on the left. Where the zones of a large diagram are [placed freely](#placing-zones-freely), each zone is laid out on its own, so only a loop inside one zone leaves an edge out: a link between zones sets no column there.
 
 ## Rows: use groups and order
 
@@ -120,18 +122,23 @@ lb --> db
 | To get this | Do this |
 | :--- | :--- |
 | Move a node to the right | Add an edge into it from a node further right, or lengthen the path that reaches it |
-| Move a node to the left | Remove or reverse an edge that points into it |
+| Move a node to the left | Remove an edge that points into it, or make it two-way, naming this node first. A one-way edge turned round does the same, but its arrow then says that the other node calls |
 | Swap two nodes in a column | Swap their declarations |
 | Keep nodes together | Put them in a `group` |
+| Keep zones next to each other | Nest them in one `group`, then compare `--map`: the other zones can move as well |
 | Show a path that appears later | Declare it with `visible: false`, then show it with `state` |
 | Widen the gap between two columns | Use a longer label on an edge between them |
-| Connect nodes without affecting layout | Leave out the edge and use only `animate` between them |
+| Connect nodes without affecting layout | No edge does that: every edge counts. A packet can go between two nodes without an edge, but it then has no line to follow, and `dav check --detail` reports it |
 
 ## Things that surprise people
 
 **A hidden node still takes up space.** A node with `visible: false` is placed like any other, so nothing moves when a step reveals it.
 
-**`animate` does not affect layout.** Nodes joined only by `animate` are placed as if unconnected. Add an edge if the position matters.
+**A hidden edge still counts.** An edge with `visible: false` sets columns and pulls zones like any other, and its rail keeps its course while hidden, so nothing moves when a step reveals it. That also makes it no clean way to pull two zones together: it sets a column as well, and its rail takes room among the others while hidden.
+
+**The zones of a large diagram are not in the order they are declared.** Where links in columns would run longer than 700 units or cross, the layout [places the top-level zones freely](#placing-zones-freely) wherever that leaves less of both, and their order then follows their links. The search starts from the order of the declarations and counts a link that points left against an arrangement, so moving a declaration or turning an edge can move zones as well, though not into the declared order. Zones nested in one zone stay together inside its frame, so nest the zones that belong together. That changes what the search places, so the other zones can move as well: compare `--map` before and after. Do not nest everything: with one top-level zone there is nothing to place freely, and a large diagram stands in shared columns, which can make it much taller and give it more crossings.
+
+**`animate` adds no connection.** Nodes joined only by `animate` are placed as if unconnected. Add an edge if the position matters.
 
 **A self-loop adds room above every row.** Each node gets the room the tallest loop of the diagram needs, so stations stay level from one zone to the next and the rails between them stay straight.
 
@@ -193,16 +200,16 @@ Crossings are counted on straight lines between station centers (`countCrossings
 
 ### Placing zones freely
 
-When the column layout leaves a link longer than 700 units (a link used for a round trip counts double) or two links that cross, on straight lines between stations, and there are at least two top-level zones, `layout/zoned.ts` tries another arrangement. It is kept if its long links and crossings weigh less than those of the column layout, counting each unit of a link beyond 700 once and a crossing as 700 units. Zones linked across one another can cross in shared columns with every link short: placing them freely can take the crossings out. A chain of zones has no crossings in columns but is a strip dozens of times wider than high; freeing its zones at the price of one crossing is worth it.
+When the column layout leaves a link longer than 700 units or two links that cross, on straight lines between stations, and there are at least two top-level zones, `layout/zoned.ts` tries another arrangement. It is kept if its long links and crossings weigh less than those of the column layout, counting each unit of a link beyond 700 once and a crossing as 700 units. Zones linked across one another can cross in shared columns with every link short: placing them freely can take the crossings out. A chain of zones has no crossings in columns but is a strip dozens of times wider than high; freeing its zones at the price of one crossing is worth it.
 
 1. Each top-level zone is laid out on its own, with the rules above.
 2. The zones start in the columns of a graph that has one node per zone.
-3. Simulated annealing moves zones, swaps them and flips them vertically, scoring link length, crossings, links through or blocked by other zones (including L-path and perimeter-detour barriers), right-to-left links, links that run upright, how far links are from straight, and overall size. Every unit of a link's length counts, and counts again past 700. The size counts as the longer side of a 16:10 canvas the zones fit in, so they fill such a canvas rather than stretch into a strip. A link used for a round trip counts double, since it is traversed twice in its time. A link is off straight by the sideways distance between its two stations, up to 160, counted twice; this applies where no node of either zone stands between them on that side, and a link that cannot be straight counts the full 160. A link runs upright by what it goes up or down beyond what it goes to the right. In an arrangement no wider than high every such unit counts once more, so that an upright link costs twice a level one, and the zones of a flow stand side by side instead of in a stack. That weight falls evenly to nothing at twice as wide as high: a longer flow has to turn back under itself, or it becomes a strip.
+3. Simulated annealing moves zones, swaps them and flips them vertically, scoring link length, crossings, links through or blocked by other zones (including L-path and perimeter-detour barriers), right-to-left links, links that run upright, how far links are from straight, and overall size. Every unit of a link's length counts, and counts again past 700. The size counts as the longer side of a 16:10 canvas the zones fit in, so they fill such a canvas rather than stretch into a strip. A link is off straight by the sideways distance between its two stations, up to 160, counted twice; this applies where no node of either zone stands between them on that side, and a link that cannot be straight counts the full 160. A link runs upright by what it goes up or down beyond what it goes to the right. In an arrangement no wider than high every such unit counts once more, so that an upright link costs twice a level one, and the zones of a flow stand side by side instead of in a stack. That weight falls evenly to nothing at twice as wide as high: a longer flow has to turn back under itself, or it becomes a strip.
 4. Each zone slides towards the zones it is linked to, as far as its clearance allows, so that linked neighbors end up one clearance apart (60 × 34).
-5. Zone edges are aligned where that costs almost nothing, and the zones slide together once more. On diagrams with up to 20 top-level zones, intra-zone nodes with DAG column slack shift toward external neighbors, nested or loop-bearing zones try a vertical flip, and nodes sharing a parent group and column are reordered by clamped neighbor barycenters and adjacent swaps whenever that lowers crossings or link spans.
+5. Zone edges are aligned where that costs almost nothing, and the zones slide together once more. On diagrams with up to 20 top-level zones, a node with DAG column slack that is linked outside its zone is tried in later columns, picked by how far across it stands from the nodes it links to there and by how full each column is, and kept there where the score drops; and a zone of two or more nodes that the annealing cannot flip, because it holds groups or self-loops, is tried upside down and kept so where its links and crossings score lower. Nodes sharing a parent group and column are then reordered by neighbor barycenters whenever that lowers crossings, or keeps them and shortens the links' vertical spans. On up to 20 top-level zones, the barycenters are clamped to 60 units around the zone and weighted, each link inside the zone that is not level counts as 0.6 of a crossing, and adjacent swaps follow under the same test.
 6. A zone moves up to 120 units to put the two stations of a link level, or one straight above the other, with nothing between them. It takes the move that straightens the most of its links, as long as the rest of the score rises by less than 120 per link. The best of six seeded runs is kept, counting each straight link as 120 in its favor (and each crossing anywhere in the diagram as 180 against). Once a run is scored, its zones are straightened once more with 300 allowed per link: a link a few units off level costs its rail two bends, which the score does not count. Doing this after the score leaves which run is kept as it was.
 
-The result is deterministic. Zones no longer share columns, so a column does not line up across the diagram. The search takes under two seconds at 300 nodes, so the last result is reused until the nodes, groups, edges or round trips change. Edge labels are left out of the search, so typing one never rearranges the zones. A long label can still widen its zone, and the zones to its right then move aside.
+The result is deterministic. Zones no longer share columns, so a column does not line up across the diagram. The search takes under two seconds at 300 nodes, so the last result is reused until the nodes, groups or edges change. Edge labels are left out of the search, so typing one never rearranges the zones. A long label can still widen its zone, and the zones to its right then move aside.
 
 ### Straightening single nodes
 

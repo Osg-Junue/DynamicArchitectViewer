@@ -38,7 +38,7 @@ export type Locale = DavLocale;
 
 const MESSAGES: Record<Locale, Record<DiagnosticCode, string>> = {
   ja: {
-    'syntax-error': '構文エラー: "{token}" は解釈できません',
+    'syntax-error': '構文エラー: "{token}" は解釈できません{hint}',
     'unexpected-eof': '入力が途中で終わっています（"}" や "]" の閉じ忘れの可能性があります）',
     'missing-header': '先頭に "dav 1" が必要です',
     'unsupported-version': 'DSL バージョン {version} には対応していません（対応: 1）',
@@ -49,7 +49,7 @@ const MESSAGES: Record<Locale, Record<DiagnosticCode, string>> = {
     'undefined-reference': '"{id}" は定義されていません',
     'reference-kind-mismatch': '"{id}" は{actual}です（{expected}を指定してください）',
     'unknown-attribute': '属性 "{name}" は{owner}では使えません',
-    'duplicate-attribute': '属性 "{name}" が重複しています（後の値が使われます）',
+    'duplicate-attribute': '属性 "{name}" が重複しています（無視されなかった最後の値が使われます）',
     'invalid-attribute-value': '属性 "{name}" の値が不正です（期待: {expected}）',
     'unknown-icon': 'アイコン "{icon}" は存在しません{suggestion}',
     'invalid-color': '色 "{value}" は不正です{suggestion}（使用可: {names}）',
@@ -58,10 +58,11 @@ const MESSAGES: Record<Locale, Record<DiagnosticCode, string>> = {
     'invalid-escape': 'エスケープシーケンス "{sequence}" は使えません（使用可: \\" \\\\ \\n \\t）',
     'attribute-not-applicable': '属性 "{name}" は{kind}には適用されません',
     'empty-state': 'state に属性が指定されていません',
-    'duplicate-code': 'code は1つの animate に1つだけ指定できます（後の値が使われます）',
+    'duplicate-code':
+      'code は1つの animate に1つだけ指定できます（空でない最後のものが使われます）',
   },
   en: {
-    'syntax-error': 'Syntax error: unexpected "{token}"',
+    'syntax-error': 'Syntax error: unexpected "{token}"{hint}',
     'unexpected-eof': 'Unexpected end of input (a closing "}" or "]" may be missing)',
     'missing-header': 'The document must start with "dav 1"',
     'unsupported-version': 'DSL version {version} is not supported (supported: 1)',
@@ -70,18 +71,20 @@ const MESSAGES: Record<Locale, Record<DiagnosticCode, string>> = {
     'duplicate-edge':
       'Duplicate edge from "{from}" to "{to}". Specify [id: ...] for additional edges',
     'undefined-reference': '"{id}" is not defined',
-    'reference-kind-mismatch': '"{id}" is a {actual} (expected {expected})',
+    'reference-kind-mismatch': '"{id}" is {actual} (expected {expected})',
     'unknown-attribute': 'Attribute "{name}" is not allowed on {owner}',
-    'duplicate-attribute': 'Duplicate attribute "{name}" (the last value wins)',
+    'duplicate-attribute':
+      'Duplicate attribute "{name}" (the last value that is not ignored is used)',
     'invalid-attribute-value': 'Invalid value for attribute "{name}" (expected {expected})',
     'unknown-icon': 'Unknown icon "{icon}"{suggestion}',
     'invalid-color': 'Invalid color "{value}"{suggestion}. Use one of: {names}',
     'invalid-animate-arrow': 'Dashed arrow "{arrow}" cannot be used in animate{suggestion}',
     'invalid-self-arrow': 'Bidirectional arrow "{arrow}" cannot form a self-loop{suggestion}',
     'invalid-escape': 'Invalid escape sequence "{sequence}" (allowed: \\" \\\\ \\n \\t)',
-    'attribute-not-applicable': 'Attribute "{name}" does not apply to a {kind}',
+    'attribute-not-applicable': 'Attribute "{name}" does not apply to {kind}',
     'empty-state': 'state has no attributes',
-    'duplicate-code': 'Only one code block is allowed per animate (the last value wins)',
+    'duplicate-code':
+      'Only one code block is allowed per animate (the last one that is not empty is used)',
   },
 };
 
@@ -93,18 +96,34 @@ const KIND_LABELS: Record<Locale, Record<string, string>> = {
     state: 'state',
     animate: 'animate',
   },
+  // With their article, which depends on the word: "an edge", "a node".
   en: {
-    node: 'node',
-    group: 'group',
-    edge: 'edge',
-    state: 'state',
-    animate: 'animate',
+    node: 'a node',
+    group: 'a group',
+    edge: 'an edge',
+    state: 'a state',
+    animate: 'an animate',
   },
 };
 
 const SUGGESTION: Record<Locale, string> = {
   ja: '（もしかして "{value}"？）',
   en: ' (did you mean "{value}"?)',
+};
+
+/** Every diagnostic code, as the specification has to list them. */
+export const DIAGNOSTIC_CODES = Object.keys(MESSAGES.en) as DiagnosticCode[];
+
+/** What a syntax error most likely means, where the parser can tell (`hint` of `syntax-error`). */
+const HINTS: Record<Locale, Record<string, string>> = {
+  ja: {
+    'code-title':
+      '。1行形式の code にはタイトルを付けられません。{title} がタイトルなら消すか、タイトルを残すならコードを ``` の行で囲んでください',
+  },
+  en: {
+    'code-title':
+      '. A one-line code takes no title: if {title} is one, remove it, or put the code between lines of ``` to keep it',
+  },
 };
 
 const KIND_ARGS = new Set(['owner', 'kind', 'actual', 'expected']);
@@ -116,6 +135,10 @@ export function formatDiagnostic(diagnostic: Diagnostic, locale: Locale = 'en'):
     const raw = diagnostic.args[key] ?? '';
     if (key === 'suggestion') {
       return raw ? SUGGESTION[locale].replace('{value}', raw) : '';
+    }
+    if (key === 'hint') {
+      // A function, so that a `$` in the title is not read as a pattern of the replacement.
+      return (HINTS[locale][raw] ?? '').replace('{title}', () => diagnostic.args.title ?? '');
     }
     if (KIND_ARGS.has(key)) {
       return raw

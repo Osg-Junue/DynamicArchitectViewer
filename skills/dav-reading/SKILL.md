@@ -65,7 +65,7 @@ To explain a file, get its outline, read it in order, then answer with one of th
 | `<->` | Both ways: a request and its answer, or two sides that both send |
 | `..>` and `<.>` | The same, drawn dashed. By convention a secondary, asynchronous or standby path; the label says which |
 
-The label says what travels or how the two are related. **Entry points** are nodes that nothing points at: usually users or outside systems, where a flow starts. **End points** point at nothing: usually stores and outside services. A two-way connection counts the way it is written, with the caller on the left.
+The label says what travels or how the two are related. **Entry points** are nodes that nothing points at: usually users or outside systems, where a flow starts. **End points** point at nothing: usually stores and outside services. A two-way connection names first the node drawn on its left: for a request and its answer, the caller; for a call back against the reading direction, the node called, and its label says who calls, such as `oncall <-> pagerduty : "Pages (from PagerDuty)"`. A subscription is a dashed two-way connection that names the subscriber first, such as `shipping <.> order_events : "Subscription"`: messages go from the topic to the subscriber, pushed or pulled. The packets of the steps show who sends to whom.
 
 An edge says that two components are connected. It does not say when, how often or in which order they talk. The steps say that.
 
@@ -76,10 +76,10 @@ An edge says that two components are connected. It does not say when, how often 
 
 The primary provider is down, so the API retries the same charge with the backup.
 
+Changes from this step on: db: badge "PENDING"
 Changes from this step on: primary: badge "503", color red
 Changes from this step on: backup: shown
 Changes from this step on: e_backup: shown
-Still showing: db: badge "PENDING" (since step 1)
 
 1. Primary PSP (primary) → Order API (api) : "503 Unavailable" [red]
    The provider answers with an outage, so nothing was charged
@@ -154,14 +154,14 @@ Every line of the outline claims something that the code confirms or contradicts
 | A zone | Its components sit inside one boundary | The same files: networks, namespaces, accounts, the services of one deployment |
 | A connection | One side calls or sends to the other. The arrow says who starts, not which way data moves: a caller that also reads over a one-way edge does not contradict it | In the caller, a client, a URL, a connection string or a queue name; in the callee, a handler |
 | A packet's label | This message is sent, on this route or under this name | Route definitions, queries, the names of published events |
-| The order of packets in a step | Things happen in this order | The handler the first packet reaches, read from top to bottom |
+| The order of packets in a step | Things happen in this order | The handler the first packet reaches, read from top to bottom. A packet that comes back as a webhook or an event reaches a handler of its own, and its sender decides when |
 | The line under a packet, the summary of a step | Why, and on which condition | The conditions, retries, timeouts and error handling around the call |
 | `code (...)` | What the message looks like | The type of the request or response, the query, the payload of the event |
 | A badge or a color | A state the component is in. A badge is a short label and need not spell the value in the code: `FAILED` for `payment_failed` is no difference | Status values, enum members, status codes |
 
 ### 2. Follow the steps through the code
 
-Read the deployment files first: they say which folder holds the code of each node. Then go in the order of the steps, not component by component. Take the first packet of step 1 and find where the code receives it: open the entry point of the service it reaches, its router or main file, or search for the route, the event name or the function its label names. Read that handler from the top; each following packet should be the next thing it does. One handler usually covers a whole step, and steps that show another outcome of the same request are branches of that handler, not code of their own. Read the handlers the packets reach and what they call; code that no step touches is outside the comparison.
+Read the deployment files first: they say which folder holds the code of each node. Then go in the order of the steps, not component by component. Take the first packet of step 1 and find where the code receives it: open the entry point of the service it reaches, its router or main file, or search for the route, the event name or the function its label names. Read that handler from the top; each following packet should be the next thing it does. One handler usually covers a whole step, and steps that show another outcome of the same request are branches of that handler, not code of their own. Read the handlers the packets reach and what they call. Then check each connection that no packet travels, in the code of its caller. Last, list every outgoing call of the code you read, those in helper functions and error paths included: a client, a URL, a topic, a queue. A call that matches no connection is something the diagram leaves out. Beyond these, code that no step touches is outside the comparison.
 
 ### 3. Sort what you find
 
@@ -177,7 +177,7 @@ Something left out changes what a reader concludes in three cases:
 
 - It is what the step is about: a step on safe retries whose example lacks the idempotency key.
 - It decides the outcome: a branch that makes the order fail, where the diagram shows only success, or a second way to fail that ends differently for the user than the one shown.
-- It crosses a boundary the diagram draws: a call to an outside service that has no node.
+- It crosses a boundary the diagram draws: a call to an outside service that has no node. Where the diagram draws another service for the same job, such as one mail service in the diagram and another in the code, the diagram's connection is one the code does not make: a contradiction.
 
 A field that a handler only passes on, a log line or a metric is not one of these.
 

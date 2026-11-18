@@ -38,7 +38,7 @@ If Node.js 22.17, npm or the network is missing, say that the command could not 
 
 `<command> --help` lists the options of a command.
 
-[references/manual.md](references/manual.md) is the manual of the command, as the npm package carries it. It has every option, each line a command prints with its meaning, what stops an export and with which exit code, and how to read the layout lines, the map and the outline. Read it when this file does not answer a question about the command. It is written for a person: it writes `dav` for an installed command, and shows the package run without a version. Whatever it shows, run every command as [Running it](#running-it) says.
+[references/manual.md](references/manual.md) is the manual of the command, as the npm package carries it. It has every option, each line a command prints with its meaning, what stops an export and with which exit code, and how to read the outline. [references/checker.md](references/checker.md) explains every line of `check`: each hint and note by its code, the layout lines and the map. Read them when this file does not answer a question about the command. It is written for a person: it writes `dav` for an installed command, and shows the package run without a version. Whatever it shows, run every command as [Running it](#running-it) says.
 
 | Exit code | Meaning |
 | :--- | :--- |
@@ -168,7 +168,7 @@ npx dynamic-architect-viewer-cli@1.5.4 format docs/*.dav         # formats in pl
 | `file:line:column: warning code: message` | Part of the file is being ignored |
 | `file: hint code: message` | With `--detail`: detail is missing, or a text is cut off |
 | `file: layout: ...` and `file: note code: message` | With `--detail`: the size of the layout and the columns and rows it takes. These lines do not fail the check |
-| `file: map: ...` | With `--map`: which node is where, in words and small tables. How to read it is in [the manual](references/manual.md), and in the `dav-diagrams` skill. These lines do not fail the check either |
+| `file: map: ...` | With `--map`: which node is where, in words and small tables. How to read it is in [references/checker.md](references/checker.md). These lines do not fail the check either |
 | `file: ok (...)` | Nothing was reported for the file |
 
 `check` exits with `1` for an error, a warning or a hint. `format` leaves a file with a syntax error as it is, reports it and exits with `1`.

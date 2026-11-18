@@ -2,6 +2,8 @@ import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } f
 import { resolve } from 'node:path';
 import { lezer } from '@lezer/generator/rollup';
 import { defineConfig, type Plugin } from 'vite';
+import { anchorsOf, HEADING_LINK, keptText, LEFT_OUT } from './src/skill/carriedDocs.ts';
+import { specificationForSkill, withSpecification } from './src/skill/specificationText.ts';
 
 const ROOT = resolve(import.meta.dirname, '../..');
 const REPOSITORY_URL = 'https://github.com/Osg-Junue/DynamicArchitectViewer/blob/main/';
@@ -13,8 +15,10 @@ const SKILLS = {
     name: 'dav-diagrams',
     entry: 'src/skill/checkEntry.ts',
     script: 'dav-check.mjs',
-    docs: ['specification.md', 'layout.md'],
+    docs: ['specification.md', 'layout.md', 'large-diagrams.md', 'checker.md'],
     examples: true,
+    // Its SKILL.md carries the rules of the specification, between two marker lines.
+    specification: true,
   },
   reading: {
     name: 'dav-reading',
@@ -22,6 +26,7 @@ const SKILLS = {
     script: 'dav-outline.mjs',
     docs: ['specification.md'],
     examples: false,
+    specification: false,
   },
 } as const;
 
@@ -32,21 +37,35 @@ type Skill = (typeof SKILLS)[keyof typeof SKILLS];
  * `references/`, and the file of the repository it is a copy of.
  */
 const WITHOUT_SCRIPT = [
-  { name: 'dav-cli', references: { 'manual.md': 'apps/cli/README.md' } },
+  {
+    name: 'dav-cli',
+    references: { 'manual.md': 'apps/cli/README.md', 'checker.md': 'docs/checker.md' },
+  },
 ] as const;
 
 /**
- * A document as a skill carries it. Links to a document the skill carries too stay relative;
- * the others would lead out of the skill, and point at GitHub.
+ * A document as a skill carries it, `sources` naming the file of each document the skill carries.
+ * Links to a document the skill carries too stay relative; the others would lead out of the
+ * skill, and point at GitHub, as do links into a part of a document that the skill leaves out.
  */
-function carriedText(source: string, carried: readonly string[]): string {
-  const kept = ['https?:', '#', ...carried.map((name) => name.replace('.', '\\.'))].join('|');
-  const elsewhere = new RegExp(`\\]\\((?!${kept})([^)]+)\\)`, 'g');
-  const base = new URL(source, REPOSITORY_URL);
-  return readFileSync(resolve(ROOT, source), 'utf8').replace(
-    elsewhere,
-    (_, target: string) => `](${new URL(target, base).href})`,
+function carriedText(name: string, sources: Readonly<Record<string, string>>): string {
+  const read = (doc: string) =>
+    keptText(doc, readFileSync(resolve(ROOT, sources[doc] as string), 'utf8'));
+  const carried = Object.keys(sources).map((doc) => doc.replace('.', '\\.'));
+  const elsewhere = new RegExp(
+    `\\]\\((?!${['https?:', '#', ...carried].join('|')})([^)]+)\\)`,
+    'g',
   );
+  const base = new URL(sources[name] as string, REPOSITORY_URL);
+  return read(name)
+    .replace(HEADING_LINK, (link, doc: string | undefined, anchor: string) => {
+      const target = doc ?? name;
+      const source = sources[target];
+      if (source === undefined || LEFT_OUT[target] === undefined) return link;
+      if (anchorsOf(read(target)).has(anchor)) return link;
+      return `](${new URL(`${source}#${anchor}`, REPOSITORY_URL).href})`;
+    })
+    .replace(elsewhere, (_, target: string) => `](${new URL(target, base).href})`);
 }
 
 /** Writes the documents of a skill anew, so that one it no longer carries does not stay. */
@@ -54,9 +73,17 @@ function writeReferences(skill: string, sources: Readonly<Record<string, string>
   const references = resolve(ROOT, 'skills', skill, 'references');
   rmSync(references, { recursive: true, force: true });
   mkdirSync(references, { recursive: true });
-  for (const [name, source] of Object.entries(sources)) {
-    writeFileSync(resolve(references, name), carriedText(source, Object.keys(sources)));
+  for (const name of Object.keys(sources)) {
+    writeFileSync(resolve(references, name), carriedText(name, sources));
   }
+}
+
+/** Writes the rules of the specification into the SKILL.md of a skill, as it carries them. */
+function writeSpecification(skill: string, carried: readonly string[]): void {
+  const path = resolve(ROOT, 'skills', skill, 'SKILL.md');
+  const specification = readFileSync(resolve(ROOT, 'docs/specification.md'), 'utf8');
+  const rules = specificationForSkill(specification, carried);
+  writeFileSync(path, withSpecification(readFileSync(path, 'utf8'), rules));
 }
 
 /** The VSIX contains only apps/vscode, so the install command needs its own copy of a skill. */
@@ -75,6 +102,7 @@ function assembleSkill(skill: Skill): Plugin {
         skill.name,
         Object.fromEntries(skill.docs.map((name) => [name, `docs/${name}`])),
       );
+      if (skill.specification) writeSpecification(skill.name, skill.docs);
 
       if (skill.examples) {
         const examples = resolve(dir, 'assets/examples');

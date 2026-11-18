@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
 import { SAMPLE_TEMPLATES } from '../../samples';
 import {
+  backEdgesOf,
   computeLayout,
   countCrossings,
   NODE_SIZE,
@@ -177,6 +178,23 @@ catalog --> shop`);
   it('terminates on cycles', () => {
     const { layout } = layoutOf('dav 1\nnode a\nnode b\nnode c\na --> b\nb --> c\nc --> a');
     expect(Object.keys(layout.nodes)).toHaveLength(3);
+  });
+
+  it('names the edge it leaves out of a loop, the loop, and where the search came into it', () => {
+    // The search reaches b from x first, so the loop runs b, c, a, and a --> b closes it.
+    const { document, layout } = layoutOf(
+      'dav 1\nnode x\nnode a\nnode b\nnode c\nx --> b\na --> b\nb --> c\nc --> a',
+    );
+    expect(backEdgesOf(document)).toEqual([
+      { from: 'a', to: 'b', loop: ['b', 'c', 'a'], root: 'x' },
+    ]);
+    // Left out, the edge points back: a, declared before b, stands at the far end of the loop.
+    const x = (id: string) => layout.nodes[id]?.x ?? Number.NaN;
+    expect(x('x')).toBeLessThan(x('b'));
+    expect(x('b')).toBeLessThan(x('c'));
+    expect(x('c')).toBeLessThan(x('a'));
+    // A self-loop closes no loop of columns, and a two-way edge counts one way only.
+    expect(backEdgesOf(layoutOf('dav 1\nnode a\nnode b\na --> a\na <-> b').document)).toEqual([]);
   });
 
   it('wraps groups around their (nested) members', () => {

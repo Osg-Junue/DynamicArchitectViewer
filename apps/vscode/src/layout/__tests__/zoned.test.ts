@@ -5,6 +5,7 @@ import { parse } from '../../dsl';
 import { computeColumnLayout } from '../columns';
 import {
   adoptZonePlan,
+  backEdgesOf,
   computeLayout,
   countCrossings,
   pendingZoneSearch,
@@ -17,7 +18,7 @@ import {
   ZONE_SEARCH_SEEDS,
 } from '../index';
 import { enclosingRect, STATION_CENTER } from '../metrics';
-import { longLinkExcess } from '../zoned';
+import { longLinkExcess, structureKey } from '../zoned';
 
 /** The larger diagrams of the scene's tests: five zones and over twenty nodes each. */
 const FIXTURES = resolve(__dirname, '../../scene/__tests__/fixtures');
@@ -239,6 +240,30 @@ b1 --> b2`);
     // Laying out another diagram first, so that this is computed again and not remembered.
     computeLayout(parse(bigDiagram(7)).document);
     expect(computeLayout(parse(bigDiagram()).document)).toEqual(layout);
+  });
+
+  it('places the zones the same whatever the steps, round trips between zones included', () => {
+    // Long links between zones, travelled there and back: once, they counted double.
+    const dsl = bigDiagram().replace(
+      'step "Hop" {',
+      'step "Round trips" {\n  animate z0n0 <-> z3n5\n  animate z0n0 <-> z5n5\n}\nstep "Hop" {',
+    );
+    const withSteps = parse(dsl).document;
+    const withoutSteps = { ...withSteps, steps: [] };
+    expect(structureKey(withSteps)).toBe(structureKey(withoutSteps));
+    expect(searchZones(withSteps)).toEqual(searchZones(withoutSteps));
+  });
+
+  it('leaves out only the edges of loops inside a zone, since links between zones set no column', () => {
+    // A loop inside z1, and one through z0, z1 and z2 that a link between zones closes.
+    const dsl = bigDiagram().replace('step "Hop"', 'z1n4 --> z1n1\nz2n5 --> z0n3\nstep "Hop"');
+    const doc = parse(dsl).document;
+    // Placed freely: in columns, the frames would be others.
+    expect(computeLayout(doc).groups).not.toEqual(computeColumnLayout(doc).groups);
+    // Each zone is laid out on its own, from its own node declared first.
+    expect(backEdgesOf(doc)).toEqual([
+      { from: 'z1n4', to: 'z1n1', loop: ['z1n1', 'z1n2', 'z1n3', 'z1n4'], root: 'z1n0' },
+    ]);
   });
 
   describe('edge labels', () => {

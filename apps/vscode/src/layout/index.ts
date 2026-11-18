@@ -1,7 +1,9 @@
 import type { DavDocument } from '../model/types';
+import { topLevelGroups } from '../model/zones';
 import { computeColumnLayout } from './columns';
 import { countCrossings } from './links';
 import type { Layout } from './metrics';
+import { type BackEdge, computeRanks } from './ranks';
 import { straightenNodes } from './straightenNodes';
 import {
   applyZonePlacement,
@@ -10,6 +12,7 @@ import {
   LONG_LINK,
   linksBetweenZones,
   longLinkExcess,
+  ownersOf,
   SEEDS,
   searchZonePlacement,
   searchZonePlacementFrom,
@@ -29,6 +32,7 @@ export {
   stationRect,
   WINDOW_SIZE,
 } from './metrics';
+export type { BackEdge } from './ranks';
 export type { ZonePlacement } from './zoned';
 
 /**
@@ -48,13 +52,44 @@ export type { ZonePlacement } from './zoned';
  * well, and kept only if the long links and crossings it leaves weigh less (see `searchZones`).
  */
 export function computeLayout(doc: DavDocument): Layout {
-  const search = pendingZoneSearch(doc);
-  if (search) adoptZonePlan(search.key, searchZones(search.doc));
-  const placement = hasZonesToPlace(doc) ? zonePlan?.placement : undefined;
+  const placement = zonePlacementOf(doc);
   const placed = placement
     ? applyZonePlacement(doc, placement, computeColumnLayout)
     : computeColumnLayout(doc);
   return straightenNodes(doc, placed);
+}
+
+/** Whether `computeLayout` places the zones of a diagram freely, rather than in shared columns. */
+export function zonesPlacedFreely(doc: DavDocument): boolean {
+  return zonePlacementOf(doc) !== undefined;
+}
+
+/** Where the zones are placed freely, searched for first if need be; `undefined` in columns. */
+function zonePlacementOf(doc: DavDocument): ZonePlacement | undefined {
+  const search = pendingZoneSearch(doc);
+  if (search) adoptZonePlan(search.key, searchZones(search.doc));
+  return hasZonesToPlace(doc) ? zonePlan?.placement : undefined;
+}
+
+/**
+ * The edges that set no column because each closes a loop, in the arrangement `computeLayout`
+ * draws. In columns, they are those of the whole diagram. Where the zones are placed freely,
+ * each zone is laid out on its own and a link between zones sets no column at all, so they are
+ * those of the loops inside each zone.
+ */
+export function backEdgesOf(doc: DavDocument): BackEdge[] {
+  const ids = doc.nodes.map((n) => n.id);
+  // Ranks leave out an edge with an end outside the nodes they are given.
+  const edges = doc.edges.map((e): readonly [string, string] => [e.from, e.to]);
+  if (!zonePlacementOf(doc)) return computeRanks(ids, edges).back;
+  const owners = ownersOf(doc);
+  return topLevelGroups(doc.groups).flatMap(
+    (zone) =>
+      computeRanks(
+        ids.filter((id) => owners.get(id) === zone.id),
+        edges,
+      ).back,
+  );
 }
 
 /** The last answer: most edits do not change the structure the placement depends on. */

@@ -89,8 +89,8 @@ export const LANGUAGE_PAGES: readonly DocPage[] = [
             [
               t('属性', 'Attributes'),
               t(
-                '`[key: value, key: value]`。末尾カンマ可。同じキーの重複は警告で、最後の値が使われます。',
-                '`[key: value, key: value]`, trailing comma allowed. A repeated key warns and the last value wins.',
+                '`[key: value, key: value]`。末尾カンマ可。同じキーの重複は警告で、無視されなかった最後の値が使われます。',
+                '`[key: value, key: value]`, trailing comma allowed. A repeated key warns, and the last value that is not ignored is used.',
               ),
             ],
             [
@@ -493,8 +493,8 @@ export const LANGUAGE_PAGES: readonly DocPage[] = [
         h2(t('片道と往復', 'One way and round trip')),
         p(
           t(
-            '`-->` は片道、`<->` は往復です。どちらも1フェーズの時間で完了するので、往復は2倍の速さで動きます。点線の矢印は使えません（`invalid-animate-arrow`）。',
-            '`-->` goes one way and `<->` goes there and back. Both take one phase, so a round trip moves twice as fast. Dashed arrows are rejected (`invalid-animate-arrow`).',
+            '`-->` は片道、`<->` は往復です。往復は向こうで少し止まってから戻るので、片道のおよそ2倍の時間がかかります。点線の矢印は使えません（`invalid-animate-arrow`）。',
+            '`-->` goes one way and `<->` goes there and back. A round trip rests a moment at the far end before it comes back, so it takes about twice as long as one way. Dashed arrows are rejected (`invalid-animate-arrow`).',
           ),
         ),
         live(ctx, ROUND_TRIP_DSL, { phases: true }),

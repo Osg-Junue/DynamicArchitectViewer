@@ -232,6 +232,45 @@ describe('parse: diagnostics', () => {
     expect(codes(text)).toEqual(expected);
   });
 
+  it('says that a one-line code takes no title', () => {
+    for (const lang of ['json ', 'text ', '']) {
+      const text = `dav 1\nnode a\nnode b\na --> b\nstep "s" {\n  animate a --> b : "x" {\n    code ${lang}"Schedule" "0 2 * * *"\n  }\n}\n`;
+      const { diagnostics } = parse(text);
+      expect(diagnostics.map((d) => d.code)).toEqual(['syntax-error']);
+      const [d] = diagnostics;
+      expect(d && formatDiagnostic(d, 'en')).toBe(
+        'Syntax error: unexpected ""0 2 * * *"". A one-line code takes no title: if "Schedule" is one, remove it, or put the code between lines of ``` to keep it',
+      );
+      expect(d && formatDiagnostic(d, 'ja')).toContain(
+        '1行形式の code にはタイトルを付けられません',
+      );
+    }
+    // A long title keeps its quotes.
+    const [long] = parse(
+      'dav 1\nnode a\nnode b\nstep "s" {\n  animate a --> b {\n    code "A title much longer than the rest" "x"\n  }\n}\n',
+    ).diagnostics;
+    expect(long && formatDiagnostic(long, 'en')).toContain('if "A title much longer than…" is one');
+    // A title is written as it is, a `$` in it too.
+    const [dollar] = parse(
+      'dav 1\nnode a\nnode b\nstep "s" {\n  animate a --> b {\n    code "A$`B$&" "x"\n  }\n}\n',
+    ).diagnostics;
+    expect(dollar && formatDiagnostic(dollar, 'en')).toContain('if "A$`B$&" is one');
+    // A code with a fence is not the one-line form.
+    const [fenced] = parse(
+      'dav 1\nnode a\nnode b\nstep "s" {\n  animate a --> b {\n    code "T" "x" ```y```\n  }\n}\n',
+    ).diagnostics;
+    expect(fenced && formatDiagnostic(fenced, 'en')).toContain('Syntax error');
+    expect(fenced && formatDiagnostic(fenced, 'en')).not.toContain('takes no title');
+    // A string on a line of its own after a one-line code more likely misses its keyword.
+    const [own] = parse(
+      'dav 1\nnode a\nnode b\nstep "s" {\n  animate a --> b {\n    code "x"\n    "The order is stored"\n  }\n}\n',
+    ).diagnostics;
+    expect(own && formatDiagnostic(own, 'en')).not.toContain('takes no title');
+    // Any other syntax error says only what it could not read.
+    const [other] = parse('dav 1\nnode a ]').diagnostics;
+    expect(other && formatDiagnostic(other, 'en')).toBe('Syntax error: unexpected "]"');
+  });
+
   it('suggests the closest icon', () => {
     const [d] = parse('dav 1\nnode a [icon: databse]').diagnostics;
     expect(d && formatDiagnostic(d, 'en')).toBe(
@@ -410,10 +449,10 @@ step "Dup" {
     ]);
     const [d] = both.diagnostics;
     expect(d && formatDiagnostic(d, 'ja')).toBe(
-      'code は1つの animate に1つだけ指定できます（後の値が使われます）',
+      'code は1つの animate に1つだけ指定できます（空でない最後のものが使われます）',
     );
     expect(d && formatDiagnostic(d, 'en')).toBe(
-      'Only one code block is allowed per animate (the last value wins)',
+      'Only one code block is allowed per animate (the last one that is not empty is used)',
     );
     expect(both.document.steps[0]?.animations.map((a) => a.code)).toEqual([
       { lang: 'json', body: 'from-body' },

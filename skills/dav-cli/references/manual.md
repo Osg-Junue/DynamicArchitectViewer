@@ -146,52 +146,11 @@ Hints, the layout and the map describe a diagram that compiles, so they are prin
 | `file:line:column: warning code: message` | Part of the file is being ignored | Yes |
 | `file: hint code: message` | With `--detail`: a description or a code block is missing, a packet has no edge to travel along, or a text is too long to be shown in full. The message says what to add | Yes |
 | `file: layout: ...` | With `--detail`: the size of the layout, and the columns and rows its nodes take | No |
-| `file: note code: message` | With `--detail`: a shape of the layout that is often not meant, such as a diagram taller than wide | No |
+| `file: note code: message` | With `--detail`: a shape of the layout that is often not meant, such as a diagram taller than wide, or an edge that closes a loop and so does not count for the columns | No |
 | `file: map: ...` | With `--map`: which node is where | No |
 | `file: ok (4 nodes, 3 edges, 2 steps)` | Nothing was reported for the file | No |
 
-### The layout, with `--detail`
-
-The layout depends on the text alone, so the command gives it without drawing anything:
-
-```
-docs/checkout.dav: layout: 632 x 314 (2.0 : 1), 3 columns x 2 rows of nodes, 0 crossings
-docs/checkout.dav: layout: zones, as columns x rows of nodes: "Backend" 2 x 1
-```
-
-| In the line | Meaning |
-| :--- | :--- |
-| `632 x 314 (2.0 : 1)` | The size of the whole diagram and its proportion. One node takes 176 x 118 |
-| `3 columns x 2 rows of nodes` | How many different places the nodes take across and down |
-| `0 crossings` | Pairs of connections that cross, counted on straight lines between the nodes. The drawn lines go round nodes, so it is a guide |
-| `"Backend" 2 x 1` | The columns and rows the nodes of that zone take |
-
-[How diagrams are laid out](https://github.com/Osg-Junue/DynamicArchitectViewer/blob/main/docs/layout.md) says what to write to get another arrangement.
-
-### The map, with `--map`
-
-The layout lines give numbers. The map says which node is where, for a reader that cannot see the diagram, such as a coding agent. It is as long as the diagram is large:
-
-```
-docs/checkout.dav: map: 3 columns x 2 rows in all, numbered from the left and from the top across the whole diagram
-docs/checkout.dav: map: node browser, outside every zone, column 1, row 1: left of "Backend", level with its row 1
-docs/checkout.dav: map: zone "Backend" (backend), 2 columns x 1 row: right of browser, level; above psp
-docs/checkout.dav: map: node psp, outside every zone, column 3, row 2: below "Backend", under its column 3
-docs/checkout.dav: map: nodes of "Backend" (backend):
-docs/checkout.dav: map:   column | 2   | 3
-docs/checkout.dav: map:   row 1  | api | db
-docs/checkout.dav: map: browser --> api: right, level, into "Backend"
-docs/checkout.dav: map: api --> db: right, level
-docs/checkout.dav: map: api --> psp: down and right, out of "Backend"
-```
-
-It goes from the whole to the parts:
-
-1. **The pieces of the layout,** from left to right: each zone, and each node outside every zone. A line names the nearest piece on each side, so `right of browser` says that the zone stands to the right of `browser`.
-2. **A table for each zone,** with its nodes by their IDs. `-` is an empty place, and `(hidden)` marks a node with `visible: false`, which keeps its place. A diagram without zones is one table.
-3. **The connections.** Each line says where the second node lies from the first, on a straight line. One that runs `left` points against the reading direction.
-
-Columns and rows are numbered across the whole diagram, from the left and from the top. So any two nodes compare by their numbers, in whatever zones they are: the lower column number is further left, and the lower row number further up. The numbers give the order, not the distance.
+[What the checker prints](https://github.com/Osg-Junue/DynamicArchitectViewer/blob/main/docs/checker.md) explains every line: each hint and note by its code and what to do about it, the layout lines, and how to read the map. [How diagrams are laid out](https://github.com/Osg-Junue/DynamicArchitectViewer/blob/main/docs/layout.md) says what to write to get another arrangement.
 
 ## `dav format`
 

@@ -1,4 +1,5 @@
 import type { SyntaxNode } from '@lezer/common';
+import { isBlank, trimWhitespaceEnd } from '../model/text';
 import {
   type Animation,
   type CodeBlock,
@@ -143,7 +144,7 @@ class Analyzer {
       if (seen.has(cursor.from)) continue;
       seen.add(cursor.from);
 
-      if (cursor.from >= this.text.trimEnd().length) {
+      if (cursor.from >= trimWhitespaceEnd(this.text).length) {
         // An EOF error after an earlier syntax error is usually a cascade of it.
         if (seen.size > 1) continue;
         const end = this.text.length;
@@ -154,12 +155,30 @@ class Analyzer {
         cursor.to > cursor.from
           ? sliceOf(this.text, cursor)
           : (/^\S+/.exec(this.text.slice(cursor.from))?.[0] ?? '');
-      const display = token.length > 24 ? `${token.slice(0, 24)}…` : token;
+      const shorten = (text: string) =>
+        (text.length > 24 ? `${text.slice(0, 24)}…` : text).split('\n')[0] ?? '';
+      // A second string after `code "Title"` on its line: the one-line form was given a title.
+      // A string on a line of its own more likely misses its keyword, such as `desc`.
+      const before = cursor.node.prevSibling;
+      const title =
+        cursor.node.parent?.name === 'Code' &&
+        !cursor.node.parent.getChild('CodeFence') &&
+        before?.name === 'String' &&
+        token.startsWith('"') &&
+        !this.text.slice(before.to, cursor.from).includes('\n')
+          ? sliceOf(this.text, before)
+          : undefined;
       this.report(
         'syntax-error',
         'error',
         { from: cursor.from, to: Math.max(cursor.to, cursor.from + token.length) },
-        { token: display.split('\n')[0] ?? '' },
+        title === undefined
+          ? { token: shorten(token) }
+          : {
+              token: shorten(token),
+              hint: 'code-title',
+              title: `"${shorten(title.slice(1, -1))}"`,
+            },
       );
     } while (cursor.next());
   }
@@ -414,7 +433,7 @@ class Analyzer {
     const attrCode = attrs.get('code');
     if (attrCode !== undefined) {
       codeSeen = true;
-      if (attrCode.value.trim().length > 0) {
+      if (!isBlank(attrCode.value)) {
         lastCode = { body: attrCode.value };
       }
     }
@@ -459,7 +478,7 @@ class Analyzer {
       body = this.readString(strNode);
     }
 
-    if (body === undefined || body.trim().length === 0) {
+    if (body === undefined || isBlank(body)) {
       return undefined;
     }
 

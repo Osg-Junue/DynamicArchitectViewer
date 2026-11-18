@@ -1,4 +1,5 @@
 import type { Layout, Rect } from '../layout';
+import { isBlank } from '../model/text';
 import {
   COLOR_RESET,
   type CodeBlock,
@@ -293,7 +294,7 @@ function createPhasePackets(
     if (edge) packet.edgeId = edge.id;
     if (a.label !== undefined) packet.label = a.label;
     if (a.description !== undefined) packet.description = a.description;
-    if (a.code !== undefined && a.code.body.trim().length > 0) packet.code = a.code;
+    if (a.code !== undefined && !isBlank(a.code.body)) packet.code = a.code;
     if (a.icon !== undefined) packet.icon = a.icon;
 
     const current = phases[phases.length - 1];

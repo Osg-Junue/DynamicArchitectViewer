@@ -3,11 +3,15 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { format, KEYWORDS, parse } from '../../dsl';
-import { computeLayout } from '../../layout';
-import { COLOR_NAMES, ICON_NAMES } from '../../model/types';
+import { format, parse } from '../../dsl';
+import { computeLayout, zonesPlacedFreely } from '../../layout';
+import { zoneOfNodes } from '../../model/zones';
 import { SAMPLE_TEMPLATES } from '../../samples';
-import { reviewDetail } from '../review';
+import { anchorsOf } from '../carriedDocs';
+import { layoutMap } from '../layoutMap';
+import { crossingsByZone, layoutReport, leftLinks, NOTE_CODES } from '../layoutReport';
+import { HINT_CODES, reviewDetail } from '../review';
+import { specificationForSkill, withSpecification } from '../specificationText';
 
 const ROOT = resolve(__dirname, '../../../../..');
 const WRITING = join(ROOT, 'skills/dav-diagrams');
@@ -78,25 +82,122 @@ describe.each([
   });
 });
 
-describe('dav-diagrams/SKILL.md', () => {
-  const valueList = (heading: string) =>
-    inlineCode(
-      section(heading)
-        .split('\n')
-        .find((line) => line.startsWith('`')) ?? '',
+describe('the references of dav-diagrams', () => {
+  const references = join(WRITING, 'references');
+
+  it('leave out the exact rules of the layout guide, which are for contributors', () => {
+    const guide = readFileSync(join(references, 'layout.md'), 'utf8');
+    expect(guide).not.toContain('\n## Exact rules');
+    expect(guide).toContain('\n## Recipes');
+  });
+
+  it('link only to headings they carry, or to the repository', () => {
+    for (const name of readdirSync(references)) {
+      const text = readFileSync(join(references, name), 'utf8');
+      for (const [, doc, anchor] of text.matchAll(/\]\((?:([\w-]+\.md))?#([\w-]+)\)/g)) {
+        const target = readFileSync(join(references, doc ?? name), 'utf8');
+        expect([...anchorsOf(target)], `${name}: ${doc ?? ''}#${anchor}`).toContain(anchor);
+      }
+    }
+  });
+});
+
+describe('references/checker.md', () => {
+  /** The codes in the table of a section, in their order. */
+  const codesUnder = (text: string, heading: string): string[] => {
+    const start = text.indexOf(`\n## ${heading}\n`);
+    expect(start).toBeGreaterThan(-1);
+    const part = text.slice(start, text.indexOf('\n## ', start + 1));
+    return [...part.matchAll(/^\| `([a-z-]+)` \|/gm)].map((m) => m[1] ?? '');
+  };
+
+  it.each([
+    ['dav-diagrams', WRITING],
+    ['dav-cli', COMMAND_LINE],
+  ])('explains in %s every hint and every note the checker gives, and no other', (_, dir) => {
+    const reference = readFileSync(join(dir, 'references/checker.md'), 'utf8');
+    expect(codesUnder(reference, 'Hints')).toEqual([...HINT_CODES]);
+    expect(codesUnder(reference, 'Notes')).toEqual([...NOTE_CODES]);
+  });
+});
+
+describe('links between zones that point left', () => {
+  it('names a link between two zones, or a zone and a node, whose end stands to the left', () => {
+    const { document } = parse(
+      'dav 1\ngroup l "L" {\n  node a\n  node c\n}\ngroup r "R" {\n  node b\n}\nnode x\na --> b\nb --> x\nx <-> a\na --> c\n',
     );
-
-  it('lists exactly the built-in colors', () => {
-    expect(valueList('Colors')).toEqual([...COLOR_NAMES]);
+    const at = (x: number) => ({ x, y: 0, width: 176, height: 118 });
+    // a --> c points left too, but inside one zone, where the columns come from the edges.
+    expect(leftLinks(document, { nodes: { a: at(400), b: at(0), c: at(0), x: at(800) } })).toEqual([
+      'a --> b, from "L" into "R"',
+      'x <-> a, into "L"',
+    ]);
   });
 
-  it('lists exactly the built-in icons', () => {
-    expect(valueList('Icons')).toEqual([...ICON_NAMES]);
+  const fixtures = join(ROOT, 'apps/vscode/src/scene/__tests__/fixtures');
+  it.each(readdirSync(fixtures).sort())('%s: are told as the map tells them', (file) => {
+    const { document } = parse(readFileSync(join(fixtures, file), 'utf8'));
+    const { summary, notes } = layoutReport(document);
+    const free = zonesPlacedFreely(document);
+    expect(summary).toContainEqual(
+      expect.stringMatching(`^layout: zones ${free ? 'placed freely' : 'in shared columns'}, `),
+    );
+    // The lines of the map for connections that run left, between two pieces of the layout.
+    const zoneOf = zoneOfNodes(document);
+    const piece = (id: string) => zoneOf.get(id) ?? id;
+    const left = layoutMap(document).flatMap((line) => {
+      const [, from = '', arrow, to = ''] =
+        /^(\w+) (\S+) (\w+): (?:left|up and left|down and left)\b/.exec(line) ?? [];
+      return arrow && piece(from) !== piece(to) ? [`${from} ${arrow} ${to}`] : [];
+    });
+    const note = notes.find((n) => n.code === 'left-links')?.message ?? '';
+    if (!free || left.length === 0) {
+      expect(note).toBe('');
+      return;
+    }
+    expect(note).toMatch(
+      left.length === 1
+        ? /^One connection between zones points left/
+        : new RegExp(`^${left.length} connections between zones point left`),
+    );
+    for (const named of left.slice(0, 5)) expect(note).toContain(`${named}, `);
   });
+});
 
-  it('lists exactly the reserved words', () => {
-    const line = skill.split('\n').find((l) => l.startsWith('Reserved words')) ?? '';
-    expect(inlineCode(line)).toEqual([...KEYWORDS]);
+describe('crossings by zone', () => {
+  const { document } = parse(
+    'dav 1\ngroup l "L" {\n  node a\n  node b\n}\ngroup r "R" {\n  node c\n  node d\n}\nnode x\n',
+  );
+  // Only the ends of a connection decide its kind; where it is drawn does not matter here.
+  const link = (from: string, to: string) => ({ from, to, ax: 0, ay: 0, bx: 0, by: 0 });
+
+  it('counts each crossing once, by the zones that each of its two connections joins', () => {
+    expect(
+      crossingsByZone(document, [
+        [link('a', 'c'), link('b', 'd')],
+        [link('a', 'b'), link('c', 'x')],
+        [link('c', 'x'), link('a', 'b')],
+        [link('a', 'c'), link('b', 'x')],
+      ]),
+    ).toEqual([
+      // A connection inside a zone is named by the zone, one between two by both, and a node
+      // outside every zone by its ID. The zones come in the order of the file.
+      { zones: '"L" × "R"–x', count: 2 },
+      { zones: '"L"–"R" × "L"–"R"', count: 1 },
+      { zones: '"L"–"R" × "L"–x', count: 1 },
+    ]);
+  });
+});
+
+describe('dav-diagrams/SKILL.md', () => {
+  it('carries the rules of the specification as they are, not retold', () => {
+    // docs/specification.md is checked against the language; SKILL.md has to be its copy.
+    const specification = readFileSync(join(ROOT, 'docs/specification.md'), 'utf8');
+    const carried = readdirSync(join(WRITING, 'references'));
+    const rules = specificationForSkill(specification, carried);
+    expect(withSpecification(skill, rules)).toBe(skill);
+    expect(rules).toContain('Keywords are lowercase and reserved');
+    expect(rules).not.toMatch(/^`{3,4}dav$/m);
   });
 
   it('has only examples that compile cleanly and are as detailed as it asks for', () => {
@@ -107,19 +208,6 @@ describe('dav-diagrams/SKILL.md', () => {
       expect(diagnostics).toEqual([]);
       expect(reviewDetail(document)).toEqual([]);
     }
-  });
-
-  it('shows three ways to write code that all compile', () => {
-    const ways = /^````\n(\/\/ 1\. [\s\S]*?)^````$/m.exec(skill)?.[1] ?? '';
-    expect(ways).toContain('// 3.');
-    const dsl = `dav 1\nnode api\nnode db\nnode browser\nnode cache\napi --> db\napi --> browser\napi --> cache\nstep "S" {\n${ways}}\n`;
-    const { document, diagnostics } = parse(dsl);
-    expect(diagnostics).toEqual([]);
-    expect(document.steps[0]?.animations.map((a) => Boolean(a.code?.body))).toEqual([
-      true,
-      true,
-      true,
-    ]);
   });
 
   it('names only example files that exist', () => {
@@ -424,7 +512,7 @@ describe('dav-check', () => {
           ),
         );
         expect(stdout).toContain(
-          'layout: zones, as columns x rows of nodes: "Front" 2 x 1, "Back" 1 x 1',
+          'layout: zones in shared columns, as columns x rows of nodes: "Front" 2 x 1, "Back" 1 x 1',
         );
       });
 
@@ -456,6 +544,54 @@ describe('dav-check', () => {
         // A crossing is named by the two connections that cross.
         if (crossings > 0)
           expect(stdout).toMatch(/note crossings: .*: \w+ --> \w+ and \w+ --> \w+/);
+        // Without zones, there is nothing to count them by.
+        expect(stdout).not.toContain('crossings by the zones');
+      });
+
+      it('names the connections that cross as they are written', () => {
+        // a and c share a column and b and d the next, each linked both ways to both.
+        const { stdout } = lines(
+          good(
+            'node a "A"\nnode c "C"\nnode b "B"\nnode d "D"\na <-> b : "x"\na <-> d : "y"\nc <-> b : "z"\nc <-> d : "w"',
+          ),
+        );
+        expect(stdout).toContain('note crossings: One pair of connections crosses');
+        expect(stdout).toContain(': a <-> d and c <-> b.');
+      });
+
+      it('gives the crossings by the zones that the two connections join', () => {
+        // Inside one zone, a and c share a column and b and d the next, each linked to both.
+        const { stdout } = lines(
+          good(
+            'group z "Z" {\n  node a "A"\n  node c "C"\n  node b "B"\n  node d "D"\n}\na --> b : "x"\na --> d : "y"\nc --> b : "z"\nc --> d : "w"',
+          ),
+        );
+        expect(stdout).toContain(
+          ': layout: crossings by the zones the two connections join, "A" for one inside a zone and "A"–"B" for one between two: "Z" × "Z" 1\n',
+        );
+      });
+
+      it('notes an edge left out of a loop, with the loop and where its far end stands', () => {
+        // The search comes into the loop b, c, a from x: a, declared before b, ends up last.
+        const { status, stdout } = lines(
+          good(
+            'node x "X"\nnode a "A"\nnode b "B"\nnode c "C"\nx --> b : "v"\na --> b : "w"\nb --> c : "y"\nc --> a : "z"',
+          ),
+        );
+        expect(stdout).toContain(
+          'note back-edge: a --> b points back, so it does not count for the columns: it closes the loop b → c → a. The layout came into the loop at b, from x, and set it out from left to right in that order: a stands at its far end, in column 4, with b in column 2. To start the loop at another of its nodes, and so stand that node on the left, declare it before x.',
+        );
+        // A note is for judgment: the file is still in order.
+        expect(status).toBe(0);
+      });
+
+      it('leaves out a request and its response laid out as the guide says', () => {
+        const pair = 'node a "A"\nnode b "B"\na --> b : "request"\nb --> a : "response"';
+        expect(lines(good(pair)).stdout).not.toContain('note back-edge');
+        // Reached first at the node declared later, the pair stands the other way round.
+        expect(lines(good(`node x "X"\n${pair}\nx --> b : "v"`)).stdout).toContain(
+          'note back-edge: a --> b points back, so it does not count for the columns: it closes the loop b → a. The layout came into the loop at b, from x,',
+        );
       });
 
       it('is left out while the file does not compile, and without --detail', () => {
@@ -729,8 +865,9 @@ gateway --> billing_api
       expect(stdout).toContain(': map: ');
     });
 
-    it('is shown in the skill as it is printed', () => {
-      const excerpt = /^```\n((?:map: .*\n)+)```$/m.exec(skill)?.[1] ?? '';
+    it('is shown in the reference of the checker as it is printed', () => {
+      const reference = readFileSync(join(WRITING, 'references/checker.md'), 'utf8');
+      const excerpt = /^```\n((?:map: .*\n)+)```$/m.exec(reference)?.[1] ?? '';
       const shown = excerpt
         .trimEnd()
         .split('\n')

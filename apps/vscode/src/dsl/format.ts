@@ -1,4 +1,5 @@
 import type { SyntaxNode } from '@lezer/common';
+import { trimWhitespaceEnd } from '../model/text';
 import { attributeValueNode, childNodes, parseTree, sliceOf, unescapeCodeFence } from './syntax';
 
 const INDENT = '  ';
@@ -32,7 +33,11 @@ export function format(text: string): string {
   let hasError = false;
   tree.iterate({
     enter: (n) => {
-      if (n.type.isError) hasError = true;
+      // A string that runs over a line break is an error too, and its text depends on the
+      // line ending and the indentation of the line it goes on to: leave the file as it is.
+      if (n.type.isError || (n.name === 'String' && text.slice(n.from, n.to).includes('\n'))) {
+        hasError = true;
+      }
       return !hasError;
     },
   });
@@ -183,8 +188,9 @@ class Printer {
       this.verbatim(node, indent);
       return;
     }
+    // All whitespace before the fence but the line break, Unicode spaces included.
     const prefix = sliceOf(this.text, { from: node.from, to: fenceNode.from }).replace(
-      /[ \t]*$/,
+      /[^\P{White_Space}\n]*$/u,
       '',
     );
     const fenceOnNewLine = prefix.endsWith('\n');
@@ -209,22 +215,50 @@ class Printer {
   }
 
   private verbatim(node: SyntaxNode, indent: string): void {
-    this.verbatimSpan(sliceOf(this.text, node), node.from, indent);
+    this.verbatimSpan(sliceOf(this.text, node), node.from, indent, fencesOf(node));
   }
 
-  private verbatimSpan(rawText: string, from: number, indent: string): void {
-    const raw = rawText.split(/\r?\n/);
+  /**
+   * Writes text as it is, indented to its depth. The lines inside a code fence keep their
+   * indentation: taking the statement's indentation off a line indented less would change the
+   * code, whose own shared indentation is removed when it is read.
+   */
+  private verbatimSpan(
+    rawText: string,
+    from: number,
+    indent: string,
+    fences: ReadonlyArray<{ from: number; to: number }> = [],
+  ): void {
     const baseIndent = leadingWhitespace(this.lineAt(from));
-    raw.forEach((line, i) => {
-      if (i === 0) {
-        this.lines.push(indent + line.trimEnd());
-      } else {
-        const stripped = line.startsWith(baseIndent)
-          ? line.slice(baseIndent.length)
-          : line.trimStart();
-        this.lines.push(indent + stripped.trimEnd());
+    const inFence = (at: number) => fences.some((f) => at > f.from && at < f.to);
+    let first = true;
+    for (const match of rawText.matchAll(/([^\n]*?)(\r?\n|$)/g)) {
+      const line = match[1] ?? '';
+      const start = from + (match.index ?? 0);
+      // A lone \r is a line break in code, as it is when the code is read; anywhere else it is
+      // whitespace and stays inside its line.
+      const pieces: string[] = [];
+      let cut = 0;
+      for (let i = line.indexOf('\r'); i >= 0; i = line.indexOf('\r', i + 1)) {
+        if (!inFence(start + i)) continue;
+        pieces.push(line.slice(cut, i));
+        cut = i + 1;
       }
-    });
+      const [head = '', ...code] = [...pieces, line.slice(cut)];
+      if (first) {
+        this.lines.push(indent + trimWhitespaceEnd(head));
+        first = false;
+      } else if (inFence(start)) {
+        this.lines.push(trimWhitespaceEnd(head));
+      } else {
+        const stripped = trimWhitespaceEnd(
+          head.startsWith(baseIndent) ? head.slice(baseIndent.length) : head.trimStart(),
+        );
+        this.lines.push(stripped ? indent + stripped : '');
+      }
+      for (const piece of code) this.lines.push(trimWhitespaceEnd(piece));
+      if (!match[2]) break;
+    }
   }
 
   private lineAt(pos: number): string {
@@ -254,6 +288,16 @@ function countNewlines(s: string): number {
   let n = 0;
   for (const ch of s) if (ch === '\n') n++;
   return n;
+}
+
+/** The code fences inside a statement, at any depth. */
+function fencesOf(node: SyntaxNode): Array<{ from: number; to: number }> {
+  const fences: Array<{ from: number; to: number }> = [];
+  for (let child = node.firstChild; child; child = child.nextSibling) {
+    if (child.name === 'CodeFence') fences.push({ from: child.from, to: child.to });
+    else fences.push(...fencesOf(child));
+  }
+  return fences;
 }
 
 function leadingWhitespace(line: string): string {
