@@ -5,11 +5,9 @@ export type Severity = 'error' | 'warning';
 export type DiagnosticCode =
   | 'syntax-error'
   | 'unexpected-eof'
-  | 'missing-header'
-  | 'unsupported-version'
+  | 'missing-step'
   | 'duplicate-title'
   | 'duplicate-id'
-  | 'duplicate-edge'
   | 'undefined-reference'
   | 'reference-kind-mismatch'
   | 'unknown-attribute'
@@ -17,7 +15,6 @@ export type DiagnosticCode =
   | 'invalid-attribute-value'
   | 'unknown-icon'
   | 'invalid-color'
-  | 'invalid-animate-arrow'
   | 'invalid-self-arrow'
   | 'invalid-escape'
   | 'attribute-not-applicable'
@@ -40,12 +37,9 @@ const MESSAGES: Record<Locale, Record<DiagnosticCode, string>> = {
   ja: {
     'syntax-error': '構文エラー: "{token}" は解釈できません{hint}',
     'unexpected-eof': '入力が途中で終わっています（"}" や "]" の閉じ忘れの可能性があります）',
-    'missing-header': '先頭に "dav 1" が必要です',
-    'unsupported-version': 'DSL バージョン {version} には対応していません（対応: 1）',
+    'missing-step': 'step が1つも定義されていません（少なくとも1つの step が必要です）',
     'duplicate-title': 'title は1回だけ指定できます',
     'duplicate-id': 'ID "{id}" は既に使われています',
-    'duplicate-edge':
-      '"{from}" から "{to}" へのエッジが重複しています。2本目以降は [id: ...] を指定してください',
     'undefined-reference': '"{id}" は定義されていません',
     'reference-kind-mismatch': '"{id}" は{actual}です（{expected}を指定してください）',
     'unknown-attribute': '属性 "{name}" は{owner}では使えません',
@@ -53,7 +47,6 @@ const MESSAGES: Record<Locale, Record<DiagnosticCode, string>> = {
     'invalid-attribute-value': '属性 "{name}" の値が不正です（期待: {expected}）',
     'unknown-icon': 'アイコン "{icon}" は存在しません{suggestion}',
     'invalid-color': '色 "{value}" は不正です{suggestion}（使用可: {names}）',
-    'invalid-animate-arrow': 'animate では点線の矢印 "{arrow}" は使えません{suggestion}',
     'invalid-self-arrow': '自己ループに双方向の矢印 "{arrow}" は使えません{suggestion}',
     'invalid-escape': 'エスケープシーケンス "{sequence}" は使えません（使用可: \\" \\\\ \\n \\t）',
     'attribute-not-applicable': '属性 "{name}" は{kind}には適用されません',
@@ -64,12 +57,9 @@ const MESSAGES: Record<Locale, Record<DiagnosticCode, string>> = {
   en: {
     'syntax-error': 'Syntax error: unexpected "{token}"{hint}',
     'unexpected-eof': 'Unexpected end of input (a closing "}" or "]" may be missing)',
-    'missing-header': 'The document must start with "dav 1"',
-    'unsupported-version': 'DSL version {version} is not supported (supported: 1)',
+    'missing-step': 'At least one step is required',
     'duplicate-title': 'title can only be specified once',
     'duplicate-id': 'ID "{id}" is already in use',
-    'duplicate-edge':
-      'Duplicate edge from "{from}" to "{to}". Specify [id: ...] for additional edges',
     'undefined-reference': '"{id}" is not defined',
     'reference-kind-mismatch': '"{id}" is {actual} (expected {expected})',
     'unknown-attribute': 'Attribute "{name}" is not allowed on {owner}',
@@ -78,7 +68,6 @@ const MESSAGES: Record<Locale, Record<DiagnosticCode, string>> = {
     'invalid-attribute-value': 'Invalid value for attribute "{name}" (expected {expected})',
     'unknown-icon': 'Unknown icon "{icon}"{suggestion}',
     'invalid-color': 'Invalid color "{value}"{suggestion}. Use one of: {names}',
-    'invalid-animate-arrow': 'Dashed arrow "{arrow}" cannot be used in animate{suggestion}',
     'invalid-self-arrow': 'Bidirectional arrow "{arrow}" cannot form a self-loop{suggestion}',
     'invalid-escape': 'Invalid escape sequence "{sequence}" (allowed: \\" \\\\ \\n \\t)',
     'attribute-not-applicable': 'Attribute "{name}" does not apply to {kind}',
@@ -92,17 +81,17 @@ const KIND_LABELS: Record<Locale, Record<string, string>> = {
   ja: {
     node: 'ノード',
     group: 'グループ',
-    edge: 'エッジ',
     state: 'state',
     animate: 'animate',
+    static: 'static',
   },
-  // With their article, which depends on the word: "an edge", "a node".
+  // With their article, which depends on the word: "a node", "an animate".
   en: {
     node: 'a node',
     group: 'a group',
-    edge: 'an edge',
     state: 'a state',
     animate: 'an animate',
+    static: 'a static',
   },
 };
 

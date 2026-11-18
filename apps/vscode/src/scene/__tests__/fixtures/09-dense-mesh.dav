@@ -1,7 +1,6 @@
-dav 1
 title "09 サービスメッシュ: 辺が密な構成"
 
-// About 45 edges on 22 nodes: bundles of rails, crossings and little room for labels.
+// Cross-cutting config & observability links declared via `static`, separate from core runtime flows.
 
 group front "フロント" [color: teal] {
   node web "Web" [icon: browser, sub: "Next.js"]
@@ -40,48 +39,53 @@ group obs "可観測性" [color: orange] {
   node dash "ダッシュボード" [icon: screen, sub: "Grafana"]
 }
 
-web --> gw : "HTTPS"
-ios --> gw : "HTTPS"
-partner --> gw : "mTLS"
-gw <-> authn : "検証"
-gw --> search : "gRPC"
-gw --> product : "gRPC"
-gw --> cart : "gRPC"
-gw --> order : "gRPC"
-search --> product : "gRPC"
-product --> price : "gRPC"
-cart --> price : "gRPC"
-cart --> stock : "在庫確認"
-cart --> cache : "セッション"
-product --> cache : "キャッシュ"
-price --> cache : "キャッシュ"
-order --> payment : "gRPC"
-order --> stock : "引当"
-order --> ship : "出荷指示"
-order --> bus : "OrderPlaced"
-payment --> invoice : "請求作成"
-payment --> bus : "Paid"
-stock --> bus : "StockLow"
-ship --> bus : "Shipped"
-bus --> invoice : "購読"
-bus --> search : "索引更新"
-order --> db : "SQL"
-payment --> db : "SQL"
-stock --> db : "SQL"
-ship --> db : "SQL"
-invoice --> db : "SQL"
-product --> db : "SQL"
-config ..> gw : "設定"
-config ..> order : "設定"
-config ..> payment : "設定"
-gw ..> trace : "span"
-order ..> trace : "span"
-payment ..> trace : "span"
-cart ..> logs : "ログ"
-ship ..> logs : "ログ"
-stock ..> metric : "計測"
-bus ..> metric : "計測"
-db ..> metric : "計測"
-trace --> dash : "参照"
-logs --> dash : "参照"
-metric --> dash : "参照"
+step "商品検索とカート更新" {
+  static config ..> gw : "設定"
+  static config ..> order : "設定"
+  static config ..> payment : "設定"
+  static trace --> dash : "参照"
+  static logs --> dash : "参照"
+  static metric --> dash : "参照"
+  animate web --> gw : "HTTPS"
+  animate ios --> gw : "HTTPS" [parallel: true]
+  animate partner --> gw : "mTLS" [parallel: true]
+  animate gw <-> authn : "検証"
+  animate gw --> search : "gRPC"
+  animate gw --> product : "gRPC" [parallel: true]
+  animate gw --> cart : "gRPC" [parallel: true]
+  animate search --> product : "gRPC"
+  animate product --> price : "gRPC"
+  animate cart --> price : "gRPC" [parallel: true]
+  animate cart --> stock : "在庫確認"
+  animate cart --> cache : "セッション"
+  animate product --> cache : "キャッシュ" [parallel: true]
+  animate price --> cache : "キャッシュ" [parallel: true]
+  animate product --> db : "SQL"
+}
+
+step "注文・決済・配送と非同期イベント" {
+  static gw ..> trace : "span"
+  static order ..> trace : "span"
+  static payment ..> trace : "span"
+  static cart ..> logs : "ログ"
+  static ship ..> logs : "ログ"
+  static stock ..> metric : "計測"
+  static bus ..> metric : "計測"
+  static db ..> metric : "計測"
+  animate gw --> order : "gRPC"
+  animate order --> payment : "gRPC"
+  animate order --> stock : "引当" [parallel: true]
+  animate order --> ship : "出荷指示" [parallel: true]
+  animate order --> db : "SQL"
+  animate payment --> db : "SQL" [parallel: true]
+  animate stock --> db : "SQL" [parallel: true]
+  animate ship --> db : "SQL" [parallel: true]
+  animate payment --> invoice : "請求作成"
+  animate invoice --> db : "SQL"
+  animate order --> bus : "OrderPlaced"
+  animate payment --> bus : "Paid" [parallel: true]
+  animate stock --> bus : "StockLow" [parallel: true]
+  animate ship --> bus : "Shipped" [parallel: true]
+  animate bus --> invoice : "購読"
+  animate bus --> search : "索引更新" [parallel: true]
+}

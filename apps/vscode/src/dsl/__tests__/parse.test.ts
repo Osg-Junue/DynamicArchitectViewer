@@ -18,15 +18,13 @@ describe('parse: samples', () => {
       const { document, diagnostics } = parse(dsl);
       expect(diagnostics).toEqual([]);
       expect(document.nodes.length).toBeGreaterThan(0);
-      expect(document.edges.length).toBeGreaterThan(0);
       expect(document.steps.length).toBeGreaterThan(0);
     },
   );
 });
 
 describe('parse: model', () => {
-  const text = `dav 1
-title "T \\"quoted\\"\\nline2"
+  const text = `title "T \\"quoted\\"\\nline2"
 
 group vpc "VPC" [color: BLUE] {
   node a "A" [icon: database, sub: "s", badge: "B", visible: false, color: teal]
@@ -36,21 +34,16 @@ group vpc "VPC" [color: BLUE] {
 }
 node c "C"
 
-a --> b : "ab"
-b ..> c [id: bc, visible: false]
-c <-> a
-a <.> c
-
 step "First" {
   desc "line1"
   desc "line2"
   focus a, vpc
   state a [badge: "DOWN"]
-  state bc [visible: true]
   animate a --> b : "go" [color: red, desc: "send request"]
-  animate b --> c [parallel: true] {
+  animate b ..> c [parallel: true] {
     desc "forward to c"
   }
+  static c <.> a : "Sync" [color: teal]
 }
 
 step "Second" {}
@@ -62,7 +55,6 @@ step "Second" {}
   });
 
   it('decodes title escapes', () => {
-    expect(doc.version).toBe(1);
     expect(doc.title).toBe('T "quoted"\nline2');
   });
 
@@ -98,31 +90,19 @@ step "Second" {}
     expect(doc.nodes[2]?.parentId).toBeUndefined();
   });
 
-  it('reads edges with implicit and explicit IDs', () => {
-    expect(doc.edges.map((e) => [e.id, e.explicitId, e.style, e.direction, e.visible])).toEqual([
-      ['a->b', false, 'solid', 'forward', true],
-      ['bc', true, 'dashed', 'forward', false],
-      ['c->a', false, 'solid', 'bidirectional', true],
-      ['a->c', false, 'dashed', 'bidirectional', true],
-    ]);
-    expect(doc.edges[0]?.label).toBe('ab');
-  });
-
-  it('reads steps', () => {
+  it('reads steps, animations, and static links', () => {
     const [first, second] = doc.steps;
     expect(first).toEqual({
       index: 0,
       title: 'First',
       description: 'line1\nline2',
       focus: ['a', 'vpc'],
-      states: [
-        { target: 'a', badge: 'DOWN' },
-        { target: 'bc', visible: true },
-      ],
+      states: [{ target: 'a', badge: 'DOWN' }],
       animations: [
         {
           from: 'a',
           to: 'b',
+          style: 'solid',
           direction: 'forward',
           label: 'go',
           description: 'send request',
@@ -132,9 +112,20 @@ step "Second" {}
         {
           from: 'b',
           to: 'c',
+          style: 'dashed',
           direction: 'forward',
           description: 'forward to c',
           parallel: true,
+        },
+      ],
+      statics: [
+        {
+          from: 'c',
+          to: 'a',
+          style: 'dashed',
+          direction: 'bidirectional',
+          label: 'Sync',
+          color: 'teal',
         },
       ],
     });
@@ -145,12 +136,12 @@ step "Second" {}
     const a = sourceMap.elements.get('a');
     expect(a?.kind).toBe('node');
     expect(a?.idRange && text.slice(a.idRange.from, a.idRange.to)).toBe('a');
-    expect(sourceMap.elements.get('a->b')?.kind).toBe('edge');
+    expect(sourceMap.elements.get('vpc')?.kind).toBe('group');
     expect(sourceMap.steps).toHaveLength(2);
   });
 
   it('accepts a brace on the next line', () => {
-    const r = parse('dav 1\ngroup g\n{\n  node n\n}\n');
+    const r = parse('group g\n{\n  node n\n}\nstep "s" {}\n');
     expect(r.diagnostics).toEqual([]);
     expect(r.document.nodes[0]?.parentId).toBe('g');
   });
@@ -158,11 +149,12 @@ step "Second" {}
 
 describe('hasFatalError', () => {
   it.each([
-    ['an error with nothing to draw', 'dav 1\n]', true],
+    ['an error with nothing to draw', ']', true],
     ['an empty text', '', true],
-    ['an error next to something to draw', 'dav 1\nnode a\n]', false],
-    ['a group alone with an error', 'dav 1\ngroup g {}\n]', false],
-    ['an empty diagram without errors', 'dav 1', false],
+    ['an error next to something to draw', 'node a\nstep "s" {}\n]', false],
+    ['a node missing a step is still drawable', 'node a\n', false],
+    ['a group alone with an error', 'group g {}\nstep "s" {}\n]', false],
+    ['a valid step diagram', 'node a\nstep "s" {}', false],
   ])('%s', (_name, text, fatal) => {
     expect(hasFatalError(parse(text))).toBe(fatal);
   });
@@ -170,62 +162,68 @@ describe('hasFatalError', () => {
 
 describe('parse: diagnostics', () => {
   const cases: Array<[string, string, DiagnosticCode[]]> = [
-    ['missing header', 'node a', ['missing-header']],
-    ['unsupported version', 'dav 2', ['unsupported-version']],
-    ['fractional version equal to 1', 'dav 1.0', ['unsupported-version']],
-    ['zero-padded version', 'dav 01', ['unsupported-version']],
-    ['duplicate title', 'dav 1\ntitle "a"\ntitle "b"', ['duplicate-title']],
-    ['duplicate node id', 'dav 1\nnode a\nnode a', ['duplicate-id']],
-    ['id shared across kinds', 'dav 1\nnode a\ngroup a {}', ['duplicate-id']],
-    ['duplicate implicit edge', 'dav 1\nnode a\nnode b\na --> b\na ..> b', ['duplicate-edge']],
-    ['explicit id resolves duplicate', 'dav 1\nnode a\nnode b\na --> b\na ..> b [id: e2]', []],
-    ['undefined edge endpoint', 'dav 1\nnode a\na --> b', ['undefined-reference']],
-    ['edge to group', 'dav 1\nnode a\ngroup g {}\na --> g', ['reference-kind-mismatch']],
-    ['undefined focus', 'dav 1\nstep "s" { focus x }', ['undefined-reference']],
-    ['self-loop', 'dav 1\nnode a\na --> a\na ..> a [id: e2]', []],
-    ['bidirectional self-loop', 'dav 1\nnode a\na <-> a', ['invalid-self-arrow']],
-    ['dashed bidirectional self-loop', 'dav 1\nnode a\na <.> a', ['invalid-self-arrow']],
+    ['missing step', 'node a', ['missing-step']],
+    ['top-level edge syntax rejected', 'node a\nnode b\na --> b\nstep "s" {}', ['syntax-error', 'syntax-error', 'syntax-error']],
+    ['legacy dav header rejected', 'dav 1\nnode a\nstep "s" {}', ['syntax-error', 'syntax-error']],
+    ['duplicate title', 'title "a"\ntitle "b"\nstep "s" {}', ['duplicate-title']],
+    ['duplicate node id', 'node a\nnode a\nstep "s" {}', ['duplicate-id']],
+    ['id shared across kinds', 'node a\ngroup a {}\nstep "s" {}', ['duplicate-id']],
+    ['undefined static endpoint', 'node a\nstep "s" { static a --> b }', ['undefined-reference']],
+    ['static to group', 'node a\ngroup g {}\nstep "s" { static a --> g }', ['reference-kind-mismatch']],
+    ['undefined focus', 'step "s" { focus x }', ['undefined-reference']],
+    ['self-loop in animate and static', 'node a\nstep "s" { animate a --> a\n  static a ..> a }', []],
     [
-      'round trip on a self-loop',
-      'dav 1\nnode a\nstep "s" { animate a <-> a }',
+      'bidirectional self-loop in static',
+      'node a\nstep "s" { static a <-> a }',
       ['invalid-self-arrow'],
     ],
     [
-      'focus on an edge',
-      'dav 1\nnode a\nnode b\na --> b [id: e]\nstep "s" { focus e }',
-      ['reference-kind-mismatch'],
+      'dashed bidirectional self-loop in static',
+      'node a\nstep "s" { static a <.> a }',
+      ['invalid-self-arrow'],
+    ],
+    [
+      'round trip on a self-loop',
+      'node a\nstep "s" { animate a <-> a }',
+      ['invalid-self-arrow'],
+    ],
+    [
+      'dashed round trip on a self-loop',
+      'node a\nstep "s" { animate a <.> a }',
+      ['invalid-self-arrow'],
     ],
     [
       'undefined state target',
-      'dav 1\nstep "s" { state x [visible: true] }',
+      'step "s" { state x [visible: true] }',
       ['undefined-reference'],
     ],
     [
       'animate to group',
-      'dav 1\nnode a\ngroup g {}\nstep "s" { animate a --> g }',
+      'node a\ngroup g {}\nstep "s" { animate a --> g }',
       ['reference-kind-mismatch'],
     ],
-    ['implicit edge not referable', 'dav 1\nnode a\nnode b\na --> b\nstep "s" { focus a }', []],
-    ['unknown attribute', 'dav 1\nnode a [shape: box]', ['unknown-attribute']],
-    ['duplicate attribute', 'dav 1\nnode a [sub: "x", sub: "y"]', ['duplicate-attribute']],
-    ['string attr type', 'dav 1\nnode a [sub: 1]', ['invalid-attribute-value']],
-    ['bool attr type', 'dav 1\nnode a [visible: "no"]', ['invalid-attribute-value']],
-    ['removed status attribute', 'dav 1\nnode a [status: active]', ['unknown-attribute']],
-    ['unknown icon', 'dav 1\nnode a [icon: databse]', ['unknown-icon']],
-    ['invalid color', 'dav 1\nnode a [color: #12345]', ['invalid-color']],
-    ['unknown color name', 'dav 1\nnode a [color: yelow]', ['invalid-color']],
-    ['color type', 'dav 1\nnode a [color: "red"]', ['invalid-attribute-value']],
-    ['invalid escape', 'dav 1\ntitle "a\\qb"', ['invalid-escape']],
+    ['unknown attribute', 'node a [shape: box]\nstep "s" {}', ['unknown-attribute']],
+    ['unknown static attribute', 'node a\nnode b\nstep "s" { static a --> b [parallel: true] }', ['unknown-attribute']],
+    ['duplicate attribute', 'node a [sub: "x", sub: "y"]\nstep "s" {}', ['duplicate-attribute']],
+    ['string attr type', 'node a [sub: 1]\nstep "s" {}', ['invalid-attribute-value']],
+    ['bool attr type', 'node a [visible: "no"]\nstep "s" {}', ['invalid-attribute-value']],
+    ['removed status attribute', 'node a [status: active]\nstep "s" {}', ['unknown-attribute']],
+    ['unknown icon', 'node a [icon: databse]\nstep "s" {}', ['unknown-icon']],
+    ['invalid color', 'node a [color: #12345]\nstep "s" {}', ['invalid-color']],
+    ['unknown color name', 'node a [color: yelow]\nstep "s" {}', ['invalid-color']],
+    ['color type', 'node a [color: "red"]\nstep "s" {}', ['invalid-attribute-value']],
+    ['invalid escape', 'title "a\\qb"\nstep "s" {}', ['invalid-escape']],
     [
-      'state attr not applicable',
-      'dav 1\nnode a\nnode b\na --> b [id: e]\nstep "s" { state e [badge: "x"] }',
+      'state attr not applicable on group',
+      'group g {}\nstep "s" { state g [badge: "x"] }',
       ['attribute-not-applicable'],
     ],
-    ['empty state', 'dav 1\nnode a\nstep "s" { state a [] }', ['empty-state']],
-    ['syntax error', 'dav 1\nnode a ]', ['syntax-error']],
-    ['unclosed block', 'dav 1\ngroup g {\n  node a\n', ['unexpected-eof']],
-    ['hyphen in id', 'dav 1\nnode a-b', ['syntax-error']],
-    ['keyword as id', 'dav 1\nnode step', ['syntax-error']],
+    ['empty state', 'node a\nstep "s" { state a [] }', ['empty-state']],
+    ['syntax error', 'node a ]\nstep "s" {}', ['syntax-error']],
+    ['unclosed block', 'group g {\n  node a\n', ['missing-step', 'unexpected-eof']],
+    ['hyphen in id', 'node a-b\nstep "s" {}', ['syntax-error', 'syntax-error']],
+    ['keyword as id', 'node true\nstep "s" {}', ['syntax-error']],
+    ['static keyword reserved', 'node static\nstep "s" {}', ['syntax-error']],
   ];
 
   it.each(cases)('%s', (_, text, expected) => {
@@ -234,7 +232,7 @@ describe('parse: diagnostics', () => {
 
   it('says that a one-line code takes no title', () => {
     for (const lang of ['json ', 'text ', '']) {
-      const text = `dav 1\nnode a\nnode b\na --> b\nstep "s" {\n  animate a --> b : "x" {\n    code ${lang}"Schedule" "0 2 * * *"\n  }\n}\n`;
+      const text = `node a\nnode b\nstep "s" {\n  animate a --> b : "x" {\n    code ${lang}"Schedule" "0 2 * * *"\n  }\n}\n`;
       const { diagnostics } = parse(text);
       expect(diagnostics.map((d) => d.code)).toEqual(['syntax-error']);
       const [d] = diagnostics;
@@ -245,34 +243,29 @@ describe('parse: diagnostics', () => {
         '1行形式の code にはタイトルを付けられません',
       );
     }
-    // A long title keeps its quotes.
     const [long] = parse(
-      'dav 1\nnode a\nnode b\nstep "s" {\n  animate a --> b {\n    code "A title much longer than the rest" "x"\n  }\n}\n',
+      'node a\nnode b\nstep "s" {\n  animate a --> b {\n    code "A title much longer than the rest" "x"\n  }\n}\n',
     ).diagnostics;
     expect(long && formatDiagnostic(long, 'en')).toContain('if "A title much longer than…" is one');
-    // A title is written as it is, a `$` in it too.
     const [dollar] = parse(
-      'dav 1\nnode a\nnode b\nstep "s" {\n  animate a --> b {\n    code "A$`B$&" "x"\n  }\n}\n',
+      'node a\nnode b\nstep "s" {\n  animate a --> b {\n    code "A$`B$&" "x"\n  }\n}\n',
     ).diagnostics;
     expect(dollar && formatDiagnostic(dollar, 'en')).toContain('if "A$`B$&" is one');
-    // A code with a fence is not the one-line form.
     const [fenced] = parse(
-      'dav 1\nnode a\nnode b\nstep "s" {\n  animate a --> b {\n    code "T" "x" ```y```\n  }\n}\n',
+      'node a\nnode b\nstep "s" {\n  animate a --> b {\n    code "T" "x" ```y```\n  }\n}\n',
     ).diagnostics;
     expect(fenced && formatDiagnostic(fenced, 'en')).toContain('Syntax error');
     expect(fenced && formatDiagnostic(fenced, 'en')).not.toContain('takes no title');
-    // A string on a line of its own after a one-line code more likely misses its keyword.
     const [own] = parse(
-      'dav 1\nnode a\nnode b\nstep "s" {\n  animate a --> b {\n    code "x"\n    "The order is stored"\n  }\n}\n',
+      'node a\nnode b\nstep "s" {\n  animate a --> b {\n    code "x"\n    "The order is stored"\n  }\n}\n',
     ).diagnostics;
     expect(own && formatDiagnostic(own, 'en')).not.toContain('takes no title');
-    // Any other syntax error says only what it could not read.
-    const [other] = parse('dav 1\nnode a ]').diagnostics;
+    const [other] = parse('node a ]\nstep "s" {}').diagnostics;
     expect(other && formatDiagnostic(other, 'en')).toBe('Syntax error: unexpected "]"');
   });
 
   it('suggests the closest icon', () => {
-    const [d] = parse('dav 1\nnode a [icon: databse]').diagnostics;
+    const [d] = parse('node a [icon: databse]\nstep "s" {}').diagnostics;
     expect(d && formatDiagnostic(d, 'en')).toBe(
       'Unknown icon "databse" (did you mean "database"?)',
     );
@@ -280,18 +273,18 @@ describe('parse: diagnostics', () => {
   });
 
   it('localizes kind names', () => {
-    const [d] = parse('dav 1\nnode a\ngroup g {}\na --> g').diagnostics;
+    const [d] = parse('node a\ngroup g {}\nstep "s" { static a --> g }').diagnostics;
     expect(d && formatDiagnostic(d, 'ja')).toBe('"g" はグループです（ノードを指定してください）');
   });
 
   it('keeps valid content around errors', () => {
-    const r = parse('dav 1\nnode a [icon: nope]\nnode b\na --> b');
+    const r = parse('node a [icon: nope]\nnode b\nstep "s" { static a --> b }');
     expect(r.document.nodes.map((n) => n.icon)).toEqual(['server', 'server']);
-    expect(r.document.edges).toHaveLength(1);
+    expect(r.document.steps[0]?.statics).toHaveLength(1);
   });
 
   it('points diagnostics at the offending token', () => {
-    const text = 'dav 1\nnode a [color: #12345]';
+    const text = 'node a [color: #12345]\nstep "s" {}';
     const [d] = parse(text).diagnostics;
     expect(d && text.slice(d.from, d.to)).toBe('#12345');
   });
@@ -325,10 +318,8 @@ describe('unescapeCodeFence', () => {
 
 describe('parse: animate code blocks', () => {
   it('supports all 6 Code forms inside AnimateBody plus [code: "..."] attribute', () => {
-    const dsl = `dav 1
-node client
+    const dsl = `node client
 node api
-client --> api
 
 step "Code forms" {
   animate client --> api {
@@ -400,8 +391,7 @@ step "Code forms" {
   });
 
   it('ignores empty or whitespace-only code blocks so animation.code stays unset', () => {
-    const dsl = `dav 1
-node a
+    const dsl = `node a
 node b
 step "Empty" {
   animate a --> b [code: ""]
@@ -424,8 +414,7 @@ step "Empty" {
   });
 
   it('emits duplicate-code warning and keeps the last non-empty code block', () => {
-    const both = parse(`dav 1
-node a
+    const both = parse(`node a
 node b
 step "Dup" {
   animate a --> b [code: "attr"] {
@@ -461,14 +450,14 @@ step "Dup" {
     ]);
   });
 
-  it('keeps code unreserved so node code and group code remain valid', () => {
+  it('keeps code and dav unreserved so node code and node dav remain valid', () => {
     expect(KEYWORD_NAMES).not.toContain('code');
-    const dsl = `dav 1
-group code_zone "Zone" {
+    expect(KEYWORD_NAMES).not.toContain('dav');
+    const dsl = `group code_zone "Zone" {
   node code "Code Service"
+  node dav "Dav Node"
 }
 node api "API"
-code --> api : "gRPC"
 
 step "Run" {
   focus code, code_zone
@@ -477,48 +466,19 @@ step "Run" {
   animate api --> code {
     code code "pong"
   }
+  animate api --> dav {
+    code dav "node api"
+  }
+  static dav ..> api : "Sync"
 }
 `;
     const { document, diagnostics } = parse(dsl);
     expect(diagnostics).toEqual([]);
-    expect(document.nodes.map((n) => n.id)).toEqual(['code', 'api']);
+    expect(document.nodes.map((n) => n.id)).toEqual(['code', 'dav', 'api']);
     expect(document.steps[0]?.animations[0]?.from).toBe('code');
     expect(document.steps[0]?.animations[0]?.code).toEqual({ body: 'ping' });
     expect(document.steps[0]?.animations[1]?.to).toBe('code');
     expect(document.steps[0]?.animations[1]?.code).toEqual({ lang: 'code', body: 'pong' });
-  });
-
-  it('accepts dav as a CodeLang while keeping dav reserved for element IDs', () => {
-    expect(codes('dav 1\nnode dav')).toEqual(['syntax-error']);
-    const dsl = `dav 1
-node ext
-node dsl
-ext --> dsl
-
-step "Parse" {
-  animate ext --> dsl {
-    code dav ".dav Source" \`\`\`
-      node api "Order API" [icon: api]
-      animate client --> api : "POST /orders"
-    \`\`\`
-  }
-  animate dsl --> ext {
-    code dav "dav 1"
-  }
-}
-`;
-    const { document, diagnostics } = parse(dsl);
-    expect(diagnostics).toEqual([]);
-    expect(document.steps[0]?.animations.map((a) => a.code)).toEqual([
-      {
-        lang: 'dav',
-        title: '.dav Source',
-        body: 'node api "Order API" [icon: api]\nanimate client --> api : "POST /orders"',
-      },
-      {
-        lang: 'dav',
-        body: 'dav 1',
-      },
-    ]);
+    expect(document.steps[0]?.animations[2]?.code).toEqual({ lang: 'dav', body: 'node api' });
   });
 });

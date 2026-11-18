@@ -1,4 +1,3 @@
-dav 1
 title "06 CI/CD: 長い一本道と戻りの辺"
 
 // A long chain, with feedback from its right end back to its left (a cycle).
@@ -39,31 +38,39 @@ group feedback "フィードバック" [color: orange] {
   node post "振り返り" [icon: file, sub: "ポストモーテム"]
 }
 
-engineer --> ide : "実装"
-ide --> git : "push"
-git --> review : "PR作成"
-review --> git : "承認・マージ"
-git --> runner : "Webhook"
-runner --> build : "ジョブ"
-runner --> unit : "ジョブ"
-build --> scan : "イメージ"
-scan --> sbom : "生成"
-build --> registry : "push"
-unit ..> review : "結果コメント"
-scan ..> review : "結果コメント"
-registry --> stg_k8s : "デプロイ"
-stg_k8s --> e2e : "対象"
-e2e --> approve : "合格"
-approve --> argo : "タグ更新"
-argo --> canary : "同期"
-canary --> prod_k8s : "段階公開"
-prod_k8s --> metrics : "スクレイプ"
-metrics --> rollback : "エラー率"
-rollback --> argo : "差し戻し"
-metrics --> alert : "しきい値"
-alert --> engineer : "呼び出し"
-alert --> issue : "起票"
-issue --> post : "原因分析"
-post --> engineer : "改善タスク"
-registry --> argo : "イメージ参照"
-canary --> canary : "重み更新"
+step "開発とCI検証" {
+  animate engineer --> ide : "実装"
+  animate ide --> git : "push"
+  animate git --> review : "PR作成"
+  animate review --> git : "承認・マージ"
+  animate git --> runner : "Webhook"
+  animate runner --> build : "ジョブ"
+  animate runner --> unit : "ジョブ" [parallel: true]
+  animate build --> scan : "イメージ"
+  animate scan --> sbom : "生成"
+  animate unit ..> review : "結果コメント"
+  animate scan ..> review : "結果コメント" [parallel: true]
+}
+
+step "検証環境への展開と承認" {
+  static registry --> argo : "イメージ参照"
+  animate build --> registry : "push"
+  animate registry --> stg_k8s : "デプロイ"
+  animate stg_k8s --> e2e : "対象"
+  animate e2e --> approve : "合格"
+}
+
+step "本番リリースとフィードバック" {
+  static prod_k8s --> metrics : "スクレイプ"
+  static canary --> canary : "重み更新"
+  animate approve --> argo : "タグ更新"
+  animate argo --> canary : "同期"
+  animate canary --> prod_k8s : "段階公開"
+  animate metrics --> rollback : "エラー率"
+  animate rollback --> argo : "差し戻し"
+  animate metrics --> alert : "しきい値"
+  animate alert --> engineer : "呼び出し"
+  animate alert --> issue : "起票" [parallel: true]
+  animate issue --> post : "原因分析"
+  animate post --> engineer : "改善タスク"
+}

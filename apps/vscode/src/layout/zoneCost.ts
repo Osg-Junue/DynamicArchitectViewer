@@ -1,4 +1,5 @@
 import type { DavDocument } from '../model/types';
+import { analyzeFlow, type FlowAnalysis, type TransitionRole } from './flow';
 import { properlyCross, type Segment, shareStation } from './links';
 import { type Rect, STATION_CENTER } from './metrics';
 import {
@@ -35,6 +36,9 @@ const THROUGH_COST = 130;
 
 /** A link between two blocks; its `Segment` part is refreshed by every cost evaluation. */
 export interface BlockLink extends Segment {
+  role: TransitionRole;
+  /** Touches an auxiliary cross-cutting zone (monitoring, platform, secops). */
+  auxTouch: boolean;
   source: Placed;
   target: Placed;
   sourceX: number;
@@ -118,27 +122,48 @@ function offStraight(l: BlockLink): number {
   return off;
 }
 
+const crossingWeight = (l: BlockLink): number =>
+  l.role === 'primary' ? 1 : l.role === 'return' ? 0.85 : 0.7;
+
+const throughWeight = (l: BlockLink): number =>
+  l.role === 'primary' ? 1 : l.role === 'return' ? 0.8 : 0.75;
+
 function shapeCost(l: BlockLink): number {
   const dx = l.bx - l.ax;
   const length = Math.hypot(dx, l.by - l.ay);
+  if (l.role === 'return') {
+    // Return/feedback links flow right-to-left naturally and should not distort forward zones.
+    return offStraight(l) * 0.8 + length * 0.35;
+  }
+  if (l.role === 'static') {
+    const lengthScale = l.auxTouch ? 0.6 : 0.2;
+    const straightScale = l.auxTouch ? 1.2 : 0.5;
+    return offStraight(l) * straightScale + length * lengthScale;
+  }
+  const backward = dx < -30 ? 450 + (-dx) * 0.45 : dx < 0 ? 120 : 0;
   return (
     offStraight(l) * OFF_STRAIGHT_WEIGHT +
     // Every unit of a link counts, and counts again past a comfortable length. Counting only
     // the part past that length left the search with no reason to bring zones together.
     length +
     Math.max(0, length - LONG_LINK) +
-    (dx < -60 ? 260 - dx * 0.3 : 0)
+    backward
   );
 }
 
-/** How far the link runs up or down beyond what it runs to the right. */
+/** How far the link runs up or down beyond what it runs to the right (zero for return/shortcut links). */
 function offFlow(l: BlockLink): number {
-  return Math.max(0, Math.abs(l.by - l.ay) - Math.max(0, l.bx - l.ax));
+  if (l.role === 'return') return 0;
+  if (l.role === 'static' && !l.auxTouch) return 0;
+  const raw = Math.max(0, Math.abs(l.by - l.ay) - Math.max(0, l.bx - l.ax));
+  return l.role === 'static' ? raw * 0.25 : raw;
 }
 
 function crossingCost(s: BlockLink, t: BlockLink): number {
   if (s.maxX < t.minX || t.maxX < s.minX || s.maxY < t.minY || t.maxY < s.minY) return 0;
-  return !shareStation(s, t) && properlyCross(s, t) ? CROSSING_COST : 0;
+  return !shareStation(s, t) && properlyCross(s, t)
+    ? CROSSING_COST * Math.min(crossingWeight(s), crossingWeight(t))
+    : 0;
 }
 
 /**
@@ -198,8 +223,9 @@ function zoneObstruction(l: BlockLink, p: Placed): number {
 
 function throughCost(l: BlockLink, placed: readonly Placed[]): number {
   let total = 0;
+  const w = throughWeight(l);
   for (const p of placed) {
-    if (p !== l.source && p !== l.target) total += zoneObstruction(l, p);
+    if (p !== l.source && p !== l.target) total += zoneObstruction(l, p) * w;
   }
   return total;
 }
@@ -275,8 +301,9 @@ function movedCost(
     const s = links[i];
     if (!s) continue;
     if (!touches(s, a, b)) {
-      total += zoneObstruction(s, a);
-      if (b) total += zoneObstruction(s, b);
+      const w = throughWeight(s);
+      total += zoneObstruction(s, a) * w;
+      if (b) total += zoneObstruction(s, b) * w;
     } else if (refreshTouching) {
       updateSegment(s);
     }
@@ -419,7 +446,11 @@ function openWays(source: Block, from: string, target: Block, to: string): Block
 }
 
 /** The links between the zones placed as `placed`. A link inside one zone moves with it. */
-export function buildLinks(doc: DavDocument, placed: readonly Placed[]): BlockLink[] {
+export function buildLinks(
+  doc: DavDocument,
+  placed: readonly Placed[],
+  flow: FlowAnalysis = analyzeFlow(doc),
+): BlockLink[] {
   const anchorOf = new Map<string, Anchor>();
   for (const p of placed) {
     for (const [id, r] of p.block.nodes) {
@@ -430,12 +461,15 @@ export function buildLinks(doc: DavDocument, placed: readonly Placed[]): BlockLi
       });
     }
   }
-  return doc.edges.flatMap((e) => {
+  return flow.connections.flatMap((e) => {
     const a = anchorOf.get(e.from);
     const b = anchorOf.get(e.to);
     if (!a || !b || a.p === b.p) return [];
+    const auxTouch = flow.auxiliaryZones.has(a.p.block.id) || flow.auxiliaryZones.has(b.p.block.id);
     return [
       {
+        role: e.role,
+        auxTouch,
         source: a.p,
         target: b.p,
         sourceX: a.x,

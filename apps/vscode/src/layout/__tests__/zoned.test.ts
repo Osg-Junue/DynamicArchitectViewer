@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
+import { synthesizedConnections } from '../../model/connections';
 import { computeColumnLayout } from '../columns';
 import {
   adoptZonePlan,
@@ -28,15 +29,17 @@ const LARGE_DIAGRAMS = readdirSync(FIXTURES)
 
 /** Zones of `size` chained nodes in a row, with links from the first zone to all the others. */
 function bigDiagram(size = 6, zones = 8): string {
-  const lines = ['dav 1'];
+  const lines: string[] = [];
+  const initLinks: string[] = [];
   for (let z = 0; z < zones; z++) {
     lines.push(`group z${z} "Zone ${z}" {`);
     for (let n = 0; n < size; n++) lines.push(`  node z${z}n${n} "Node ${n}"`);
     lines.push('}');
-    for (let n = 1; n < size; n++) lines.push(`z${z}n${n - 1} --> z${z}n${n}`);
-    if (z > 0) lines.push(`z${z - 1}n${size - 1} <-> z${z}n0`);
-    if (z > 1) lines.push(`z0n0 --> z${z}n${size - 1}`);
+    for (let n = 1; n < size; n++) initLinks.push(`  animate z${z}n${n - 1} --> z${z}n${n}`);
+    if (z > 0) initLinks.push(`  animate z${z - 1}n${size - 1} <-> z${z}n0`);
+    if (z > 1) initLinks.push(`  animate z0n0 --> z${z}n${size - 1}`);
   }
+  lines.push('step "Init" {', ...initLinks, '}');
   lines.push('step "Hop" {');
   lines.push('  animate z0n0 --> z0n1 : "short"');
   lines.push('  animate z0n1 <-> z0n2 : "there and back"');
@@ -102,19 +105,21 @@ describe('zoned placement', () => {
     // Eight entrances hold the front zone by nine links, and a single link leads on from it to a
     // chain of zones. No zone moving alone closes the gap that link spans: the two parts have
     // to come together as wholes. Without that, a band 1285 wide is left between them.
-    const lines = ['dav 1', 'group entrances {'];
+    const lines = ['group entrances {'];
+    const links: string[] = [];
     for (let n = 0; n < 8; n++) lines.push(`  node e${n}`);
     lines.push('}', 'group front {', '  node f0', '  node f1', '  node f2', '  node f3', '}');
-    lines.push('f0 --> f2', 'f1 --> f2', 'f2 --> f3', 'e0 --> f0');
-    for (let n = 0; n < 8; n++) lines.push(`e${n} --> f${n < 2 ? 1 : 2}`);
+    links.push('  animate f0 --> f2', '  animate f1 --> f2', '  animate f2 --> f3', '  animate e0 --> f0');
+    for (let n = 0; n < 8; n++) links.push(`  animate e${n} --> f${n < 2 ? 1 : 2}`);
     for (let z = 0; z < 7; z++) {
       lines.push(`group z${z} {`);
       for (let n = 0; n < 5; n++) lines.push(`  node z${z}n${n}`);
       lines.push('}');
-      for (let n = 1; n < 5; n++) lines.push(`z${z}n${n - 1} --> z${z}n${n}`);
-      lines.push(z === 0 ? 'f2 --> z0n0' : `z${z - 1}n4 --> z${z}n0`);
-      if (z > 1 && z < 6) lines.push(`z0n1 --> z${z}n4`);
+      for (let n = 1; n < 5; n++) links.push(`  animate z${z}n${n - 1} --> z${z}n${n}`);
+      links.push(z === 0 ? '  animate f2 --> z0n0' : `  animate z${z - 1}n4 --> z${z}n0`);
+      if (z > 1 && z < 6) links.push(`  animate z0n1 --> z${z}n4`);
     }
+    lines.push('step "Flow" {', ...links, '}');
     const doc = parse(lines.join('\n')).document;
     const placed = computeLayout(doc);
     expect(placed).not.toEqual(computeColumnLayout(doc));
@@ -138,15 +143,17 @@ describe('zoned placement', () => {
     // Twelve zones in a chain, each linked to the next and to the third after it. Moved only
     // straight towards the rest, the parts stop at the first zone they meet, and the zones
     // cover 37 % of the rectangle around them. Stepping past that zone, they cover 63 %.
-    const lines = ['dav 1'];
+    const lines: string[] = [];
+    const links: string[] = [];
     for (let z = 0; z < 12; z++) {
       lines.push(`group z${z} {`);
       for (let n = 0; n < 6; n++) lines.push(`  node z${z}n${n}`);
       lines.push('}');
-      for (let n = 1; n < 6; n++) lines.push(`z${z}n${n - (n % 3 === 0 ? 2 : 1)} --> z${z}n${n}`);
-      if (z > 0) lines.push(`z${z - 1}n5 --> z${z}n0`);
-      if (z > 2) lines.push(`z${z - 3}n1 --> z${z}n5`);
+      for (let n = 1; n < 6; n++) links.push(`  animate z${z}n${n - (n % 3 === 0 ? 2 : 1)} --> z${z}n${n}`);
+      if (z > 0) links.push(`  animate z${z - 1}n5 --> z${z}n0`);
+      if (z > 2) links.push(`  animate z${z - 3}n1 --> z${z}n5`);
     }
+    lines.push('step "Flow" {', ...links, '}');
     const rects = Object.values(computeLayout(parse(lines.join('\n')).document).groups);
     const { width, height } = enclosingRect(rects);
     const covered = rects.reduce((sum, r) => sum + r.width * r.height, 0);
@@ -165,7 +172,9 @@ describe('zoned placement', () => {
       return { x: r.x + r.width / 2, y: r.y + STATION_CENTER };
     };
     const zoneOf = new Map(document.nodes.map((n) => [n.id, n.parentId]));
-    const between = document.edges.filter((e) => zoneOf.get(e.from) !== zoneOf.get(e.to));
+    const between = synthesizedConnections(document).filter(
+      (e) => zoneOf.get(e.from) !== zoneOf.get(e.to),
+    );
     const straight = between.filter((e) => {
       const a = station(e.from);
       const b = station(e.to);
@@ -179,13 +188,14 @@ describe('zoned placement', () => {
   });
 
   it('keeps shared columns when no link is too long', () => {
-    const { document: compact } = parse(`dav 1
-group a { node a1
+    const { document: compact } = parse(`group a { node a1
 node a2 }
 group b { node b1
 node b2 }
-a1 --> a2
-b1 --> b2`);
+step "S" {
+  static a1 --> a2
+  static b1 --> b2
+}`);
     const { nodes } = computeLayout(compact);
     expect(nodes.a1?.x).toBe(nodes.b1?.x);
     expect(nodes.a2?.x).toBe(nodes.b2?.x);
@@ -195,16 +205,17 @@ b1 --> b2`);
     // Every node of one zone is linked to every node of the other: no link is long, but two
     // columns cannot hold that without crossings.
     const lines = [
-      'dav 1',
       'group a { node a1',
       'node a2',
       'node a3 }',
       'group b { node b1',
       'node b2',
       'node b3 }',
+      'step "S" {',
     ];
     for (const from of ['a1', 'a2', 'a3'])
-      for (const to of ['b1', 'b2', 'b3']) lines.push(`${from} --> ${to}`);
+      for (const to of ['b1', 'b2', 'b3']) lines.push(`  static ${from} --> ${to}`);
+    lines.push('}');
     const { document: crossed } = parse(lines.join('\n'));
     const columns = computeColumnLayout(crossed);
     expect(longLinkExcess(crossed, columns)).toBe(0);
@@ -242,21 +253,24 @@ b1 --> b2`);
     expect(computeLayout(parse(bigDiagram()).document)).toEqual(layout);
   });
 
-  it('places the zones the same whatever the steps, round trips between zones included', () => {
-    // Long links between zones, travelled there and back: once, they counted double.
+  it('places the zones the same when adding descriptions, focus, states or existing-pair animations', () => {
+    // Annotations and return/repeat animations on existing connections do not rearrange zones.
     const dsl = bigDiagram().replace(
       'step "Hop" {',
-      'step "Round trips" {\n  animate z0n0 <-> z3n5\n  animate z0n0 <-> z5n5\n}\nstep "Hop" {',
+      'step "Round trips" {\n  desc "Reply"\n  state z0n0 [badge: "OK"]\n  animate z3n5 --> z0n0\n  animate z5n5 --> z0n0\n}\nstep "Hop" {',
     );
-    const withSteps = parse(dsl).document;
-    const withoutSteps = { ...withSteps, steps: [] };
-    expect(structureKey(withSteps)).toBe(structureKey(withoutSteps));
-    expect(searchZones(withSteps)).toEqual(searchZones(withoutSteps));
+    const decorated = parse(dsl).document;
+    const base = parse(bigDiagram()).document;
+    expect(structureKey(decorated)).toBe(structureKey(base));
+    expect(searchZones(decorated)).toEqual(searchZones(base));
   });
 
   it('leaves out only the edges of loops inside a zone, since links between zones set no column', () => {
     // A loop inside z1, and one through z0, z1 and z2 that a link between zones closes.
-    const dsl = bigDiagram().replace('step "Hop"', 'z1n4 --> z1n1\nz2n5 --> z0n3\nstep "Hop"');
+    const dsl = bigDiagram().replace(
+      'step "Hop"',
+      'step "Loops" {\n  static z1n4 --> z1n1\n  static z2n5 --> z0n3\n}\nstep "Hop"',
+    );
     const doc = parse(dsl).document;
     // Placed freely: in columns, the frames would be others.
     expect(computeLayout(doc).groups).not.toEqual(computeColumnLayout(doc).groups);
@@ -266,10 +280,12 @@ b1 --> b2`);
     ]);
   });
 
-  describe('edge labels', () => {
+  describe('static labels', () => {
     const LONG = 'A label long enough to widen the gap between two columns';
     const labeled = (label: string) =>
-      parse(`${bigDiagram().replace('z1n0 --> z1n1', `z1n0 --> z1n1 : "${label}"`)}`).document;
+      parse(
+        bigDiagram().replace('step "Hop"', `step "Static" {\n  static z1n0 --> z1n1 : "${label}"\n}\nstep "Hop"`),
+      ).document;
 
     it('leaves everything in place for a label that fits the gap', () => {
       expect(computeLayout(labeled('short'))).toEqual(layout);
@@ -322,8 +338,10 @@ group outer "Outer" {
   }
 }
 node loose "Loose"
-z0n0 --> deep
-deep --> loose`;
+step "Extra" {
+  static z0n0 --> deep
+  static deep --> loose
+}`;
     const doc = parse(source).document;
     const result = computeLayout(doc);
     expect(rectContains(result.groups.inner as Rect, result.nodes.deep as Rect)).toBe(true);
@@ -382,7 +400,7 @@ describe('the zones of a large diagram', () => {
     },
   );
 
-  it('moves no zone up, down or to the left for an edge label, however long', () => {
+  it('moves no zone up, down or to the left for a static label, however long', () => {
     // Zones were moved once more after a placement was applied, to put stations level again:
     // with the sizes the labels give, so that typing a label could shift a zone by tens of
     // units. A label may only widen its zone, which pushes the zones beside it to the right.
@@ -390,20 +408,29 @@ describe('the zones of a large diagram', () => {
     const doc = parse(dsl).document;
     const before = computeLayout(doc);
     const zones = doc.groups.filter((g) => !g.parentId).map((g) => g.id);
-    doc.edges.forEach((edge, i) => {
-      if (edge.from === edge.to) return;
-      const edges = doc.edges.map((e, k) =>
-        k === i ? { ...e, label: 'A label that is rather long to type in' } : e,
-      );
-      const after = computeLayout({ ...doc, edges });
-      for (const zone of zones) {
-        const was = before.groups[zone] as Rect;
-        const is = after.groups[zone] as Rect;
-        expect(is.y, `${zone} for the label of ${edge.from} to ${edge.to}`).toBe(was.y);
-        expect(is.x, `${zone} for the label of ${edge.from} to ${edge.to}`).toBeGreaterThanOrEqual(
-          was.x,
+    doc.steps.forEach((step, sIdx) => {
+      step.statics.forEach((st, i) => {
+        if (st.from === st.to) return;
+        const steps = doc.steps.map((s, sk) =>
+          sk === sIdx
+            ? {
+                ...s,
+                statics: s.statics.map((item, k) =>
+                  k === i ? { ...item, label: 'A label that is rather long to type in' } : item,
+                ),
+              }
+            : s,
         );
-      }
+        const after = computeLayout({ ...doc, steps });
+        for (const zone of zones) {
+          const was = before.groups[zone] as Rect;
+          const is = after.groups[zone] as Rect;
+          expect(is.y, `${zone} for the label of ${st.from} to ${st.to}`).toBe(was.y);
+          expect(is.x, `${zone} for the label of ${st.from} to ${st.to}`).toBeGreaterThanOrEqual(
+            was.x,
+          );
+        }
+      });
     });
   });
 });

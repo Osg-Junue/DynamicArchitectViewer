@@ -38,12 +38,6 @@ interface GenSpec {
     icon: (typeof ICONS)[number];
     sub: string | undefined;
   }>;
-  edges: Array<{
-    a: number;
-    b: number;
-    arrow: (typeof ARROWS)[number];
-    label: string | undefined;
-  }>;
   steps: Array<{
     title: string;
     desc: string | undefined;
@@ -51,6 +45,13 @@ interface GenSpec {
     stateIdx: number;
     animFrom: number;
     animTo: number;
+    animArrow: (typeof ARROWS)[number];
+    statics: Array<{
+      a: number;
+      b: number;
+      arrow: (typeof ARROWS)[number];
+      label: string | undefined;
+    }>;
     codeKind: 'none' | 'attr' | 'string' | 'fence';
     codeLang: string | undefined;
     codeTitle: string | undefined;
@@ -79,15 +80,6 @@ const specArb: fc.Arbitrary<GenSpec> = fc.record({
     { maxLength: 3 },
   ),
   rootNodes: fc.array(nodeSpecArb, { minLength: 1, maxLength: 4 }),
-  edges: fc.array(
-    fc.record({
-      a: fc.nat(20),
-      b: fc.nat(20),
-      arrow: fc.constantFrom(...ARROWS),
-      label: fc.option(labelArb, { nil: undefined }),
-    }),
-    { maxLength: 6 },
-  ),
   steps: fc.array(
     fc.record({
       title: labelArb,
@@ -96,6 +88,16 @@ const specArb: fc.Arbitrary<GenSpec> = fc.record({
       stateIdx: fc.nat(20),
       animFrom: fc.nat(20),
       animTo: fc.nat(20),
+      animArrow: fc.constantFrom(...ARROWS),
+      statics: fc.array(
+        fc.record({
+          a: fc.nat(20),
+          b: fc.nat(20),
+          arrow: fc.constantFrom(...ARROWS),
+          label: fc.option(labelArb, { nil: undefined }),
+        }),
+        { maxLength: 3 },
+      ),
       codeKind: fc.constantFrom('none', 'attr', 'string', 'fence'),
       codeLang: fc.option(fc.constantFrom('json', 'sql', 'http', 'code', 'dav'), {
         nil: undefined,
@@ -103,12 +105,12 @@ const specArb: fc.Arbitrary<GenSpec> = fc.record({
       codeTitle: fc.option(labelArb, { nil: undefined }),
       codeBody: codeBodyArb,
     }),
-    { maxLength: 3 },
+    { minLength: 1, maxLength: 3 },
   ),
 });
 
 function buildDsl(spec: GenSpec): string {
-  const lines: string[] = ['// generated', 'dav 1', `title ${quoteString(spec.title)}`, ''];
+  const lines: string[] = ['// generated', `title ${quoteString(spec.title)}`, ''];
   const nodeIds: string[] = [];
   let nCounter = 0;
 
@@ -133,49 +135,45 @@ function buildDsl(spec: GenSpec): string {
     lines.push(`node ${nid} ${quoteString(n.name)} [${attrs.join(', ')}]`);
   }
 
-  if (nodeIds.length > 0) {
-    const seenPairs = new Set<string>();
-    spec.edges.forEach((e, ei) => {
-      const from = nodeIds[e.a % nodeIds.length] ?? 'n0';
-      const to = nodeIds[e.b % nodeIds.length] ?? 'n0';
-      const pairKey = `${from}->${to}`;
-      const explicit = seenPairs.has(pairKey) ? ` [id: e${ei}]` : '';
-      seenPairs.add(pairKey);
-      const lbl = e.label !== undefined ? ` : ${quoteString(e.label)}` : '';
-      // A self-loop cannot be bidirectional.
-      const oneWay = e.arrow === '<->' ? '-->' : e.arrow === '<.>' ? '..>' : e.arrow;
-      lines.push(`${from} ${from === to ? oneWay : e.arrow} ${to}${lbl}${explicit}`);
-    });
+  const safeArrow = (from: string, to: string, arrow: (typeof ARROWS)[number]) =>
+    from === to ? (arrow === '<->' ? '-->' : arrow === '<.>' ? '..>' : arrow) : arrow;
 
-    for (const s of spec.steps) {
-      const focusTarget = nodeIds[s.focusIdx % nodeIds.length] ?? 'n0';
-      const stateTarget = nodeIds[s.stateIdx % nodeIds.length] ?? 'n0';
-      const animFrom = nodeIds[s.animFrom % nodeIds.length] ?? 'n0';
-      const animTo = nodeIds[s.animTo % nodeIds.length] ?? 'n0';
-      lines.push(`step ${quoteString(s.title)} {`);
-      if (s.desc !== undefined) lines.push(`  desc ${quoteString(s.desc)}`);
-      lines.push(`  focus ${focusTarget}`);
-      lines.push(`  state ${stateTarget} [color: blue]`);
-      if (s.codeKind === 'attr') {
-        lines.push(`  animate ${animFrom} --> ${animTo} [code: ${quoteString(s.codeBody)}]`);
-      } else if (s.codeKind === 'string') {
-        const lang = s.codeLang ? ` ${s.codeLang}` : '';
-        lines.push(`  animate ${animFrom} --> ${animTo} {`);
-        lines.push(`    code${lang} ${quoteString(s.codeBody)}`);
-        lines.push('  }');
-      } else if (s.codeKind === 'fence') {
-        const lang = s.codeLang ? ` ${s.codeLang}` : '';
-        const title = s.codeTitle !== undefined ? ` ${quoteString(s.codeTitle)}` : '';
-        lines.push(`  animate ${animFrom} --> ${animTo} {`);
-        lines.push(`    code${lang}${title} \`\`\``);
-        for (const bodyLine of s.codeBody.split('\n')) {
-          lines.push(`      ${bodyLine}`);
-        }
-        lines.push('    ```');
-        lines.push('  }');
-      }
-      lines.push('}');
+  for (const s of spec.steps) {
+    const focusTarget = nodeIds[s.focusIdx % nodeIds.length] ?? 'n0';
+    const stateTarget = nodeIds[s.stateIdx % nodeIds.length] ?? 'n0';
+    const animFrom = nodeIds[s.animFrom % nodeIds.length] ?? 'n0';
+    const animTo = nodeIds[s.animTo % nodeIds.length] ?? 'n0';
+    const animArrow = safeArrow(animFrom, animTo, s.animArrow);
+
+    lines.push(`step ${quoteString(s.title)} {`);
+    if (s.desc !== undefined) lines.push(`  desc ${quoteString(s.desc)}`);
+    lines.push(`  focus ${focusTarget}`);
+    lines.push(`  state ${stateTarget} [color: blue]`);
+    for (const st of s.statics) {
+      const from = nodeIds[st.a % nodeIds.length] ?? 'n0';
+      const to = nodeIds[st.b % nodeIds.length] ?? 'n0';
+      const lbl = st.label !== undefined ? ` : ${quoteString(st.label)}` : '';
+      lines.push(`  static ${from} ${safeArrow(from, to, st.arrow)} ${to}${lbl}`);
     }
+    if (s.codeKind === 'attr') {
+      lines.push(`  animate ${animFrom} ${animArrow} ${animTo} [code: ${quoteString(s.codeBody)}]`);
+    } else if (s.codeKind === 'string') {
+      const lang = s.codeLang ? ` ${s.codeLang}` : '';
+      lines.push(`  animate ${animFrom} ${animArrow} ${animTo} {`);
+      lines.push(`    code${lang} ${quoteString(s.codeBody)}`);
+      lines.push('  }');
+    } else if (s.codeKind === 'fence') {
+      const lang = s.codeLang ? ` ${s.codeLang}` : '';
+      const title = s.codeTitle !== undefined ? ` ${quoteString(s.codeTitle)}` : '';
+      lines.push(`  animate ${animFrom} ${animArrow} ${animTo} {`);
+      lines.push(`    code${lang}${title} \`\`\``);
+      for (const bodyLine of s.codeBody.split('\n')) {
+        lines.push(`      ${bodyLine}`);
+      }
+      lines.push('    ```');
+      lines.push('  }');
+    }
+    lines.push('}');
   }
 
   return `${lines.join('\n')}\n`;
@@ -199,7 +197,7 @@ describe('property: DSL parse & format', () => {
   it('labels round-trip through escaping', () => {
     fc.assert(
       fc.property(fc.string({ unit: labelUnit }), (label) => {
-        const text = `dav 1\nnode a ${quoteString(label)}\n`;
+        const text = `node a ${quoteString(label)}\nstep "s" {}\n`;
         const { document, diagnostics } = parse(text);
         expect(diagnostics).toEqual([]);
         expect(document.nodes[0]?.label).toBe(label);
@@ -211,13 +209,13 @@ describe('property: DSL parse & format', () => {
 
 describe('fuzz: arbitrary input never throws', () => {
   const fragments = [
-    'dav 1',
     'node',
     'group',
     'step',
     'focus',
     'state',
     'animate',
+    'static',
     'desc',
     'code',
     'json',
@@ -232,6 +230,7 @@ describe('fuzz: arbitrary input never throws', () => {
     '-->',
     '..>',
     '<->',
+    '<.>',
     '[',
     ']',
     '{',

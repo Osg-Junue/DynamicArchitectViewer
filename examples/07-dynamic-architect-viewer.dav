@@ -1,4 +1,3 @@
-dav 1
 title "DynamicArchitectViewer: DSL parsing, auto layout, live preview, HTML and SVG export"
 
 group vscode_host "VS Code Extension Host" [color: teal] {
@@ -24,21 +23,6 @@ group outputs "Preview & Exports" [color: green] {
   node svg_out "Animated SVG" [icon: file, sub: "<img> in a README", visible: false]
 }
 
-editor <-> ext : "Edit / Diagnostics"
-ext <-> dsl : "parse / format"
-dsl --> dsl : "Lezer LR Parse"
-dsl --> layout : "DavDocument"
-layout --> layout : "Crossing Reduction"
-layout --> scene : "Layout (Rect)"
-scene --> player : "VElement (Virtual SVG)"
-player --> player : "Phase Playback"
-player <-> webview : "Render / Cursor Sync"
-player --> exporter : "player.js / CSS"
-exporter --> html_out : "exportHtml" [id: e_export, visible: false, color: green]
-html_out ..> exporter : "importContent" [id: e_import, visible: false, color: teal]
-scene --> svg_exporter : "buildScene (per step)"
-svg_exporter --> svg_out : "exportSvg" [id: e_svg, visible: false, color: orange]
-
 step "Editing a .dav file and running language diagnostics" {
   desc "When the .dav file changes in the editor, the extension host parses the syntax tree with Lezer and updates diagnostics, Quick Fixes, completions and outline symbols."
   state editor [badge: "EDITING", color: teal]
@@ -47,7 +31,9 @@ step "Editing a .dav file and running language diagnostics" {
   animate ext --> dsl : "parse(text)" [icon: file, desc: "The extension host passes the .dav source to the DSL module"] {
     code dav ".dav Source" ```
       node api "Order API" [icon: api]
-      animate client --> api : "POST /orders"
+      step "Request" {
+        animate client --> api : "POST /orders"
+      }
     ```
   }
   animate dsl --> dsl : "analyze (AST)" [color: blue, desc: "The Lezer grammar builds the syntax tree and produces DavDocument, Diagnostics and SourceMap"]
@@ -64,27 +50,24 @@ step "Editing a .dav file and running language diagnostics" {
   animate ext --> editor : "set(uri, diagnostics)" [color: teal, desc: "Squiggles, Quick Fixes and document symbols are updated in the editor"]
 }
 
-step "Computing the layout and reducing edge crossings" {
-  desc "computeLayout assigns columns from the longest edge paths, places groups and rows, and runs up to 16 barycenter passes to minimize crossings."
-  state editor [badge: "", color: none]
+step "Computing the layout from flow and zone structure" {
+  desc "computeLayout ranks stages from step flows and places zones cleanly while minimizing local crossings."
   state dsl [badge: "VALID", color: green]
-  state layout [badge: "RANK & ORDER", color: blue]
-  animate dsl --> layout : "DavDocument" [icon: sheet, desc: "The validated nodes, groups and edges are passed to the layout engine"] {
+  state layout [badge: "FLOW & ZONES", color: blue]
+  animate dsl --> layout : "DavDocument" [icon: sheet, desc: "The validated groups, nodes and steps are passed to the layout engine"] {
     code json "DavDocument" ```
       {
-        "version": 1,
+        "title": "...",
         "nodes": [{ "id": "api", "icon": "api" }],
-        "edges": [{ "from": "client", "to": "api" }]
+        "steps": [{ "title": "Request" }]
       }
     ```
   }
-  animate layout --> layout : "Barycenter (up to 16x)" [color: blue, desc: "Columns come from longest paths, then rows are reordered to reduce edge crossings"]
+  animate layout --> layout : "Stage & Order" [color: blue, desc: "Primary flows shape columns and bands, then rows are ordered locally"]
 }
 
 step "Resolving the step scene and rendering the live preview" {
-  desc "resolveView computes cumulative step state, Bezier rails and callout boxes, then buildScene creates the virtual SVG tree that Player mounts in the webview."
-  state dsl [badge: "", color: none]
-  state layout [badge: "", color: none]
+  desc "resolveView builds step-local state, orthogonal rails and callout boxes, then buildScene creates the virtual SVG tree that Player mounts in the webview."
   state scene [badge: "RESOLVED", color: purple]
   state player [badge: "MOUNTED", color: purple]
   state webview [badge: "LIVE PREVIEW", color: green]
@@ -97,7 +80,7 @@ step "Resolving the step scene and rendering the live preview" {
       }
     ```
   }
-  animate scene --> player : "resolveView → buildScene" [icon: function, color: purple, desc: "Cumulative state, rail geometry and callouts become a virtual SVG tree (VElement)"] {
+  animate scene --> player : "resolveView → buildScene" [icon: function, color: purple, desc: "Step-local state, rail geometry and callouts become a virtual SVG tree (VElement)"] {
     code json "VElement" ```
       {
         "tag": "g",
@@ -110,7 +93,6 @@ step "Resolving the step scene and rendering the live preview" {
 
 step "Playing step animations and syncing the cursor" {
   desc "During playback, Player animates packets phase by phase while syncing cursor highlights and double-click jumps with the editor."
-  state scene [badge: "", color: none]
   state player [badge: "PLAYING", color: green]
   state webview [badge: "SYNCED", color: teal]
   animate webview <-> player : "play() / goTo(step)" [color: green, desc: "Moving the editor cursor jumps to the matching step and highlights the active element"]
@@ -128,11 +110,8 @@ step "Playing step animations and syncing the cursor" {
 
 step "Exporting a standalone HTML file" {
   desc "exportHtml embeds the parsed document, layout, used icons and runtime player into a single HTML file locked down by a SHA-256 Content Security Policy."
-  state player [badge: "", color: none]
-  state webview [badge: "", color: none]
   state exporter [badge: "BUNDLE", color: green]
   state html_out [visible: true, badge: "EXPORTED", color: green]
-  state e_export [visible: true]
   animate player --> exporter : "player.js / CSS" [icon: file, desc: "The prebuilt player runtime and stylesheet are supplied for inlining"]
   animate exporter --> html_out : "exportHtml(dsl)" [icon: key, color: green, desc: "Writes a self-contained HTML file with escaped #dav-data JSON and SHA-256 CSP hashes"] {
     code html "Standalone HTML" ```
@@ -145,15 +124,14 @@ step "Exporting a standalone HTML file" {
 
 step "Re-importing the .dav source from exported HTML" {
   desc "importContent reads the #dav-data JSON block without executing the HTML page and restores the original .dav text."
-  state html_out [badge: "READ", color: teal]
+  state html_out [visible: true, badge: "READ", color: teal]
   state exporter [badge: "EXTRACTED", color: teal]
-  state e_import [visible: true]
-  animate html_out --> exporter : "importContent(html)" [icon: file, color: teal, desc: "Extracts payload.dsl from the embedded #dav-data script element without evaluating scripts"] {
+  animate html_out ..> exporter : "importContent(html)" [icon: file, color: teal, desc: "Extracts payload.dsl from the embedded #dav-data script element without evaluating scripts"] {
     code json "ExportPayload (#dav-data)" ```
       {
         "format": "dynamic-architect-viewer",
         "version": 1,
-        "dsl": "dav 1\ntitle \"...\""
+        "dsl": "title \"...\""
       }
     ```
   }
@@ -161,12 +139,9 @@ step "Re-importing the .dav source from exported HTML" {
 
 step "Exporting an animated SVG" {
   desc "exportSvg draws the same scene for every step and moves it with SMIL on one looping clock. The file runs no script, so it plays as an image in a README on GitHub."
-  state html_out [badge: "", color: none]
-  state exporter [badge: "", color: none]
   state scene [badge: "EVERY STEP", color: purple]
   state svg_exporter [badge: "SMIL", color: orange]
   state svg_out [visible: true, badge: "EXPORTED", color: orange]
-  state e_svg [visible: true]
   animate scene --> svg_exporter : "buildScene (per step)" [icon: function, color: purple, desc: "The scene of each step is built as the preview builds it, and the camera is planned by the same rules"]
   animate svg_exporter --> svg_out : "exportSvg(dsl)" [icon: file, color: orange, desc: "Writes one SVG whose animations all last the whole playback and repeat"] {
     code xml "Animated SVG" ```

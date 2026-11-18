@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
 import { computeLayout, type Rect, rectOverlaps } from '../../layout';
+import { selfLoopNodeIds } from '../../model/connections';
 import { EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH } from '../../model/text';
 import { SAMPLE_TEMPLATES } from '../../samples';
 import {
@@ -298,48 +299,64 @@ describe('the rails of a diagram', () => {
     return resolveView(doc, computeLayout(doc), step);
   };
 
-  it('gives a packet that travels where no edge runs a rail of its own', () => {
-    const view = viewOf('dav 1\nnode a\nnode b\na --> b\nstep "S" {\n  animate b --> a\n}\n', 0);
+  it('reuses a merged bidirectional overview rail in reverse when a step travels back', () => {
+    const view = viewOf(
+      'node a\nnode b\nstep "S1" {\n  animate a --> b\n}\nstep "S2" {\n  animate b --> a\n}\n',
+      1,
+    );
+    const overview = viewOf(
+      'node a\nnode b\nstep "S1" {\n  animate a --> b\n}\nstep "S2" {\n  animate b --> a\n}\n',
+      null,
+    );
+    const overviewEdge = overview.edges[0];
     const edge = view.edges[0];
     const packet = view.phases[0]?.[0];
-    if (!edge || !packet) throw new Error('missing edge or packet');
-    expect(packet.edgeId).toBeUndefined();
-    // Beside the edge, the other way.
-    expect(railEnds(packet.path).start.x).toBeGreaterThan(railEnds(packet.path).end.x);
-    expect(railEnds(packet.path).start.y).not.toBe(railEnds(edge.path).start.y);
-    expect(Math.abs(railEnds(packet.path).start.y - railEnds(edge.path).start.y)).toBeLessThan(10);
+    if (!overviewEdge || !edge || !packet) throw new Error('missing edge or packet');
+    expect(overviewEdge.direction).toBe('bidirectional');
+    expect(packet.edgeId).toBe(overviewEdge.id);
+    expect(packet.path).toEqual(edge.path);
+    expect(edge.path).toEqual(reverse(overviewEdge.path as Route));
   });
 
   it('runs a rail level from a node outside a zone to one inside it', () => {
-    const view = viewOf('dav 1\nnode a\ngroup g {\n  node b\n}\na --> b\n');
+    const view = viewOf('node a\ngroup g {\n  node b\n}\nstep "S" {\n  animate a --> b\n}\n');
     const rail = view.edges[0]?.path;
     expect(rail && 'points' in rail && rail.points.length).toBe(2);
   });
 
   it('keeps that rail level when a node in the zone has a loop, which needs room above it', () => {
-    const view = viewOf('dav 1\nnode a\ngroup g {\n  node b\n}\na --> b\nb --> b\n');
+    const view = viewOf(
+      'node a\ngroup g {\n  node b\n}\nstep "S" {\n  static b --> b\n  animate a --> b\n}\n',
+    );
     const rail = view.edges.find((e) => e.from === 'a')?.path;
     expect(rail && 'points' in rail && rail.points.length).toBe(2);
   });
 
   it.each(
-    LARGE_DIAGRAMS.filter(([, dsl]) => parse(dsl).document.edges.some((e) => e.from === e.to)),
+    LARGE_DIAGRAMS.filter(([, dsl]) => selfLoopNodeIds(parse(dsl).document).size > 0),
   )('%s: no label of another edge is written over the label of a loop', (_, dsl) => {
     // A loop's label has a place of its own, above its curve, where the rails that leave the
     // same station run past: their labels must keep clear of it.
-    const view = viewOf(dsl);
-    const areaOf = (e: ResolvedView['edges'][number]): Rect[] =>
-      e.label && e.labelAt ? [edgeLabelArea(e.label, e.labelAt)] : [];
-    const ofLoops = view.edges.filter((e) => e.from === e.to).flatMap(areaOf);
-    expect(ofLoops.length).toBeGreaterThan(0);
-    for (const e of view.edges.filter((e) => e.from !== e.to)) {
-      for (const area of areaOf(e)) {
-        expect(
-          ofLoops.some((loop) => rectOverlaps(area, loop)),
-          `label of ${e.id} over the label of a loop`,
-        ).toBe(false);
+    const doc = parse(dsl).document;
+    const layout = computeLayout(doc);
+    let checked = 0;
+    for (let i = 0; i < doc.steps.length; i++) {
+      const view = resolveView(doc, layout, i);
+      const areaOf = (e: ResolvedView['edges'][number]): Rect[] =>
+        e.label && e.labelAt ? [edgeLabelArea(e.label, e.labelAt)] : [];
+      const ofLoops = view.edges.filter((e) => e.from === e.to).flatMap(areaOf);
+      if (ofLoops.length === 0) continue;
+      checked++;
+      for (const e of view.edges.filter((e) => e.from !== e.to)) {
+        for (const area of areaOf(e)) {
+          expect(
+            ofLoops.some((loop) => rectOverlaps(area, loop)),
+            `label of ${e.id} over the label of a loop`,
+          ).toBe(false);
+        }
       }
     }
+    expect(checked).toBeGreaterThan(0);
   });
 
   it('is drawn as wide as the routing takes a rail to be', () => {
@@ -379,8 +396,8 @@ describe('the rails of a diagram', () => {
   it('routes a rail that passes a station with a loop round the loop and its label', () => {
     // The rails beside a node took the room its loop is drawn in for a way through: the rail
     // from `job` down to `latest` ran through the loop of `svc`, and the one from `idp` over it.
-    const view = viewOf(`dav 1
-node sched "Scheduler"
+    const view = viewOf(
+      `node sched "Scheduler"
 node dev "Developer"
 group app "Jobs" {
   node job "Sync job"
@@ -396,20 +413,24 @@ group ext "External" {
   node idp "Identity"
   node audit "Audit log"
 }
-sched ..> job : "Scheduled"
-dev --> svc : "Request"
-job --> latest : "SELECT"
-job --> raw : "Append to raw"
-job --> audit : "Code / log"
-latest --> svc : "Read"
-idp --> svc : "Token"
-svc ..> svc : "Re-check grant"
-svc --> members : "Add member"
-svc --> gitlab : "Invite"
-raw --> members : "Merge"
-gitlab --> audit : "Webhook"
-job --> idp : "Service account"
-`);
+step "Sync" {
+  static svc ..> svc : "Re-check grant"
+  animate sched ..> job : "Scheduled"
+  animate dev --> svc : "Request"
+  animate job --> latest : "SELECT"
+  animate job --> raw : "Append to raw"
+  animate job --> audit : "Code / log"
+  animate latest --> svc : "Read"
+  animate idp --> svc : "Token"
+  animate svc --> members : "Add member"
+  animate svc --> gitlab : "Invite"
+  animate raw --> members : "Merge"
+  animate gitlab --> audit : "Webhook"
+  animate job --> idp : "Service account"
+}
+`,
+      0,
+    );
     const loop = view.edges.find((e) => e.from === e.to);
     if (!loop?.label || !loop.labelAt) throw new Error('no loop with a label');
     const curve = Array.from({ length: 25 }, (_, i) => pointAt(loop.path, i / 24));
@@ -446,8 +467,13 @@ job --> idp : "Service account"
       doc.steps.forEach((_step, index) => {
         for (const edge of resolveView(doc, layout, index).edges) {
           const before = overview.get(edge.id);
-          // An edge that a step reveals has no course on the overview to compare with.
-          if (before) expect(edge.path).toEqual(before);
+          // A connection whose endpoint was hidden in overview has no overview rail to compare with.
+          if (!before) continue;
+          const same =
+            JSON.stringify(edge.path) === JSON.stringify(before) ||
+            ('points' in before &&
+              JSON.stringify(edge.path) === JSON.stringify(reverse(before as Route)));
+          expect(same, `step ${index} edge ${edge.id}`).toBe(true);
         }
       });
     },

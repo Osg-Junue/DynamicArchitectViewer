@@ -1,7 +1,6 @@
-dav 1
 title "08 IoT: 現場からクラウドへ、クラウドから現場へ"
 
-// Many leaf nodes, edges back from the cloud to the plants, and loops.
+// Many leaf nodes, loops, and OTA delivery back from the cloud to the plants.
 
 group plant_a "第一工場" [color: teal] {
   node a_temp "温度センサー" [icon: device, sub: "ライン1"]
@@ -43,35 +42,43 @@ group fleet "運用・配信" [color: orange] {
   node erp "生産管理" [icon: server, sub: "MES"]
 }
 
-a_temp --> a_plc : "4-20mA"
-a_vib --> a_gw : "BLE"
-a_cur --> a_plc : "4-20mA"
-a_plc --> a_gw : "OPC UA"
-b_temp --> b_plc : "4-20mA"
-b_cam --> b_gw : "GigE"
-b_agv --> b_gw : "Wi-Fi"
-b_plc --> b_gw : "OPC UA"
-a_gw --> hub : "MQTT/TLS"
-b_gw --> hub : "MQTT/TLS"
-b_gw --> media : "画像アップロード"
-hub --> rules : "トピック"
-hub <-> twin : "状態同期"
-rules --> stream : "計測値"
-rules --> alarm : "しきい値超過"
-stream --> tsdb : "書き込み"
-stream --> anomaly : "推論"
-stream --> lake : "アーカイブ"
-media --> vision : "推論"
-tsdb --> dash : "クエリ"
-anomaly --> alarm : "異常"
-vision --> alarm : "不良"
-vision --> erp : "検査結果"
-alarm --> operator : "通知"
-operator --> fleetmgr : "点検記録"
-fleetmgr <-> twin : "台帳同期"
-ota ..> a_gw : "ファーム配信"
-ota ..> b_gw : "ファーム配信"
-fleetmgr --> ota : "対象選定"
-a_gw --> a_gw : "欠測時バッファ"
-b_gw --> b_gw : "欠測時バッファ"
-rules --> rules : "再評価"
+step "工場センサー収集とクラウド取り込み" {
+  static a_gw --> a_gw : "欠測時バッファ"
+  static b_gw --> b_gw : "欠測時バッファ"
+  animate a_temp --> a_plc : "4-20mA"
+  animate a_cur --> a_plc : "4-20mA" [parallel: true]
+  animate b_temp --> b_plc : "4-20mA" [parallel: true]
+  animate a_plc --> a_gw : "OPC UA"
+  animate a_vib --> a_gw : "BLE" [parallel: true]
+  animate b_plc --> b_gw : "OPC UA" [parallel: true]
+  animate b_cam --> b_gw : "GigE" [parallel: true]
+  animate b_agv --> b_gw : "Wi-Fi" [parallel: true]
+  animate a_gw --> hub : "MQTT/TLS"
+  animate b_gw --> hub : "MQTT/TLS" [parallel: true]
+  animate b_gw --> media : "画像アップロード" [parallel: true]
+}
+
+step "ルール振り分けと異常・画像分析" {
+  static rules --> rules : "再評価"
+  static hub <-> twin : "状態同期"
+  animate hub --> rules : "トピック"
+  animate rules --> stream : "計測値"
+  animate rules --> alarm : "しきい値超過" [parallel: true]
+  animate stream --> tsdb : "書き込み"
+  animate stream --> anomaly : "推論" [parallel: true]
+  animate stream --> lake : "アーカイブ" [parallel: true]
+  animate media --> vision : "推論" [parallel: true]
+  animate tsdb --> dash : "クエリ"
+  animate anomaly --> alarm : "異常" [parallel: true]
+  animate vision --> alarm : "不良" [parallel: true]
+  animate vision --> erp : "検査結果" [parallel: true]
+}
+
+step "現場保全とOTAファーム配信" {
+  static fleetmgr <-> twin : "台帳同期"
+  animate alarm --> operator : "通知"
+  animate operator --> fleetmgr : "点検記録"
+  animate fleetmgr --> ota : "対象選定"
+  animate ota ..> a_gw : "ファーム配信"
+  animate ota ..> b_gw : "ファーム配信" [parallel: true]
+}

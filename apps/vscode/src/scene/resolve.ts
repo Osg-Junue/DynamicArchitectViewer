@@ -1,11 +1,16 @@
 import type { Layout, Rect } from '../layout';
+import {
+  connectionIdMap,
+  stepConnections,
+  synthesizedConnections,
+  unorderedPairKey,
+} from '../model/connections';
 import { isBlank } from '../model/text';
 import {
   COLOR_RESET,
   type CodeBlock,
   type ColorName,
   type DavDocument,
-  type DavEdge,
   type DavStep,
   type Direction,
   type IconName,
@@ -13,16 +18,9 @@ import {
 } from '../model/types';
 import { ancestorIds, parentMap, zoneOfNodes } from '../model/zones';
 import { placePhaseCallouts } from './calloutPlace';
-import { expandRect, type Point, type Rail, reverse } from './geometry';
+import { expandRect, type Point, type Rail } from './geometry';
 import { THEME_COLOR } from './paint';
-import {
-  badgeArea,
-  type EdgeLabelSpot,
-  edgeLabelArea,
-  nodeBody,
-  RailRouter,
-  zoneNameArea,
-} from './rails';
+import { badgeArea, type EdgeLabelSpot, edgeLabelArea, nodeBody, RailRouter, zoneNameArea } from './rails';
 import { PHASE_MS, pacePhases } from './timing';
 
 export const DEFAULT_FLOW_COLOR = THEME_COLOR.accent;
@@ -62,7 +60,7 @@ export interface ResolvedEdge {
   /** Color of the flow overlay; present when `active`. */
   flowColor?: string;
   path: Rail;
-  /** Where the label is written; present when the edge has one. */
+  /** Where the label is written; present for `static` links with labels in a step. */
   labelAt?: EdgeLabelSpot;
   /** Packets flow along this edge in the current step. */
   active: boolean;
@@ -71,7 +69,7 @@ export interface ResolvedEdge {
 export interface Packet {
   from: string;
   to: string;
-  /** The edge this packet rides, when the diagram has one between its endpoints. */
+  /** The synthesized connection ID this packet rides. */
   edgeId?: string;
   fromLabel: string;
   toLabel: string;
@@ -89,7 +87,7 @@ export interface Packet {
    */
   stopLabel?: string;
   path: Rail;
-  /** Written as `<->` in the `animate`: the packet goes to the end and comes back. */
+  /** Written as `<->` or `<.>` in the `animate`: the packet goes to the end and comes back. */
   roundTrip: boolean;
   /** How long this packet travels at 1x. */
   durationMs: number;
@@ -132,7 +130,7 @@ export function flowColors(packets: readonly Packet[]): Map<string, string> {
 type Override = Partial<{
   badge: string;
   visible: boolean;
-  color: ColorName;
+  color: ColorName | typeof COLOR_RESET;
 }>;
 
 /** What every stage of resolving a step needs to know. */
@@ -148,23 +146,17 @@ interface StepContext {
   nodeParent: ReadonlyMap<string, string | undefined>;
 }
 
-/** `state` applies to its step and all later ones. */
-function accumulateOverrides(doc: DavDocument, index: number | null): Map<string, Override> {
+/** In v2, `state` applies to its own step only (never accumulates from earlier steps). */
+function stepOverrides(step: DavStep | undefined): Map<string, Override> {
   const overrides = new Map<string, Override>();
-  if (index === null) return overrides;
-  for (const s of doc.steps.slice(0, index + 1)) {
-    for (const st of s.states) {
-      const { target, color, ...rest } = st;
-      const next: Override = { ...overrides.get(target), ...rest };
-      if (color === COLOR_RESET) delete next.color;
-      else if (color !== undefined) next.color = color;
-      overrides.set(target, next);
-    }
+  if (!step) return overrides;
+  for (const st of step.states) {
+    overrides.set(st.target, { ...overrides.get(st.target), ...st });
   }
   return overrides;
 }
 
-function focusOf(doc: DavDocument, step: DavStep | undefined): Set<string> {
+function focusOf(step: DavStep | undefined): Set<string> {
   const focus = new Set<string>();
   if (!step) return focus;
   for (const id of step.focus) focus.add(id);
@@ -172,15 +164,14 @@ function focusOf(doc: DavDocument, step: DavStep | undefined): Set<string> {
     // Hiding something leaves nothing to look at, so it does not draw attention.
     if (st.visible === false) continue;
     focus.add(st.target);
-    const edge = doc.edges.find((e) => e.id === st.target);
-    if (edge) {
-      focus.add(edge.from);
-      focus.add(edge.to);
-    }
   }
   for (const a of step.animations) {
     focus.add(a.from);
     focus.add(a.to);
+  }
+  for (const s of step.statics) {
+    focus.add(s.from);
+    focus.add(s.to);
   }
   return focus;
 }
@@ -192,7 +183,10 @@ function inFocusedGroup(ctx: StepContext, parentId: string | undefined): boolean
 
 function resolveNodes(ctx: StepContext): ResolvedNode[] {
   const { doc, layout, step, overrides, focus, filtering } = ctx;
-  const animatedEndpoints = new Set(step?.animations.flatMap((a) => [a.from, a.to]) ?? []);
+  const stepEndpoints = new Set([
+    ...(step?.animations.flatMap((a) => [a.from, a.to]) ?? []),
+    ...(step?.statics.flatMap((s) => [s.from, s.to]) ?? []),
+  ]);
   return doc.nodes.flatMap((n) => {
     const rect = layout.nodes[n.id];
     if (!rect) return [];
@@ -203,14 +197,14 @@ function resolveNodes(ctx: StepContext): ResolvedNode[] {
       label: n.label,
       icon: n.icon,
       rect,
-      visible: animatedEndpoints.has(n.id) || (ov.visible ?? n.visible),
+      visible: stepEndpoints.has(n.id) || (ov.visible ?? n.visible),
       focused: step !== undefined && focused,
       dimmed: filtering && !focused,
     };
-    const accent = ov.color ?? n.color;
+    const accent = ov.color === COLOR_RESET ? undefined : (ov.color ?? n.color);
     if (accent) node.accent = accent;
     if (n.sub) node.sub = n.sub;
-    const badge = ov.badge ?? n.badge;
+    const badge = ov.badge !== undefined ? ov.badge : n.badge;
     if (badge) node.badge = badge;
     return [node];
   });
@@ -239,26 +233,17 @@ function resolveGroups(ctx: StepContext, nodes: readonly ResolvedNode[]): Resolv
       depth: ancestorIds(groupParent, g.parentId).length,
       dimmed: filtering && !focusedGroups.has(g.id) && !inFocusedGroup(ctx, g.parentId),
     };
-    const color = ov.color ?? g.color;
+    const color = ov.color === COLOR_RESET ? undefined : (ov.color ?? g.color);
     if (color) group.color = color;
     return [group];
   });
-}
-
-/** Between parallel edges, a packet prefers one that is on screen. */
-function edgeForPacket(ctx: StepContext, from: string, to: string): DavEdge | undefined {
-  const candidates = ctx.doc.edges.filter(
-    (e) =>
-      (e.from === from && e.to === to) ||
-      (e.direction === 'bidirectional' && e.from === to && e.to === from),
-  );
-  return candidates.find((e) => ctx.overrides.get(e.id)?.visible ?? e.visible) ?? candidates[0];
 }
 
 function createPhasePackets(
   ctx: StepContext,
   nodeById: ReadonlyMap<string, ResolvedNode>,
   rails: RailRouter,
+  canonicalIds: ReadonlyMap<string, string>,
 ): Packet[][] {
   const zoneOf = zoneOfNodes(ctx.doc);
   const phases: Packet[][] = [];
@@ -267,23 +252,14 @@ function createPhasePackets(
     const toNode = nodeById.get(a.to);
     if (!fromNode || !toNode) continue;
 
-    const edge = edgeForPacket(ctx, a.from, a.to);
-    const edgeFrom = edge && nodeById.get(edge.from);
-    const edgeTo = edge && nodeById.get(edge.to);
-    let path: Rail;
-    if (edge && edgeFrom && edgeTo) {
-      const edgePath = rails.ofEdge(edge, edgeFrom, edgeTo);
-      path = edge.from === a.from ? edgePath : reverse(edgePath);
-    } else {
-      path = rails.between(fromNode, toNode);
-    }
+    const edgeId = canonicalIds.get(unorderedPairKey(a.from, a.to));
     const packet: Packet = {
       from: a.from,
       to: a.to,
       fromLabel: fromNode.label,
       toLabel: toNode.label,
       color: a.color ?? DEFAULT_FLOW_COLOR,
-      path,
+      path: rails.railOf(fromNode, toNode),
       roundTrip: a.direction === 'bidirectional',
       durationMs: PHASE_MS,
     };
@@ -291,7 +267,7 @@ function createPhasePackets(
     const toZone = zoneOf.get(a.to);
     if (fromZone !== undefined) packet.fromZone = fromZone;
     if (toZone !== undefined) packet.toZone = toZone;
-    if (edge) packet.edgeId = edge.id;
+    if (edgeId !== undefined) packet.edgeId = edgeId;
     if (a.label !== undefined) packet.label = a.label;
     if (a.description !== undefined) packet.description = a.description;
     if (a.code !== undefined && !isBlank(a.code.body)) packet.code = a.code;
@@ -315,8 +291,9 @@ function resolvePhases(
   ctx: StepContext,
   nodeById: ReadonlyMap<string, ResolvedNode>,
   rails: RailRouter,
+  canonicalIds: ReadonlyMap<string, string>,
 ): ResolvedPhases {
-  const phases = createPhasePackets(ctx, nodeById, rails);
+  const phases = createPhasePackets(ctx, nodeById, rails, canonicalIds);
   if (phases.length > 1) {
     phases.forEach((phase, index) => {
       phase.forEach((packet, i) => {
@@ -334,40 +311,61 @@ function resolvePhases(
 
 function resolveEdges(
   ctx: StepContext,
+  nodes: readonly ResolvedNode[],
   nodeById: ReadonlyMap<string, ResolvedNode>,
   rails: RailRouter,
   activeEdges: ReadonlyMap<string, string>,
+  overview: ReturnType<typeof synthesizedConnections>,
+  canonicalIds: ReadonlyMap<string, string>,
 ): ResolvedEdge[] {
-  return ctx.doc.edges.flatMap((e) => {
-    const from = nodeById.get(e.from);
-    const to = nodeById.get(e.to);
-    if (!from || !to) return [];
-    const ov = ctx.overrides.get(e.id) ?? {};
-    const activeColor = activeEdges.get(e.id);
-    const visible = activeColor !== undefined || (ov.visible ?? e.visible);
-    if (!visible || !from.visible || !to.visible) return [];
-    // A step that focuses on something draws only the edges it is about: the ones it runs
-    // packets on or sets the state of, and those between two focused nodes. The rest would
-    // only be a tangle behind them.
-    const focused =
-      activeColor !== undefined || ctx.focus.has(e.id) || (from.focused && to.focused);
-    if (ctx.filtering && !focused) return [];
-    const edge: ResolvedEdge = {
-      id: e.id,
-      from: e.from,
-      to: e.to,
-      style: e.style,
-      direction: e.direction,
-      color: ov.color ?? e.color ?? DEFAULT_EDGE_COLOR,
-      path: rails.ofEdge(e, from, to),
-      active: activeColor !== undefined,
-    };
-    if (activeColor !== undefined) edge.flowColor = activeColor;
-    if (e.label) edge.label = e.label;
-    const labelAt = rails.labelOf(e, from, to);
-    if (labelAt) edge.labelAt = labelAt;
-    return [edge];
-  });
+  const edges: ResolvedEdge[] = [];
+  const stepPairs = new Set<string>();
+
+  if (ctx.step) {
+    for (const sc of stepConnections(ctx.step, canonicalIds)) {
+      const from = nodeById.get(sc.from);
+      const to = nodeById.get(sc.to);
+      if (!from || !to || !from.visible || !to.visible) continue;
+      stepPairs.add(unorderedPairKey(sc.from, sc.to));
+      const activeColor = activeEdges.get(sc.id);
+      const edge: ResolvedEdge = {
+        id: sc.id,
+        from: sc.from,
+        to: sc.to,
+        style: sc.style,
+        direction: sc.direction,
+        color: sc.staticColor ?? DEFAULT_EDGE_COLOR,
+        path: rails.railOf(from, to),
+        active: activeColor !== undefined,
+      };
+      if (activeColor !== undefined) edge.flowColor = activeColor;
+      if (sc.staticLabel !== undefined) edge.label = sc.staticLabel;
+      edges.push(edge);
+    }
+  }
+
+  for (const conn of overview) {
+    if (stepPairs.has(unorderedPairKey(conn.from, conn.to))) continue;
+    const from = nodeById.get(conn.from);
+    const to = nodeById.get(conn.to);
+    if (!from || !to || !from.visible || !to.visible) continue;
+    if (ctx.filtering && !(from.focused && to.focused)) continue;
+    edges.push({
+      id: conn.id,
+      from: conn.from,
+      to: conn.to,
+      style: conn.style,
+      direction: conn.direction,
+      color: DEFAULT_EDGE_COLOR,
+      path: rails.railOf(from, to),
+      active: false,
+    });
+  }
+
+  if (ctx.step) {
+    rails.attachLabels(edges, nodes);
+  }
+  return edges;
 }
 
 /**
@@ -385,8 +383,8 @@ function railsOf(doc: DavDocument, layout: Layout, nodes: readonly ResolvedNode[
 }
 
 /**
- * Resolves what the diagram looks like at a step (spec §4.5).
- * `state` overrides accumulate over steps 1..k; `focus` and `animate` apply to step k only.
+ * Resolves what the diagram looks like at a step (`dav 2`).
+ * Every step is self-contained: `state`, `static`, `focus`, and `animate` apply to step k only.
  * Pure and deterministic: jumping to any step gives the same result.
  */
 export function resolveView(
@@ -399,12 +397,12 @@ export function resolveView(
       ? doc.steps[stepIndex]
       : undefined;
   const index = step !== undefined && stepIndex !== null ? stepIndex : null;
-  const focus = focusOf(doc, step);
+  const focus = focusOf(step);
   const ctx: StepContext = {
     doc,
     layout,
     step,
-    overrides: accumulateOverrides(doc, index),
+    overrides: stepOverrides(step),
     focus,
     filtering: step !== undefined && focus.size > 0,
     groupParent: parentMap(doc.groups),
@@ -415,10 +413,12 @@ export function resolveView(
   const nodeById = new Map(nodes.map((n) => [n.id, n]));
   const groups = resolveGroups(ctx, nodes);
   const rails = railsOf(doc, layout, nodes);
-  const { phases, phaseDurations, activeEdges } = resolvePhases(ctx, nodeById, rails);
+  const overview = synthesizedConnections(doc);
+  const canonicalIds = connectionIdMap(overview);
+  const { phases, phaseDurations, activeEdges } = resolvePhases(ctx, nodeById, rails, canonicalIds);
 
   const visibleNodes = nodes.filter((n) => n.visible);
-  const edges = resolveEdges(ctx, nodeById, rails, activeEdges);
+  const edges = resolveEdges(ctx, nodes, nodeById, rails, activeEdges, overview, canonicalIds);
   if (phases.length > 0) {
     const stepRails = edges.map((e) => e.path);
     const closed = [

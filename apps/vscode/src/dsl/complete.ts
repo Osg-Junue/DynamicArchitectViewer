@@ -67,6 +67,11 @@ const STATEMENT_KEYWORDS: readonly LocalizedItem[] = [
     kind: 'keyword',
     detail: ['パケットアニメーション (animate a --> b)', 'Packet animation (animate a --> b)'],
   },
+  {
+    label: 'static',
+    kind: 'keyword',
+    detail: ['静的接続 (static a ..> b)', 'Static connection (static a ..> b)'],
+  },
 ];
 
 const ANIMATE_BODY_KEYWORDS: readonly LocalizedItem[] = [
@@ -119,12 +124,6 @@ const ATTRIBUTE_KEYS: readonly LocalizedItem[] = [
     insertText: 'code: ""',
     detail: ['アニメーションのコード片', 'Animation code snippet'],
   },
-  {
-    label: 'id',
-    kind: 'property',
-    insertText: 'id: ',
-    detail: ['エッジの明示 ID', 'Explicit edge ID'],
-  },
 ];
 
 const COLOR_DETAIL = ['テーマに合わせて変わる色', 'Color (adapts to the theme)'] as const;
@@ -142,23 +141,21 @@ const BOOL_COMPLETIONS: readonly DslCompletionItem[] = [
 ];
 
 const ARROW_PATTERN = ARROW_TOKENS.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
-const ANY_ARROW_RE = new RegExp(ARROW_PATTERN);
 const AFTER_ARROW_RE = new RegExp(`(?:${ARROW_PATTERN})\\s*\\w*$`);
-const ARROW_OR_ANIMATE_RE = new RegExp(`${ARROW_PATTERN}|^\\s*animate\\b`);
+const CONNECTION_STMT_RE = new RegExp(`${ARROW_PATTERN}|^\\s*(?:animate|static)\\b`);
 
 const STATEMENT_OWNER: Readonly<Record<string, AttrOwner>> = {
   node: 'node',
   group: 'group',
   state: 'state',
   animate: 'animate',
+  static: 'static',
 };
 
 /** The statement kind owning an attribute block, from the line text before its `[`. */
 function attributeOwner(statementHead: string): AttrOwner | null {
-  const keyword = /^\s*(node|group|state|animate)\b/.exec(statementHead)?.[1];
-  const owner = keyword ? STATEMENT_OWNER[keyword] : undefined;
-  if (owner) return owner;
-  return ANY_ARROW_RE.test(statementHead) ? 'edge' : null;
+  const keyword = /^\s*(node|group|state|animate|static)\b/.exec(statementHead)?.[1];
+  return keyword ? (STATEMENT_OWNER[keyword] ?? null) : null;
 }
 
 /**
@@ -254,19 +251,15 @@ export function computeCompletions(
     kind: 'class',
     detail: `group "${g.label}"`,
   }));
-  const edges: DslCompletionItem[] = document.edges
-    .filter((e) => e.explicitId)
-    .map((e) => ({ label: e.id, kind: 'variable', detail: `edge ${e.from} -> ${e.to}` }));
 
   // 3. Each statement references only the kinds of element the analyzer accepts there.
   if (/^\s*focus\b/.test(code)) return { from, to: pos, items: [...nodes, ...groups] };
-  if (/^\s*state\s+\w*$/.test(code))
-    return { from, to: pos, items: [...nodes, ...groups, ...edges] };
+  if (/^\s*state\s+\w*$/.test(code)) return { from, to: pos, items: [...nodes, ...groups] };
   if (/^\s*state\b/.test(code)) return null;
-  if (AFTER_ARROW_RE.test(code) || /^\s*animate\s+\w*$/.test(code)) {
+  if (AFTER_ARROW_RE.test(code) || /^\s*(?:animate|static)\s+\w*$/.test(code)) {
     return { from, to: pos, items: nodes };
   }
-  if (ARROW_OR_ANIMATE_RE.test(code)) return null;
+  if (CONNECTION_STMT_RE.test(code)) return null;
 
   if (!wordMatch && !explicit) return null;
 

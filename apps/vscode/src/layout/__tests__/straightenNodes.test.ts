@@ -8,12 +8,13 @@ const node = (x: number, y: number): Rect => ({ x: x - 88, y: y - 50, width: 176
 
 describe('straightening single nodes', () => {
   it('moves a node inside its group to stand level with the node it is linked to', () => {
-    const { document } = parse(`dav 1
-group g {
+    const { document } = parse(`group g {
   node a
   node b
 }
-a --> b`);
+step "S" {
+  static a --> b
+}`);
     const layout: Layout = {
       nodes: { a: node(150, 120), b: node(450, 150) },
       groups: { g: { x: 0, y: 0, width: 600, height: 400 } },
@@ -25,13 +26,14 @@ a --> b`);
   });
 
   it('leaves both nodes where their frame and another node are in the way', () => {
-    const { document } = parse(`dav 1
-group g {
+    const { document } = parse(`group g {
   node a
   node c
   node b
 }
-a --> b`);
+step "S" {
+  static a --> b
+}`);
     // `a` would have to go up into `c`, `b` down out of the frame.
     const layout: Layout = {
       nodes: { a: node(150, 250), c: node(150, 90), b: node(450, 220) },
@@ -41,15 +43,16 @@ a --> b`);
   });
 
   it('moves a node together with the one it stands level with, so that both links stay straight', () => {
-    const { document } = parse(`dav 1
-group g {
+    const { document } = parse(`group g {
   node a
   node b
   node e
   node f
 }
-a --> b
-e --> a`);
+step "S" {
+  static a --> b
+  static e --> a
+}`);
     // `e` is level with `a`. `b` stands at the bottom of the frame, with `f` just above it.
     const layout: Layout = {
       nodes: { e: node(450, 250), a: node(750, 250), b: node(1050, 280), f: node(1050, 120) },
@@ -62,17 +65,18 @@ e --> a`);
   });
 
   it('does not bend one link of a node to straighten another', () => {
-    const { document } = parse(`dav 1
-group g {
+    const { document } = parse(`group g {
   node a
   node b
   node e
   node f
   node k
 }
-a --> b
-e --> a
-k --> e`);
+step "S" {
+  static a --> b
+  static e --> a
+  static k --> e
+}`);
     // As above, but `e` is level with `k` too: one of the three links would have to bend.
     const layout: Layout = {
       nodes: {
@@ -97,21 +101,23 @@ k --> e`);
       c: narrow(300, 170),
       d: narrow(300, 400),
     };
-    const crossed = parse(`dav 1
-node a
+    const crossed = parse(`node a
 node b
 node c
 node d
-a --> b
-c --> d`).document;
+step "S" {
+  static a --> b
+  static c --> d
+}`).document;
     expect(straightenNodes(crossed, { nodes, groups: {} }).nodes).toEqual(nodes);
     // Without the upright link, `a` comes down.
-    const alone = parse(`dav 1
-node a
+    const alone = parse(`node a
 node b
 node c
 node d
-a --> b`).document;
+step "S" {
+  static a --> b
+}`).document;
     expect(straightenNodes(alone, { nodes, groups: {} }).nodes.a).toEqual(narrow(128, 180));
   });
 });

@@ -1,7 +1,6 @@
-dav 1
 title "03 拠点間ネットワーク: ハブ&スポーク"
 
-// Everything radiates from the head office. Most edges are two-way, so little says which way to read.
+// Everything radiates from the head office.
 
 group hq "本社データセンター" [color: blue] {
   node hq_fw "境界FW" [icon: firewall, sub: "FortiGate"]
@@ -41,29 +40,34 @@ group remote "リモート" [color: orange] {
   node phone "社用スマホ" [icon: mobile, sub: "MDM管理"]
 }
 
-hq_fw <-> hq_core : "10GbE"
-hq_core <-> hq_vpn : "10GbE"
-hq_core <-> hq_ad : "LDAP"
-hq_core <-> hq_dns : "DNS"
-hq_core <-> hq_file : "SMB"
-hq_vpn <-> tk_rt : "IPsec"
-hq_vpn <-> os_rt : "IPsec"
-hq_vpn <-> tgw : "専用線"
-tk_rt <-> tk_sw : "1GbE"
-tk_sw <-> tk_ap : "PoE"
-tk_sw <-> tk_pc : "有線"
-tk_sw <-> tk_prn : "有線"
-tk_ap <.> tk_pc : "無線"
-os_rt <-> os_sw : "1GbE"
-os_sw <-> os_ap : "PoE"
-os_sw <-> os_pc : "有線"
-tgw <-> vpc_app : "アタッチ"
-tgw <-> vpc_db : "アタッチ"
-vpc_app --> vpc_db : "SQL"
-inet <-> hq_fw : "回線"
-inet <-> saas : "HTTPS"
-home --> ztna : "TLS"
-phone --> ztna : "TLS"
-ztna --> inet : "トンネル"
-ztna ..> hq_ad : "認証連携"
-tk_rt <.> os_rt : "バックアップ回線"
+step "拠点LANとVPN接続" {
+  static hq_core <-> hq_dns : "DNS"
+  static tk_sw <-> tk_ap : "PoE"
+  static tk_ap <.> tk_pc : "無線"
+  static os_sw <-> os_ap : "PoE"
+  static tk_rt <.> os_rt : "バックアップ回線"
+  animate tk_pc <-> tk_sw : "有線"
+  animate tk_sw <-> tk_prn : "有線" [parallel: true]
+  animate tk_sw <-> tk_rt : "1GbE"
+  animate tk_rt <-> hq_vpn : "IPsec"
+  animate os_pc <-> os_sw : "有線" [parallel: true]
+  animate os_sw <-> os_rt : "1GbE"
+  animate os_rt <-> hq_vpn : "IPsec"
+  animate hq_vpn <-> hq_core : "10GbE"
+  animate hq_core <-> hq_file : "SMB"
+}
+
+step "クラウド業務システムとリモートアクセス" {
+  static hq_fw <-> hq_core : "10GbE"
+  static hq_core <-> hq_ad : "LDAP"
+  animate home --> ztna : "TLS"
+  animate phone --> ztna : "TLS" [parallel: true]
+  animate ztna ..> hq_ad : "認証連携"
+  animate ztna --> inet : "トンネル"
+  animate inet <-> saas : "HTTPS"
+  animate inet <-> hq_fw : "回線" [parallel: true]
+  animate hq_vpn <-> tgw : "専用線"
+  animate tgw <-> vpc_app : "アタッチ"
+  animate tgw <-> vpc_db : "アタッチ" [parallel: true]
+  animate vpc_app --> vpc_db : "SQL"
+}

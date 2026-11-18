@@ -1,4 +1,3 @@
-dav 1
 title "Online store: screen flow and backend calls"
 
 group frontend "Screens (SPA)" {
@@ -14,14 +13,6 @@ group backend "Backend and external services" {
   node stripe "Stripe" [icon: external, sub: "External Payment API"]
 }
 
-scr_login --> scr_catalog : "After sign-in"
-scr_catalog --> mod_pay : "Click Checkout"
-mod_pay --> scr_done : "Paid"
-scr_login --> auth_api : "POST /auth/login"
-scr_catalog --> shop_api : "GET /items"
-mod_pay --> shop_api : "POST /checkout"
-shop_api --> stripe : "Charge API"
-
 step "Signing in and getting a token" {
   desc "The user submits credentials. The Auth Service verifies them and issues a JWT, then the app opens the catalog."
   focus scr_login, auth_api, scr_catalog
@@ -33,7 +24,6 @@ step "Signing in and getting a token" {
 step "Loading products and opening the payment dialog" {
   desc "The catalog loads current stock from the API. Clicking Checkout opens the payment dialog."
   focus scr_catalog, shop_api, mod_pay
-  state scr_login [badge: ""]
   state mod_pay [visible: true, badge: "OPEN"]
   animate scr_catalog --> shop_api : "GET /items (200 OK)" [desc: "The Checkout API returns the catalog and stock status"]
   animate scr_catalog --> mod_pay : "Open Modal" [desc: "The payment dialog opens over the catalog, without a page change"]
@@ -58,7 +48,6 @@ step "Charging the card" {
 step "Showing the confirmation" {
   desc "The payment is approved, so the dialog closes and the confirmation page opens."
   focus mod_pay, scr_done
-  state mod_pay [badge: ""]
   state scr_done [badge: "COMPLETED"]
   animate mod_pay --> scr_done : "Navigate /complete" [desc: "On success, the dialog closes and the confirmation page opens"]
 }

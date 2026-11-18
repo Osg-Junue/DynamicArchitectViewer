@@ -10,16 +10,15 @@ const CONTAINER_BY_STMT: Readonly<Record<string, { body: string; emptySuffix: st
   Animate: { body: 'AnimateBody', emptySuffix: '' },
 };
 const STATEMENTS = new Set([
-  'Header',
   'Title',
   'Group',
   'Node',
-  'Edge',
   'Step',
   'Desc',
   'Focus',
   'State',
   'Animate',
+  'Static',
   'Code',
 ]);
 

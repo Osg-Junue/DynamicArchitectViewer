@@ -1,5 +1,5 @@
 /**
- * Semantic model of a DSL v1 document.
+ * Semantic model of a DSL v2 document.
  * Pure data: no DOM, no source positions (those live in the parser's SourceMap).
  */
 
@@ -71,12 +71,11 @@ export function isColorName(v: string): v is ColorName {
   return (COLOR_NAMES as readonly string[]).includes(v);
 }
 
-/** In a `state`, removes the color set by earlier steps and restores the declared one. */
+/** In a `state`, removes a color for that step, clearing any declared color as well. */
 export const COLOR_RESET = 'none';
 
 /** Reserved words of the DSL, which cannot be used as element identifiers. */
 export const KEYWORD_NAMES = [
-  'dav',
   'title',
   'group',
   'node',
@@ -85,6 +84,7 @@ export const KEYWORD_NAMES = [
   'focus',
   'state',
   'animate',
+  'static',
   'true',
   'false',
 ] as const;
@@ -118,19 +118,6 @@ export interface DavNode {
   parentId?: string;
 }
 
-export interface DavEdge {
-  /** Explicit `[id: ...]` or the implicit `from->to`. */
-  id: string;
-  explicitId: boolean;
-  from: string;
-  to: string;
-  style: LineStyle;
-  direction: Direction;
-  label?: string;
-  color?: ColorName;
-  visible: boolean;
-}
-
 export interface StateOverride {
   target: string;
   badge?: string;
@@ -147,6 +134,7 @@ export interface CodeBlock {
 export interface Animation {
   from: string;
   to: string;
+  style: LineStyle;
   direction: Direction;
   label?: string;
   description?: string;
@@ -155,6 +143,15 @@ export interface Animation {
   /** What the packet carries; a plain dot when absent. */
   icon?: IconName;
   parallel: boolean;
+}
+
+export interface StaticLink {
+  from: string;
+  to: string;
+  style: LineStyle;
+  direction: Direction;
+  label?: string;
+  color?: ColorName;
 }
 
 export interface DavStep {
@@ -166,19 +163,27 @@ export interface DavStep {
   focus: string[];
   states: StateOverride[];
   animations: Animation[];
+  statics: StaticLink[];
 }
 
 export interface DavDocument {
-  version: number;
   title: string;
   /** Document order; parents always precede their children. */
   groups: DavGroup[];
   nodes: DavNode[];
-  edges: DavEdge[];
   steps: DavStep[];
 }
 
-export const CURRENT_DSL_VERSION = 1;
+/** Synthesized connection across all steps (one entry per unordered pair or self-loop). */
+export interface DavConnection {
+  id: string;
+  from: string;
+  to: string;
+  style: LineStyle;
+  direction: Direction;
+  /** True when at least one `animate` statement traverses this connection. */
+  animated: boolean;
+}
 
 export function implicitEdgeId(from: string, to: string): string {
   return `${from}->${to}`;

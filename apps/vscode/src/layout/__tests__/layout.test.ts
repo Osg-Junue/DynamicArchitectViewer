@@ -16,7 +16,9 @@ import {
 
 describe('edge label spacing', () => {
   const gapFor = (label: string) => {
-    const { nodes } = computeLayout(parse(`dav 1\nnode a\nnode b\na --> b : "${label}"`).document);
+    const { nodes } = computeLayout(
+      parse(`node a\nnode b\nstep "S" {\n  static a --> b : "${label}"\n}`).document,
+    );
     return (nodes.b?.x ?? 0) - ((nodes.a?.x ?? 0) + NODE_SIZE.width);
   };
 
@@ -34,8 +36,9 @@ describe('column gaps around nested groups', () => {
     const open = Array.from({ length: depth }, (_, i) => `group g${i} {`).join('\n');
     const close = '}\n'.repeat(depth);
     return computeLayout(
-      parse(`dav 1\nnode a\nnode b\nnode c\n${open}\nnode d\n${close}a --> b\nb --> c\nc --> d`)
-        .document,
+      parse(
+        `node a\nnode b\nnode c\n${open}\nnode d\n${close}\nstep "S" {\n  static a --> b\n  static b --> c\n  static c --> d\n}`,
+      ).document,
     );
   };
   const gap = (depth: number, from: string, to: string) => {
@@ -104,13 +107,12 @@ describe('crossing reduction', () => {
   });
 
   it('counts only proper crossings, not rails that share a station', () => {
-    const fan = layoutOf('dav 1\nnode a\nnode b\nnode c\na --> b\na --> c');
+    const fan = layoutOf('node a\nnode b\nnode c\nstep "S" {\n  static a --> b\n  static a --> c\n}');
     expect(countCrossings(fan.document, fan.layout)).toBe(0);
   });
 
   it('reorders stacked groups to remove a crossing', () => {
-    const { document, layout } = layoutOf(`dav 1
-node top
+    const { document, layout } = layoutOf(`node top
 node bottom
 group first {
   node r1
@@ -118,13 +120,17 @@ group first {
 group second {
   node r2
 }
-top --> r2
-bottom --> r1`);
+step "S" {
+  static top --> r2
+  static bottom --> r1
+}`);
     expect(countCrossings(document, layout)).toBe(0);
   });
 
   it('keeps connected rows on one line', () => {
-    const { layout } = layoutOf('dav 1\nnode a\nnode b\nnode c\nnode d\na --> b\nc --> d');
+    const { layout } = layoutOf(
+      'node a\nnode b\nnode c\nnode d\nstep "S" {\n  static a --> b\n  static c --> d\n}',
+    );
     expect(layout.nodes.a?.y).toBe(layout.nodes.b?.y);
     expect(layout.nodes.c?.y).toBe(layout.nodes.d?.y);
   });
@@ -132,34 +138,36 @@ bottom --> r1`);
 
 describe('layout', () => {
   it('gives every node the same size, whatever its icon', () => {
-    const { layout } = layoutOf('dav 1\nnode a\nnode s [icon: modal]');
+    const { layout } = layoutOf('node a\nnode s [icon: modal]\nstep "S" {}');
     expect(layout.nodes.a).toMatchObject(NODE_SIZE);
     expect(layout.nodes.s).toMatchObject(NODE_SIZE);
   });
 
   it('ranks nodes left to right along edges', () => {
-    const { layout } = layoutOf('dav 1\nnode c\nnode b\nnode a\na --> b\nb --> c\na --> c');
+    const { layout } = layoutOf(
+      'node c\nnode b\nnode a\nstep "S" {\n  static a --> b\n  static b --> c\n  static a --> c\n}',
+    );
     const x = (id: string) => layout.nodes[id]?.x ?? Number.NaN;
     expect(x('a')).toBeLessThan(x('b'));
     expect(x('b')).toBeLessThan(x('c'));
   });
 
   it('places disjoint-rank groups side-by-side horizontally and stacks overlapping-rank groups vertically', () => {
-    const { layout: sideBySide } = layoutOf(`dav 1
-node client
+    const { layout: sideBySide } = layoutOf(`node client
 group edge_net {
   node cdn
 }
 group vpc {
   node alb
 }
-client --> cdn
-cdn --> alb`);
+step "S" {
+  static client --> cdn
+  static cdn --> alb
+}`);
     expect(sideBySide.groups.edge_net?.y).toBe(sideBySide.groups.vpc?.y);
     expect(sideBySide.groups.edge_net?.x).toBeLessThan(sideBySide.groups.vpc?.x ?? 0);
 
-    const { layout: stacked } = layoutOf(`dav 1
-group frontend {
+    const { layout: stacked } = layoutOf(`group frontend {
   node login
   node catalog
 }
@@ -167,23 +175,27 @@ group backend {
   node auth
   node shop
 }
-login --> catalog
-login --> auth
-catalog --> shop`);
+step "S" {
+  static login --> catalog
+  static login --> auth
+  static catalog --> shop
+}`);
     expect(stacked.groups.backend?.y).toBeGreaterThan(
       (stacked.groups.frontend?.y ?? 0) + (stacked.groups.frontend?.height ?? 0),
     );
   });
 
   it('terminates on cycles', () => {
-    const { layout } = layoutOf('dav 1\nnode a\nnode b\nnode c\na --> b\nb --> c\nc --> a');
+    const { layout } = layoutOf(
+      'node a\nnode b\nnode c\nstep "S" {\n  static a --> b\n  static b --> c\n  static c --> a\n}',
+    );
     expect(Object.keys(layout.nodes)).toHaveLength(3);
   });
 
   it('names the edge it leaves out of a loop, the loop, and where the search came into it', () => {
     // The search reaches b from x first, so the loop runs b, c, a, and a --> b closes it.
     const { document, layout } = layoutOf(
-      'dav 1\nnode x\nnode a\nnode b\nnode c\nx --> b\na --> b\nb --> c\nc --> a',
+      'node x\nnode a\nnode b\nnode c\nstep "S" {\n  static x --> b\n  static a --> b\n  static b --> c\n  static c --> a\n}',
     );
     expect(backEdgesOf(document)).toEqual([
       { from: 'a', to: 'b', loop: ['b', 'c', 'a'], root: 'x' },
@@ -194,12 +206,13 @@ catalog --> shop`);
     expect(x('b')).toBeLessThan(x('c'));
     expect(x('c')).toBeLessThan(x('a'));
     // A self-loop closes no loop of columns, and a two-way edge counts one way only.
-    expect(backEdgesOf(layoutOf('dav 1\nnode a\nnode b\na --> a\na <-> b').document)).toEqual([]);
+    expect(
+      backEdgesOf(layoutOf('node a\nnode b\nstep "S" {\n  static a --> a\n  static a <-> b\n}').document),
+    ).toEqual([]);
   });
 
   it('wraps groups around their (nested) members', () => {
-    const { document, layout } = layoutOf(`dav 1
-node client
+    const { document, layout } = layoutOf(`node client
 group vpc {
   node api
   group data {
@@ -207,9 +220,11 @@ group vpc {
     node cache
   }
 }
-client --> api
-api --> db
-api --> cache`);
+step "S" {
+  static client --> api
+  static api --> db
+  static api --> cache
+}`);
     for (const n of document.nodes) {
       if (n.parentId)
         expect(rectContains(layout.groups[n.parentId] as Rect, layout.nodes[n.id] as Rect)).toBe(
@@ -232,8 +247,7 @@ api --> cache`);
   it('places groups nested in a zone that has no nodes', () => {
     // Found by the property below: the zone search wins here, and the empty zone g2 used to
     // get only its own frame, leaving g3 without a rectangle.
-    const { document, layout } = layoutOf(`dav 1
-node n0
+    const { document, layout } = layoutOf(`node n0
 node n1
 node n2
 node n3
@@ -247,8 +261,10 @@ group g2 {
   group g3 {
   }
 }
-n6 --> n0
-n1 --> n0`);
+step "S" {
+  static n6 --> n0
+  static n1 --> n0
+}`);
     expect(Object.keys(layout.groups).sort()).toEqual(document.groups.map((g) => g.id).sort());
     expect(rectContains(layout.groups.g2 as Rect, layout.groups.g3 as Rect)).toBe(true);
   });
@@ -261,17 +277,20 @@ n1 --> n0`);
     fc.assert(
       fc.property(graph, ({ nodes, edges }) => {
         // group index 0 = ungrouped; 1..3 = groups g1..g3 (g3 nested in g2).
-        const lines = ['dav 1'];
+        const lines: string[] = [];
         const members = (g: number) =>
           nodes.flatMap((grp, i) => (grp === g ? [`  node n${i}`] : []));
         lines.push(...nodes.flatMap((g, i) => (g === 0 ? [`node n${i}`] : [])));
         lines.push('group g1 {', ...members(1), '}');
         lines.push('group g2 {', ...members(2), '  group g3 {', ...members(3), '  }', '}');
+        const stepLines = new Set<string>();
         for (const [a, b] of edges) {
-          if (a < nodes.length && b < nodes.length && a !== b)
-            lines.push(`n${a} --> n${b} [id: e${a}_${b}]`);
+          if (a < nodes.length && b < nodes.length && a !== b) {
+            stepLines.add(`  static n${a} --> n${b}`);
+          }
         }
-        const { document, layout } = layoutOf([...new Set(lines)].join('\n'));
+        lines.push('step "S" {', ...stepLines, '}');
+        const { document, layout } = layoutOf(lines.join('\n'));
         const ids = document.nodes.map((n) => n.id);
         for (let i = 0; i < ids.length; i++) {
           for (let j = i + 1; j < ids.length; j++) {

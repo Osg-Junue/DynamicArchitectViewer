@@ -9,8 +9,8 @@ import {
 
 /** Attribute schema: which attributes each statement accepts, and their value types. */
 
-export type AttrType = 'string' | 'bool' | 'color' | 'stateColor' | 'icon' | 'ident';
-export type AttrOwner = 'node' | 'group' | 'edge' | 'state' | 'animate';
+export type AttrType = 'string' | 'bool' | 'color' | 'stateColor' | 'icon';
+export type AttrOwner = 'node' | 'group' | 'state' | 'animate' | 'static';
 
 export interface AttrValueByType {
   string: string;
@@ -18,7 +18,6 @@ export interface AttrValueByType {
   color: ColorName;
   stateColor: ColorName | typeof COLOR_RESET;
   icon: IconName;
-  ident: string;
 }
 
 const SCHEMA = {
@@ -30,11 +29,6 @@ const SCHEMA = {
     color: 'color',
   },
   group: {
-    color: 'color',
-  },
-  edge: {
-    id: 'ident',
-    visible: 'bool',
     color: 'color',
   },
   state: {
@@ -49,6 +43,9 @@ const SCHEMA = {
     desc: 'string',
     code: 'string',
   },
+  static: {
+    color: 'color',
+  },
 } as const satisfies Record<AttrOwner, Readonly<Record<string, AttrType>>>;
 
 export type OwnerAttrs<O extends AttrOwner> = {
@@ -58,10 +55,9 @@ export type OwnerAttrs<O extends AttrOwner> = {
 export const ATTRIBUTE_SCHEMA: Record<AttrOwner, Readonly<Record<string, AttrType>>> = SCHEMA;
 
 /** Which `state` attributes are meaningful for each target kind. */
-export const STATE_ATTRIBUTES_BY_TARGET: Record<'node' | 'group' | 'edge', ReadonlySet<string>> = {
+export const STATE_ATTRIBUTES_BY_TARGET: Record<'node' | 'group', ReadonlySet<string>> = {
   node: new Set(['badge', 'visible', 'color']),
   group: new Set(['color']),
-  edge: new Set(['visible', 'color']),
 };
 
 export const ARROW_TOKENS = ['-->', '..>', '<->', '<.>'] as const;

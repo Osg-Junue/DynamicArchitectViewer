@@ -32,7 +32,7 @@ import {
 describe('where the callouts of a step are placed', () => {
   it('separates parallel callouts cleanly when one or both carry multi-line code blocks', () => {
     const doc = parse(
-      'dav 1\nnode a\nnode b\nnode c\na --> b\na --> c\nstep "P" {\n  animate a --> b : "Write"\n  animate a --> c : "Audit" [parallel: true]\n}\n',
+      'node a\nnode b\nnode c\nstep "P" {\n  animate a --> b : "Write"\n  animate a --> c : "Audit" [parallel: true]\n}\n',
     ).document;
     const anim0 = doc.steps[0]?.animations[0];
     const anim1 = doc.steps[0]?.animations[1];
@@ -62,7 +62,7 @@ describe('where the callouts of a step are placed', () => {
 
   it('includes tall and parallel code callouts in packetsOnScreen, calmFrame, and wholeDiagramFrame', () => {
     const doc = parse(
-      'dav 1\ngroup z1 "Zone 1" { node a }\ngroup z2 "Zone 2" { node b }\na --> b\nstep "S" {\n  animate a --> b : "POST"\n  animate a --> b : "Parallel" [parallel: true]\n}\n',
+      'group z1 "Zone 1" { node a }\ngroup z2 "Zone 2" { node b }\nstep "S" {\n  animate a --> b : "POST"\n  animate a --> b : "Parallel" [parallel: true]\n}\n',
     ).document;
     const tallBody = Array.from({ length: 9 }, (_, i) => `  "field_${i}": "value_${i}"`).join(
       ',\n',
@@ -102,18 +102,19 @@ describe('where the callouts of a step are placed', () => {
   });
 
   it('keeps callouts off the strip that holds a zone name and off the stations of the row above', () => {
-    const dsl = `dav 1
-node src "Source"
+    const dsl = `node src "Source"
 group g "Z" {
   node r0 "Top Row Station" [icon: screen, sub: "Preview"]
   node r1a "Exporter" [icon: storage]
   node r1b "Output" [icon: browser]
   node far "Rightmost Station" [icon: server]
 }
-src --> r0
-src --> r1a
-r0 --> far
-r1a --> r1b
+step "Setup" {
+  static src --> r0
+  static src --> r1a
+  static r0 --> far
+  static r1a --> r1b
+}
 step "RightHalfOverZone" {
   animate r0 --> far : "Cross" [desc: "Callout positioned over the right half of zone g far past its short title"]
 }
@@ -128,16 +129,16 @@ step "Row1UnderRow0" {
 `;
     const { document: doc } = parse(dsl);
     const l = computeLayout(doc);
-    // Step 0: the rail runs along the top row of the zone, right under the strip that holds
+    // Step 1: the rail runs along the top row of the zone, right under the strip that holds
     // its name. The strip is closed along its whole width, not only where the name stands.
-    const rightView = resolveView(doc, l, 0);
+    const rightView = resolveView(doc, l, 1);
     const rightPkt = rightView.phases[0]?.[0];
     const rightBox = rightPkt && computePacketCalloutBox(rightPkt);
     expect(rightBox).toBeDefined();
     if (rightBox) expect(covers(rightBox, closedAreas(rightView))).toBe(false);
 
-    // Step 1: the callout of a row-1 rail covers neither the row-0 station above it nor the strip.
-    const row1View = resolveView(doc, l, 1);
+    // Step 2: the callout of a row-1 rail covers neither the row-0 station above it nor the strip.
+    const row1View = resolveView(doc, l, 2);
     const row1Pkt = row1View.phases[0]?.[0];
     const row1Box = row1Pkt && computePacketCalloutBox(row1Pkt);
     expect(row1Box).toBeDefined();
@@ -145,20 +146,19 @@ step "Row1UnderRow0" {
   });
 
   it('moves a callout beside a steep rail instead of past both of its ends', () => {
-    const doc = parse(`dav 1
-group zone "Zone" {
+    const doc = parse(`group zone "Zone" {
   node hub "Hub"
   node a "A"
   node b "B"
   node c "C"
   node target "Target"
 }
-hub --> a
-hub --> b
-hub --> c
-hub --> target
-a --> target
 step "Down" {
+  static hub --> a
+  static hub --> b
+  static hub --> c
+  static hub --> target
+  static a --> target
   animate c --> target : "Replicate"
 }
 `).document;
@@ -181,8 +181,7 @@ step "Down" {
   });
 
   it('keeps callouts off zone names, stations and each other across example 05, example 07, and JP/JSON/SQL stress steps', () => {
-    const stressDsl = `dav 1
-title "Order Pipeline Stress"
+    const stressDsl = `title "Order Pipeline Stress"
 node browser "Browser" [icon: browser]
 group edge "Edge" [color: teal] {
   node gw "Edge Gateway" [icon: router]
@@ -196,13 +195,6 @@ group data "Data & Events" [color: purple] {
   node queue "Event Queue" [icon: queue]
   node cache "Redis Cache" [icon: cache]
 }
-browser --> gw
-gw --> api
-api --> db
-api --> cache
-api --> worker
-worker --> db
-worker --> queue
 step "Step 1" {
   animate browser --> gw : "HTTPS" [desc: "TLS終端およびレート制限（100 req/s）を検証"]
 }
@@ -227,6 +219,7 @@ step "Step 3" {
   animate api --> cache : "DEL cart:901" [parallel: true, desc: "カートキャッシュを即時無効化して二重注文を防止"]
 }
 step "Step 4" {
+  animate api --> worker : "Authorize" [desc: "決済ワーカーへオーソリ処理を委譲"]
   animate worker --> db : "UPDATE status" [desc: "決済完了ステータスへ更新"] {
     code sql "Confirm Order" \`\`\`
       UPDATE orders SET status = 'CONFIRMED'
@@ -296,12 +289,9 @@ step "Step 4" {
   });
 
   it('keeps the callouts of parallel flows apart: there and back, fanning out, and side by side', () => {
-    // 1a. Dual-edge bidirectional parallel (a --> b + b --> a [parallel: true]) splits into above + below
-    const bidiDoc = parse(`dav 1
-node a "Client" [icon: browser]
+    // 1a. Bidirectional parallel (a --> b + b --> a [parallel: true]) splits into above + below
+    const bidiDoc = parse(`node a "Client" [icon: browser]
 node b "Order API" [icon: api]
-a --> b : "POST /orders"
-b --> a : "201 Created"
 step "Bidi" {
   animate a --> b : "POST /orders" [desc: "Submit order payload"]
   animate b --> a : "201 Created" [parallel: true, desc: "Return created order receipt"]
@@ -315,11 +305,9 @@ step "Bidi" {
     // of its own beside them.
     expect(fwdBox && revBox && rectOverlaps(calloutRect(fwdBox), calloutRect(revBox))).toBe(false);
 
-    // 1b. Single <-> edge parallel request + response with code blocks also splits into above + below
-    const sharedBidiDoc = parse(`dav 1
-node client "Client" [icon: browser]
+    // 1b. Bidirectional parallel request + response with code blocks also splits into above + below
+    const sharedBidiDoc = parse(`node client "Client" [icon: browser]
 node api "Order API" [icon: api]
-client <-> api : "HTTP/2"
 step "BidiCode" {
   animate client --> api : "POST /orders" [desc: "Send order payload"] {
     code json "Request" \`\`\`
@@ -339,9 +327,8 @@ step "BidiCode" {
     const resBox = resPkt && computePacketCalloutBox(resPkt);
     expect(reqBox && resBox && rectOverlaps(calloutRect(reqBox), calloutRect(resBox))).toBe(false);
 
-    // 2 & 3. Mixed upper+lower fan-out (Step 1) and side-by-side upper flows blocked below (Step 2)
-    const stressDoc = parse(`dav 1
-node browser "Browser" [icon: browser]
+    // 2 & 3. Mixed upper+lower fan-out (Step 0) and side-by-side upper flows blocked below (Step 1, 2)
+    const stressDoc = parse(`node browser "Browser" [icon: browser]
 group edge "Edge" [color: teal] {
   node gw "Edge Gateway" [icon: router]
 }
@@ -354,12 +341,6 @@ group data "Data & Events" [color: purple] {
   node queue "Event Queue" [icon: queue]
   node cache "Redis Cache" [icon: cache]
 }
-browser --> gw : "HTTPS"
-gw --> api : "HTTP/2"
-api --> db : "SQL Write"
-api --> cache : "Cache Op"
-api --> worker : "Authorize"
-worker --> queue : "Publish"
 step "Fanout" {
   animate api --> db : "INSERT orders" [desc: "注文レコードをトランザクション書込"] {
     code sql "Primary Write" \`\`\`
@@ -400,6 +381,11 @@ step "WorkerDualShelf" {
       }
     \`\`\`
   }
+}
+step "Topology" {
+  animate browser --> gw : "HTTPS"
+  animate gw --> api : "HTTP/2"
+  animate api --> worker : "Authorize"
 }
 `).document;
     const stressLayout = computeLayout(stressDoc);
@@ -454,8 +440,7 @@ step "WorkerDualShelf" {
       '06-lan-office-network.dav',
       '07-dynamic-architect-viewer.dav',
     ];
-    const giantContainerDsl = `dav 1
-node ext "External Client" [icon: browser]
+    const giantContainerDsl = `node ext "External Client" [icon: browser]
 group cloud "Enterprise VPC" [color: blue] {
   node gw "Ingress" [icon: router]
   node r0 "Service A" [icon: api]
@@ -464,15 +449,15 @@ group cloud "Enterprise VPC" [color: blue] {
   node r3 "Service D" [icon: database]
   node sink "Audit Sink" [icon: storage]
 }
-ext --> gw : "HTTPS"
-gw --> r0
-gw --> r1
-gw --> r2 : "Hop"
-gw --> r3
-r2 --> sink
 step "Giant" {
   animate ext --> gw : "Ingress Call" [desc: "Crosses outer container border cleanly"]
   animate gw --> r2 : "Hop"
+}
+step "Mesh" {
+  static gw --> r0
+  static gw --> r1
+  static gw --> r3
+  static r2 --> sink
 }
 `;
     const dsls = [

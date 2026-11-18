@@ -49,7 +49,7 @@
       "patterns": [
         {
           "name": "keyword.control.dav",
-          "match": "\\b(?:dav|title|group|node|step|desc|focus|state|animate)\\b"
+          "match": "\\b(?:title|group|node|step|desc|focus|state|animate|static)\\b"
         }
       ]
     },
@@ -107,7 +107,7 @@
           }
         },
         {
-          "match": "\\b(icon|sub|badge|color|visible|parallel|desc|code|id)\\s*(:)",
+          "match": "\\b(icon|sub|badge|color|visible|parallel|desc|code)\\s*(:)",
           "captures": {
             "1": { "name": "variable.other.property.dav" },
             "2": { "name": "punctuation.separator.key-value.dav" }

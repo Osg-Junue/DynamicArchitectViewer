@@ -1,3 +1,4 @@
+import { synthesizedConnections } from '../model/connections';
 import type { DavDocument } from '../model/types';
 import { type Layout, STATION_CENTER } from './metrics';
 
@@ -6,7 +7,7 @@ export type Link = readonly [from: string, to: string];
 /** Pairs of connected nodes; a self-loop has no extent, so it cannot cross anything. */
 export function linksOf(doc: DavDocument): Link[] {
   const known = new Set(doc.nodes.map((n) => n.id));
-  return doc.edges
+  return synthesizedConnections(doc)
     .filter((e) => e.from !== e.to && known.has(e.from) && known.has(e.to))
     .map((e) => [e.from, e.to]);
 }

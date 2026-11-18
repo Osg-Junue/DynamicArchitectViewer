@@ -1,7 +1,9 @@
+import { synthesizedConnections } from '../model/connections';
 import { EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH, pushToMap, textWidth } from '../model/text';
-import type { DavDocument } from '../model/types';
+import type { DavConnection, DavDocument } from '../model/types';
 import { ancestorIds, parentMap } from '../model/zones';
-import { crossingsOf, type Link, linksOf, segmentsOf } from './links';
+import { analyzeFlow } from './flow';
+import { crossingsOf, type Link, segmentsOf } from './links';
 import {
   EMPTY_GROUP_CONTENT,
   enclosingRect,
@@ -18,7 +20,6 @@ import {
 import { computeRanks, type RankResult } from './ranks';
 
 const COLUMN_GAP = 36;
-const EDGE_LABEL_MARGIN = 32;
 const ROW_GAP = 14;
 const CLUSTER_GAP = 28;
 /** Refinement passes over the vertical order; each one places the whole diagram again. */
@@ -36,6 +37,7 @@ interface NodePlacement {
 export function computeColumnLayout(
   doc: DavDocument,
   rankOverrides?: ReadonlyMap<string, number>,
+  connections: readonly DavConnection[] = synthesizedConnections(doc),
 ): Layout {
   const groupParent = parentMap(doc.groups);
   const nodeParent = parentMap(doc.nodes);
@@ -53,9 +55,10 @@ export function computeColumnLayout(
   // that stations stay level from one zone to the next and a rail between them runs straight.
   const tallestLoop = Math.max(0, ...selfLoopRoom(doc).values());
   const loopRoom = new Map(doc.nodes.map((n) => [n.id, tallestLoop]));
+  const flow = analyzeFlow(doc, connections);
   const ranks = computeRanks(
     doc.nodes.map((n) => n.id),
-    doc.edges.map((e): readonly [string, string] => [e.from, e.to]),
+    flow.forwardEdges,
   );
   if (rankOverrides) {
     for (const [id, r] of rankOverrides) {
@@ -65,7 +68,7 @@ export function computeColumnLayout(
   const frames = measureFrameEdges(doc, ranks.rank, emptyGroups, childrenOf, nodesOf);
   const plan =
     doc.nodes.length > 0 || emptyGroups.size > 0
-      ? buildColumnPlan(doc, emptyGroups, ranks, frames, groupParent, nodeParent)
+      ? buildColumnPlan(doc, connections, emptyGroups, ranks, frames, groupParent, nodeParent)
       : undefined;
 
   const place = (guide?: SweepGuide): NodePlacement => {
@@ -77,7 +80,7 @@ export function computeColumnLayout(
     return { nodes, placeholders };
   };
 
-  const winning = refineOrder(doc, ranks.rank, place);
+  const winning = refineOrder(connections, ranks.rank, place);
   return {
     nodes: winning.nodes,
     groups: computeGroupRects(
@@ -160,11 +163,13 @@ interface SweepGuide {
 }
 
 function refineOrder(
-  doc: DavDocument,
+  connections: readonly DavConnection[],
   rank: ReadonlyMap<string, number>,
   place: (guide?: SweepGuide) => NodePlacement,
 ): NodePlacement {
-  const links = linksOf(doc);
+  const links: Link[] = connections
+    .filter((e) => e.from !== e.to && rank.has(e.from) && rank.has(e.to))
+    .map((e) => [e.from, e.to]);
   let current = place();
   if (links.length === 0 || links.length > MAX_REFINED_EDGES) return current;
 
@@ -230,6 +235,7 @@ interface ColumnPlan {
 
 function buildColumnPlan(
   doc: DavDocument,
+  connections: readonly DavConnection[],
   emptyGroups: ReadonlySet<string>,
   ranks: RankResult,
   frames: FrameEdges,
@@ -287,25 +293,16 @@ function buildColumnPlan(
     (frames.endsAt.has(rank) ? GROUP_PADDING : 0) +
     (frames.startsAt.has(rank + 1) ? GROUP_PADDING : 0);
 
-  // A labeled edge between adjacent columns needs room for its whole label.
-  const labelGap = new Map<number, number>();
-  for (const e of doc.edges) {
-    if (!e.label || !ranks.rank.has(e.from) || !ranks.rank.has(e.to)) continue;
-    const left = Math.min(rankOf(e.from), rankOf(e.to));
-    if (Math.abs(rankOf(e.from) - rankOf(e.to)) !== 1) continue;
-    const width = Math.min(EDGE_LABEL_MAX_WIDTH, textWidth(e.label, EDGE_LABEL_FONT_SIZE));
-    labelGap.set(left, Math.max(labelGap.get(left) ?? 0, width + EDGE_LABEL_MARGIN));
-  }
   // Widen column corridors that carry long-span links or hub fan-out/fan-in traffic.
   const deg = new Map<string, number>();
-  for (const e of doc.edges) {
+  for (const e of connections) {
     if (e.from === e.to || !ranks.rank.has(e.from) || !ranks.rank.has(e.to)) continue;
     deg.set(e.from, (deg.get(e.from) ?? 0) + 1);
     deg.set(e.to, (deg.get(e.to) ?? 0) + 1);
   }
   const congestedAt = new Int32Array(maxRank);
   const spanningAt = new Int32Array(maxRank);
-  for (const e of doc.edges) {
+  for (const e of connections) {
     if (e.from === e.to || !ranks.rank.has(e.from) || !ranks.rank.has(e.to)) continue;
     const rf = rankOf(e.from);
     const rt = rankOf(e.to);
@@ -317,22 +314,40 @@ function buildColumnPlan(
       if (congested) congestedAt[r] = (congestedAt[r] ?? 0) + 1;
     }
   }
+  const staticLabelGapAfter = new Map<number, number>();
+  for (const step of doc.steps) {
+    for (const s of step.statics) {
+      if (!s.label || s.from === s.to || !ranks.rank.has(s.from) || !ranks.rank.has(s.to)) {
+        continue;
+      }
+      const rf = rankOf(s.from);
+      const rt = rankOf(s.to);
+      if (Math.abs(rf - rt) !== 1) continue;
+      const labelW = Math.min(EDGE_LABEL_MAX_WIDTH, textWidth(s.label, EDGE_LABEL_FONT_SIZE));
+      const needed = Math.ceil(labelW + 32 - (NODE_SIZE.width - STATION_SIZE));
+      const leftRank = Math.min(rf, rt);
+      if (needed > (staticLabelGapAfter.get(leftRank) ?? 0)) {
+        staticLabelGapAfter.set(leftRank, needed);
+      }
+    }
+  }
   const columnX: number[] = [];
   let x = ORIGIN.x + inset;
   for (let rank = 0; rank <= maxRank; rank++) {
     columnX.push(x);
-    // A label may use the whole rail, which also runs under the width of both nodes' labels.
-    const needed = (labelGap.get(rank) ?? 0) - (NODE_SIZE.width - STATION_SIZE);
     const congestedCount = Math.max(
       congestedAt[rank] ?? 0,
       (spanningAt[rank] ?? 0) >= 4 ? (spanningAt[rank] ?? 0) : 0,
     );
-    const congestionGap = COLUMN_GAP + Math.min(112, Math.max(0, congestedCount - 2) * 14);
-    x += NODE_SIZE.width + Math.max(congestionGap, needed) + clearanceAfter(rank);
+    const congestionGap = Math.max(
+      COLUMN_GAP + Math.min(112, Math.max(0, congestedCount - 2) * 14),
+      staticLabelGapAfter.get(rank) ?? 0,
+    );
+    x += NODE_SIZE.width + congestionGap + clearanceAfter(rank);
   }
 
   let longSpanEdges = 0;
-  for (const e of doc.edges) {
+  for (const e of connections) {
     if (e.from === e.to || !ranks.rank.has(e.from) || !ranks.rank.has(e.to)) continue;
     if (Math.abs(rankOf(e.from) - rankOf(e.to)) >= 2) longSpanEdges++;
   }

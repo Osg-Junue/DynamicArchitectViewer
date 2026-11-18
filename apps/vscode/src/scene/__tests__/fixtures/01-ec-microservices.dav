@@ -1,4 +1,3 @@
-dav 1
 title "01 ECサイト: 層構造のマイクロサービス"
 
 // Layers that read from left to right, with one edge back from the data layer (mq --> notify).
@@ -40,26 +39,34 @@ group ext "外部サービス" [color: yellow] {
   node smtp "メール配信" [icon: mail, sub: "SendGrid"]
 }
 
-web --> cdn : "HTTPS"
-app --> waf : "HTTPS"
-admin --> gw : "VPN"
-cdn --> waf : "オリジン転送"
-cdn --> s3 : "静的配信"
-waf --> gw : "検査済み"
-gw <-> auth : "トークン検証"
-gw --> bff : "GraphQL"
-bff --> catalog : "gRPC"
-bff --> cart : "gRPC"
-bff --> order : "gRPC"
-catalog --> es : "検索クエリ"
-catalog --> redis : "キャッシュ"
-cart --> redis : "カート保存"
-order --> pg : "SQL"
-order --> pay : "決済依頼"
-order --> stock : "引当"
-order --> mq : "OrderCreated"
-pay <-> psp : "Charge API"
-stock --> pg : "SQL"
-stock --> carrier : "出荷依頼"
-mq --> notify : "購読"
-notify --> smtp : "SMTP"
+step "エッジ経由のアクセスと静的配信" {
+  animate web --> cdn : "HTTPS"
+  animate app --> waf : "HTTPS"
+  animate admin --> gw : "VPN"
+  animate cdn --> waf : "オリジン転送"
+  static cdn --> s3 : "静的配信"
+  animate waf --> gw : "検査済み"
+  animate gw <-> auth : "トークン検証"
+  animate gw --> bff : "GraphQL"
+}
+
+step "商品検索とカート操作" {
+  animate bff --> catalog : "gRPC"
+  animate bff --> cart : "gRPC" [parallel: true]
+  animate catalog --> es : "検索クエリ"
+  animate catalog --> redis : "キャッシュ" [parallel: true]
+  animate cart --> redis : "カート保存"
+}
+
+step "注文・決済・出荷とイベント通知" {
+  animate bff --> order : "gRPC"
+  animate order --> pg : "SQL"
+  animate order --> stock : "引当" [parallel: true]
+  animate order --> pay : "決済依頼"
+  animate pay <-> psp : "Charge API"
+  animate stock --> pg : "SQL"
+  animate stock --> carrier : "出荷依頼" [parallel: true]
+  animate order --> mq : "OrderCreated"
+  animate mq --> notify : "購読"
+  animate notify --> smtp : "SMTP"
+}

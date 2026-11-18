@@ -1,7 +1,6 @@
-dav 1
 title "07 ゼロトラスト: 入れ子のゾーンと横断する辺"
 
-// Zones inside zones. The security zone is linked to all the others.
+// Zones inside zones. The security zone is linked to all the others via static telemetry & policy control.
 
 group users "利用者" [color: teal] {
   group staff "社員" [color: teal] {
@@ -50,35 +49,43 @@ group secops "セキュリティ運用" [color: red] {
   node soc "SOC" [icon: users, sub: "24時間"]
 }
 
-emp_pc --> proxy : "HTTPS"
-emp_phone --> proxy : "HTTPS"
-pt_pc --> pt_vdi : "画面転送"
-pt_vdi --> proxy : "HTTPS"
-proxy <-> pdp : "許可判定"
-pdp <-> idp : "属性"
-idp <-> mfa : "チャレンジ"
-pdp <-> posture : "端末状態"
-proxy --> portal : "mTLS"
-portal --> hr : "REST"
-portal --> expense : "REST"
-portal --> wiki : "REST"
-hr --> hr_db : "SQL"
-expense --> fin_db : "SQL"
-expense --> erp : "仕訳連携"
-erp --> fin_db : "SQL"
-erp <-> host : "バッチ"
-wiki --> doc : "Graph API"
-doc --> dlp : "検査"
-hr_db --> dlp : "監査"
-proxy ..> siem : "アクセスログ"
-idp ..> siem : "認証ログ"
-dlp ..> siem : "検知"
-erp ..> siem : "監査ログ"
-siem --> soar : "インシデント"
-soar --> soc : "エスカレーション"
-soar ..> idp : "アカウント停止"
-soar ..> proxy : "遮断"
-vault ..> hr : "DB資格情報"
-vault ..> expense : "DB資格情報"
-pki ..> proxy : "証明書"
-pki ..> emp_pc : "端末証明書"
+step "ゼロトラスト認証と業務アクセス" {
+  static pki ..> proxy : "証明書"
+  static pki ..> emp_pc : "端末証明書"
+  static vault ..> hr : "DB資格情報"
+  static vault ..> expense : "DB資格情報"
+  animate emp_pc --> proxy : "HTTPS"
+  animate emp_phone --> proxy : "HTTPS" [parallel: true]
+  animate pt_pc --> pt_vdi : "画面転送"
+  animate pt_vdi --> proxy : "HTTPS"
+  animate proxy <-> pdp : "許可判定"
+  animate pdp <-> posture : "端末状態"
+  animate pdp <-> idp : "属性"
+  animate idp <-> mfa : "チャレンジ"
+  animate proxy --> portal : "mTLS"
+}
+
+step "業務処理とデータ連携" {
+  animate portal --> hr : "REST"
+  animate portal --> expense : "REST" [parallel: true]
+  animate portal --> wiki : "REST" [parallel: true]
+  animate hr --> hr_db : "SQL"
+  animate expense --> fin_db : "SQL" [parallel: true]
+  animate expense --> erp : "仕訳連携"
+  animate erp --> fin_db : "SQL"
+  animate erp <-> host : "バッチ" [parallel: true]
+  animate wiki --> doc : "Graph API"
+  animate doc --> dlp : "検査"
+  animate hr_db --> dlp : "監査" [parallel: true]
+}
+
+step "セキュリティ監視と自動遮断" {
+  static proxy ..> siem : "アクセスログ"
+  static idp ..> siem : "認証ログ"
+  static dlp ..> siem : "検知"
+  static erp ..> siem : "監査ログ"
+  animate siem --> soar : "インシデント"
+  animate soar --> soc : "エスカレーション"
+  animate soar ..> idp : "アカウント停止" [parallel: true]
+  animate soar ..> proxy : "遮断" [parallel: true]
+}

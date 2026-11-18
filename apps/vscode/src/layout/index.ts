@@ -1,3 +1,4 @@
+import { synthesizedConnections } from '../model/connections';
 import type { DavDocument } from '../model/types';
 import { topLevelGroups } from '../model/zones';
 import { computeColumnLayout } from './columns';
@@ -80,7 +81,7 @@ function zonePlacementOf(doc: DavDocument): ZonePlacement | undefined {
 export function backEdgesOf(doc: DavDocument): BackEdge[] {
   const ids = doc.nodes.map((n) => n.id);
   // Ranks leave out an edge with an end outside the nodes they are given.
-  const edges = doc.edges.map((e): readonly [string, string] => [e.from, e.to]);
+  const edges = synthesizedConnections(doc).map((e): readonly [string, string] => [e.from, e.to]);
   if (!zonePlacementOf(doc)) return computeRanks(ids, edges).back;
   const owners = ownersOf(doc);
   return topLevelGroups(doc.groups).flatMap(

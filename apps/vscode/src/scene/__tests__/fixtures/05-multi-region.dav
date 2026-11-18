@@ -1,4 +1,3 @@
-dav 1
 title "05 マルチリージョン: 対称構成とレプリケーション"
 
 // Two zones of the same shape, joined by replication.
@@ -42,39 +41,44 @@ group dr "バックアップ / DR" [color: orange] {
   node sre "当番" [icon: user, sub: "SRE"]
 }
 
-user --> dns : "名前解決"
-user --> cdn : "HTTPS"
-dns --> t_lb : "重み 100"
-dns ..> o_lb : "重み 0 (待機)"
-cdn --> t_lb : "オリジン"
-cdn ..> o_lb : "フェイルオーバー"
-health ..> t_lb : "監視"
-health ..> o_lb : "監視"
-health --> dns : "切替"
-t_lb --> t_app1 : "HTTP"
-t_lb --> t_app2 : "HTTP"
-t_app1 --> t_cache : "GET"
-t_app2 --> t_cache : "GET"
-t_app1 --> t_db : "SQL"
-t_app2 --> t_db : "SQL"
-t_app1 --> t_q : "ジョブ"
-o_lb --> o_app1 : "HTTP"
-o_lb --> o_app2 : "HTTP"
-o_app1 --> o_cache : "GET"
-o_app2 --> o_cache : "GET"
-o_app1 --> o_db : "SQL (読取)"
-o_app2 --> o_db : "SQL (読取)"
-o_app1 --> o_q : "ジョブ"
-t_db --> o_db : "レプリケーション"
-t_app1 --> s3 : "アップロード"
-o_app1 --> s3 : "アップロード"
-ci ..> t_app1 : "デプロイ"
-ci ..> o_app1 : "デプロイ"
-t_app2 ..> secret : "取得"
-o_app2 ..> secret : "取得"
-t_db --> vault : "スナップショット"
-vault --> cold : "復元"
-obs --> sre : "アラート"
-sre --> runbook : "実行"
-runbook ..> dns : "手動切替"
-runbook ..> o_db : "昇格"
+step "通常トラフィック（東京リージョン）" {
+  static dns ..> o_lb : "重み 0 (待機)"
+  static health ..> t_lb : "監視"
+  static health ..> o_lb : "監視"
+  static ci ..> t_app1 : "デプロイ"
+  static ci ..> o_app1 : "デプロイ"
+  static t_app2 ..> secret : "取得"
+  static o_app2 ..> secret : "取得"
+  animate user --> dns : "名前解決"
+  animate user --> cdn : "HTTPS" [parallel: true]
+  animate dns --> t_lb : "重み 100"
+  animate cdn --> t_lb : "オリジン"
+  animate t_lb --> t_app1 : "HTTP"
+  animate t_lb --> t_app2 : "HTTP" [parallel: true]
+  animate t_app1 --> t_cache : "GET"
+  animate t_app2 --> t_cache : "GET" [parallel: true]
+  animate t_app1 --> t_db : "SQL"
+  animate t_app2 --> t_db : "SQL" [parallel: true]
+  animate t_app1 --> t_q : "ジョブ"
+  animate t_app1 --> s3 : "アップロード"
+  animate t_db --> o_db : "レプリケーション"
+  animate t_db --> vault : "スナップショット"
+  animate vault --> cold : "復元"
+}
+
+step "フェイルオーバーと大阪リージョン処理" {
+  animate health --> dns : "切替"
+  animate cdn ..> o_lb : "フェイルオーバー"
+  animate o_lb --> o_app1 : "HTTP"
+  animate o_lb --> o_app2 : "HTTP" [parallel: true]
+  animate o_app1 --> o_cache : "GET"
+  animate o_app2 --> o_cache : "GET" [parallel: true]
+  animate o_app1 --> o_db : "SQL (読取)"
+  animate o_app2 --> o_db : "SQL (読取)" [parallel: true]
+  animate o_app1 --> o_q : "ジョブ"
+  animate o_app1 --> s3 : "アップロード"
+  animate obs --> sre : "アラート"
+  animate sre --> runbook : "実行"
+  animate runbook ..> dns : "手動切替"
+  animate runbook ..> o_db : "昇格"
+}

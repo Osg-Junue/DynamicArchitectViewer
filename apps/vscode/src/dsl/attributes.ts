@@ -44,7 +44,6 @@ const EXPECTED_BY_TYPE: Record<AttrType, string> = {
   color: COLOR_NAMES.join(' | '),
   stateColor: [...COLOR_NAMES, COLOR_RESET].join(' | '),
   icon: ICON_NAMES.join(' | '),
-  ident: 'identifier',
 };
 
 /** Decodes a `"..."` syntax node and reports any invalid escape sequences. */
@@ -128,8 +127,6 @@ function convertValue(
       return node.name === 'String' ? readStringLiteral(text, node, report) : invalid();
     case 'bool':
       return node.name === 'Boolean' ? raw === 'true' : invalid();
-    case 'ident':
-      return node.name === 'Identifier' ? raw : invalid();
     case 'color':
     case 'stateColor':
       if (node.name !== 'Identifier' && node.name !== 'Color') return invalid();

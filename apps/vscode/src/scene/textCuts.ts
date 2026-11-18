@@ -17,7 +17,7 @@ import {
  */
 export type TextCut =
   | { kind: 'node-label' | 'node-sub' | 'node-badge'; node: string; text: string }
-  | { kind: 'edge-label'; id: string; from: string; to: string; text: string }
+  | { kind: 'static-label'; step: number; from: string; to: string; text: string }
   | { kind: 'state-badge'; step: number; target: string; text: string }
   | { kind: 'packet-label' | 'packet-desc'; step: number; from: string; to: string; text: string }
   | { kind: 'code-lines'; step: number; from: string; to: string; lines: number }
@@ -44,11 +44,6 @@ export function textCuts(doc: DavDocument): TextCut[] {
       cuts.push({ kind: 'node-badge', node: n.id, text: n.badge });
     }
   }
-  for (const e of doc.edges) {
-    if (e.label && isCut(e.label, EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH)) {
-      cuts.push({ kind: 'edge-label', id: e.id, from: e.from, to: e.to, text: e.label });
-    }
-  }
   for (const step of doc.steps) {
     for (const state of step.states) {
       if (state.badge && isCut(state.badge, BADGE_SIZE, BADGE_MAX_WIDTH, 'bold')) {
@@ -57,6 +52,17 @@ export function textCuts(doc: DavDocument): TextCut[] {
           step: step.index,
           target: state.target,
           text: state.badge,
+        });
+      }
+    }
+    for (const s of step.statics) {
+      if (s.label && isCut(s.label, EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH)) {
+        cuts.push({
+          kind: 'static-label',
+          step: step.index,
+          from: s.from,
+          to: s.to,
+          text: s.label,
         });
       }
     }

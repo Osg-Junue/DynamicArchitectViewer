@@ -3,14 +3,14 @@ import { isBlank, trimWhitespaceEnd } from '../model/text';
 import {
   type Animation,
   type CodeBlock,
-  CURRENT_DSL_VERSION,
   type DavDocument,
-  type DavEdge,
   type DavGroup,
   type DavNode,
   type DavStep,
-  implicitEdgeId,
+  type Direction,
+  type LineStyle,
   type StateOverride,
+  type StaticLink,
 } from '../model/types';
 import { type ParsedAttrs, readAttributes, readStringLiteral, type ValidAttr } from './attributes';
 import type { Diagnostic, DiagnosticCode, Severity } from './diagnostics';
@@ -44,9 +44,18 @@ interface PendingStateCheck {
   attrs: ReadonlyMap<string, ValidAttr>;
 }
 
+interface ParsedConnection<O extends 'animate' | 'static'> {
+  from: string;
+  to: string;
+  style: LineStyle;
+  direction: Direction;
+  label?: string;
+  attrs: ParsedAttrs<O>;
+}
+
 const DEFAULT_ARROW = { style: 'solid', direction: 'forward' } as const;
 
-/** Parses and validates DSL v1 text. Never throws. */
+/** Parses and validates DSL v2 text. Never throws. */
 export function parse(text: string): ParseResult {
   return new Analyzer(text).run();
 }
@@ -70,11 +79,9 @@ class Analyzer {
   private readonly references: Reference[] = [];
   private readonly stateChecks: PendingStateCheck[] = [];
   private readonly doc: DavDocument = {
-    version: CURRENT_DSL_VERSION,
     title: '',
     groups: [],
     nodes: [],
-    edges: [],
     steps: [],
   };
   private titleSeen = false;
@@ -95,13 +102,6 @@ class Analyzer {
 
     this.collectSyntaxErrors(top);
 
-    const header = top.getChild('Header');
-    if (header) {
-      this.readHeader(header);
-    } else {
-      this.report('missing-header', 'error', { from: 0, to: 0 });
-    }
-
     for (const node of childNodes(top)) {
       switch (node.name) {
         case 'Title':
@@ -113,13 +113,14 @@ class Analyzer {
         case 'Node':
           this.readNode(node, undefined);
           break;
-        case 'Edge':
-          this.readEdge(node);
-          break;
         case 'Step':
           this.readStep(node);
           break;
       }
+    }
+
+    if (this.doc.steps.length === 0) {
+      this.report('missing-step', 'error', { from: 0, to: 0 });
     }
 
     this.resolveReferences();
@@ -158,7 +159,6 @@ class Analyzer {
       const shorten = (text: string) =>
         (text.length > 24 ? `${text.slice(0, 24)}…` : text).split('\n')[0] ?? '';
       // A second string after `code "Title"` on its line: the one-line form was given a title.
-      // A string on a line of its own more likely misses its keyword, such as `desc`.
       const before = cursor.node.prevSibling;
       const title =
         cursor.node.parent?.name === 'Code' &&
@@ -186,17 +186,6 @@ class Analyzer {
   // ---------------------------------------------------------------------------
   // Statements
   // ---------------------------------------------------------------------------
-
-  private readHeader(header: SyntaxNode): void {
-    const num = header.getChild('Number');
-    if (!num) return;
-    const written = sliceOf(this.text, num);
-    this.doc.version = Number(written);
-    // Compared as text: `dav 1.0` equals 1 numerically, but only whole versions exist.
-    if (written !== String(CURRENT_DSL_VERSION)) {
-      this.report('unsupported-version', 'error', num, { version: written });
-    }
-  }
 
   private readTitle(node: SyntaxNode): void {
     const str = node.getChild('String');
@@ -268,59 +257,6 @@ class Analyzer {
     if (declared) this.doc.nodes.push(result);
   }
 
-  private readEdge(node: SyntaxNode): void {
-    const ids = node.getChildren('Identifier');
-    const arrowNode = node.getChild('Arrow');
-    const [fromNode, toNode] = ids;
-    if (!fromNode || !toNode || !arrowNode) return;
-    const from = sliceOf(this.text, fromNode);
-    const to = sliceOf(this.text, toNode);
-    const arrowText = sliceOf(this.text, arrowNode);
-    const arrow = ARROW_SPECS[arrowText] ?? DEFAULT_ARROW;
-    if (from === to && arrow.direction === 'bidirectional') {
-      this.report('invalid-self-arrow', 'error', arrowNode, {
-        arrow: arrowText,
-        suggestion: arrow.style === 'dashed' ? '..>' : '-->',
-      });
-    }
-    const attrs = this.readAttributes(node.getChild('Attributes'), 'edge');
-    const explicit = attrs.get('id');
-
-    const edge: DavEdge = {
-      id: explicit?.value ?? implicitEdgeId(from, to),
-      explicitId: explicit !== undefined,
-      from,
-      to,
-      style: arrow.style,
-      direction: arrow.direction,
-      visible: attrs.value('visible') ?? true,
-    };
-    const label = this.readChildString(node, 'EdgeLabel');
-    if (label !== undefined) edge.label = label;
-    const color = attrs.value('color');
-    if (color !== undefined) edge.color = color;
-
-    if (explicit) {
-      this.declare({
-        kind: 'edge',
-        id: edge.id,
-        from: node.from,
-        to: node.to,
-        idRange: rangeOf(explicit.node),
-      });
-    } else if (this.elements.has(edge.id)) {
-      this.report('duplicate-edge', 'error', node, { from, to });
-    } else {
-      this.elements.set(edge.id, { kind: 'edge', id: edge.id, from: node.from, to: node.to });
-    }
-
-    this.references.push(
-      { id: from, range: rangeOf(fromNode), allowed: ['node'] },
-      { id: to, range: rangeOf(toNode), allowed: ['node'] },
-    );
-    this.doc.edges.push(edge);
-  }
-
   private readStep(node: SyntaxNode): void {
     const step: DavStep = {
       index: this.doc.steps.length,
@@ -329,6 +265,7 @@ class Analyzer {
       focus: [],
       states: [],
       animations: [],
+      statics: [],
     };
 
     const body = node.getChild('StepBody');
@@ -346,6 +283,9 @@ class Analyzer {
           break;
         case 'Animate':
           this.readAnimate(stmt, step);
+          break;
+        case 'Static':
+          this.readStatic(stmt, step);
           break;
       }
     }
@@ -377,41 +317,76 @@ class Analyzer {
     this.references.push({
       id: target,
       range: rangeOf(targetNode),
-      allowed: ['node', 'group', 'edge'],
+      allowed: ['node', 'group'],
     });
     this.stateChecks.push({ target, attrs: attrs.entries });
   }
 
-  private readAnimate(stmt: SyntaxNode, step: DavStep): void {
+  private readConnection<O extends 'animate' | 'static'>(
+    stmt: SyntaxNode,
+    owner: O,
+  ): ParsedConnection<O> | undefined {
     const [fromNode, toNode] = stmt.getChildren('Identifier');
     const arrowNode = stmt.getChild('Arrow');
-    if (!fromNode || !toNode || !arrowNode) return;
+    if (!fromNode || !toNode || !arrowNode) return undefined;
+
+    const from = sliceOf(this.text, fromNode);
+    const to = sliceOf(this.text, toNode);
     const arrowText = sliceOf(this.text, arrowNode);
     const arrow = ARROW_SPECS[arrowText] ?? DEFAULT_ARROW;
-    if (arrow.style === 'dashed') {
-      this.report('invalid-animate-arrow', 'error', arrowNode, {
-        arrow: arrowText,
-        suggestion: arrow.direction === 'bidirectional' ? '<->' : '-->',
-      });
-    } else if (
-      arrow.direction === 'bidirectional' &&
-      sliceOf(this.text, fromNode) === sliceOf(this.text, toNode)
-    ) {
+    if (from === to && arrow.direction === 'bidirectional') {
       this.report('invalid-self-arrow', 'error', arrowNode, {
         arrow: arrowText,
-        suggestion: '-->',
+        suggestion: arrow.style === 'dashed' ? '..>' : '-->',
       });
     }
-    const attrs = this.readAttributes(stmt.getChild('Attributes'), 'animate');
+
+    this.references.push(
+      { id: from, range: rangeOf(fromNode), allowed: ['node'] },
+      { id: to, range: rangeOf(toNode), allowed: ['node'] },
+    );
+
+    const attrs = this.readAttributes(stmt.getChild('Attributes'), owner);
+    const label = this.readChildString(stmt, 'EdgeLabel');
+    const parsed: ParsedConnection<O> = {
+      from,
+      to,
+      style: arrow.style,
+      direction: arrow.direction,
+      attrs,
+    };
+    if (label !== undefined) parsed.label = label;
+    return parsed;
+  }
+
+  private readStatic(stmt: SyntaxNode, step: DavStep): void {
+    const conn = this.readConnection(stmt, 'static');
+    if (!conn) return;
+    const link: StaticLink = {
+      from: conn.from,
+      to: conn.to,
+      style: conn.style,
+      direction: conn.direction,
+    };
+    if (conn.label !== undefined) link.label = conn.label;
+    const color = conn.attrs.value('color');
+    if (color !== undefined) link.color = color;
+    step.statics.push(link);
+  }
+
+  private readAnimate(stmt: SyntaxNode, step: DavStep): void {
+    const conn = this.readConnection(stmt, 'animate');
+    if (!conn) return;
+    const { attrs } = conn;
 
     const animation: Animation = {
-      from: sliceOf(this.text, fromNode),
-      to: sliceOf(this.text, toNode),
-      direction: arrow.direction,
+      from: conn.from,
+      to: conn.to,
+      style: conn.style,
+      direction: conn.direction,
       parallel: attrs.value('parallel') ?? false,
     };
-    const label = this.readChildString(stmt, 'EdgeLabel');
-    if (label !== undefined) animation.label = label;
+    if (conn.label !== undefined) animation.label = conn.label;
     const color = attrs.value('color');
     if (color !== undefined) animation.color = color;
     const icon = attrs.value('icon');
@@ -455,10 +430,6 @@ class Analyzer {
     }
 
     step.animations.push(animation);
-    this.references.push(
-      { id: animation.from, range: rangeOf(fromNode), allowed: ['node'] },
-      { id: animation.to, range: rangeOf(toNode), allowed: ['node'] },
-    );
   }
 
   private readCode(node: SyntaxNode): CodeBlock | undefined {

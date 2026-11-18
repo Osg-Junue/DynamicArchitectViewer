@@ -1,13 +1,11 @@
-// Lezer grammar for DynamicArchitectViewer DSL v1.
-// Spec: docs/specification.md
+// Lezer grammar for DynamicArchitectViewer DSL v2.
+// Spec: docs/v2/specification.md
 
-@top Document { Header? statement* }
+@top Document { statement* }
 
 @skip { space | LineComment }
 
-Header { kw<"dav"> Number }
-
-statement { Title | Group | Node | Edge | Step }
+statement { Title | Group | Node | Step }
 
 Title { kw<"title"> String }
 
@@ -18,20 +16,20 @@ Node { kw<"node"> Identifier Label? Attributes? }
 
 Label { String }
 
-Edge { Identifier Arrow Identifier EdgeLabel? Attributes? }
 EdgeLabel { ":" String }
 
 Step { kw<"step"> String StepBody }
 StepBody { "{" stepStatement* "}" }
 
-stepStatement { Desc | Focus | State | Animate }
+stepStatement { Desc | Focus | State | Animate | Static }
 Desc { kw<"desc"> String }
 Focus { kw<"focus"> Identifier ("," Identifier)* }
 State { kw<"state"> Identifier Attributes }
 Animate { kw<"animate"> Identifier Arrow Identifier EdgeLabel? Attributes? AnimateBody? }
+Static { kw<"static"> Identifier Arrow Identifier EdgeLabel? Attributes? }
 AnimateBody { "{" (Desc | Code)* "}" }
 Code { ckw<"code"> CodeLang? (String CodeFence | CodeFence | String) }
-CodeLang { Identifier | kw<"dav"> }
+CodeLang { Identifier }
 
 Attributes { "[" (Attribute ("," Attribute)* ","?)? "]" }
 Attribute { AttrName ":" value }

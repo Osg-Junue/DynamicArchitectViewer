@@ -1,4 +1,3 @@
-dav 1
 title "04 イベント駆動: バスに集中する構成"
 
 // More than ten edges meet one node (broker), which also has a loop.
@@ -40,33 +39,41 @@ group ops "運用" [color: orange] {
   node o_oncall "当番" [icon: user, sub: "SRE"]
 }
 
-p_order --> broker : "OrderCreated"
-p_pay --> broker : "PaymentCaptured"
-p_user --> broker : "UserRegistered"
-p_stock --> broker : "StockChanged"
-p_click --> broker : "PageViewed"
-p_order ..> schema : "スキーマ登録"
-p_pay ..> schema : "スキーマ登録"
-broker <.> schema : "互換性検査"
-broker --> c_ship : "orders"
-broker --> c_mail : "orders, users"
-broker --> c_point : "payments"
-broker --> c_fraud : "payments"
-broker --> c_search : "stock"
-broker --> c_dwh : "全トピック"
-c_ship --> s_ship : "SQL"
-c_point --> s_point : "PutItem"
-c_search --> s_index : "Bulk"
-c_dwh --> s_dwh : "Snowpipe"
-c_ship --> dlq : "失敗"
-c_mail --> dlq : "失敗"
-c_point --> dlq : "失敗"
-dlq --> replay : "取り出し"
-replay --> broker : "再投入"
-c_fraud --> broker : "FraudDetected"
-broker --> o_lag : "オフセット"
-dlq --> o_alert : "滞留"
-o_lag --> o_alert : "遅延"
-o_alert --> o_oncall : "呼び出し"
-o_oncall --> replay : "実行"
-broker --> broker : "コンパクション"
+step "イベント発行とスキーマ管理" {
+  static p_order ..> schema : "スキーマ登録"
+  static p_pay ..> schema : "スキーマ登録"
+  static broker <.> schema : "互換性検査"
+  static broker --> broker : "コンパクション"
+  animate p_order --> broker : "OrderCreated"
+  animate p_pay --> broker : "PaymentCaptured" [parallel: true]
+  animate p_user --> broker : "UserRegistered" [parallel: true]
+  animate p_stock --> broker : "StockChanged" [parallel: true]
+  animate p_click --> broker : "PageViewed" [parallel: true]
+}
+
+step "コンシューマー配信とストア更新" {
+  animate broker --> c_ship : "orders"
+  animate broker --> c_mail : "orders, users" [parallel: true]
+  animate broker --> c_point : "payments" [parallel: true]
+  animate broker --> c_fraud : "payments" [parallel: true]
+  animate broker --> c_search : "stock" [parallel: true]
+  animate broker --> c_dwh : "全トピック" [parallel: true]
+  animate c_ship --> s_ship : "SQL"
+  animate c_point --> s_point : "PutItem" [parallel: true]
+  animate c_search --> s_index : "Bulk" [parallel: true]
+  animate c_dwh --> s_dwh : "Snowpipe" [parallel: true]
+  animate c_fraud --> broker : "FraudDetected"
+}
+
+step "失敗イベントの退避・監視と再送" {
+  static broker --> o_lag : "オフセット"
+  static o_lag --> o_alert : "遅延"
+  animate c_ship --> dlq : "失敗"
+  animate c_mail --> dlq : "失敗" [parallel: true]
+  animate c_point --> dlq : "失敗" [parallel: true]
+  animate dlq --> o_alert : "滞留"
+  animate o_alert --> o_oncall : "呼び出し"
+  animate o_oncall --> replay : "実行"
+  animate dlq --> replay : "取り出し"
+  animate replay --> broker : "再投入"
+}

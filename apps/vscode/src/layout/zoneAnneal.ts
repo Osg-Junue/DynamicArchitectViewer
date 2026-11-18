@@ -1,6 +1,8 @@
+import { synthesizedConnections } from '../model/connections';
 import { pushToMap } from '../model/text';
 import type { DavDocument } from '../model/types';
 import { parentMap, topLevelGroups, zoneOfGroups } from '../model/zones';
+import { analyzeFlow } from './flow';
 import { countCrossings, type Link, linksOf } from './links';
 import { NODE_SIZE, ORIGIN, type Rect, STATION_CENTER } from './metrics';
 import { computeRanks, type RankResult } from './ranks';
@@ -294,8 +296,9 @@ function arrange(doc: DavDocument, columnLayout: ColumnLayout): Arrangement {
   const { blocks, owners } = buildBlocks(doc, columnLayout);
   const start = initialPositions(doc, blocks, owners, columnLayout);
   const placed: Placed[] = blocks.map((block) => ({ block, x: 0, y: 0, flip: 0 }));
+  const connections = synthesizedConnections(doc);
   const adj = new Map<string, string[]>();
-  for (const e of doc.edges) {
+  for (const e of connections) {
     if (e.from === e.to) continue;
     pushToMap(adj, e.from, e.to);
     pushToMap(adj, e.to, e.from);
@@ -310,9 +313,17 @@ function arrange(doc: DavDocument, columnLayout: ColumnLayout): Arrangement {
       if (!topIds.has(block.id) || block.nodes.size < 2) continue;
       const nodeIds = doc.nodes.filter((n) => owners.get(n.id) === block.id).map((n) => n.id);
       const idSet = new Set(nodeIds);
-      const intraEdges = doc.edges
-        .filter((e) => idSet.has(e.from) && idSet.has(e.to) && e.from !== e.to)
-        .map((e): readonly [string, string] => [e.from, e.to]);
+      const intraConns = connections.filter((e) => idSet.has(e.from) && idSet.has(e.to) && e.from !== e.to);
+      const intraSteps = doc.steps.map((s) => ({
+        ...s,
+        animations: s.animations.filter((a) => idSet.has(a.from) && idSet.has(a.to)),
+        statics: s.statics.filter((st) => idSet.has(st.from) && idSet.has(st.to)),
+      }));
+      const intraFlow = analyzeFlow(
+        { ...doc, nodes: doc.nodes.filter((n) => idSet.has(n.id)), groups: [], steps: intraSteps },
+        intraConns,
+      );
+      const intraEdges = intraFlow.forwardEdges;
       const ranks = computeRanks(nodeIds, intraEdges);
       const maxRank = Math.max(0, ...ranks.rank.values());
       if (maxRank < 1) continue;

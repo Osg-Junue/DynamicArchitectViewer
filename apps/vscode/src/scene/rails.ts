@@ -1,16 +1,22 @@
 import { type Layout, type Rect, rectOverlaps, stationRect } from '../layout';
+import {
+  selfLoopNodeIds,
+  synthesizedConnections,
+  unorderedPairKey,
+} from '../model/connections';
 import { EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH } from '../model/text';
-import type { DavDocument, DavEdge } from '../model/types';
-import { ancestorIds, idPair, parentMap } from '../model/zones';
+import type { DavDocument } from '../model/types';
+import { ancestorIds, parentMap } from '../model/zones';
 import {
   type Point,
   pointAt,
   type Rail,
   type Route,
+  reverse,
   segmentIntersectsRect,
   selfLoop,
 } from './geometry';
-import type { ResolvedNode } from './resolve';
+import type { ResolvedEdge, ResolvedNode } from './resolve';
 import { type RoutedRail, type RouteEdge, routeEdges } from './route';
 import {
   BADGE_MAX_WIDTH,
@@ -41,20 +47,6 @@ export function stationArea(node: ResolvedNode): Rect {
   };
 }
 
-/** Loops on one station are told apart by their position among them: each nests outside the last. */
-function loopOrdinals(doc: DavDocument): Map<DavEdge, number> {
-  const loops = new Map<string, number>();
-  return new Map(
-    doc.edges
-      .filter((e) => e.from === e.to)
-      .map((e) => {
-        const ordinal = loops.get(e.from) ?? 0;
-        loops.set(e.from, ordinal + 1);
-        return [e, ordinal] as const;
-      }),
-  );
-}
-
 /** Where an edge's label is written: the start, middle or end of its text, on its baseline. */
 export interface EdgeLabelSpot {
   x: number;
@@ -63,8 +55,8 @@ export interface EdgeLabelSpot {
 }
 
 /** A loop's label is written above the middle of its curve. */
-function loopLabelSpot(station: Rect, ordinal: number): EdgeLabelSpot {
-  const middle = pointAt(selfLoop(station, ordinal), 0.5);
+function loopLabelSpot(station: Rect): EdgeLabelSpot {
+  const middle = pointAt(selfLoop(station, 0), 0.5);
   return { x: middle.x, y: middle.y - LOOP_LABEL_LIFT, anchor: 'middle' };
 }
 
@@ -80,16 +72,16 @@ const LOOP_CLEARANCE = 10;
  * lines through the middle of the station stay open to the rails that meet it there.
  */
 function loopAreas(
-  doc: DavDocument,
+  loopNodes: ReadonlySet<string>,
   nodes: readonly ResolvedNode[],
   nodeIndex: ReadonlyMap<string, number>,
-  loops: ReadonlyMap<DavEdge, number>,
 ): Rect[] {
-  return doc.edges.flatMap((e) => {
-    const node = e.from === e.to ? nodes[nodeIndex.get(e.from) ?? -1] : undefined;
-    if (!node) return [];
+  const areas: Rect[] = [];
+  for (const id of loopNodes) {
+    const node = nodes[nodeIndex.get(id) ?? -1];
+    if (!node) continue;
     const station = stationRect(node.rect, node.icon);
-    const curve = selfLoop(station, loops.get(e) ?? 0);
+    const curve = selfLoop(station, 0);
     const points = Array.from({ length: 25 }, (_, i) => pointAt(curve, i / 24));
     const xs = points.map((p) => p.x);
     const ys = points.map((p) => p.y);
@@ -97,23 +89,24 @@ function loopAreas(
     const x = Math.max(Math.min(...xs) - LOOP_CLEARANCE, station.x + station.width / 2 + 1);
     const y = Math.min(...ys) - LOOP_CLEARANCE;
     const bottom = Math.min(Math.max(...ys) + LOOP_CLEARANCE, station.y + station.height / 2 - 1);
-    return [{ x, y, width: Math.max(...xs) + LOOP_CLEARANCE - x, height: bottom - y }];
-  });
+    areas.push({ x, y, width: Math.max(...xs) + LOOP_CLEARANCE - x, height: bottom - y });
+  }
+  return areas;
 }
 
-/** The rails of one arrangement of a diagram. */
+interface StoredRail {
+  canonFrom: string;
+  canonTo: string;
+  route: Route;
+  shared: readonly boolean[];
+}
+
+/** The routed rails of one arrangement of a diagram, keyed by `unorderedPairKey`. */
 interface Routed {
-  /** By position in `doc.edges`; none for a loop. */
-  ofEdges: Array<Route | undefined>;
-  labels: Array<EdgeLabelSpot | undefined>;
-  /** Rails for packets that travel where no edge runs, by `idPair(from, to)`. */
-  lone: Map<string, Route>;
+  rails: Map<string, StoredRail>;
+  solidWalls: Rect[];
+  loopNodes: Set<string>;
 }
-
-/** A packet rides an edge the way it points, or a two-way edge either way. */
-const carries = (e: DavEdge, from: string, to: string): boolean =>
-  (e.from === from && e.to === to) ||
-  (e.direction === 'bidirectional' && e.from === to && e.to === from);
 
 /**
  * The rectangle occupied by a node's label and sub-label below its station.
@@ -370,8 +363,8 @@ function placeLabels(
 }
 
 /**
- * The last routes found, and what they were found for. Finding them is most of the work, and
- * they do not depend on the labels of the edges: typing one only places the labels again.
+ * Routing takes a while on a large diagram, and a diagram is laid out afresh after every edit.
+ * The last result is kept for as long as nothing a route depends on has changed.
  */
 let lastFound: { key: string; found: Map<string, RoutedRail> } | undefined;
 
@@ -394,42 +387,47 @@ function routeDiagram(doc: DavDocument, layout: Layout, nodes: readonly Resolved
   const zonesAround = (nodeId: string): number[] =>
     ancestorIds(groupParent, nodeParent.get(nodeId)).flatMap((g) => groupIndex.get(g) ?? []);
 
+  const connections = synthesizedConnections(doc);
   const wanted: RouteEdge[] = [];
-  const want = (id: string, from: string, to: string, bothWays = false) => {
-    const a = nodeIndex.get(from);
-    const b = nodeIndex.get(to);
-    if (a === undefined || b === undefined || a === b) return;
+  const entries = new Map<string, { conn: (typeof connections)[number]; id: string }>();
+  connections.forEach((conn, i) => {
+    if (conn.from === conn.to) return;
+    const a = nodeIndex.get(conn.from);
+    const b = nodeIndex.get(conn.to);
+    if (a === undefined || b === undefined) return;
+    const id = `c${i}`;
     wanted.push({
       id,
       from: a,
       to: b,
-      home: new Set([...zonesAround(from), ...zonesAround(to)]),
-      bothWays,
+      home: new Set([...zonesAround(conn.from), ...zonesAround(conn.to)]),
+      bothWays: conn.direction === 'bidirectional',
     });
-  };
-  doc.edges.forEach((e, i) => {
-    want(`e${i}`, e.from, e.to, e.direction === 'bidirectional');
+    entries.set(unorderedPairKey(conn.from, conn.to), { conn, id });
   });
-  const lonePairs = new Map<string, { from: string; to: string }>();
-  for (const a of doc.steps.flatMap((s) => s.animations)) {
-    if (a.from === a.to || doc.edges.some((e) => carries(e, a.from, a.to))) continue;
-    lonePairs.set(idPair(a.from, a.to), a);
-  }
-  for (const [key, pair] of lonePairs) want(`l${key}`, pair.from, pair.to);
 
   const names = zoneNameAreas(doc, layout);
   const areas = nodes.map(stationArea);
-  const loops = loopOrdinals(doc);
-  const loopRoom = loopAreas(doc, nodes, nodeIndex, loops);
-  // A loop's label has its place whatever else is drawn, so the other rails go round it and the
-  // other labels keep clear of it.
-  const loopLabels = doc.edges.flatMap((e) => {
-    const node = e.from === e.to ? nodes[nodeIndex.get(e.from) ?? -1] : undefined;
-    if (!node || !e.label) return [];
-    const spot = loopLabelSpot(stationRect(node.rect, node.icon), loops.get(e) ?? 0);
-    return [edgeLabelArea(e.label, spot)];
-  });
-  const loopNodes = new Set(doc.edges.filter((e) => e.from === e.to).map((e) => e.from));
+  const loopNodes = selfLoopNodeIds(doc);
+  const loopRoom = loopAreas(loopNodes, nodes, nodeIndex);
+  // Reserve space above self-loops when any step attaches a static label to that loop.
+  const loopLabels: Rect[] = [];
+  for (const id of loopNodes) {
+    const node = nodes[nodeIndex.get(id) ?? -1];
+    if (!node) continue;
+    let longest: string | undefined;
+    for (const step of doc.steps) {
+      for (const s of step.statics) {
+        if (s.from === id && s.to === id && s.label) {
+          if (!longest || s.label.length > longest.length) longest = s.label;
+        }
+      }
+    }
+    if (longest) {
+      loopLabels.push(edgeLabelArea(longest, loopLabelSpot(stationRect(node.rect, node.icon))));
+    }
+  }
+
   const found = routesFor(
     nodes.map((n, i) => {
       const area = areas[i] as Rect;
@@ -450,36 +448,36 @@ function routeDiagram(doc: DavDocument, layout: Layout, nodes: readonly Resolved
     wanted,
   );
 
-  const railOf = (id: string, from: string, to: string): Route | undefined => {
-    const route = found.get(id);
-    if (route) return { points: route.points };
-    const a = nodes[nodeIndex.get(from) ?? -1];
-    const b = nodes[nodeIndex.get(to) ?? -1];
-    return a && b && a !== b ? direct(a, b) : undefined;
-  };
-  const ofEdges = doc.edges.map((e, i) => railOf(`e${i}`, e.from, e.to));
-  const lone = new Map<string, Route>();
-  for (const [key, pair] of lonePairs) {
-    const rail = railOf(`l${key}`, pair.from, pair.to);
-    if (rail) lone.set(key, rail);
+  const rails = new Map<string, StoredRail>();
+  for (const [key, { conn, id }] of entries) {
+    const routed = found.get(id);
+    if (routed) {
+      rails.set(key, {
+        canonFrom: conn.from,
+        canonTo: conn.to,
+        route: { points: routed.points },
+        shared: routed.shared,
+      });
+    } else {
+      const a = nodes[nodeIndex.get(conn.from) ?? -1];
+      const b = nodes[nodeIndex.get(conn.to) ?? -1];
+      if (a && b) {
+        rails.set(key, {
+          canonFrom: conn.from,
+          canonTo: conn.to,
+          route: direct(a, b),
+          shared: [],
+        });
+      }
+    }
   }
-  const labels = placeLabels(
-    doc.edges.map((e, i) => {
-      const rail = ofEdges[i];
-      return e.label && rail
-        ? { label: e.label, rail, shared: found.get(`e${i}`)?.shared ?? [] }
-        : undefined;
-    }),
-    [...nodes.flatMap(nodeBody), ...names, ...loopLabels, ...loopRoom],
-    ofEdges.flatMap((rail) => rail ?? []),
-  );
-  return { ofEdges, labels, lone };
+  return {
+    rails,
+    solidWalls: [...nodes.flatMap(nodeBody), ...names, ...loopLabels, ...loopRoom],
+    loopNodes,
+  };
 }
 
-/**
- * Routing takes a while on a large diagram, and a diagram is laid out afresh after every edit.
- * The last result is kept for as long as nothing a route depends on has changed.
- */
 let lastRouted: { key: string; routed: Routed } | undefined;
 
 function routedFor(doc: DavDocument, layout: Layout, nodes: readonly ResolvedNode[]): Routed {
@@ -496,8 +494,8 @@ function routedFor(doc: DavDocument, layout: Layout, nodes: readonly ResolvedNod
     ]),
     doc.nodes.map((n) => n.parentId ?? null),
     doc.groups.map((g) => [g.id, g.parentId ?? null, g.label, layout.groups[g.id] ?? null]),
-    doc.edges.map((e) => [e.from, e.to, e.direction, e.label ?? null]),
-    doc.steps.map((s) => s.animations.map((a) => [a.from, a.to])),
+    synthesizedConnections(doc).map((c) => [c.from, c.to, c.direction]),
+    doc.steps.map((s) => s.statics.map((st) => [st.from, st.to, st.label ?? null])),
   ]);
   if (lastRouted?.key !== key) lastRouted = { key, routed: routeDiagram(doc, layout, nodes) };
   return lastRouted.routed;
@@ -512,36 +510,51 @@ function routedFor(doc: DavDocument, layout: Layout, nodes: readonly ResolvedNod
  * course from step to step.
  */
 export class RailRouter {
-  readonly #loops: Map<DavEdge, number>;
-  readonly #indexOf: Map<DavEdge, number>;
   readonly #routed: Routed;
 
   constructor(doc: DavDocument, layout: Layout, nodes: readonly ResolvedNode[]) {
-    this.#loops = loopOrdinals(doc);
-    this.#indexOf = new Map(doc.edges.map((e, i) => [e, i]));
     this.#routed = routedFor(doc, layout, nodes);
   }
 
-  /** A rail between two stations that no edge joins, such as the path of a lone packet. */
-  between(from: ResolvedNode, to: ResolvedNode, ordinal = 0): Rail {
-    if (from.id === to.id) return selfLoop(stationRect(from.rect, from.icon), ordinal);
-    return this.#routed.lone.get(idPair(from.id, to.id)) ?? direct(from, to);
+  /** The routed rail from `from` to `to`, oriented in the caller's direction. */
+  railOf(from: ResolvedNode, to: ResolvedNode): Rail {
+    if (from.id === to.id) return selfLoop(stationRect(from.rect, from.icon), 0);
+    const stored = this.#routed.rails.get(unorderedPairKey(from.id, to.id));
+    if (!stored) return direct(from, to);
+    return stored.canonFrom === from.id ? stored.route : reverse(stored.route);
   }
 
-  /** The rail of a declared edge, whose stations are `from` and `to`. */
-  ofEdge(edge: DavEdge, from: ResolvedNode, to: ResolvedNode): Rail {
-    if (from.id === to.id) {
-      return selfLoop(stationRect(from.rect, from.icon), this.#loops.get(edge) ?? 0);
-    }
-    return this.#routed.ofEdges[this.#indexOf.get(edge) ?? -1] ?? direct(from, to);
-  }
+  /** Places labels for any `static` statements that have one in the given step's edges. */
+  attachLabels(edges: ResolvedEdge[], nodes: readonly ResolvedNode[]): void {
+    if (!edges.some((e) => e.label)) return;
+    const nodeById = new Map(nodes.map((n) => [n.id, n]));
+    const stepRails: Route[] = [];
+    const labelInputs: Array<
+      { label: string; rail: Route; shared: readonly boolean[] } | undefined
+    > = edges.map((e) => {
+      if (e.from === e.to) {
+        if (e.label) {
+          const node = nodeById.get(e.from);
+          if (node) e.labelAt = loopLabelSpot(stationRect(node.rect, node.icon));
+        }
+        return undefined;
+      }
+      if (!('points' in e.path)) return undefined;
+      stepRails.push(e.path);
+      if (!e.label) return undefined;
+      const stored = this.#routed.rails.get(unorderedPairKey(e.from, e.to));
+      const shared = stored
+        ? stored.canonFrom === e.from
+          ? stored.shared
+          : [...stored.shared].reverse()
+        : [];
+      return { label: e.label, rail: e.path, shared };
+    });
 
-  /** Where the edge's label goes; a loop's is written above the middle of its curve. */
-  labelOf(edge: DavEdge, from: ResolvedNode, to: ResolvedNode): EdgeLabelSpot | undefined {
-    if (!edge.label) return undefined;
-    if (from.id === to.id) {
-      return loopLabelSpot(stationRect(from.rect, from.icon), this.#loops.get(edge) ?? 0);
-    }
-    return this.#routed.labels[this.#indexOf.get(edge) ?? -1];
+    const spots = placeLabels(labelInputs, this.#routed.solidWalls, stepRails);
+    edges.forEach((e, i) => {
+      const spot = spots[i];
+      if (spot) e.labelAt = spot;
+    });
   }
 }

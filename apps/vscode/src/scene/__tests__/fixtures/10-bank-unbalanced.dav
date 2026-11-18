@@ -1,7 +1,6 @@
-dav 1
 title "10 銀行システム: 大きさの偏ったゾーンと長いラベル"
 
-// A zone of one node beside a zone of ten. Edge labels are near the longest that fit.
+// A zone of one node beside a zone of ten.
 
 group channels "チャネル" [color: teal] {
   node atm "ATM" [icon: device, sub: "全国 1,200台"]
@@ -42,33 +41,38 @@ group audit "監査・報告" [color: gray] {
   node dwh "情報系DWH" [icon: database, sub: "経営管理"]
 }
 
-atm --> hubgw : "ISO 8583 (専用線)"
-teller --> hubgw : "営業店電文 (閉域網)"
-netbank --> hubgw : "HTTPS + ワンタイムパスワード"
-mobile --> hubgw : "HTTPS + 生体認証トークン"
-callcenter --> hubgw : "CTI連携"
-openapi --> hubgw : "OAuth 2.0 / FAPI"
-hubgw --> customer : "顧客照会"
-hubgw --> deposit : "入出金・残高照会"
-hubgw --> loan : "融資申込"
-hubgw --> fx : "振込依頼"
-deposit <-> limit : "限度額チェック"
-fx <-> limit : "限度額チェック"
-fx <-> fraud : "スコアリング (50ms以内)"
-deposit --> ledger : "仕訳"
-loan --> ledger : "仕訳"
-fx --> ledger : "仕訳"
-customer --> loan : "与信情報"
-fx <-> zengin : "全銀電文 (テレ為替)"
-fx <-> swift : "MT103 / ISO 20022"
-zengin --> boj : "差額決済"
-deposit <-> cardnet : "デビット決済"
-ledger --> batch : "日次締め"
-batch --> report : "帳票データ"
-batch --> dwh : "日次連携ファイル"
-deposit --> notice : "入出金通知"
-fraud --> notice : "不正利用の疑い"
-ledger ..> auditlog : "全取引の記録"
-hubgw ..> auditlog : "操作ログ"
-dwh --> regrep : "集計"
-auditlog --> regrep : "証跡"
+step "チャネル受付と勘定系処理" {
+  static hubgw ..> auditlog : "操作ログ"
+  static ledger ..> auditlog : "全取引の記録"
+  animate atm --> hubgw : "ISO 8583 (専用線)"
+  animate teller --> hubgw : "営業店電文 (閉域網)" [parallel: true]
+  animate netbank --> hubgw : "HTTPS + ワンタイムパスワード" [parallel: true]
+  animate mobile --> hubgw : "HTTPS + 生体認証トークン" [parallel: true]
+  animate callcenter --> hubgw : "CTI連携" [parallel: true]
+  animate openapi --> hubgw : "OAuth 2.0 / FAPI" [parallel: true]
+  animate hubgw --> customer : "顧客照会"
+  animate hubgw --> deposit : "入出金・残高照会" [parallel: true]
+  animate hubgw --> loan : "融資申込" [parallel: true]
+  animate hubgw --> fx : "振込依頼" [parallel: true]
+  animate customer --> loan : "与信情報"
+  animate deposit <-> limit : "限度額チェック" [parallel: true]
+  animate fx <-> limit : "限度額チェック" [parallel: true]
+  animate fx <-> fraud : "スコアリング (50ms以内)" [parallel: true]
+}
+
+step "元帳記帳・対外決済・日次報告" {
+  animate deposit --> ledger : "仕訳"
+  animate loan --> ledger : "仕訳" [parallel: true]
+  animate fx --> ledger : "仕訳" [parallel: true]
+  animate deposit <-> cardnet : "デビット決済"
+  animate fx <-> zengin : "全銀電文 (テレ為替)" [parallel: true]
+  animate fx <-> swift : "MT103 / ISO 20022" [parallel: true]
+  animate zengin --> boj : "差額決済"
+  animate deposit --> notice : "入出金通知"
+  animate fraud --> notice : "不正利用の疑い" [parallel: true]
+  animate ledger --> batch : "日次締め"
+  animate batch --> report : "帳票データ"
+  animate batch --> dwh : "日次連携ファイル" [parallel: true]
+  animate dwh --> regrep : "集計"
+  animate auditlog --> regrep : "証跡" [parallel: true]
+}

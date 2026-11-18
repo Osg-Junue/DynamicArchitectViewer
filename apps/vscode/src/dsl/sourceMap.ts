@@ -1,4 +1,4 @@
-export type ElementKind = 'node' | 'group' | 'edge';
+export type ElementKind = 'node' | 'group';
 
 export interface SourceRange {
   from: number;
@@ -8,12 +8,11 @@ export interface SourceRange {
 export interface ElementSource extends SourceRange {
   kind: ElementKind;
   id: string;
-  /** Range of the identifier token (absent for implicit edge IDs). */
   idRange?: SourceRange;
 }
 
 export interface SourceMap {
-  /** Keyed by element ID (implicit edge IDs use `from->to`). First declaration wins. */
+  /** Keyed by element ID. First declaration wins. */
   elements: ReadonlyMap<string, ElementSource>;
   /** Statement range for each step, by index. */
   steps: readonly SourceRange[];
@@ -24,7 +23,7 @@ export function rangeOf(node: SourceRange): SourceRange {
 }
 
 /**
- * Resolves a character offset in DSL text to the innermost element (`node`, `group`, or `edge`)
+ * Resolves a character offset in DSL text to the innermost element (`node` or `group`)
  * and/or the enclosing `step` index.
  */
 export function findAtOffset(

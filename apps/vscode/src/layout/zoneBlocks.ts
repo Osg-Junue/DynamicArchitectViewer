@@ -1,5 +1,7 @@
-import type { DavDocument, DavEdge } from '../model/types';
+import { synthesizedConnections } from '../model/connections';
+import type { DavConnection, DavDocument } from '../model/types';
 import { idPair, parentMap, topLevelGroups, zoneOfGroups, zoneOfNodes } from '../model/zones';
+import { analyzeFlow, type FlowAnalysis, flowPairKey } from './flow';
 import { linksOf, segmentsOf } from './links';
 import {
   EMPTY_GROUP_CONTENT,
@@ -30,6 +32,7 @@ const ROW_GAP = 44;
 export type ColumnLayout = (
   doc: DavDocument,
   rankOverrides?: ReadonlyMap<string, number>,
+  connections?: readonly DavConnection[],
 ) => Layout;
 
 /** Where the search put each zone. It holds no sizes, so it can be applied to resized zones. */
@@ -90,18 +93,22 @@ export function longLinkExcess(doc: DavDocument, layout: Layout): number {
 
 /** Everything the placement of the zones depends on, so other edits can reuse the last one. */
 export function structureKey(doc: DavDocument): string {
+  const flow = analyzeFlow(doc);
   return JSON.stringify([
     doc.nodes.map((n) => [n.id, n.parentId ?? '']),
     doc.groups.map((g) => [g.id, g.parentId ?? '']),
-    doc.edges.map((e) => [e.from, e.to]),
+    flow.connections.map((c) => [c.from, c.to, c.role]),
   ]);
 }
 
-/** The same diagram without what a person is most likely typing at the moment. */
+/** The same diagram without `static` labels so typing a label cannot invalidate cached placement. */
 export function withoutLabels(doc: DavDocument): DavDocument {
   return {
     ...doc,
-    edges: doc.edges.map(({ label: _label, ...edge }) => edge),
+    steps: doc.steps.map((step) => ({
+      ...step,
+      statics: step.statics.map(({ label: _label, ...rest }) => rest),
+    })),
   };
 }
 
@@ -127,7 +134,7 @@ export function ownersOf(doc: DavDocument): Map<string, string> {
 /** How many links run between zones: the time the search takes grows with them. */
 export function linksBetweenZones(doc: DavDocument): number {
   const owners = ownersOf(doc);
-  return doc.edges.filter((e) => {
+  return synthesizedConnections(doc).filter((e) => {
     const from = owners.get(e.from);
     const to = owners.get(e.to);
     return from !== undefined && to !== undefined && from !== to;
@@ -207,8 +214,13 @@ export function buildSingleZoneBlock(
     .filter((g) => g.id !== zoneId && zoneOf.get(g.id) === zoneId)
     .map((g) => detach(g, zoneId));
   const ids = new Set(nodes.map((n) => n.id));
-  const edges = doc.edges.filter((e) => ids.has(e.from) && ids.has(e.to));
-  const loopRoom = Math.max(0, ...selfLoopRoom({ edges }).values());
+  const connections = synthesizedConnections(doc).filter((e) => ids.has(e.from) && ids.has(e.to));
+  const loopSteps = doc.steps.map((s) => ({
+    ...s,
+    animations: s.animations.filter((a) => ids.has(a.from) && ids.has(a.to)),
+    statics: s.statics.filter((st) => ids.has(st.from) && ids.has(st.to)),
+  }));
+  const loopRoom = Math.max(0, ...selfLoopRoom({ steps: loopSteps }).values());
   const head = GROUP_HEADER + pad + loopRoom;
   const frame = (width: number, height: number): [string, Rect] => [
     zoneId,
@@ -235,7 +247,11 @@ export function buildSingleZoneBlock(
     };
   }
 
-  const local = columnLayout({ ...doc, nodes, groups: nested, edges, steps: [] }, rankOverrides);
+  const local = columnLayout(
+    { ...doc, nodes, groups: nested, steps: loopSteps },
+    rankOverrides,
+    connections,
+  );
   const bounds = enclosingRect([...Object.values(local.nodes), ...Object.values(local.groups)]);
   const width = bounds.width + pad * 2;
   const contentHeight = bounds.height;
@@ -301,49 +317,109 @@ export function buildBlocks(
   return { blocks, owners };
 }
 
-/** Starting point: blocks in the columns of a graph that has one node per block. */
+/**
+ * Starting point for zone placement: arranges primary blocks left-to-right by flow stage,
+ * wraps over-wide synthetic chains into compact rows, and places auxiliary cross-cutting zones
+ * in upper/lower bands aligned with the stages they connect to.
+ */
 export function initialPositions(
   doc: DavDocument,
   blocks: readonly Block[],
   owners: ReadonlyMap<string, string>,
-  columnLayout: ColumnLayout,
+  _columnLayout: ColumnLayout,
+  flow: FlowAnalysis = analyzeFlow(doc),
 ): Map<string, { x: number; y: number }> {
-  const seen = new Set<string>();
-  const edges: DavEdge[] = [];
-  for (const e of doc.edges) {
-    const from = owners.get(e.from);
-    const to = owners.get(e.to);
-    if (!from || !to || from === to || seen.has(pairKey(from, to))) continue;
-    seen.add(pairKey(from, to));
-    edges.push({
-      id: `${from}>${to}`,
-      explicitId: false,
-      from,
-      to,
-      style: 'solid',
-      direction: 'forward',
-      visible: true,
-    });
+  const blockById = new Map(blocks.map((b) => [b.id, b]));
+  const primary = blocks.filter((b) => !flow.auxiliaryZones.has(b.id));
+  const auxiliary = blocks.filter((b) => flow.auxiliaryZones.has(b.id));
+
+  // If every zone was marked auxiliary, fall back to treating all blocks as primary.
+  if (primary.length === 0) {
+    primary.push(...auxiliary);
+    auxiliary.length = 0;
   }
-  const meta = columnLayout({
-    ...doc,
-    groups: [],
-    edges,
-    steps: [],
-    nodes: blocks.map((b) => ({ id: b.id, label: '', icon: 'server', visible: true })),
-  });
-  const xOf = (b: Block) => meta.nodes[b.id]?.x ?? 0;
-  const yOf = (b: Block) => meta.nodes[b.id]?.y ?? 0;
-  const columns = [...new Set(blocks.map(xOf))]
-    .sort((a, b) => a - b)
-    .map((x) => blocks.filter((b) => xOf(b) === x).sort((a, b) => yOf(a) - yOf(b)));
+
+  const stageNumbers = [...new Set(primary.map((b) => flow.zoneStage.get(b.id) ?? 0))].sort(
+    (a, b) => a - b,
+  );
+  const columns: Block[][] = stageNumbers.map((stage) =>
+    primary.filter((b) => (flow.zoneStage.get(b.id) ?? 0) === stage),
+  );
+
+  // Check if primary columns have many linear stages (e.g. long 8+ zone chains); fall back
+  // to column-grid grouping or wrap rows only when primary backbone is over-wide.
+  const maxWidthOfCols = columns.reduce(
+    (sum, col) => sum + Math.max(...col.map((b) => b.width)),
+    Math.max(0, columns.length - 1) * COLUMN_GAP,
+  );
+  if (columns.length >= 6 && maxWidthOfCols > 3200) {
+    // Wrap long chains cleanly left-to-right across 2..3 horizontal bands.
+    const rowWidthTarget = Math.max(1600, maxWidthOfCols / Math.ceil(columns.length / 4));
+    const rows: Block[][][] = [[]];
+    let curW = 0;
+    for (const col of columns) {
+      const colW = Math.max(...col.map((b) => b.width));
+      const curRow = rows[rows.length - 1] as Block[][];
+      if (curRow.length > 0 && curW + COLUMN_GAP + colW > rowWidthTarget) {
+        rows.push([col]);
+        curW = colW;
+      } else {
+        if (curRow.length > 0) curW += COLUMN_GAP;
+        curRow.push(col);
+        curW += colW;
+      }
+    }
+    const out = new Map<string, { x: number; y: number }>();
+    let rowY = 0;
+    for (const rowCols of rows) {
+      const colHeights = rowCols.map(
+        (col) => col.reduce((s, b) => s + b.height, 0) + Math.max(0, col.length - 1) * ROW_GAP,
+      );
+      const rowH = Math.max(0, ...colHeights);
+      let x = 0;
+      rowCols.forEach((col, ci) => {
+        let y = rowY + (rowH - (colHeights[ci] ?? 0)) / 2;
+        for (const b of col) {
+          out.set(b.id, { x, y });
+          y += b.height + ROW_GAP;
+        }
+        x += Math.max(...col.map((b) => b.width)) + COLUMN_GAP;
+      });
+      rowY += rowH + VERTICAL_CLEARANCE + 24;
+    }
+    placeAuxiliaryBlocks(auxiliary, blockById, owners, flow, out);
+    return out;
+  }
+
+  // Build neighbor lookup to order stacked zones within a stage near their connected neighbors.
+  const predOwners = new Map<string, string[]>();
+  for (const c of flow.connections) {
+    if (c.role === 'return') continue;
+    const bu = owners.get(c.from);
+    const bv = owners.get(c.to);
+    if (!bu || !bv || bu === bv) continue;
+    const list = predOwners.get(bv);
+    if (list) list.push(bu);
+    else predOwners.set(bv, [bu]);
+  }
   const heightOf = (column: readonly Block[]) =>
-    column.reduce((sum, b) => sum + b.height, 0) + (column.length - 1) * ROW_GAP;
-  const tallest = Math.max(...columns.map(heightOf));
+    column.reduce((sum, b) => sum + b.height, 0) + Math.max(0, column.length - 1) * ROW_GAP;
+  const tallest = Math.max(0, ...columns.map(heightOf));
 
   const out = new Map<string, { x: number; y: number }>();
   let x = 0;
   for (const column of columns) {
+    column.sort((a, b) => {
+      const meanY = (id: string) => {
+        const ys = (predOwners.get(id) ?? []).flatMap((p) => {
+          const pos = out.get(p);
+          const pb = blockById.get(p);
+          return pos && pb ? [pos.y + pb.height / 2] : [];
+        });
+        return ys.length > 0 ? ys.reduce((s, v) => s + v, 0) / ys.length : Number.POSITIVE_INFINITY;
+      };
+      return meanY(a.id) - meanY(b.id) || blocks.indexOf(a) - blocks.indexOf(b);
+    });
     let y = (tallest - heightOf(column)) / 2;
     for (const b of column) {
       out.set(b.id, { x, y });
@@ -351,7 +427,72 @@ export function initialPositions(
     }
     x += Math.max(...column.map((b) => b.width)) + COLUMN_GAP;
   }
+
+  placeAuxiliaryBlocks(auxiliary, blockById, owners, flow, out);
   return out;
+}
+
+function placeAuxiliaryBlocks(
+  auxiliary: readonly Block[],
+  blockById: ReadonlyMap<string, Block>,
+  owners: ReadonlyMap<string, string>,
+  flow: FlowAnalysis,
+  out: Map<string, { x: number; y: number }>,
+): void {
+  if (auxiliary.length === 0) return;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  let minX = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  for (const [id, pos] of out) {
+    const b = blockById.get(id);
+    if (!b) continue;
+    minX = Math.min(minX, pos.x);
+    maxX = Math.max(maxX, pos.x + b.width);
+    minY = Math.min(minY, pos.y);
+    maxY = Math.max(maxY, pos.y + b.height);
+  }
+  const midX = Number.isFinite(minX) ? (minX + maxX) / 2 : 0;
+  const nbrs = new Map<string, Set<string>>();
+  for (const c of flow.connections) {
+    const bu = owners.get(c.from);
+    const bv = owners.get(c.to);
+    if (!bu || !bv || bu === bv) continue;
+    if (!nbrs.has(bu)) nbrs.set(bu, new Set());
+    if (!nbrs.has(bv)) nbrs.set(bv, new Set());
+    nbrs.get(bu)?.add(bv);
+    nbrs.get(bv)?.add(bu);
+  }
+
+  const desiredCenter = (id: string) => {
+    const xs = [...(nbrs.get(id) ?? [])].flatMap((n) => {
+      const p = out.get(n);
+      const nb = blockById.get(n);
+      return p && nb && !flow.auxiliaryZones.has(n) ? [p.x + nb.width / 2] : [];
+    });
+    return xs.length > 0 ? xs.reduce((s, v) => s + v, 0) / xs.length : midX;
+  };
+
+  // Sort auxiliary blocks by barycenter X and alternate below/above bands so they stay clear.
+  const ordered = [...auxiliary].sort((a, b) => desiredCenter(a.id) - desiredCenter(b.id));
+  let aboveEnd = Number.NEGATIVE_INFINITY;
+  let belowEnd = Number.NEGATIVE_INFINITY;
+  ordered.forEach((b, idx) => {
+    const cx = desiredCenter(b.id);
+    const rawX = cx - b.width / 2;
+    const goAbove = idx % 2 === 1;
+    if (goAbove) {
+      const px = Math.max(rawX, aboveEnd + HORIZONTAL_CLEARANCE);
+      const py = (Number.isFinite(minY) ? minY : 0) - VERTICAL_CLEARANCE - 24 - b.height;
+      out.set(b.id, { x: px, y: py });
+      aboveEnd = px + b.width;
+    } else {
+      const px = Math.max(rawX, belowEnd + HORIZONTAL_CLEARANCE);
+      const py = (Number.isFinite(maxY) ? maxY : 0) + VERTICAL_CLEARANCE + 24;
+      out.set(b.id, { x: px, y: py });
+      belowEnd = px + b.width;
+    }
+  });
 }
 
 /** Where the top of node `id` is in a zone that is upside down; `rect` is where it is in the zone as built. */

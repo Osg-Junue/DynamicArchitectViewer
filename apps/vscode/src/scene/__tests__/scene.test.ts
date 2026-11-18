@@ -28,29 +28,24 @@ import { collectAttrs, collectText, findAll, overlap } from './helpers';
 const buildScene = (view: ResolvedView) => buildSceneWith(view, ICON_SHAPES);
 const buildPacket = (packet: Packet, t?: number) => buildPacketWith(packet, ICON_SHAPES, t);
 
-const DSL = `dav 1
-title "T"
+const DSL = `title "T"
 group vpc {
   node api
   node db [badge: "STANDBY"]
 }
 node client [icon: browser]
 node hidden [visible: false]
-client --> api : "HTTPS"
-api --> db
-api ..> hidden [id: failover, visible: false]
-client <-> db
 
 step "one" {
   focus client
   state db [badge: "DOWN"]
+  static db <-> client : "REPL"
   animate client --> api : "GET"
   animate api --> db [parallel: true]
   animate db --> client : "back"
 }
 step "two" {
-  state failover [visible: true]
-  animate api --> hidden
+  animate api ..> hidden : "Failover"
 }
 step "three" {
   focus vpc
@@ -64,13 +59,14 @@ const node = (i: number | null, id: string) => view(i).nodes.find((n) => n.id ==
 const edge = (i: number | null, id: string) => view(i).edges.find((e) => e.id === id);
 
 describe('resolveView', () => {
-  it('shows the base state in overview without dimming', () => {
+  it('shows the base state in overview without dimming or edge labels', () => {
     const v = view(null);
     expect(v.stepIndex).toBeNull();
     expect(v.phases).toEqual([]);
     expect(v.nodes.every((n) => !n.dimmed && !n.focused)).toBe(true);
     expect(node(null, 'db')).toMatchObject({ badge: 'STANDBY' });
     expect(node(null, 'hidden')).toBeUndefined();
+    expect(v.edges.every((e) => e.label === undefined && e.labelAt === undefined)).toBe(true);
   });
 
   it('applies state overrides and focus for the step', () => {
@@ -78,12 +74,26 @@ describe('resolveView', () => {
     expect(node(0, 'client')).toMatchObject({ focused: true, dimmed: false });
   });
 
-  it('accumulates state overrides across steps', () => {
-    expect(node(1, 'db')).toMatchObject({ badge: 'DOWN' });
-    expect(node(2, 'db')).toMatchObject({ badge: 'DOWN' });
-    expect(edge(1, 'failover')).toBeDefined();
-    // Still overridden to visible, but hidden because its endpoint is hidden again.
-    expect(edge(2, 'failover')).toBeUndefined();
+  it('does not carry state overrides across steps', () => {
+    expect(node(0, 'db')).toMatchObject({ badge: 'DOWN' });
+    expect(node(1, 'db')).toMatchObject({ badge: 'STANDBY' });
+    expect(node(2, 'db')).toMatchObject({ badge: 'STANDBY' });
+  });
+
+  it('renders static labels only in the step that declares them, not on overview', () => {
+    expect(edge(0, 'db->client')).toMatchObject({
+      label: 'REPL',
+      direction: 'bidirectional',
+      active: true,
+    });
+    expect(edge(0, 'db->client')?.labelAt).toBeDefined();
+    expect(edge(null, 'db->client')).toMatchObject({
+      direction: 'bidirectional',
+      style: 'solid',
+      active: false,
+    });
+    expect(edge(null, 'db->client')?.label).toBeUndefined();
+    expect(edge(2, 'db->client')).toBeUndefined();
   });
 
   it('does not carry focus or animations to later steps', () => {
@@ -99,17 +109,25 @@ describe('resolveView', () => {
     ]);
   });
 
-  it('reverses the path when a packet travels against a bidirectional edge', () => {
-    const packet = view(0).phases[1]?.[0];
-    const e = edge(0, 'client->db');
+  it('reverses the path when a packet travels against a bidirectional connection', () => {
+    const bidiDoc = parse(
+      'node a\nnode b\nstep "S" {\n  animate a --> b\n  animate b --> a\n}\n',
+    ).document;
+    const bidiView = resolveView(bidiDoc, computeLayout(bidiDoc), 0);
+    const packet = bidiView.phases[1]?.[0];
+    const e = bidiView.edges.find((item) => item.id === 'a->b');
+    expect(e?.direction).toBe('bidirectional');
     expect(packet && railEnds(packet.path).start).toEqual(e && railEnds(e.path).end);
     expect(e?.active).toBe(true);
   });
 
   it('makes animated endpoints and their edges visible for that step only', () => {
+    expect(node(null, 'hidden')).toBeUndefined();
+    expect(edge(null, 'api->hidden')).toBeUndefined();
     expect(node(1, 'hidden')).toBeDefined();
-    expect(edge(1, 'failover')?.active).toBe(true);
+    expect(edge(1, 'api->hidden')).toMatchObject({ active: true, style: 'dashed' });
     expect(node(2, 'hidden')).toBeUndefined();
+    expect(edge(2, 'api->hidden')).toBeUndefined();
   });
 
   it('focusing a group keeps its subtree undimmed', () => {
@@ -128,10 +146,10 @@ describe('resolveView', () => {
 
   it('draws every edge on the overview and in a step that focuses on nothing', () => {
     const dsl =
-      'dav 1\nnode a\nnode b\nnode c\na --> b\nb --> c\nstep "S" {\n  desc "Nothing"\n}\n';
+      'node a\nnode b\nnode c\nstep "1" {\n  animate a --> b\n  animate b --> c\n}\nstep "2" {\n  desc "Nothing"\n}\n';
     const { document } = parse(dsl);
     const layout = computeLayout(document);
-    expect(resolveView(document, layout, 0).edges.map((e) => e.id)).toEqual(['a->b', 'b->c']);
+    expect(resolveView(document, layout, 1).edges.map((e) => e.id)).toEqual(['a->b', 'b->c']);
     expect(resolveView(document, layout, null).edges).toHaveLength(2);
   });
 
@@ -151,12 +169,15 @@ describe('buildScene', () => {
     const scene = buildScene(view(0));
     const ids = findAll(scene, (e) => 'data-id' in e.attrs).map((e) => e.attrs['data-id']);
     expect(ids).toEqual(expect.arrayContaining(['vpc', 'api', 'db', 'client', 'client->api']));
-    expect(collectText(scene)).toEqual(expect.arrayContaining(['HTTPS', 'DOWN']));
+    expect(collectText(scene)).toEqual(expect.arrayContaining(['REPL', 'DOWN']));
+
+    const overviewScene = buildScene(view(null));
+    expect(collectText(overviewScene)).not.toContain('REPL');
   });
 
   it('carries user text only as text nodes, never as markup', () => {
     const evil = parse(
-      'dav 1\nnode x "<img src=x onerror=alert(1)>" [sub: "</text><script>", badge: "\\"><b>"]',
+      'node x "<img src=x onerror=alert(1)>" [sub: "</text><script>", badge: "\\"><b>"]\nstep "S" {}',
     ).document;
     const scene = buildScene(resolveView(evil, computeLayout(evil), null));
     const texts = collectText(scene).join('|');
@@ -168,7 +189,7 @@ describe('buildScene', () => {
 
   it('draws an icon chip on a packet only when the animate names an icon', () => {
     const doc = parse(
-      'dav 1\nnode a\nnode b\na --> b\nstep "S" {\n  animate a --> b [icon: key, color: red]\n  animate a --> b\n}\n',
+      'node a\nnode b\nstep "S" {\n  animate a --> b [icon: key, color: red]\n  animate a --> b\n}\n',
     ).document;
     const phases = resolveView(doc, computeLayout(doc), 0).phases;
     const [withIcon, plain] = [phases[0]?.[0], phases[1]?.[0]];
@@ -188,7 +209,7 @@ describe('buildScene', () => {
 
   it('renders a callout that stays still while only the marker moves', () => {
     const doc = parse(
-      'dav 1\nnode a "A"\nnode b "B"\na --> b\nstep "S" {\n  animate a --> b : "POST /v1/charges" [desc: "Edge WAF inspects payload and verifies mTLS before forwarding"]\n}\n',
+      'node a "A"\nnode b "B"\nstep "S" {\n  animate a --> b : "POST /v1/charges" [desc: "Edge WAF inspects payload and verifies mTLS before forwarding"]\n}\n',
     ).document;
     const pkt = resolveView(doc, computeLayout(doc), 0).phases[0]?.[0];
     expect(pkt).toBeDefined();
@@ -217,7 +238,7 @@ describe('buildScene', () => {
 
   it('keeps the accent independent of author colors', () => {
     const doc = parse(
-      'dav 1\nnode a [color: orange]\nnode b [color: yellow]\na --> b [color: orange]\nstep "S" {\n  focus a\n  animate a --> b\n}\n',
+      'node a [color: orange]\nnode b [color: yellow]\nstep "S" {\n  focus a\n  static a --> b [color: orange]\n  animate a --> b\n}\n',
     ).document;
     const scene = buildScene(resolveView(doc, computeLayout(doc), 0));
 
@@ -231,7 +252,7 @@ describe('buildScene', () => {
 
   it('shows an authored color on the station, icon and badge', () => {
     const doc = parse(
-      'dav 1\nnode a [icon: database, badge: "A"]\nnode b [color: Red, badge: "B"]\nnode c [badge: "C"]\n',
+      'node a [icon: database, badge: "A"]\nnode b [color: Red, badge: "B"]\nnode c [badge: "C"]\nstep "S" {}\n',
     ).document;
     const scene = buildScene(resolveView(doc, computeLayout(doc), null));
     const fills = findAll(scene, (e) => e.attrs.class === 'dav-badge').map(
@@ -246,21 +267,21 @@ describe('buildScene', () => {
     expect(strokes.length).toBeGreaterThanOrEqual(2);
   });
 
-  it('restores the declared color after color: none', () => {
+  it('clears a declared color with color: none in that step only', () => {
     const doc = parse(
-      'dav 1\nnode a [color: blue]\nnode b\nstep "1" {\n  state a [color: red]\n  state b [color: red]\n}\nstep "2" {\n  state a [color: none]\n  state b [color: none]\n}\nstep "3" {\n  focus a\n}\n',
+      'node a [color: blue]\nnode b\nstep "1" {\n  state a [color: red]\n  state b [color: red]\n}\nstep "2" {\n  state a [color: none]\n  state b [color: none]\n}\nstep "3" {\n  focus a\n}\n',
     ).document;
     const layout = computeLayout(doc);
     const accent = (step: number, id: string) =>
       resolveView(doc, layout, step).nodes.find((n) => n.id === id)?.accent;
     expect([accent(0, 'a'), accent(0, 'b')]).toEqual(['red', 'red']);
-    expect([accent(1, 'a'), accent(1, 'b')]).toEqual(['blue', undefined]);
+    expect([accent(1, 'a'), accent(1, 'b')]).toEqual([undefined, undefined]);
     expect([accent(2, 'a'), accent(2, 'b')]).toEqual(['blue', undefined]);
   });
 
   it('routes a rail around stations in its way', () => {
     const doc = parse(
-      'dav 1\nnode a\nnode b\nnode c\nnode d\na --> b\nb --> c\na --> d\nd --> c\na --> c\n',
+      'node a\nnode b\nnode c\nnode d\nstep "S" {\n  static a --> b\n  static b --> c\n  static a --> d\n  static d --> c\n  static a --> c\n}\n',
     ).document;
     const layout = computeLayout(doc);
     const v = resolveView(doc, layout, null);
@@ -279,7 +300,7 @@ describe('buildScene', () => {
 
   it('draws active flows above every rail', () => {
     const doc = parse(
-      'dav 1\nnode a\nnode b\nnode c\na --> c\nb --> c\nstep "S" {\n  animate a --> c\n}\n',
+      'node a\nnode b\nnode c\nstep "S" {\n  static b --> c\n  animate a --> c\n}\n',
     ).document;
     const scene = buildScene(resolveView(doc, computeLayout(doc), 0));
     const layers = scene.children.map((c) => (typeof c === 'string' ? '' : c.attrs.class));
@@ -290,7 +311,7 @@ describe('buildScene', () => {
   });
 
   it('draws zone names above the rails', () => {
-    const doc = parse('dav 1\ngroup g "Zone" {\n  node a\n}\nnode b\na --> b\n').document;
+    const doc = parse('group g "Zone" {\n  node a\n}\nnode b\nstep "S" {\n  animate a --> b\n}\n').document;
     const scene = buildScene(resolveView(doc, computeLayout(doc), null));
     const layerOf = (name: string) =>
       scene.children.findIndex((c) => typeof c !== 'string' && c.attrs.class === name);
@@ -302,7 +323,7 @@ describe('buildScene', () => {
   it('makes a round trip only when the animate arrow is bidirectional', () => {
     const packetFor = (arrow: string) => {
       const doc = parse(
-        `dav 1\nnode a\nnode b\na <-> b\nstep "S" {\n  animate a ${arrow} b\n}\n`,
+        `node a\nnode b\nstep "S" {\n  animate a ${arrow} b\n}\n`,
       ).document;
       const packet = resolveView(doc, computeLayout(doc), 0).phases[0]?.[0];
       if (!packet) throw new Error('missing packet');
@@ -344,12 +365,9 @@ describe('buildScene', () => {
     },
   );
 
-  const CLOSE_PARALLEL = `dav 1
-node a
+  const CLOSE_PARALLEL = `node a
 node b
 node c
-a --> b
-a --> c
 step "S" {
   animate a --> b : "First" [desc: "A description long enough to make this callout wide"]
   animate a --> c : "Second" [parallel: true, desc: "Another description of a similar width"]
@@ -377,7 +395,7 @@ step "S" {
 
   it('marks only active edge labels for emphasis', () => {
     const doc = parse(
-      'dav 1\nnode a\nnode b\nnode c\na --> b : "on"\nb --> c : "off"\nstep "S" {\n  animate a --> b\n}\n',
+      'node a\nnode b\nnode c\nstep "S" {\n  static a --> b : "on"\n  static b --> c : "off"\n  animate a --> b\n}\n',
     ).document;
     const scene = buildScene(resolveView(doc, computeLayout(doc), 0));
     const [on, off] = findAll(scene, (e) => String(e.attrs.class).startsWith('dav-edge-label')).map(
@@ -389,7 +407,7 @@ step "S" {
 
   it('gives an edge animated twice the color of each phase', () => {
     const doc = parse(
-      'dav 1\nnode a\nnode b\na --> b\nstep "S" {\n  animate a --> b [color: red]\n  animate a --> b [color: blue]\n}\n',
+      'node a\nnode b\nstep "S" {\n  animate a --> b [color: red]\n  animate a --> b [color: blue]\n}\n',
     ).document;
     const { phases } = resolveView(doc, computeLayout(doc), 0);
     expect(phases.map((packets) => [...flowColors(packets)])).toEqual([
@@ -402,7 +420,7 @@ step "S" {
 
   it('keeps the line breaks of a callout description', () => {
     const doc = parse(
-      'dav 1\nnode a\nnode b\na --> b\nstep "S" {\n  animate a --> b [desc: "first\\n\\n  second\\nthird"]\n}\n',
+      'node a\nnode b\nstep "S" {\n  animate a --> b [desc: "first\\n\\n  second\\nthird"]\n}\n',
     ).document;
     const packet = resolveView(doc, computeLayout(doc), 0).phases[0]?.[0];
     expect(packet && computePacketCalloutBox(packet)?.descLines).toEqual([
@@ -436,7 +454,7 @@ step "S" {
 
   it('keeps the child groups of a focused group undimmed', () => {
     const doc = parse(
-      'dav 1\ngroup parent {\n  group child {}\n}\ngroup other {}\nnode a\nstep "S" {\n  focus parent\n}\n',
+      'group parent {\n  group child {}\n}\ngroup other {}\nnode a\nstep "S" {\n  focus parent\n}\n',
     ).document;
     const dimmed = (id: string) =>
       resolveView(doc, computeLayout(doc), 0).groups.find((g) => g.id === id)?.dimmed;
@@ -447,7 +465,7 @@ step "S" {
 
   it('colors a running stop like its flow', () => {
     const doc = parse(
-      'dav 1\nnode a\nnode b\nnode c\nstep "S" {\n  animate a --> b\n  animate b --> c [color: red]\n}\n',
+      'node a\nnode b\nnode c\nstep "S" {\n  animate a --> b\n  animate b --> c [color: red]\n}\n',
     ).document;
     const stops = findAll(
       buildScene(resolveView(doc, computeLayout(doc), 0)),
@@ -464,25 +482,26 @@ step "S" {
   });
 
   it('starts two rails of one station at different points', () => {
-    const doc = parse('dav 1\nnode a\nnode b\nnode c\na --> b\na --> c\n').document;
+    const doc = parse(
+      'node a\nnode b\nnode c\nstep "S" {\n  static a --> b\n  static a --> c\n}\n',
+    ).document;
     const v = resolveView(doc, computeLayout(doc), null);
     const [first, second] = v.edges;
     expect(first && railEnds(first.path).start).not.toEqual(second && railEnds(second.path).start);
   });
 
-  it('runs opposite directions on parallel tracks', () => {
+  it('runs opposite directions in reverse along the shared merged rail', () => {
     const doc = parse(
-      'dav 1\nnode a\nnode b\na --> b\nb --> a\nstep "S" {\n  animate a --> b\n  animate b --> a\n}\n',
+      'node a\nnode b\nstep "S" {\n  animate a --> b\n  animate b --> a\n}\n',
     ).document;
     const v = resolveView(doc, computeLayout(doc), 0);
-    const y = (id: string) => {
-      const edge = v.edges.find((e) => e.id === id);
-      return edge ? railEnds(edge.path).start.y : 0;
-    };
-    // Each keeps to the left of its own direction: left to right above, the way back below.
-    expect(y('a->b')).toBeLessThan(y('b->a'));
+    expect(v.edges).toHaveLength(1);
+    const edge = v.edges[0];
+    expect(edge).toMatchObject({ id: 'a->b', direction: 'bidirectional', active: true });
+    const fwd = v.phases[0]?.[0];
     const back = v.phases[1]?.[0];
-    expect(back && railEnds(back.path).start.y).toBe(y('b->a'));
+    expect(fwd && edge && railEnds(fwd.path).start).toEqual(edge && railEnds(edge.path).start);
+    expect(back && edge && railEnds(back.path).start).toEqual(edge && railEnds(edge.path).end);
   });
 
   it('numbers the phases of a multi-phase step', () => {
@@ -494,7 +513,7 @@ step "S" {
 
   it('puts a callout next to its rail, off the stations and labels at its ends', () => {
     const doc = parse(
-      'dav 1\nnode a "A"\nnode b [icon: modal]\na --> b\nstep "S" {\n  animate a --> b : "x" [desc: "long description"]\n}\n',
+      'node a "A"\nnode b [icon: modal]\nstep "S" {\n  animate a --> b : "x" [desc: "long description"]\n}\n',
     ).document;
     const layout = computeLayout(doc);
     const stepView = resolveView(doc, layout, 0);
@@ -527,7 +546,9 @@ step "S" {
   );
 
   it('renders every built-in icon', () => {
-    const dsl = ['dav 1', ...ICON_NAMES.map((icon, i) => `node n${i} [icon: ${icon}]`)].join('\n');
+    const dsl = [...ICON_NAMES.map((icon, i) => `node n${i} [icon: ${icon}]`), 'step "S" {}'].join(
+      '\n',
+    );
     const { document, diagnostics } = parse(dsl);
     expect(diagnostics).toEqual([]);
     const scene = buildScene(resolveView(document, computeLayout(document), null));
@@ -543,7 +564,9 @@ describe('self-loops', () => {
   };
 
   it('draws a loop above and to the right of the station, without shifting tracks', () => {
-    const { document, layout } = sourced('dav 1\nnode a\nnode b\na --> a\na --> b');
+    const { document, layout } = sourced(
+      'node a\nnode b\nstep "S" {\n  animate a --> a\n  static a --> b\n}',
+    );
     const view = resolveView(document, layout, null);
     const rect = layout.nodes.a as Rect;
     const station = stationRect(rect, 'server');
@@ -560,24 +583,25 @@ describe('self-loops', () => {
     expect(Math.hypot(p0.x - cx, p0.y - cy)).toBeCloseTo(station.width / 2);
   });
 
-  it('runs a packet around the loop and nests later loops outside', () => {
+  it('runs a packet around the loop and shares the self-loop rail with static', () => {
     const { document, layout } = sourced(
-      'dav 1\nnode a\na --> a\na ..> a [id: e2]\nstep "s" { animate a --> a : "tick" }',
+      'node a\nstep "s" {\n  static a ..> a : "check"\n  animate a --> a : "tick"\n}',
     );
     const view = resolveView(document, layout, 0);
-    const [first, second] = view.edges;
-    expect(view.phases[0]?.[0]?.path).toEqual(first?.path);
-    if (!first || !second) throw new Error('missing loop');
-    expect((second.path as Bezier).p1.y).toBeLessThan((first.path as Bezier).p1.y);
+    expect(view.edges).toHaveLength(1);
+    const [loop] = view.edges;
+    expect(loop).toMatchObject({ id: 'a->a', style: 'solid', active: true, label: 'check' });
+    expect(loop?.labelAt).toBeDefined();
+    expect(view.phases[0]?.[0]?.path).toEqual(loop?.path);
   });
 
   it('reserves room above the node, and keeps rows level and groups around the loop', () => {
-    const plain = sourced('dav 1\nnode a\nnode b\na --> b').layout;
-    const looped = sourced('dav 1\nnode a\nnode b\na --> a\na --> b').layout;
+    const plain = sourced('node a\nnode b\nstep "S" {\n  animate a --> b\n}').layout;
+    const looped = sourced('node a\nnode b\nstep "S" {\n  animate a --> a\n  animate a --> b\n}').layout;
     expect((looped.nodes.a as Rect).y).toBeGreaterThan((plain.nodes.a as Rect).y);
     expect((looped.nodes.a as Rect).y).toBe((looped.nodes.b as Rect).y);
 
-    const grouped = sourced('dav 1\ngroup g { node a }\na --> a').layout;
+    const grouped = sourced('group g { node a }\nstep "S" {\n  animate a --> a\n}').layout;
     expect((grouped.groups.g as Rect).y).toBeLessThanOrEqual((grouped.nodes.a as Rect).y - 30 - 34);
   });
 });
@@ -597,18 +621,18 @@ describe('numbered stops on a shared rail', () => {
     );
 
   it.each([
-    ['one direction', 'a --> b', 'animate a --> b\n  animate a --> b\n  animate a --> b'],
-    ['both directions of a shared rail', 'a <-> b', 'animate a --> b\n  animate b --> a'],
-    ['a self-loop', 'a --> a', 'animate a --> a\n  animate a --> a\n  animate a --> a'],
-  ])('keeps the numbers apart on %s', (_name, edge, animations) => {
-    const stops = stopCenters(`dav 1\nnode a\nnode b\n${edge}\nstep "S" {\n  ${animations}\n}\n`);
+    ['one direction', 'animate a --> b\n  animate a --> b\n  animate a --> b'],
+    ['both directions of a shared rail', 'animate a --> b\n  animate b --> a'],
+    ['a self-loop', 'animate a --> a\n  animate a --> a\n  animate a --> a'],
+  ])('keeps the numbers apart on %s', (_name, animations) => {
+    const stops = stopCenters(`node a\nnode b\nstep "S" {\n  ${animations}\n}\n`);
     expect(stops.length).toBeGreaterThanOrEqual(2);
     expect(closestPair(stops)).toBeGreaterThanOrEqual(22);
   });
 
   it('keeps a lone number at the middle of its rail', () => {
     const { document } = parse(
-      'dav 1\nnode a\nnode b\nnode c\na --> b\nb --> c\nstep "S" {\n  animate a --> b\n  animate b --> c\n}\n',
+      'node a\nnode b\nnode c\nstep "S" {\n  animate a --> b\n  animate b --> c\n}\n',
     );
     const view = resolveView(document, computeLayout(document), 0);
     const circle = findAll(buildScene(view), (e) => e.attrs.class === 'dav-stop')[0]?.children[0];
@@ -618,43 +642,56 @@ describe('numbered stops on a shared rail', () => {
   });
 });
 
-describe('edges between the same stations', () => {
+describe('connections between stations', () => {
   const build = (dsl: string, step: number | null = null) => {
     const { document } = parse(dsl);
     return resolveView(document, computeLayout(document), step);
   };
 
-  it('prefers the edge on screen when a step hides the first one', () => {
-    const view = build(
-      'dav 1\nnode a\nnode b\na --> b [id: primary]\na ..> b [id: failover, visible: false]\nstep "S" {\n  state primary [visible: false]\n  state failover [visible: true]\n  animate a --> b\n}\n',
-      0,
-    );
-    expect(view.edges.map((e) => [e.id, e.active])).toEqual([['failover', true]]);
-  });
+  it('collapses multiple statements on the same pair into one merged overview rail', () => {
+    const dsl = `node a
+node b
+step "1" {
+  animate a ..> b
+}
+step "2" {
+  animate b --> a
+}
+`;
+    const overview = build(dsl, null);
+    expect(overview.edges).toHaveLength(1);
+    expect(overview.edges[0]).toMatchObject({
+      id: 'a->b',
+      style: 'solid',
+      direction: 'bidirectional',
+      active: false,
+    });
+    expect(overview.edges[0]?.label).toBeUndefined();
 
-  it.each([
-    ['same direction', 'a --> b [id: x]\na ..> b [id: y]'],
-    ['a bidirectional edge first', 'a <-> b\nb --> a [id: y]'],
-    ['a bidirectional edge last', 'b --> a [id: x]\na <-> b'],
-  ])('keeps them apart with %s', (_name, edges) => {
-    const [first, second] = build(`dav 1\nnode a\nnode b\n${edges}\n`).edges;
-    const a = pointAt(first?.path as Rail, 0.5);
-    const b = pointAt(second?.path as Rail, 0.5);
-    // Side by side, a line's width and more apart.
-    expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeGreaterThanOrEqual(6);
-  });
-
-  it('runs a packet along the edge it belongs to', () => {
-    const view = build(
-      'dav 1\nnode a\nnode b\na --> b [id: x, visible: false]\na ..> b [id: y]\nstep "S" {\n  animate a --> b\n}\n',
-      0,
-    );
-    expect(view.phases[0]?.[0]?.path).toEqual(view.edges.find((e) => e.id === 'y')?.path);
+    const step0 = build(dsl, 0);
+    expect(step0.edges[0]).toMatchObject({
+      id: 'a->b',
+      from: 'a',
+      to: 'b',
+      style: 'dashed',
+      direction: 'forward',
+      active: true,
+    });
+    const step1 = build(dsl, 1);
+    expect(step1.edges[0]).toMatchObject({
+      id: 'a->b',
+      from: 'b',
+      to: 'a',
+      style: 'solid',
+      direction: 'forward',
+      active: true,
+    });
+    expect(step1.phases[0]?.[0]?.path).toEqual(step1.edges[0]?.path);
   });
 
   it('leaves a station level or upright, and meets the next one the same way', () => {
     const { document } = parse(
-      'dav 1\nnode a\nnode x\nnode y\nnode z\na --> x\na --> y\na --> z\n',
+      'node a\nnode x\nnode y\nnode z\nstep "S" {\n  animate a --> x\n  animate a --> y\n  animate a --> z\n}\n',
     );
     const view = resolveView(document, computeLayout(document), null);
     expect(view.edges).toHaveLength(3);
@@ -669,15 +706,16 @@ describe('edges between the same stations', () => {
   });
 });
 
-describe('focus from state', () => {
-  const stepView = (dsl: string) => {
+describe('focus from state and static', () => {
+  const stepView = (dsl: string, step = 0) => {
     const { document } = parse(dsl);
-    return resolveView(document, computeLayout(document), 0);
+    return resolveView(document, computeLayout(document), step);
   };
 
   it('does not dim the diagram for a step that only hides something', () => {
     const view = stepView(
-      'dav 1\nnode a\nnode b\nnode c\na --> b\nstep "S" {\n  state c [visible: false]\n}\n',
+      'node a\nnode b\nnode c\nstep "0" {\n  animate a --> b\n}\nstep "1" {\n  state c [visible: false]\n}\n',
+      1,
     );
     expect(view.nodes.map((n) => [n.id, n.dimmed])).toEqual([
       ['a', false],
@@ -685,20 +723,20 @@ describe('focus from state', () => {
     ]);
   });
 
-  it('lights both nodes of a state on an edge', () => {
+  it('lights both nodes of a static connection and colors its line', () => {
     const view = stepView(
-      'dav 1\nnode a\nnode b\nnode c\na --> b [id: e]\nstep "S" {\n  state e [color: red]\n}\n',
+      'node a\nnode b\nnode c\nstep "S" {\n  static a --> b [color: red]\n}\n',
     );
     expect(view.nodes.map((n) => [n.id, n.dimmed])).toEqual([
       ['a', false],
       ['b', false],
       ['c', true],
     ]);
-    expect(view.edges.map((e) => e.id)).toEqual(['e']);
+    expect(view.edges.map((e) => [e.id, e.color])).toEqual([['a->b', 'red']]);
   });
 
   it('still focuses an ordinary state target', () => {
-    const view = stepView('dav 1\nnode a\nnode b\nstep "S" {\n  state a [badge: "x"]\n}\n');
+    const view = stepView('node a\nnode b\nstep "S" {\n  state a [badge: "x"]\n}\n');
     expect(view.nodes.map((n) => [n.id, n.focused, n.dimmed])).toEqual([
       ['a', true, false],
       ['b', false, true],
@@ -709,7 +747,7 @@ describe('focus from state', () => {
 describe('self-loop room', () => {
   it('is kept for a node placed under a child group', () => {
     const { document } = parse(
-      'dav 1\ngroup o {\n  group i {\n    node b\n    node x\n    node y\n    node d\n  }\n  node c\n}\nb --> d\nx --> c\ny --> c\nc --> c\n',
+      'group o {\n  group i {\n    node b\n    node x\n    node y\n    node d\n  }\n  node c\n}\nstep "S" {\n  static b --> d\n  static x --> c\n  static y --> c\n  animate c --> c\n}\n',
     );
     const layout = computeLayout(document);
     const inner = layout.groups.i as Rect;

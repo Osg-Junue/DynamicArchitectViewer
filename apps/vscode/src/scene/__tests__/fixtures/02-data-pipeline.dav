@@ -1,8 +1,7 @@
-dav 1
 title "02 データ基盤: 収集から活用まで"
 
 // Many inputs come together into a few (fan-in) and spread again (fan-out).
-// The operations zone sends dashed control lines to all the others.
+// The operations zone sends dashed static control lines to all the others.
 
 group sources "データソース" [color: teal] {
   node appdb "業務DB" [icon: database, sub: "MySQL"]
@@ -43,32 +42,40 @@ group ops "運用・統制" [color: gray] {
   node pager "アラート" [icon: chat, sub: "Slack"]
 }
 
-appdb --> cdc : "binlog"
-crm --> collector : "REST"
-saas --> collector : "REST"
-weblog --> stream : "Fluent Bit"
-iot --> stream : "MQTT"
-files --> loader : "SFTP"
-cdc --> stream : "変更イベント"
-collector --> lake : "JSON"
-stream --> lake : "Firehose"
-loader --> lake : "Parquet"
-lake --> spark : "読み込み"
-spark --> quality : "検査"
-spark --> feature : "特徴量"
-quality --> dbt : "合格データ"
-dbt --> dwh : "モデル"
-dwh --> mart : "集計"
-mart --> bi : "SQL"
-dwh --> ml : "学習データ"
-feature --> ml : "オンライン特徴量"
-mart --> retl : "同期"
-retl --> crm : "書き戻し"
-airflow ..> loader : "起動"
-airflow ..> spark : "起動"
-airflow ..> dbt : "起動"
-catalog <.> lake : "メタデータ"
-catalog <.> dwh : "メタデータ"
-quality --> mon : "検査結果"
-airflow --> mon : "ジョブ状態"
-mon --> pager : "通知"
+step "データ収集とレイク格納" {
+  animate appdb --> cdc : "binlog"
+  animate cdc --> stream : "変更イベント"
+  animate weblog --> stream : "Fluent Bit" [parallel: true]
+  animate iot --> stream : "MQTT" [parallel: true]
+  animate crm --> collector : "REST"
+  animate saas --> collector : "REST" [parallel: true]
+  animate files --> loader : "SFTP"
+  animate collector --> lake : "JSON"
+  animate stream --> lake : "Firehose" [parallel: true]
+  animate loader --> lake : "Parquet" [parallel: true]
+}
+
+step "加工・変換とDWH構築" {
+  static airflow ..> loader : "起動"
+  static airflow ..> spark : "起動"
+  static airflow ..> dbt : "起動"
+  animate lake --> spark : "読み込み"
+  animate spark --> quality : "検査"
+  animate spark --> feature : "特徴量" [parallel: true]
+  animate quality --> dbt : "合格データ"
+  animate dbt --> dwh : "モデル"
+}
+
+step "分析活用と監視連携" {
+  static catalog <.> lake : "メタデータ"
+  static catalog <.> dwh : "メタデータ"
+  static quality --> mon : "検査結果"
+  static airflow --> mon : "ジョブ状態"
+  static mon --> pager : "通知"
+  animate dwh --> mart : "集計"
+  animate mart --> bi : "SQL"
+  animate dwh --> ml : "学習データ" [parallel: true]
+  animate feature --> ml : "オンライン特徴量"
+  animate mart --> retl : "同期"
+  animate retl --> crm : "書き戻し"
+}

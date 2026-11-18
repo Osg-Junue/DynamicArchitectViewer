@@ -3,12 +3,10 @@ import { computeCompletions, findAtOffset, parse } from '../index';
 
 describe('findAtOffset', () => {
   const sample = [
-    'dav 1',
     'group vpc "VPC" {',
     '  node web "Web" [icon: server]',
     '}',
     'node db "DB" [icon: database]',
-    'web --> db : "SQL"',
     'step "Step 1" {',
     '  desc "Query"',
     '  focus web, db',
@@ -40,7 +38,7 @@ describe('findAtOffset', () => {
 });
 
 describe('computeCompletions', () => {
-  const dsl = 'dav 1\ngroup vpc "VPC" {\n  node api "API" [icon: router]\n}\nnode db "DB"\n';
+  const dsl = 'group vpc "VPC" {\n  node api "API" [icon: router]\n}\nnode db "DB"\n';
 
   it('completes icon names after icon:', () => {
     const text = `${dsl}node x [icon: dat`;
@@ -64,19 +62,20 @@ describe('computeCompletions', () => {
 
   const labelsAt = (text: string) =>
     computeCompletions(text, text.length, true)?.items.map((i) => i.label);
-  const withEdge = `${dsl}api --> db [id: e1]\n`;
 
   it('offers only the elements each statement accepts', () => {
-    expect(labelsAt(`${withEdge}api --> `)).toEqual(['api', 'db']);
-    expect(labelsAt(`${withEdge}step "s" {\n  animate `)).toEqual(['api', 'db']);
-    expect(labelsAt(`${withEdge}step "s" {\n  focus `)).toEqual(['api', 'db', 'vpc']);
-    expect(labelsAt(`${withEdge}step "s" {\n  state `)).toEqual(['api', 'db', 'vpc', 'e1']);
+    expect(labelsAt(`${dsl}step "s" {\n  static `)).toEqual(['api', 'db']);
+    expect(labelsAt(`${dsl}step "s" {\n  static api ..> `)).toEqual(['api', 'db']);
+    expect(labelsAt(`${dsl}step "s" {\n  animate `)).toEqual(['api', 'db']);
+    expect(labelsAt(`${dsl}step "s" {\n  focus `)).toEqual(['api', 'db', 'vpc']);
+    expect(labelsAt(`${dsl}step "s" {\n  state `)).toEqual(['api', 'db', 'vpc']);
   });
 
   it('offers nothing where a string or an arrow is expected', () => {
-    expect(labelsAt(`${withEdge}step "s" {\n  animate api --> db : `)).toBeUndefined();
-    expect(labelsAt(`${withEdge}step "s" {\n  animate api `)).toBeUndefined();
-    expect(labelsAt(`${withEdge}node a "focus on" `)).toBeUndefined();
+    expect(labelsAt(`${dsl}step "s" {\n  animate api --> db : `)).toBeUndefined();
+    expect(labelsAt(`${dsl}step "s" {\n  animate api `)).toBeUndefined();
+    expect(labelsAt(`${dsl}step "s" {\n  static api `)).toBeUndefined();
+    expect(labelsAt(`${dsl}node a "focus on" `)).toBeUndefined();
   });
 
   it('completes inside attribute blocks that span lines', () => {
