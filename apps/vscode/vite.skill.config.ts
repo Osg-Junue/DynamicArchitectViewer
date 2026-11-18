@@ -2,6 +2,7 @@ import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } f
 import { resolve } from 'node:path';
 import { lezer } from '@lezer/generator/rollup';
 import { defineConfig, type Plugin } from 'vite';
+import { specificationForSkill, withSpecification } from './src/skill/specificationText.ts';
 
 const ROOT = resolve(import.meta.dirname, '../..');
 const REPOSITORY_URL = 'https://github.com/Osg-Junue/DynamicArchitectViewer/blob/main/';
@@ -15,6 +16,8 @@ const SKILLS = {
     script: 'dav-check.mjs',
     docs: ['specification.md', 'layout.md', 'large-diagrams.md', 'checker.md'],
     examples: true,
+    // Its SKILL.md carries the rules of the specification, between two marker lines.
+    specification: true,
   },
   reading: {
     name: 'dav-reading',
@@ -22,6 +25,7 @@ const SKILLS = {
     script: 'dav-outline.mjs',
     docs: ['specification.md'],
     examples: false,
+    specification: false,
   },
 } as const;
 
@@ -62,6 +66,14 @@ function writeReferences(skill: string, sources: Readonly<Record<string, string>
   }
 }
 
+/** Writes the rules of the specification into the SKILL.md of a skill, as it carries them. */
+function writeSpecification(skill: string, carried: readonly string[]): void {
+  const path = resolve(ROOT, 'skills', skill, 'SKILL.md');
+  const specification = readFileSync(resolve(ROOT, 'docs/specification.md'), 'utf8');
+  const rules = specificationForSkill(specification, carried);
+  writeFileSync(path, withSpecification(readFileSync(path, 'utf8'), rules));
+}
+
 /** The VSIX contains only apps/vscode, so the install command needs its own copy of a skill. */
 function packageSkill(name: string): void {
   const packaged = resolve(import.meta.dirname, 'dist/skill', name);
@@ -78,6 +90,7 @@ function assembleSkill(skill: Skill): Plugin {
         skill.name,
         Object.fromEntries(skill.docs.map((name) => [name, `docs/${name}`])),
       );
+      if (skill.specification) writeSpecification(skill.name, skill.docs);
 
       if (skill.examples) {
         const examples = resolve(dir, 'assets/examples');

@@ -99,43 +99,44 @@ export function isWide(ch: string): boolean {
   );
 }
 
+/** Unicode's whitespace, which is the whitespace of the language. */
+const WHITESPACE_AT_END = /\p{White_Space}+$/u;
+const NOT_WHITESPACE = /\P{White_Space}/u;
+
+/** Whether a text holds nothing but whitespace, whitespace as the language counts it. */
+export function isBlank(text: string): boolean {
+  return !NOT_WHITESPACE.test(text);
+}
+
+/** Removes the whitespace at the end of a text, whitespace as the language counts it. */
+export function trimWhitespaceEnd(text: string): string {
+  return text.replace(WHITESPACE_AT_END, '');
+}
+
 /**
- * Normalizes line endings (`\r\n?` -> `\n`) and tabs (`\t` -> two spaces), trims trailing
- * spaces per line, and strips the minimum common leading indentation across non-empty lines.
+ * Normalizes line endings (`\r\n?` -> `\n`) and tabs (`\t` -> two spaces), trims the whitespace at
+ * the end of each line, and strips the indentation, counted in spaces, that all the lines that are
+ * not blank share. Whitespace is Unicode's, as in the language.
  *
- * By default, single-line input is trimmed and multi-line input drops at most one leading and
- * one trailing blank line (matching raw triple-backtick code fences). With
- * `stripAllOuterBlankLines: true`, all leading and trailing blank lines are removed.
+ * By default, text of several lines drops at most one leading and one trailing blank line (the
+ * lines of the backticks of a code fence). With `stripAllOuterBlankLines: true`, all leading and
+ * trailing blank lines are removed.
  */
 export function normalizeCodeIndent(
   text: string,
   options?: { stripAllOuterBlankLines?: boolean },
 ): string {
-  const normalized = text.replace(/\r\n?/g, '\n').replace(/\t/g, '  ');
-
-  if (!options?.stripAllOuterBlankLines && !normalized.includes('\n')) {
-    return normalized.trim();
-  }
-
-  const lines = normalized.split('\n');
+  const lines = text.replace(/\r\n?/g, '\n').replace(/\t/g, '  ').split('\n');
+  const blank = (line: string | undefined) => line !== undefined && isBlank(line);
   if (options?.stripAllOuterBlankLines) {
-    while (lines.length > 0 && lines[0]?.trim() === '') {
-      lines.shift();
-    }
-    while (lines.length > 0 && lines[lines.length - 1]?.trim() === '') {
-      lines.pop();
-    }
-    if (lines.length === 0) return '';
-  } else {
-    if (lines.length > 0 && lines[0]?.trim() === '') {
-      lines.shift();
-    }
-    if (lines.length > 0 && lines[lines.length - 1]?.trim() === '') {
-      lines.pop();
-    }
+    while (blank(lines[0])) lines.shift();
+    while (blank(lines[lines.length - 1])) lines.pop();
+  } else if (lines.length > 1) {
+    if (blank(lines[0])) lines.shift();
+    if (blank(lines[lines.length - 1])) lines.pop();
   }
 
-  const trimmed = lines.map((line) => line.trimEnd());
+  const trimmed = lines.map(trimWhitespaceEnd);
   let minIndent = Number.POSITIVE_INFINITY;
   for (const line of trimmed) {
     if (line.length === 0) continue;

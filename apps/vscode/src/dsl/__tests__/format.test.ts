@@ -80,6 +80,70 @@ node a [
     expect(parse(out).document).toEqual(parse(input).document);
   });
 
+  it('keeps the code of a statement it keeps as written', () => {
+    // A comment before the `{` keeps the animate as written. The code fence in it is indented
+    // less than the animate, and must keep the indentation of its lines relative to each other.
+    const input = [
+      'dav 1',
+      'node a',
+      'node b',
+      'step "S" {',
+      '  animate a --> b : "x" // note',
+      '  {',
+      '    code json ```',
+      '{',
+      '  "a": 1',
+      '}',
+      '```',
+      '  }',
+      '}',
+      '',
+    ].join('\n');
+    const out = format(input);
+    expect(parse(out).document).toEqual(parse(input).document);
+    expect(parse(out).document.steps[0]?.animations[0]?.code?.body).toBe('{\n  "a": 1\n}');
+    expect(format(out)).toBe(out);
+  });
+
+  it('keeps every word of a statement it keeps as written, a lone CR in it included', () => {
+    const input = 'dav 1\nnode a\r[ // c\ncolor: red]\nnode b\n';
+    const out = format(input);
+    expect(out).toContain('node a');
+    expect(parse(out).document).toEqual(parse(input).document);
+  });
+
+  it('keeps statements it keeps as written free of trailing spaces, and their meaning', () => {
+    const blank =
+      'dav 1\nnode a\nnode b\nstep "S" {\n  animate a --> b // c\n  {\n\n    desc "d"\n  }\n}\n';
+    expect(format(blank)).not.toMatch(/ +\n/);
+    // In code, a lone CR is a line break: the blank line it makes stays.
+    const cr =
+      'dav 1\nnode a\nnode b\nstep "S" {\n  animate a --> b // c\n  {\n    code ```\na\r   \nb\n```\n  }\n}\n';
+    expect(parse(format(cr)).document).toEqual(parse(cr).document);
+    // Unicode spaces before a fence on its own line: the same text on a second run.
+    for (const space of ['\u00a0', '\u0085']) {
+      const text = `dav 1\nnode a\nnode b\nstep "S" {\n  animate a --> b {\n    code json // c\n${space}\`\`\`\n{}\n\`\`\`\n  }\n}\n`;
+      expect(format(format(text))).toBe(format(text));
+    }
+    // A lone CR in code is a line break on the line that opens the fence too, and whitespace is
+    // the language's: U+FEFF at the end of a line of code is kept.
+    for (const fence of ['```x\r   \ny\n```', '```\r \n  y\n```', '```\nx\ufeff\n```']) {
+      const text = `dav 1\nnode a\nnode b\nstep "S" {\n  animate a --> b // c\n  {\n    code ${fence}\n  }\n}\n`;
+      expect(parse(format(text)).document).toEqual(parse(text).document);
+      expect(format(format(text))).toBe(format(text));
+    }
+    // After the fence on its closing line, a lone CR is no line end, even where it ends a comment.
+    for (const after of ['\r}\n', '\r// t\n  }\n', ' // c\r}\n  }\n']) {
+      const text = `dav 1\nnode a\nnode b\nstep "S" {\n  animate a --> b // c\n  {\n    code \`\`\`\n      x\n    \`\`\`${after}}\n`;
+      expect(parse(format(text)).document).toEqual(parse(text).document);
+      expect(format(format(text))).toBe(format(text));
+    }
+    // A string that runs over a line break is left as it is: re-indenting the line it goes on
+    // to would change its text.
+    const string = 'dav 1\ngroup g {\n    node a [ // c\n      sub: "x\\\ny"]\n}\n';
+    expect(format(string)).toBe(string);
+  });
+
   it('prints empty blocks compactly', () => {
     expect(format('dav 1\ngroup g {\n}\nstep "s" {\n}\n')).toBe('dav 1\ngroup g {}\nstep "s" {}\n');
   });

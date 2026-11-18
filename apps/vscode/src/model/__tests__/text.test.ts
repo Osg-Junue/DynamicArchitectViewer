@@ -92,6 +92,16 @@ describe('normalizeCodeIndent', () => {
     expect(normalizeCodeIndent('\nalpha\n  beta\n')).toBe('alpha\n  beta');
   });
 
+  it('counts whitespace as the language does, and indentation in spaces', () => {
+    // One line loses its spaces at the start, but keeps other whitespace there.
+    expect(normalizeCodeIndent('\u3000x\u3000')).toBe('\u3000x');
+    expect(normalizeCodeIndent('x\u0085')).toBe('x');
+    expect(normalizeCodeIndent('x\ufeff')).toBe('x\ufeff');
+    expect(normalizeCodeIndent('\n\u00a0\n  a\n   b\n', { stripAllOuterBlankLines: true })).toBe(
+      'a\n b',
+    );
+  });
+
   it('strips all leading and trailing blank lines when stripAllOuterBlankLines is true', () => {
     const raw = '\n\r\n   \n    SELECT id, amount  \n  \t \n      FROM orders;\t\n\n   \n';
     expect(normalizeCodeIndent(raw, { stripAllOuterBlankLines: true })).toBe(

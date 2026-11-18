@@ -3,14 +3,14 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { format, KEYWORDS, parse } from '../../dsl';
+import { format, parse } from '../../dsl';
 import { computeLayout, zonesPlacedFreely } from '../../layout';
-import { COLOR_NAMES, ICON_NAMES } from '../../model/types';
 import { zoneOfNodes } from '../../model/zones';
 import { SAMPLE_TEMPLATES } from '../../samples';
 import { layoutMap } from '../layoutMap';
 import { crossingsByZone, layoutReport, leftLinks, NOTE_CODES } from '../layoutReport';
 import { HINT_CODES, reviewDetail } from '../review';
+import { specificationForSkill, withSpecification } from '../specificationText';
 
 const ROOT = resolve(__dirname, '../../../../..');
 const WRITING = join(ROOT, 'skills/dav-diagrams');
@@ -169,24 +169,14 @@ describe('crossings by zone', () => {
 });
 
 describe('dav-diagrams/SKILL.md', () => {
-  const valueList = (heading: string) =>
-    inlineCode(
-      section(heading)
-        .split('\n')
-        .find((line) => line.startsWith('`')) ?? '',
-    );
-
-  it('lists exactly the built-in colors', () => {
-    expect(valueList('Colors')).toEqual([...COLOR_NAMES]);
-  });
-
-  it('lists exactly the built-in icons', () => {
-    expect(valueList('Icons')).toEqual([...ICON_NAMES]);
-  });
-
-  it('lists exactly the reserved words', () => {
-    const line = skill.split('\n').find((l) => l.startsWith('Reserved words')) ?? '';
-    expect(inlineCode(line)).toEqual([...KEYWORDS]);
+  it('carries the rules of the specification as they are, not retold', () => {
+    // docs/specification.md is checked against the language; SKILL.md has to be its copy.
+    const specification = readFileSync(join(ROOT, 'docs/specification.md'), 'utf8');
+    const carried = readdirSync(join(WRITING, 'references'));
+    const rules = specificationForSkill(specification, carried);
+    expect(withSpecification(skill, rules)).toBe(skill);
+    expect(rules).toContain('Keywords are lowercase and reserved');
+    expect(rules).not.toMatch(/^`{3,4}dav$/m);
   });
 
   it('has only examples that compile cleanly and are as detailed as it asks for', () => {
@@ -197,19 +187,6 @@ describe('dav-diagrams/SKILL.md', () => {
       expect(diagnostics).toEqual([]);
       expect(reviewDetail(document)).toEqual([]);
     }
-  });
-
-  it('shows three ways to write code that all compile', () => {
-    const ways = /^````\n(\/\/ 1\. [\s\S]*?)^````$/m.exec(skill)?.[1] ?? '';
-    expect(ways).toContain('// 3.');
-    const dsl = `dav 1\nnode api\nnode db\nnode browser\nnode cache\napi --> db\napi --> browser\napi --> cache\nstep "S" {\n${ways}}\n`;
-    const { document, diagnostics } = parse(dsl);
-    expect(diagnostics).toEqual([]);
-    expect(document.steps[0]?.animations.map((a) => Boolean(a.code?.body))).toEqual([
-      true,
-      true,
-      true,
-    ]);
   });
 
   it('names only example files that exist', () => {
