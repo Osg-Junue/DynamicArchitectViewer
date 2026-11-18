@@ -3,6 +3,18 @@ import { pushToMap } from '../model/text';
 export interface RankResult {
   rank: Map<string, number>;
   predecessors: Map<string, string[]>;
+  /** The edges left out, in the order the search found them. */
+  back: BackEdge[];
+}
+
+/** An edge that closes a loop, which the ranks leave out so that they can be counted. */
+export interface BackEdge {
+  from: string;
+  to: string;
+  /** The loop the edge closes, from `to` to `from`, in the order the search went round it. */
+  loop: string[];
+  /** The node the search started from when it reached the loop: `loop[0]` if nothing led to it. */
+  root: string;
 }
 
 /** Longest-path ranks; back edges found by DFS are ignored so cycles terminate. */
@@ -19,6 +31,7 @@ export function computeRanks(
   // Remove back edges (iterative DFS to avoid stack overflow on large graphs).
   const state = new Map<string, 0 | 1 | 2>();
   const forward = new Map<string, string[]>(ids.map((id) => [id, []]));
+  const back: BackEdge[] = [];
   for (const root of ids) {
     if (state.get(root)) continue;
     const stack: Array<{ id: string; i: number }> = [{ id: root, i: 0 }];
@@ -35,7 +48,12 @@ export function computeRanks(
       const next = targets[frame.i++];
       if (next === undefined) continue;
       const s = state.get(next) ?? 0;
-      if (s === 1) continue; // back edge
+      if (s === 1) {
+        // A back edge: `next` is on the way the search came, which is the rest of the loop.
+        const loop = stack.slice(stack.findIndex((f) => f.id === next)).map((f) => f.id);
+        back.push({ from: frame.id, to: next, loop, root });
+        continue;
+      }
       forward.get(frame.id)?.push(next);
       if (s === 0) {
         state.set(next, 1);
@@ -61,7 +79,7 @@ export function computeRanks(
       if (d === 0) queue.push(t);
     }
   }
-  return { rank, predecessors: invert(forward) };
+  return { rank, predecessors: invert(forward), back };
 }
 
 function invert(forward: ReadonlyMap<string, readonly string[]>): Map<string, string[]> {

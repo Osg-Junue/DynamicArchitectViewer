@@ -123,7 +123,7 @@ function detach<T extends { parentId?: string }>(item: T, zoneId: string): T | O
 }
 
 /** The block each node moves with: its top-level zone, or the node itself outside any zone. */
-function ownersOf(doc: DavDocument): Map<string, string> {
+export function ownersOf(doc: DavDocument): Map<string, string> {
   const zoneOf = zoneOfGroups(doc.groups);
   const nodeZone = zoneOfNodes(doc);
   return new Map(

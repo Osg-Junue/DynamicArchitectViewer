@@ -5,6 +5,7 @@ import { parse } from '../../dsl';
 import { computeColumnLayout } from '../columns';
 import {
   adoptZonePlan,
+  backEdgesOf,
   computeLayout,
   countCrossings,
   pendingZoneSearch,
@@ -239,6 +240,18 @@ b1 --> b2`);
     // Laying out another diagram first, so that this is computed again and not remembered.
     computeLayout(parse(bigDiagram(7)).document);
     expect(computeLayout(parse(bigDiagram()).document)).toEqual(layout);
+  });
+
+  it('leaves out only the edges of loops inside a zone, since links between zones set no column', () => {
+    // A loop inside z1, and one through z0, z1 and z2 that a link between zones closes.
+    const dsl = bigDiagram().replace('step "Hop"', 'z1n4 --> z1n1\nz2n5 --> z0n3\nstep "Hop"');
+    const doc = parse(dsl).document;
+    // Placed freely: in columns, the frames would be others.
+    expect(computeLayout(doc).groups).not.toEqual(computeColumnLayout(doc).groups);
+    // Each zone is laid out on its own, from its own node declared first.
+    expect(backEdgesOf(doc)).toEqual([
+      { from: 'z1n4', to: 'z1n1', loop: ['z1n1', 'z1n2', 'z1n3', 'z1n4'], root: 'z1n0' },
+    ]);
   });
 
   describe('edge labels', () => {

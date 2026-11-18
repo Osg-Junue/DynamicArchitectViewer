@@ -458,6 +458,29 @@ describe('dav-check', () => {
           expect(stdout).toMatch(/note crossings: .*: \w+ --> \w+ and \w+ --> \w+/);
       });
 
+      it('notes an edge left out of a loop, with the loop and where its far end stands', () => {
+        // The search comes into the loop b, c, a from x: a, declared before b, ends up last.
+        const { status, stdout } = lines(
+          good(
+            'node x "X"\nnode a "A"\nnode b "B"\nnode c "C"\nx --> b : "v"\na --> b : "w"\nb --> c : "y"\nc --> a : "z"',
+          ),
+        );
+        expect(stdout).toContain(
+          'note back-edge: a --> b points back, so it does not count for the columns: it closes the loop b → c → a. The layout came into the loop at b, from x, and set it out from left to right in that order: a stands at its far end, in column 4, with b in column 2. To start the loop at another of its nodes, and so stand that node on the left, declare it before x.',
+        );
+        // A note is for judgment: the file is still in order.
+        expect(status).toBe(0);
+      });
+
+      it('leaves out a request and its response laid out as the guide says', () => {
+        const pair = 'node a "A"\nnode b "B"\na --> b : "request"\nb --> a : "response"';
+        expect(lines(good(pair)).stdout).not.toContain('note back-edge');
+        // Reached first at the node declared later, the pair stands the other way round.
+        expect(lines(good(`node x "X"\n${pair}\nx --> b : "v"`)).stdout).toContain(
+          'note back-edge: a --> b points back, so it does not count for the columns: it closes the loop b → a. The layout came into the loop at b, from x,',
+        );
+      });
+
       it('is left out while the file does not compile, and without --detail', () => {
         expect(lines('dav 1\nnode a\na --> missing\n').stdout).not.toContain('layout:');
         expect(check(fileWith(good('node a "A"\nnode b "B"\na --> b : "x"'))).stdout).not.toContain(

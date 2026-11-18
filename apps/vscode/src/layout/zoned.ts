@@ -11,6 +11,7 @@ export {
   LONG_LINK,
   linksBetweenZones,
   longLinkExcess,
+  ownersOf,
   structureKey,
   withoutLabels,
   type ZonePlacement,

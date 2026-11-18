@@ -1,8 +1,9 @@
-import { computeLayout, type Rect } from '../layout';
+import { type BackEdge, backEdgesOf, computeLayout, type Rect } from '../layout';
 import { linksOf, properlyCross, segmentsOf, shareStation } from '../layout/links';
 import { enclosingRect } from '../layout/metrics';
 import type { DavDocument } from '../model/types';
-import { ancestorIds, parentMap, topLevelGroups } from '../model/zones';
+import { ancestorIds, idPair, parentMap, topLevelGroups } from '../model/zones';
+import { arrowOf } from './outline';
 import type { Hint } from './review';
 
 /**
@@ -32,6 +33,27 @@ const grid = (rects: readonly Rect[]): string => `${columns(rects)} x ${rows(rec
 
 const proportion = (width: number, height: number): string =>
   width >= height ? `${(width / height).toFixed(1)} : 1` : `1 : ${(height / width).toFixed(1)}`;
+
+/**
+ * Whether an edge that closes a loop is worth a note. A loop of two nodes is mostly a request
+ * and its response, laid out as the guide says: the node of the two declared first on the left.
+ * It is told only where the other one stands there, having been reached first from elsewhere.
+ */
+function surprising(edge: BackEdge, declared: ReadonlyMap<string, number>): boolean {
+  if (edge.loop.length > 2) return true;
+  return (declared.get(edge.to) ?? 0) > (declared.get(edge.from) ?? 0);
+}
+
+/** What an edge that sets no column did to the layout, and how to have it otherwise. */
+function backEdgeNote(doc: DavDocument, edge: BackEdge, columnOf: (id: string) => number): string {
+  const written = doc.edges.find((e) => e.from === edge.from && e.to === edge.to);
+  const arrow = written ? arrowOf(written) : '-->';
+  const cameIn =
+    edge.root === edge.to
+      ? `${edge.to}, the node of it declared first`
+      : `${edge.to}, from ${edge.root}`;
+  return `${edge.from} ${arrow} ${edge.to} points back, so it does not count for the columns: it closes the loop ${edge.loop.join(' → ')}. The layout came into the loop at ${cameIn}, and set it out from left to right in that order: ${edge.from} stands at its far end, in column ${columnOf(edge.from)}, with ${edge.to} in column ${columnOf(edge.to)}. To start the loop at another of its nodes, and so stand that node on the left, declare it before ${edge.root}.`;
+}
 
 export function layoutReport(doc: DavDocument): LayoutReport {
   if (doc.nodes.length === 0) return { summary: [], notes: [] };
@@ -85,6 +107,19 @@ export function layoutReport(doc: DavDocument): LayoutReport {
         message: `Zone "${g.label || g.id}" stacks its ${own.length} nodes in one column, because no edge runs between them. That is right for peers, such as replicas or separate stores. If one of them feeds another, declare that edge, and they spread to the right.`,
       });
     }
+  }
+  // The columns as `--map` numbers them: across the whole diagram, from the left.
+  const columnXs = [...new Set(nodeRects.map((r) => Math.round(r.x)))].sort((a, b) => a - b);
+  const columnOf = (id: string): number =>
+    columnXs.indexOf(Math.round(layout.nodes[id]?.x ?? Number.NaN)) + 1;
+  const declared = new Map(doc.nodes.map((n, i) => [n.id, i]));
+  // Two edges that join the same pair the same way close the same loop: one note says it.
+  const told = new Set<string>();
+  for (const edge of backEdgesOf(doc)) {
+    const pair = idPair(edge.from, edge.to);
+    if (told.has(pair) || !surprising(edge, declared)) continue;
+    told.add(pair);
+    notes.push({ code: 'back-edge', message: backEdgeNote(doc, edge, columnOf) });
   }
   if (crossings > 0) {
     notes.push({

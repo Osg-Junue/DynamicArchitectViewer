@@ -146,7 +146,7 @@ Hints, the layout and the map describe a diagram that compiles, so they are prin
 | `file:line:column: warning code: message` | Part of the file is being ignored | Yes |
 | `file: hint code: message` | With `--detail`: a description or a code block is missing, a packet has no edge to travel along, or a text is too long to be shown in full. The message says what to add | Yes |
 | `file: layout: ...` | With `--detail`: the size of the layout, and the columns and rows its nodes take | No |
-| `file: note code: message` | With `--detail`: a shape of the layout that is often not meant, such as a diagram taller than wide | No |
+| `file: note code: message` | With `--detail`: a shape of the layout that is often not meant, such as a diagram taller than wide, or an edge that closes a loop and so does not count for the columns | No |
 | `file: map: ...` | With `--map`: which node is where | No |
 | `file: ok (4 nodes, 3 edges, 2 steps)` | Nothing was reported for the file | No |
 

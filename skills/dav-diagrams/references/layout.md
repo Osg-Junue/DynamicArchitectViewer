@@ -85,6 +85,8 @@ x ─── b ⇄ a
 
 To keep a pair in the order you want, write it as one two-way edge, `a <-> b`. A two-way edge counts only in the direction it is written, so it makes no loop, and a packet can still run along it either way.
 
+`dav check --detail` names each edge that is left out like this, in a note `back-edge`: the loop it closes, where the layout came into the loop, and the columns its two ends took. A loop of two nodes is named only when the node declared later stands on the left. Where the zones of a large diagram are [placed freely](#placing-zones-freely), each zone is laid out on its own, so only a loop inside one zone leaves an edge out: a link between zones sets no column there.
+
 ## Rows: use groups and order
 
 Nodes in the same column stack from top to bottom. A node goes near the nodes it connects to, and declaration order settles anything left over.
