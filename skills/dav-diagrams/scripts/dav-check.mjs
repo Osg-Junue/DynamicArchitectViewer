@@ -4581,7 +4581,7 @@ function Oi(e) {
 	}
 	return d > 0 && _.push({
 		code: "crossings",
-		message: `${d === 1 ? "One pair of connections crosses" : `${d} pairs of connections cross`}, counted on straight lines between the nodes: ${u.slice(0, gi).join("; ")}${d > gi ? "; and more" : ""}. Swapping the declarations of two nodes that share a column often removes a crossing; references/layout.md has more.`
+		message: `${d === 1 ? "One pair of connections crosses" : `${d} pairs of connections cross`}, counted on straight lines between the nodes: ${u.slice(0, gi).join("; ")}${d > gi ? "; and more" : ""}. Swapping the declarations of two nodes that share a column often removes a crossing. In a large diagram, leave the rest once the zones stand in the order you mean; references/layout.md has more.`
 	}), {
 		summary: f,
 		notes: _

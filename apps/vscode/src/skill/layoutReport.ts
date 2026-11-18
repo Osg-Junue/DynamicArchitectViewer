@@ -255,7 +255,7 @@ export function layoutReport(doc: DavDocument): LayoutReport {
   if (crossings > 0) {
     notes.push({
       code: 'crossings',
-      message: `${crossings === 1 ? 'One pair of connections crosses' : `${crossings} pairs of connections cross`}, counted on straight lines between the nodes: ${crossing.slice(0, CROSSINGS_NAMED).join('; ')}${crossings > CROSSINGS_NAMED ? '; and more' : ''}. Swapping the declarations of two nodes that share a column often removes a crossing; references/layout.md has more.`,
+      message: `${crossings === 1 ? 'One pair of connections crosses' : `${crossings} pairs of connections cross`}, counted on straight lines between the nodes: ${crossing.slice(0, CROSSINGS_NAMED).join('; ')}${crossings > CROSSINGS_NAMED ? '; and more' : ''}. Swapping the declarations of two nodes that share a column often removes a crossing. In a large diagram, leave the rest once the zones stand in the order you mean; references/layout.md has more.`,
     });
   }
   return { summary, notes };

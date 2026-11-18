@@ -122,7 +122,7 @@ lb --> db
 | To get this | Do this |
 | :--- | :--- |
 | Move a node to the right | Add an edge into it from a node further right, or lengthen the path that reaches it |
-| Move a node to the left | Remove or reverse an edge that points into it |
+| Move a node to the left | Remove an edge that points into it, or make it two-way, naming this node first. A one-way edge turned round does the same, but its arrow then says that the other node calls |
 | Swap two nodes in a column | Swap their declarations |
 | Keep nodes together | Put them in a `group` |
 | Keep zones next to each other | Nest them in one `group`, then compare `--map`: the other zones can move as well |
