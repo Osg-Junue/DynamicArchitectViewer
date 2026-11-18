@@ -12,6 +12,18 @@ export interface Hint {
   message: string;
 }
 
+/** Every code a hint is given with, in the order that the checker's reference lists them. */
+export const HINT_CODES = [
+  'edge-without-label',
+  'step-without-desc',
+  'empty-step',
+  'animate-without-edge',
+  'animate-without-label',
+  'animate-without-desc',
+  'no-code',
+  'text-cut',
+] as const;
+
 /** From how many packets on a diagram without any `code` is worth pointing out. */
 const CODE_WORTH_FROM = 3;
 
@@ -110,7 +122,7 @@ function cutHint(cut: TextCut, doc: DavDocument): string {
 
 export function reviewDetail(doc: DavDocument): Hint[] {
   const hints: Hint[] = [];
-  const hint = (code: string, message: string) => {
+  const hint = (code: (typeof HINT_CODES)[number], message: string) => {
     hints.push({ code, message });
   };
 

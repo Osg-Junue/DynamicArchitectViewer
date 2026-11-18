@@ -13,7 +13,7 @@ const SKILLS = {
     name: 'dav-diagrams',
     entry: 'src/skill/checkEntry.ts',
     script: 'dav-check.mjs',
-    docs: ['specification.md', 'layout.md'],
+    docs: ['specification.md', 'layout.md', 'large-diagrams.md', 'checker.md'],
     examples: true,
   },
   reading: {
@@ -32,7 +32,10 @@ type Skill = (typeof SKILLS)[keyof typeof SKILLS];
  * `references/`, and the file of the repository it is a copy of.
  */
 const WITHOUT_SCRIPT = [
-  { name: 'dav-cli', references: { 'manual.md': 'apps/cli/README.md' } },
+  {
+    name: 'dav-cli',
+    references: { 'manual.md': 'apps/cli/README.md', 'checker.md': 'docs/checker.md' },
+  },
 ] as const;
 
 /**

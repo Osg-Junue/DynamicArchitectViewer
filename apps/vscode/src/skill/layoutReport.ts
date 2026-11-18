@@ -23,6 +23,8 @@ const STACK_FROM = 4;
 const TALL_FROM = 1.5;
 /** How many crossings are named; the count says how many there are. */
 const CROSSINGS_NAMED = 3;
+/** Every code a note is given with, in the order that the checker's reference lists them. */
+export const NOTE_CODES = ['tall-diagram', 'stacked-zone', 'back-edge', 'crossings'] as const;
 /** How many pairs of kinds of connections are given with their crossings; the rest are summed. */
 const KINDS_NAMED = 10;
 
@@ -158,7 +160,7 @@ export function layoutReport(doc: DavDocument): LayoutReport {
     );
   }
 
-  const notes: Hint[] = [];
+  const notes: Array<Hint & { code: (typeof NOTE_CODES)[number] }> = [];
   if (height > width * TALL_FROM) {
     notes.push({
       code: 'tall-diagram',

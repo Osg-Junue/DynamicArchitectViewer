@@ -5,6 +5,8 @@
 - [Examples](examples.md): the diagrams in `examples/`, each played as an animated SVG
 - [Language specification](specification.md): syntax, attributes, icons, diagnostics and compatibility
 - [How diagrams are laid out](layout.md): what to write to get the arrangement you want
+- [Writing a large diagram](large-diagrams.md): what the layout does and does not do with 50 nodes or more, and how to write such a diagram
+- [What the checker prints](checker.md): every line of `dav check`, each hint and note by its code, the layout lines and the map
 - [The `dav` command](../apps/cli/README.md): installing it, every command and option, what each prints, and the exit codes
 
 The preview also has an interactive guide. Open it with the documentation button in the toolbar. To have a coding agent write and explain `.dav` files, install the [AI agent skills](../README.md#ai-agent-skills).

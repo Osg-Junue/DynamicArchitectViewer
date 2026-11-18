@@ -7,8 +7,8 @@ import { format, KEYWORDS, parse } from '../../dsl';
 import { computeLayout } from '../../layout';
 import { COLOR_NAMES, ICON_NAMES } from '../../model/types';
 import { SAMPLE_TEMPLATES } from '../../samples';
-import { crossingsByZone } from '../layoutReport';
-import { reviewDetail } from '../review';
+import { crossingsByZone, NOTE_CODES } from '../layoutReport';
+import { HINT_CODES, reviewDetail } from '../review';
 
 const ROOT = resolve(__dirname, '../../../../..');
 const WRITING = join(ROOT, 'skills/dav-diagrams');
@@ -76,6 +76,25 @@ describe.each([
     for (const [, script] of text.matchAll(/<skill-dir>\/(scripts\/[\w.-]+)/g)) {
       expect(() => readFileSync(join(skillDir, script ?? ''))).not.toThrow();
     }
+  });
+});
+
+describe('references/checker.md', () => {
+  /** The codes in the table of a section, in their order. */
+  const codesUnder = (text: string, heading: string): string[] => {
+    const start = text.indexOf(`\n## ${heading}\n`);
+    expect(start).toBeGreaterThan(-1);
+    const part = text.slice(start, text.indexOf('\n## ', start + 1));
+    return [...part.matchAll(/^\| `([a-z-]+)` \|/gm)].map((m) => m[1] ?? '');
+  };
+
+  it.each([
+    ['dav-diagrams', WRITING],
+    ['dav-cli', COMMAND_LINE],
+  ])('explains in %s every hint and every note the checker gives, and no other', (_, dir) => {
+    const reference = readFileSync(join(dir, 'references/checker.md'), 'utf8');
+    expect(codesUnder(reference, 'Hints')).toEqual([...HINT_CODES]);
+    expect(codesUnder(reference, 'Notes')).toEqual([...NOTE_CODES]);
   });
 });
 
@@ -792,8 +811,9 @@ gateway --> billing_api
       expect(stdout).toContain(': map: ');
     });
 
-    it('is shown in the skill as it is printed', () => {
-      const excerpt = /^```\n((?:map: .*\n)+)```$/m.exec(skill)?.[1] ?? '';
+    it('is shown in the reference of the checker as it is printed', () => {
+      const reference = readFileSync(join(WRITING, 'references/checker.md'), 'utf8');
+      const excerpt = /^```\n((?:map: .*\n)+)```$/m.exec(reference)?.[1] ?? '';
       const shown = excerpt
         .trimEnd()
         .split('\n')
