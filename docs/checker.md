@@ -65,7 +65,7 @@ docs/shop.dav: layout: crossings by the zones the two connections join, "A" for 
 | `2251 x 1620 (1.4 : 1)` | The size of the whole diagram and its proportion. One node takes 176 x 118 |
 | `8 columns x 19 rows of nodes` | How many different places the nodes take across and down. A node with `visible: false` keeps its place and is counted |
 | `85 crossings` | Pairs of connections that cross, counted on straight lines between the nodes. The drawn lines go round nodes, so it is a guide |
-| `zones placed freely` | Given for a diagram with zones: `placed freely` where the search [placed the zones](layout.md#placing-zones-freely), so that they share no columns and a link between them sets none, or `in shared columns` |
+| `zones placed freely` | Given for a diagram with zones: `placed freely` where the search [placed the zones](layout.md#placing-zones-freely), so that they share no columns and a link between them sets none, or `in shared columns`. Each zone placed freely lines up its own columns; `--map` numbers columns across the whole diagram, so the numbers of two such zones can interleave, or meet where one stands above the other |
 | `"GCP" 6 x 7` | The columns and rows that the nodes of that zone take, those of the zones inside it included |
 | `"GCP" × "GCP"–"External" 44` | Given for a diagram with zones and crossings: 44 times, a connection inside "GCP" crosses one between "GCP" and "External". A zone is one at the top level, with the zones inside it, and a node outside every zone is named by its ID. Each crossing is counted once, so the counts add up to the crossings. The ten kinds with the most are given, and the rest summed |
 
