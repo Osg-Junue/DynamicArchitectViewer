@@ -138,6 +138,11 @@ interface Stretch {
   cover: string[];
   /** Which way the route turns off this stretch at each end: -1, 0 (it ends at a node) or 1. */
   lean: number;
+  /**
+   * Where the route goes from the end at `lo` and from the end at `hi`: the coordinate across
+   * the line of the corner it turns to. Absent where the route ends.
+   */
+  leaves: readonly [number | undefined, number | undefined];
   /** Ends at a station. */
   port: boolean;
   /** How far the stretch is moved off its line. */
@@ -161,6 +166,11 @@ function stretchesOf(found: ReadonlyMap<string, Found>): {
       const fixed = upright ? a.x : a.y;
       const lean = (other: Point | undefined) =>
         other ? Math.sign((upright ? other.x : other.y) - fixed) : 0;
+      const across = (other: Point | undefined) =>
+        other ? (upright ? other.x : other.y) : undefined;
+      const fromA = across(points[i - 1]);
+      const fromB = across(points[i + 2]);
+      const aFirst = (upright ? a.y : a.x) <= (upright ? b.y : b.x);
       const stretch: Stretch = {
         id,
         index: i,
@@ -168,6 +178,7 @@ function stretchesOf(found: ReadonlyMap<string, Found>): {
         hi: Math.max(upright ? a.y : a.x, upright ? b.y : b.x),
         cover: cover[i] ?? [],
         lean: lean(points[i - 1]) + lean(points[i + 2]),
+        leaves: aFirst ? [fromA, fromB] : [fromB, fromA],
         port: i === 0 || i + 2 === points.length,
         offset: 0,
         shared: false,
@@ -439,10 +450,36 @@ function keepApart(wanted: readonly number[], gaps: readonly number[]): number[]
 }
 
 /**
+ * Which side of rail `b` (at `bAt`) rail `a` has to be on not to cross it where one of them
+ * turns off: below zero the side of the smaller coordinate, above zero the other, 0 when
+ * neither turns off within the other's length, or the two ends disagree.
+ */
+function sideToTurnOff(a: Stretch, aAt: number, b: Stretch, bAt: number): number {
+  let vote = 0;
+  let votes = 0;
+  // A rail that turns off where the other runs on goes on the side of the other that it turns
+  // towards: from the far side, its turn would cross the other.
+  const from = (s: Stretch, other: Stretch, otherAt: number, sign: number) => {
+    [s.lo, s.hi].forEach((end, k) => {
+      const to = s.leaves[k];
+      if (to === undefined || end <= other.lo + 0.5 || end >= other.hi - 0.5) return;
+      const way = Math.sign(to - otherAt);
+      if (way === 0) return;
+      vote += sign * way;
+      votes++;
+    });
+  };
+  from(a, b, bAt, 1);
+  from(b, a, aAt, -1);
+  return Math.abs(vote) === votes ? Math.sign(vote) : 0;
+}
+
+/**
  * Lines of the grid can stand nearer to each other than rails are set apart, and each line
  * spreads its rails without looking at the next: a rail of one line can end up on a rail of
  * another. Moves such rails `GAP` apart, each as little as that takes, in the order they are
- * in. Rails of one line keep the distance `spread` gave them.
+ * in. Rails of one line keep the distance `spread` gave them; a rail of another line is put
+ * between them in the order that keeps a rail that turns off from crossing the others.
  */
 function separate(
   lines: Iterable<{ upright: boolean; fixed: number; stretches: Stretch[] }>,
@@ -488,6 +525,20 @@ function separate(
         else members.set(r, [i]);
       });
       for (const list of members.values()) {
+        // Only rails of different lines change places: `spread` has set those of one line.
+        for (let pass = 0; pass < list.length; pass++) {
+          let swapped = false;
+          for (let k = 0; k + 1 < list.length; k++) {
+            const a = items[list[k] as number] as (typeof items)[number];
+            const b = items[list[k + 1] as number] as (typeof items)[number];
+            if (a.line === b.line || sideToTurnOff(a.stretch, at(a), b.stretch, at(b)) <= 0) {
+              continue;
+            }
+            [list[k], list[k + 1]] = [list[k + 1] as number, list[k] as number];
+            swapped = true;
+          }
+          if (!swapped) break;
+        }
         const wanted = list.map((i) => at(items[i] as (typeof items)[number]));
         const gaps = list.slice(0, -1).map((i, k) => {
           const a = items[i] as (typeof items)[number];

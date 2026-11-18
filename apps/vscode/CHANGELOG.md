@@ -5,6 +5,7 @@ The `dav` language version follows the major version: every `1.x.x` release is `
 
 ## Unreleased
 
+- Two rails that run close beside each other no longer cross where one of them turns off. Rails can run on lines of the grid that stand nearer to each other than rails are set apart, in one test diagram less than a unit; they were then moved 7 units apart in the order of their lines, so a rail that turned off within the length of the other could be put on the far side of it and cross it as it turned. A rail that turns off so now goes on the side it turns towards. Over 31 test diagrams two change, each with one crossing fewer, and turns stay as many. Rails can take other places than before, so an exported SVG can be out of date for `dav export --check` until it is exported again
 - The `dav-diagrams` skill and the layout guide no longer say that the node declared first goes on the left of every loop. That holds only for a loop that nothing else leads into: the layout enters a loop where its search first reaches it, so in a large diagram a one-way edge that points back could pull a node, and its zone, to the far right where the skill promised the left. They now say how a loop is entered, and that a pair written as one two-way edge keeps the node named first on the left. The skill also says how to write a diagram of about 50 nodes or more: the structure first, checked with `--map`, then the steps a few at a time
 
 ## 1.5.4 (2026-11-17)
