@@ -76,10 +76,10 @@ An edge says that two components are connected. It does not say when, how often 
 
 The primary provider is down, so the API retries the same charge with the backup.
 
+Changes from this step on: db: badge "PENDING"
 Changes from this step on: primary: badge "503", color red
 Changes from this step on: backup: shown
 Changes from this step on: e_backup: shown
-Still showing: db: badge "PENDING" (since step 1)
 
 1. Primary PSP (primary) → Order API (api) : "503 Unavailable" [red]
    The provider answers with an outage, so nothing was charged
