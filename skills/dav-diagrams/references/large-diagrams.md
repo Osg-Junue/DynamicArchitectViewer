@@ -1,6 +1,6 @@
 # Writing a large diagram
 
-A diagram of about 50 nodes or more, or one with 4 zones or more that link to one another, is laid out by the same rules as a small one, with one more stage: where its links would run too long or cross in columns, its zones are placed by a search. Most surprises in a large diagram come from that stage and from loops. This page says what the layout does and does not do, and how to write a large diagram so that it comes out as you mean it. [How diagrams are laid out](layout.md) has the rules themselves, and [What the checker prints](checker.md) explains every line of the checker.
+A diagram of about 50 nodes or more, or one of 4 zones or more with edges between them, is laid out by the same rules as a small one, with one more stage: where its links would run too long or cross in columns, its zones are placed by a search. Most surprises in a large diagram come from that stage and from loops. This page says what the layout does and does not do, and how to write a large diagram so that it comes out as you mean it. [How diagrams are laid out](layout.md) has the rules themselves, and [What the checker prints](checker.md) explains every line of the checker.
 
 ## What the layout does, and what it does not
 
@@ -28,14 +28,14 @@ Steps never move anything, so what the structure settles in round 2 stays as it 
 
 - **A zone at the top level is one piece,** which the search moves about as a whole. A node outside every zone is a piece of its own. Give a zone to each boundary that matters: a network, a trust zone, a team, a deployment.
 - **Where the zones are placed freely, each is laid out on its own,** by the column rules and the edges inside it. Edges that leave it change little inside it: a node with a column to spare can move towards them, the whole zone can be turned upside down, and nodes that share a column of the same zone are sorted by where all their connections lead. Zones nested in it are not sorted so: they stand in the order that the edges inside give them, and otherwise in the order they are declared.
-- **Nest the zones that belong together,** so that they stand side by side, but not everything. With one zone at the top level there is nothing left to place freely, and a large diagram can come out much taller, with more crossings.
+- **Nest the zones that belong together,** so that they stand side by side, but not everything. With one zone at the top level there is nothing left to place freely, and a large diagram can come out much taller, with more crossings. Nesting changes the pieces that the search places, so the other zones can move as well, for the better or the worse: compare `--map` and the crossings before and after, and keep it only where the diagram reads better. Name the zone that holds them for a boundary that is real, such as a cloud, a site or a network: it adds a frame, not a part of the system.
 - **Services that many nodes call,** such as outside APIs, can go in one zone of their own. Put them in it as nodes, not as zones of one node each: nodes are sorted by where their callers stand, and nested zones are not. Gathered like this they stand on one side, so the calls from callers on the far side run across the zone they leave. Left outside every zone, each stands by its caller instead, which crosses less but can put it to the left of its caller.
 
 ## Point the edges
 
-- **Point each edge the way the diagram reads:** a caller to the left of what it calls, a source to the left of what it feeds. An edge sets the column of its target.
-- **A request and its response** are one two-way edge that names the caller first, such as `api <-> db`. A packet runs along it either way. A reply is not another connection: where a scene shows it, make the edge two-way, even if the facts name only the call.
-- **A call against the reading direction,** such as an on-call engineer who opens a console on the far left, a command sent back to a device, a webhook from an outside service, or the events that a service takes from a topic standing to its right, puts its target to the right of its source. Write it as one two-way edge that names the node on the left first, such as `payment <-> stripe : "Charges, webhooks"` or `shipping <-> order_events : "Subscription"`. Where it closes a loop, the checker names it in a note `back-edge`.
+- **Point each edge the way the diagram reads:** a caller to the left of what it calls, a source to the left of what it feeds. An edge sets the column of its target. Data that a job pulls from a store comes from the store, its source: `db --> etl : "Nightly extract"`, or `db <-> etl` where a scene shows the query as well.
+- **A request and its response** are one two-way edge that names the caller first, such as `api <-> db`. A packet runs along it either way. A reply is not another connection: where a scene shows it, make the edge two-way, even if the facts name only the call. Where no scene shows a reply, the edge stays one-way.
+- **A call against the reading direction,** such as an on-call engineer who opens a console on the far left, a command sent back to a device, a webhook from an outside service, or the events that a service takes from a topic standing to its right, puts its target to the right of its source. Write it as one two-way edge that names the node on the left first, which here is the node called, not the caller, such as `payment <-> stripe : "Charges, webhooks"` or `shipping <-> order_events : "Subscription"`. Where it closes a loop, the checker names it in a note `back-edge`.
 - **`animate` adds no connection.** Nodes joined only by packets are placed as if they were not connected, and a packet without an edge has no line to follow, so declare the edge.
 
 ## Read what the checker says
@@ -43,12 +43,11 @@ Steps never move anything, so what the structure settles in round 2 stays as it 
 `--detail` gives the layout in numbers, and notes; `--map` says where each zone and node ended. In a large diagram, read them in this order:
 
 1. **The notes `back-edge`.** Each names a loop and the node at its far end. If another node of the loop belongs on the left, declare it before the node that the note names.
-2. **The note `left-links`.** Where the zones are placed freely, it names the connections between zones that point left, against the reading direction. Change one only where it is written other than you mean:
-   - A two-way edge counts only in the direction it is written: check that it names the node you want on the left first. If it does, leave it. Writing it the other way round only to turn the link moves other zones, often for the worse.
-   - A one-way call back, as in [Point the edges](#point-the-edges), becomes one two-way edge that names the node on the left first.
-   - Two zones that belong together can be nested.
+2. **The note `left-links`.** Where the zones are placed freely, it names the connections between zones that point left, against the reading direction. A link between zones placed freely sets no column, so an edge written as you mean can still point left. Leave it: that is the price of placing zones freely, and writing an edge the other way round only to turn its link moves other zones, often for the worse. Change only an edge written other than you mean:
+   - A two-way edge that names first the node you want on the right: write it the other way round.
+   - A one-way call back, as in [Point the edges](#point-the-edges): make it one two-way edge that names the node on the left first.
 
-   Leave the rest. Links that point left, a column or two back between zones side by side, are the price of placing zones freely.
+   Two zones that belong together can be nested, as in [Choose the zones](#choose-the-zones).
 
    `--map` gives every connection the same way: one that runs `left` points against the reading direction.
 3. **The crossings by zone.** A layout line counts the crossings by the zones that the two connections join, the most first.

@@ -125,7 +125,7 @@ lb --> db
 | Move a node to the left | Remove or reverse an edge that points into it |
 | Swap two nodes in a column | Swap their declarations |
 | Keep nodes together | Put them in a `group` |
-| Keep zones next to each other | Nest them in one `group` |
+| Keep zones next to each other | Nest them in one `group`, then compare `--map`: the other zones can move as well |
 | Show a path that appears later | Declare it with `visible: false`, then show it with `state` |
 | Widen the gap between two columns | Use a longer label on an edge between them |
 | Connect nodes without affecting layout | No edge does that: every edge counts. A packet can go between two nodes without an edge, but it then has no line to follow, and `dav check --detail` reports it |
@@ -136,7 +136,7 @@ lb --> db
 
 **A hidden edge still counts.** An edge with `visible: false` sets columns and pulls zones like any other, and its rail keeps its course while hidden, so nothing moves when a step reveals it. That also makes it no clean way to pull two zones together: it sets a column as well, and its rail takes room among the others while hidden.
 
-**The zones of a large diagram are not in the order they are declared.** Where links in columns would run longer than 700 units or cross, the layout [places the top-level zones freely](#placing-zones-freely) wherever that leaves less of both, and their order then follows their links. Zones nested in one zone stay together inside its frame, so nest the zones that belong together. Do not nest everything: with one top-level zone there is nothing to place freely, and a large diagram stands in shared columns, which can make it much taller and give it more crossings.
+**The zones of a large diagram are not in the order they are declared.** Where links in columns would run longer than 700 units or cross, the layout [places the top-level zones freely](#placing-zones-freely) wherever that leaves less of both, and their order then follows their links. Zones nested in one zone stay together inside its frame, so nest the zones that belong together. That changes what the search places, so the other zones can move as well: compare `--map` before and after. Do not nest everything: with one top-level zone there is nothing to place freely, and a large diagram stands in shared columns, which can make it much taller and give it more crossings.
 
 **`animate` adds no connection.** Nodes joined only by `animate` are placed as if unconnected. Add an edge if the position matters.
 
