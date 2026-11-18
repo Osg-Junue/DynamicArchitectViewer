@@ -4531,8 +4531,8 @@ function Ei(e, t) {
 		if (e.from === e.to || (n.get(e.from) ?? e.from) === (n.get(e.to) ?? e.to)) return [];
 		let [r] = It([[e.from, e.to]], t);
 		if (!r || Math.round(r.bx - r.ax) > -1) return [];
-		let [a, o] = [i(e.from), i(e.to)], s = a && o ? `, from ${a} into ${o}` : o ? `, into ${o}` : a ? `, out of ${a}` : "";
-		return [`${e.from} ${ni(e)} ${e.to}${s}`];
+		let [a, o] = [i(e.from), i(e.to)], s = a && o ? `, from ${a} into ${o}` : o ? `, into ${o}` : a ? `, out of ${a}` : "", c = e.direction === "bidirectional" ? ` (write ${e.to} ${ni(e)} ${e.from})` : "";
+		return [`${e.from} ${ni(e)} ${e.to}${s}${c}`];
 	});
 }
 function Di(e, t) {
@@ -4550,48 +4550,51 @@ function ki(e) {
 	let t = Gr(e), n = (e) => {
 		let n = t.nodes[e];
 		return n ? [n] : [];
-	}, r = e.nodes.flatMap((e) => n(e.id)), i = Pt([...r, ...Object.values(t.groups)]), a = Math.round(i.width), o = Math.round(i.height), s = It(Ft(e), t), c = s.flatMap((e, t) => s.slice(t + 1).filter((t) => !Rt(e, t) && zt(e, t)).map((t) => [e, t])), l = c.map(([e, t]) => `${e.from} --> ${e.to} and ${t.from} --> ${t.to}`), u = l.length, d = [`layout: ${a} x ${o} (${wi(a, o)}), ${xi(r)} columns x ${Si(r)} rows of nodes, ${u} ${u === 1 ? "crossing" : "crossings"}`], f = wt(e.groups), p = (t) => e.nodes.filter((e) => Dt(f, e.parentId).includes(t)), m = W(e.groups).map((e) => ({
+	}, r = e.nodes.flatMap((e) => n(e.id)), i = Pt([...r, ...Object.values(t.groups)]), a = Math.round(i.width), o = Math.round(i.height), s = It(Ft(e), t), c = s.flatMap((e, t) => s.slice(t + 1).filter((t) => !Rt(e, t) && zt(e, t)).map((t) => [e, t])), l = (t) => {
+		let n = e.edges.find((e) => e.from === t.from && e.to === t.to);
+		return `${t.from} ${n ? ni(n) : "-->"} ${t.to}`;
+	}, u = c.map(([e, t]) => `${l(e)} and ${l(t)}`), d = u.length, f = [`layout: ${a} x ${o} (${wi(a, o)}), ${xi(r)} columns x ${Si(r)} rows of nodes, ${d} ${d === 1 ? "crossing" : "crossings"}`], p = wt(e.groups), m = (t) => e.nodes.filter((e) => Dt(p, e.parentId).includes(t)), h = W(e.groups).map((e) => ({
 		g: e,
-		rects: p(e.id).flatMap((e) => n(e.id))
-	})).filter(({ rects: e }) => e.length > 0), h = m.length > 0 && Kr(e);
-	if (m.length > 0 && d.push(`layout: zones ${h ? "placed freely" : "in shared columns"}, as columns x rows of nodes: ${m.map(({ g: e, rects: t }) => `"${e.label || e.id}" ${Ci(t)}`).join(", ")}`), m.length > 0 && u > 0) {
+		rects: m(e.id).flatMap((e) => n(e.id))
+	})).filter(({ rects: e }) => e.length > 0), g = h.length > 0 && Kr(e);
+	if (h.length > 0 && f.push(`layout: zones ${g ? "placed freely" : "in shared columns"}, as columns x rows of nodes: ${h.map(({ g: e, rects: t }) => `"${e.label || e.id}" ${Ci(t)}`).join(", ")}`), h.length > 0 && d > 0) {
 		let t = Ti(e, c), n = t.slice(yi), r = n.reduce((e, { count: t }) => e + t, 0), i = `${t.slice(0, yi).map(({ zones: e, count: t }) => `${e} ${t}`).join(", ")}${n.length > 0 ? `, and ${r} more in ${n.length} other pairs` : ""}`;
-		d.push(`layout: crossings by the zones the two connections join, "A" for one inside a zone and "A"–"B" for one between two: ${i}`);
+		f.push(`layout: crossings by the zones the two connections join, "A" for one inside a zone and "A"–"B" for one between two: ${i}`);
 	}
-	let g = [];
-	o > a * gi && g.push({
+	let _ = [];
+	o > a * gi && _.push({
 		code: "tall-diagram",
 		message: `The diagram is ${(o / a).toFixed(1)} times as tall as it is wide. Nodes that no edge puts in order are stacked in one column: where one of them really feeds another, declare that edge, and it moves to the right.`
 	});
 	for (let t of e.groups) {
 		let r = e.nodes.filter((e) => e.parentId === t.id).flatMap((e) => n(e.id));
-		r.length >= hi && xi(r) === 1 && g.push({
+		r.length >= hi && xi(r) === 1 && _.push({
 			code: "stacked-zone",
-			message: `Zone "${t.label || t.id}" stacks its ${r.length} nodes in one column, because no edge runs between them. That is right for peers, such as replicas or separate stores. If one of them feeds another, declare that edge, and they spread to the right.`
+			message: `Zone "${t.label || t.id}" stacks its ${r.length} nodes in one column, because no edge runs between them. That is right for peers, such as replicas, separate stores, outside services or people, and the note can then be left. If one of them feeds another, declare that edge, and they spread to the right.`
 		});
 	}
-	let _ = [...new Set(r.map((e) => Math.round(e.x)))].sort((e, t) => e - t), v = (e) => _.indexOf(Math.round(t.nodes[e]?.x ?? NaN)) + 1, y = new Map(e.nodes.map((e, t) => [e.id, t])), b = /* @__PURE__ */ new Set();
+	let v = [...new Set(r.map((e) => Math.round(e.x)))].sort((e, t) => e - t), y = (e) => v.indexOf(Math.round(t.nodes[e]?.x ?? NaN)) + 1, b = new Map(e.nodes.map((e, t) => [e.id, t])), x = /* @__PURE__ */ new Set();
 	for (let t of Jr(e)) {
 		let n = Ot(t.from, t.to);
-		!b.has(n) && Di(t, y) && (b.add(n), g.push({
+		!x.has(n) && Di(t, b) && (x.add(n), _.push({
 			code: "back-edge",
-			message: Oi(e, t, v)
+			message: Oi(e, t, y)
 		}));
 	}
-	let x = h ? Ei(e, t) : [];
-	if (x.length > 0) {
-		let e = x.length;
-		g.push({
+	let S = g ? Ei(e, t) : [];
+	if (S.length > 0) {
+		let e = S.length;
+		_.push({
 			code: "left-links",
-			message: `${e === 1 ? "One connection between zones points" : `${e} connections between zones point`} left, against the reading direction: ${x.slice(0, vi).join("; ")}${e > vi ? "; and more" : ""}. The zones are placed freely, and a connection between zones sets no column: they go where their links come out shorter and cross less. Write a call back as one two-way edge that names the node on the left first, and nest zones that belong together; references/large-diagrams.md has more.`
+			message: `${e === 1 ? "One connection between zones points" : `${e} connections between zones point`} left, against the reading direction: ${S.slice(0, vi).join("; ")}${e > vi ? "; and more" : ""}. The zones are placed freely, so a connection between zones sets no column. A two-way edge counts only in the direction it is written: write it the other way round, as given, and run the checker again. A one-way call back can become one two-way edge that names the node on the left first. Any other one-way call points where the search put the zones, for shorter links that cross less: nest zones that belong together, or leave it. references/large-diagrams.md has more.`
 		});
 	}
-	return u > 0 && g.push({
+	return d > 0 && _.push({
 		code: "crossings",
-		message: `${u === 1 ? "One pair of connections crosses" : `${u} pairs of connections cross`}, counted on straight lines between the nodes: ${l.slice(0, _i).join("; ")}${u > _i ? "; and more" : ""}. Swapping the declarations of two nodes that share a column often removes a crossing; references/layout.md has more.`
+		message: `${d === 1 ? "One pair of connections crosses" : `${d} pairs of connections cross`}, counted on straight lines between the nodes: ${u.slice(0, _i).join("; ")}${d > _i ? "; and more" : ""}. Swapping the declarations of two nodes that share a column often removes a crossing; references/layout.md has more.`
 	}), {
-		summary: d,
-		notes: g
+		summary: f,
+		notes: _
 	};
 }
 var Ai = (e) => e === " " || e === "\n" || E(e) || e === "—" || e === "→" || e === "←" || e === "↔" || e === "・";

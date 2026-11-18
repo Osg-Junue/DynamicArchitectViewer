@@ -109,7 +109,8 @@ describe('links between zones that point left', () => {
     // a --> c points left too, but inside one zone, where the columns come from the edges.
     expect(leftLinks(document, { nodes: { a: at(400), b: at(0), c: at(0), x: at(800) } })).toEqual([
       'a --> b, from "L" into "R"',
-      'x <-> a, into "L"',
+      // A two-way edge counts as written, so the note gives it the other way round as well.
+      'x <-> a, into "L" (write a <-> x)',
     ]);
   });
 
@@ -548,6 +549,17 @@ describe('dav-check', () => {
           expect(stdout).toMatch(/note crossings: .*: \w+ --> \w+ and \w+ --> \w+/);
         // Without zones, there is nothing to count them by.
         expect(stdout).not.toContain('crossings by the zones');
+      });
+
+      it('names the connections that cross as they are written', () => {
+        // a and c share a column and b and d the next, each linked both ways to both.
+        const { stdout } = lines(
+          good(
+            'node a "A"\nnode c "C"\nnode b "B"\nnode d "D"\na <-> b : "x"\na <-> d : "y"\nc <-> b : "z"\nc <-> d : "w"',
+          ),
+        );
+        expect(stdout).toContain('note crossings: One pair of connections crosses');
+        expect(stdout).toContain(': a <-> d and c <-> b.');
       });
 
       it('gives the crossings by the zones that the two connections join', () => {

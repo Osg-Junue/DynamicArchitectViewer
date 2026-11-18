@@ -128,7 +128,7 @@ lb --> db
 | Keep zones next to each other | Nest them in one `group` |
 | Show a path that appears later | Declare it with `visible: false`, then show it with `state` |
 | Widen the gap between two columns | Use a longer label on an edge between them |
-| Connect nodes without affecting layout | Leave out the edge and use only `animate` between them |
+| Connect nodes without affecting layout | No edge does that: every edge counts. A packet can go between two nodes without an edge, but it then has no line to follow, and `dav check --detail` reports it |
 
 ## Things that surprise people
 
@@ -140,7 +140,7 @@ lb --> db
 
 **`animate` adds no connection.** Nodes joined only by `animate` are placed as if unconnected. Add an edge if the position matters.
 
-**A packet that goes there and back weighs on where zones go.** A round trip, `animate a <-> b`, travels its edge twice in its time, so that edge counts twice when the layout decides whether to [place the zones freely](#placing-zones-freely), and where. Adding one can move zones, even though no step moves anything while it plays.
+**A packet that goes there and back weighs on where zones go.** A round trip, `animate a <-> b`, travels its edge twice in its time, so that edge counts twice when the layout decides whether to [place the zones freely](#placing-zones-freely), and where. Adding one can move zones, even though no step moves anything while it plays. Where that moves them for the worse, send the call and its answer as two one-way packets: `animate a --> b`, then `animate b --> a`. A one-way packet does not weigh on the layout.
 
 **A self-loop adds room above every row.** Each node gets the room the tallest loop of the diagram needs, so stations stay level from one zone to the next and the rails between them stay straight.
 

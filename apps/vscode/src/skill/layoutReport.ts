@@ -105,7 +105,8 @@ export function crossingsByZone(
 /**
  * The connections between two zones whose second node stands to the left of their first, as
  * `--map` would say `left` of them, named as written with the zones they leave and enter. A
- * node outside every zone stands for itself.
+ * node outside every zone stands for itself. A two-way edge counts only in the direction it is
+ * written, so it is given written the other way round as well, which counts the other way.
  */
 export function leftLinks(doc: DavDocument, layout: Pick<Layout, 'nodes'>): string[] {
   const zoneOf = zoneOfNodes(doc);
@@ -130,7 +131,9 @@ export function leftLinks(doc: DavDocument, layout: Pick<Layout, 'nodes'>): stri
           : from
             ? `, out of ${from}`
             : '';
-    return [`${e.from} ${arrowOf(e)} ${e.to}${across}`];
+    const turned =
+      e.direction === 'bidirectional' ? ` (write ${e.to} ${arrowOf(e)} ${e.from})` : '';
+    return [`${e.from} ${arrowOf(e)} ${e.to}${across}${turned}`];
   });
 }
 
@@ -174,7 +177,12 @@ export function layoutReport(doc: DavDocument): LayoutReport {
       .filter((t) => !shareStation(s, t) && properlyCross(s, t))
       .map((t): CrossingPair => [s, t]),
   );
-  const crossing = crossingPairs.map(([s, t]) => `${s.from} --> ${s.to} and ${t.from} --> ${t.to}`);
+  // Each connection as it is written, so that it can be found in the file.
+  const written = (s: Segment): string => {
+    const edge = doc.edges.find((e) => e.from === s.from && e.to === s.to);
+    return `${s.from} ${edge ? arrowOf(edge) : '-->'} ${s.to}`;
+  };
+  const crossing = crossingPairs.map(([s, t]) => `${written(s)} and ${written(t)}`);
   const crossings = crossing.length;
 
   const summary = [
@@ -221,7 +229,7 @@ export function layoutReport(doc: DavDocument): LayoutReport {
     if (own.length >= STACK_FROM && columns(own) === 1) {
       notes.push({
         code: 'stacked-zone',
-        message: `Zone "${g.label || g.id}" stacks its ${own.length} nodes in one column, because no edge runs between them. That is right for peers, such as replicas or separate stores. If one of them feeds another, declare that edge, and they spread to the right.`,
+        message: `Zone "${g.label || g.id}" stacks its ${own.length} nodes in one column, because no edge runs between them. That is right for peers, such as replicas, separate stores, outside services or people, and the note can then be left. If one of them feeds another, declare that edge, and they spread to the right.`,
       });
     }
   }
@@ -244,7 +252,7 @@ export function layoutReport(doc: DavDocument): LayoutReport {
     const count = leftward.length;
     notes.push({
       code: 'left-links',
-      message: `${count === 1 ? 'One connection between zones points' : `${count} connections between zones point`} left, against the reading direction: ${leftward.slice(0, LEFT_LINKS_NAMED).join('; ')}${count > LEFT_LINKS_NAMED ? '; and more' : ''}. The zones are placed freely, and a connection between zones sets no column: they go where their links come out shorter and cross less. Write a call back as one two-way edge that names the node on the left first, and nest zones that belong together; references/large-diagrams.md has more.`,
+      message: `${count === 1 ? 'One connection between zones points' : `${count} connections between zones point`} left, against the reading direction: ${leftward.slice(0, LEFT_LINKS_NAMED).join('; ')}${count > LEFT_LINKS_NAMED ? '; and more' : ''}. The zones are placed freely, so a connection between zones sets no column. A two-way edge counts only in the direction it is written: write it the other way round, as given, and run the checker again. A one-way call back can become one two-way edge that names the node on the left first. Any other one-way call points where the search put the zones, for shorter links that cross less: nest zones that belong together, or leave it. references/large-diagrams.md has more.`,
     });
   }
   if (crossings > 0) {

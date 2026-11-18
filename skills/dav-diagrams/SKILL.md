@@ -19,7 +19,7 @@ Follow the workflow in order. Do not skip step 5: the checker is the only way to
    - the scenarios to show, in order: the normal flow first, then failures or alternatives;
    - for each message in a scenario: what is sent, and a realistic example of it.
 
-   Do not invent components. If a fact is missing and the user cannot be asked, leave it out. When changing an existing `.dav` file, edit it in place and keep its IDs and comments.
+   Do not invent components. If a fact is missing and the user cannot be asked, leave it out. A reply on a connection is not another connection: where a scene shows the reply, write that edge as `<->`, even if the facts name only the call. When changing an existing `.dav` file, edit it in place and keep its IDs and comments.
 2. **Declare the structure:** `node`, `group`, then edges. Write edges in the direction the diagram should read, because they set the columns. Declare an edge for every way a packet will go, a self-loop (`api --> api`) for a node that retries or changes state on its own included.
 3. **Script the steps,** one scene per `step`. See [Scripting steps](#scripting-steps).
 4. **Fill in the detail** until the file meets [What a detailed diagram has](#what-a-detailed-diagram-has).
@@ -66,6 +66,8 @@ Nothing wraps except `desc`. A longer text is cut off with `…`, and `--detail`
 | `animate` label | 44 | 27 |
 | `animate` `desc` | 170, in up to four lines | 95 |
 | `code` | 10 lines of 55 characters | 10 lines of 35 |
+
+A zone's name is as wide as its zone: about 20 Latin letters or 11 Japanese characters in a zone one column wide, more in a wider one. The checker does not report a zone name that is cut off. When an official name is longer than its place, keep a short label and give the full name in `sub` or in a `desc`.
 
 The column to read depends on the characters, not on the language of the diagram: SQL, JSON and HTTP are Latin letters in a Japanese diagram too, so a line of `code` fits about 55 there as well.
 
@@ -174,6 +176,8 @@ The `:` before an edge or `animate` label is required. Attribute blocks are `[ke
 | `<->` | Solid | Both | There and back |
 | `<.>` | Dashed | Both | Not allowed |
 
+When the two directions of a two-way edge carry different things, name both in its label: `hvac <-> gw : "Status / setpoints"`. Two one-way edges in opposite directions would make a loop, and the layout leaves one of them out.
+
 ### Colors
 
 `red`, `orange`, `yellow`, `green`, `teal`, `blue`, `purple`, `pink`, `gray`
@@ -194,8 +198,8 @@ There is no icon for a product. Pick the kind, and name the product in `sub`: `[
 - **Groups keep nodes together.** Declaration order breaks ties from top to bottom, so swap two declarations to swap two nodes in a column.
 - **The zones of a large diagram follow their links, not their declarations,** and only zones nested in one zone are sure to stand together. `--detail` says `zones placed freely` when this happens, and names each link between zones that points left in a note `left-links`. [references/large-diagrams.md](references/large-diagrams.md) says how to choose the zones.
 - **In a cycle, the node reached first goes on the left.** Columns come from a search that starts at the nodes in the order they are declared and follows edges in the order they are written, and the edge that closes a loop does not count. A loop that nothing else leads into is entered at its node declared first. A loop that another node leads into is entered there, whatever the order of its own nodes: in a large diagram, that is most loops. `--detail` names the edge left out in a note `back-edge`, with the loop, the column its far end took, and the node to declare earlier to start the loop elsewhere. Where the zones are placed freely, only a loop inside one zone leaves an edge out.
-- **A one-way edge that points back pulls its target to the right of its source,** and the target's zone with it, unless the search reached the source through that target. A command sent back to a device, or an on-call engineer who opens a console on the far left, is such an edge. Write it as one two-way edge that names the node on the left first (`gw <-> svc`): a two-way edge counts only in the direction it is written, and a packet can run along it either way. For a request and its response, name the caller first.
-- **Steps never move a node while they play.** A hidden node keeps its place, so nothing moves when it appears. `animate` adds no connection, but a packet that goes there and back (`animate a <-> b`) counts its edge twice where zones are placed freely: adding one can move zones, so read the layout again after writing such steps.
+- **A one-way edge that points back pulls its target to the right of its source,** and the target's zone with it, unless the search reached the source through that target. A command sent back to a device, an on-call engineer who opens a console on the far left, a webhook that an outside service calls back with, or a subscription to a topic that stands further right, is such an edge. Write it as one two-way edge that names the node on the left first (`gw <-> svc`): a two-way edge counts only in the direction it is written, and a packet can run along it either way. For a request and its response, name the caller first.
+- **Steps never move a node while they play.** A hidden node keeps its place, so nothing moves when it appears. `animate` adds no connection, but a packet that goes there and back (`animate a <-> b`) counts its edge twice where zones are placed freely: adding one can move zones, so read the layout again after writing such steps. If one moves them for the worse, send the call and its answer as two one-way packets instead, `animate a --> b` and then `animate b --> a`: a one-way packet does not weigh on the layout.
 - There is no syntax for positions. Do not try to add any.
 
 When it matters which node is where, because the user asks how the diagram looks or wants one thing left of, right of or above another, run the checker with `--map`. `--detail` describes the layout in numbers. [references/checker.md](references/checker.md) explains both, and [the layout guide](references/layout.md) has recipes for moving a node.
