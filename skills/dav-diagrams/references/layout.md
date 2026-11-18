@@ -45,7 +45,7 @@ Nodes that share a column are aligned across the whole diagram, even in differen
 
 ### Which way should an arrow point?
 
-Point it the way you want the diagram to read. To put `client` on the left of `api`, write `client --> api`. For traffic in both directions, use a single two-way edge (`client <-> api`) and the first node named goes on the left.
+From the caller to what it calls, as the facts give it: `client --> api` says that `client` calls `api`, and puts `client` on the left of `api`. Through a queue, a topic or a stream, it goes the way the messages go: from the producer, and to whatever takes them, pushed or pulled. Do not turn an arrow round to move a node: it would then say that the other node calls. For a call and its answer, use a single two-way edge (`client <-> api`): the first node named goes on the left, which for a request and its response is the caller. [Cycles](#cycles) says what to do with a call that runs back.
 
 ### Cycles
 
