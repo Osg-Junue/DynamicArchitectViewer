@@ -27,6 +27,8 @@ export interface FlowAnalysis {
   auxiliaryZones: Set<string>;
   /** Directed `fromOwner->toOwner` keys where `primary` forward flow crosses from an upstream zone. */
   primaryZonePairs: Set<string>;
+  /** Earliest step index (`0..steps.length-1`) where each unordered node pair (`flowPairKey`) appears. */
+  pairFirstStep: ReadonlyMap<string, number>;
 }
 
 export const flowPairKey = (a: string, b: string): string => (a < b ? idPair(a, b) : idPair(b, a));
@@ -196,7 +198,14 @@ export function analyzeFlow(
   const effectiveEntered = new Set<string>();
   const byPair = new Map<string, ClassifiedConnection>();
   const primaryEdges: Array<readonly [string, string]> = [];
+  const pairFirstStep = new Map<string, number>();
   let hasAnimate = false;
+
+  const recordStep = (from: string, to: string, stepIdx: number) => {
+    if (from === to || !known.has(from) || !known.has(to)) return;
+    const pk = flowPairKey(from, to);
+    if (!pairFirstStep.has(pk)) pairFirstStep.set(pk, stepIdx);
+  };
 
   const activateStaticEdge = (from: string, to: string, seen: Set<string>): void => {
     if (!canReach(effectiveNodeAdj, to, from)) {
@@ -251,9 +260,12 @@ export function analyzeFlow(
     primaryEdges.push([src, dst]);
   };
 
-  for (const step of doc.steps) {
+  for (let stepIdx = 0; stepIdx < doc.steps.length; stepIdx++) {
+    const step = doc.steps[stepIdx];
+    if (!step) continue;
     const stepStaticSources: string[] = [];
     for (const s of step.statics) {
+      recordStep(s.from, s.to, stepIdx);
       if (s.from === s.to || s.direction !== 'forward') continue;
       if (!known.has(s.from) || !known.has(s.to)) continue;
       const list = pendingStatics.get(s.from);
@@ -269,6 +281,7 @@ export function analyzeFlow(
       if (a.from === a.to) continue;
       const key = flowPairKey(a.from, a.to);
       if (!connByPair.has(key)) continue;
+      recordStep(a.from, a.to, stepIdx);
       hasAnimate = true;
 
       if (a.direction === 'bidirectional') {
@@ -362,6 +375,7 @@ export function analyzeFlow(
     blockOrder,
     zoneAdj,
     hasAnimate,
+    pairFirstStep,
   );
 
   return {
@@ -372,6 +386,7 @@ export function analyzeFlow(
     zoneStage,
     auxiliaryZones,
     primaryZonePairs,
+    pairFirstStep,
   };
 }
 
@@ -383,6 +398,7 @@ function computeMacroZones(
   blockOrder: ReadonlyMap<string, number>,
   chronZoneAdj: ReadonlyMap<string, ReadonlySet<string>>,
   hasAnimate: boolean,
+  pairFirstStep: ReadonlyMap<string, number>,
 ): {
   zoneStage: Map<string, number>;
   auxiliaryZones: Set<string>;
@@ -391,48 +407,66 @@ function computeMacroZones(
   const topIds = new Set(topLevelGroups(doc.groups).map((g) => g.id));
   const blockIds = [...blockOrder.keys()];
   const primaryInter = new Map<string, number>();
-  const primaryDegree = new Map<string, number>();
-  const staticDegree = new Map<string, number>();
-
-  for (const id of blockIds) {
-    primaryDegree.set(id, 0);
-    staticDegree.set(id, 0);
-  }
-
-  // Also count `return` inter-zone connections toward animate vs static share without voting stage direction.
-  const animateTouch = new Map<string, number>(blockIds.map((id) => [id, 0]));
+  const primaryDegree = new Map<string, number>(blockIds.map((id) => [id, 0]));
   const neighbors = new Map<string, Set<string>>(blockIds.map((id) => [id, new Set()]));
   const directedVotes = new Map<string, number>();
+  const pairMinPriStep = new Map<string, number>();
+  const zoneNodeCount = new Map<string, number>(blockIds.map((id) => [id, 0]));
+  for (const owner of owners.values()) {
+    zoneNodeCount.set(owner, (zoneNodeCount.get(owner) ?? 0) + 1);
+  }
+
+  // Decay late-step additions symmetrically on multi-step diagrams (weight = 1 when steps <= 3)
+  // so late cross-cutting links cannot flip earlier-established auxiliary roles or stages.
+  const multiStep = doc.steps.length >= 4;
+  const stepDecay = (fs: number): number => (multiStep ? 1 / (1 + 0.12 * Math.max(0, fs - 2)) : 1);
+
+  // Also count `return` inter-zone connections toward animate vs static share without voting stage direction,
+  // and track intra-zone connections (`intraTotal`) to distinguish unchained shared-resource bags from stages.
+  const animateTouch = new Map<string, number>(blockIds.map((id) => [id, 0]));
+  const staticDegree = new Map<string, number>(blockIds.map((id) => [id, 0]));
+  const intraTotal = new Map<string, number>(blockIds.map((id) => [id, 0]));
 
   for (const c of classified) {
     const bu = owners.get(c.from);
     const bv = owners.get(c.to);
-    if (!bu || !bv || bu === bv) continue;
+    if (!bu || !bv) continue;
+    if (bu === bv) {
+      intraTotal.set(bu, (intraTotal.get(bu) ?? 0) + 1);
+      continue;
+    }
     neighbors.get(bu)?.add(bv);
     neighbors.get(bv)?.add(bu);
 
+    const pk = flowPairKey(c.from, c.to);
+    const fs = pairFirstStep.get(pk) ?? 0;
+    const stepScore = 1 / (1 + 0.05 * fs);
+    const w = stepDecay(fs);
     const dirKey = idPair(bu, bv);
     if (c.role === 'primary') {
       primaryInter.set(dirKey, (primaryInter.get(dirKey) ?? 0) + 1);
-      directedVotes.set(dirKey, (directedVotes.get(dirKey) ?? 0) + 3);
+      directedVotes.set(dirKey, (directedVotes.get(dirKey) ?? 0) + 3 * stepScore);
+      const zonePairKey = flowPairKey(bu, bv);
+      pairMinPriStep.set(zonePairKey, Math.min(pairMinPriStep.get(zonePairKey) ?? fs, fs));
       primaryDegree.set(bu, (primaryDegree.get(bu) ?? 0) + 1);
       primaryDegree.set(bv, (primaryDegree.get(bv) ?? 0) + 1);
-      animateTouch.set(bu, (animateTouch.get(bu) ?? 0) + 1);
-      animateTouch.set(bv, (animateTouch.get(bv) ?? 0) + 1);
+      animateTouch.set(bu, (animateTouch.get(bu) ?? 0) + w);
+      animateTouch.set(bv, (animateTouch.get(bv) ?? 0) + w);
     } else if (c.role === 'return') {
-      animateTouch.set(bu, (animateTouch.get(bu) ?? 0) + 1);
-      animateTouch.set(bv, (animateTouch.get(bv) ?? 0) + 1);
+      animateTouch.set(bu, (animateTouch.get(bu) ?? 0) + w);
+      animateTouch.set(bv, (animateTouch.get(bv) ?? 0) + w);
     } else {
-      if (connByPair.get(flowPairKey(c.from, c.to))?.direction !== 'bidirectional') {
-        directedVotes.set(dirKey, (directedVotes.get(dirKey) ?? 0) + 0.1);
+      if (connByPair.get(pk)?.direction !== 'bidirectional') {
+        directedVotes.set(dirKey, (directedVotes.get(dirKey) ?? 0) + 0.1 * stepScore);
       }
-      staticDegree.set(bu, (staticDegree.get(bu) ?? 0) + 1);
-      staticDegree.set(bv, (staticDegree.get(bv) ?? 0) + 1);
+      staticDegree.set(bu, (staticDegree.get(bu) ?? 0) + w);
+      staticDegree.set(bv, (staticDegree.get(bv) ?? 0) + w);
     }
   }
 
   // Auxiliary cross-cutting zones: zones with no primary inter-zone connections (e.g. static-only
-  // monitoring or feedback/return loops) or static-heavy zones spanning >=3 blocks.
+  // monitoring or feedback/return loops), multi-node shared utility bags with zero intra-zone edges
+  // (`isSharedBag && stat > anim`), or overwhelmingly static telemetry hubs (`stat > anim * 2`).
   const auxiliaryZones = new Set<string>();
   if (hasAnimate) {
     for (const id of topIds) {
@@ -440,10 +474,24 @@ function computeMacroZones(
       const anim = animateTouch.get(id) ?? 0;
       const stat = staticDegree.get(id) ?? 0;
       const distinctNbrs = neighbors.get(id)?.size ?? 0;
-      if ((priInter === 0 && distinctNbrs >= 2) || (stat > anim && distinctNbrs >= 3)) {
+      const isSharedBag = (zoneNodeCount.get(id) ?? 0) >= 2 && (intraTotal.get(id) ?? 0) === 0;
+      const staticHeavy = isSharedBag ? stat > anim : stat > anim * 2;
+      if ((priInter === 0 && distinctNbrs >= 2) || (staticHeavy && distinctNbrs >= 3)) {
         auxiliaryZones.add(id);
       }
     }
+  }
+
+  // Undirected primary connectivity among non-auxiliary blocks: static-only cross links inside an
+  // already primary-connected backbone must not push sibling stages downstream.
+  const primaryComponentAdj = new Map<string, Set<string>>(blockIds.map((id) => [id, new Set()]));
+  for (const c of classified) {
+    if (c.role !== 'primary') continue;
+    const bu = owners.get(c.from);
+    const bv = owners.get(c.to);
+    if (!bu || !bv || bu === bv || auxiliaryZones.has(bu) || auxiliaryZones.has(bv)) continue;
+    addAdj(primaryComponentAdj, bu, bv);
+    addAdj(primaryComponentAdj, bv, bu);
   }
 
   // Resolve net acyclic inter-block precedence over non-auxiliary pairs first.
@@ -463,6 +511,17 @@ function computeMacroZones(
       const auxB = auxiliaryZones.has(bv);
       const hasPri =
         (primaryInter.get(idPair(bu, bv)) ?? 0) + (primaryInter.get(idPair(bv, bu)) ?? 0) > 0;
+      if (
+        hasAnimate &&
+        !auxA &&
+        !auxB &&
+        !hasPri &&
+        (primaryDegree.get(bu) ?? 0) > 0 &&
+        (primaryDegree.get(bv) ?? 0) > 0 &&
+        canReach(primaryComponentAdj, bu, bv)
+      ) {
+        continue;
+      }
       let winnerFrom = bu;
       let winnerTo = bv;
       let diff = fwd - rev;
@@ -481,8 +540,9 @@ function computeMacroZones(
           winnerTo = bu;
         }
       }
-      // Keep non-auxiliary backbone edges highest priority, then static-to-unplaced edges.
-      const weight = (auxA || auxB ? 0 : 1000) + (hasPri ? 100 : 0) + diff;
+      // Keep non-auxiliary early-established primary backbone edges highest priority.
+      const priBonus = hasPri ? 100 + 10 / (1 + 0.05 * (pairMinPriStep.get(pk) ?? 0)) : 0;
+      const weight = (auxA || auxB ? 0 : 1000) + priBonus + diff;
       pairMargin.push({ a: winnerFrom, b: winnerTo, weight, primary: hasPri && !auxA && !auxB });
     }
   }
@@ -539,13 +599,53 @@ function computeMacroZones(
     }
   }
 
+  const auxNbrMaxWeight = new Map<string, Map<string, number>>();
+  for (const c of classified) {
+    const bu = owners.get(c.from);
+    const bv = owners.get(c.to);
+    if (!bu || !bv || bu === bv) continue;
+    const fs = pairFirstStep.get(flowPairKey(c.from, c.to)) ?? 0;
+    for (const [auxId, nbrId] of [
+      [bu, bv],
+      [bv, bu],
+    ] as const) {
+      if (!auxiliaryZones.has(auxId) || auxiliaryZones.has(nbrId)) continue;
+      let m = auxNbrMaxWeight.get(auxId);
+      if (!m) {
+        m = new Map();
+        auxNbrMaxWeight.set(auxId, m);
+      }
+      const w = stepDecay(fs);
+      if (w > (m.get(nbrId) ?? 0)) m.set(nbrId, w);
+    }
+  }
   for (const aux of auxiliaryZones) {
-    const nbrStages = [...(neighbors.get(aux) ?? [])]
-      .filter((n) => !auxiliaryZones.has(n))
-      .map((n) => zoneStage.get(n) ?? 0);
-    if (nbrStages.length > 0) {
-      const mean = nbrStages.reduce((a, b) => a + b, 0) / nbrStages.length;
-      zoneStage.set(aux, Math.round(mean));
+    const nbrWeights = auxNbrMaxWeight.get(aux);
+    if (!nbrWeights || nbrWeights.size === 0) continue;
+    let sw = 0;
+    let sws = 0;
+    for (const [n, w] of nbrWeights) {
+      sws += (zoneStage.get(n) ?? 0) * w;
+      sw += w;
+    }
+    if (sw > 0) zoneStage.set(aux, Math.round(sws / sw));
+  }
+
+  // Stage non-aux blocks that attach solely to auxiliary zones relative to those aux zones.
+  for (const id of primaryIds) {
+    if ((indeg.get(id) ?? 0) !== 0 || (dag.get(id)?.length ?? 0) !== 0) continue;
+    const nbrs = neighbors.get(id);
+    if (!nbrs || nbrs.size === 0) continue;
+    if ([...nbrs].some((n) => !auxiliaryZones.has(n))) continue;
+    const auxIn = [...nbrs].filter((n) => (primaryInter.get(idPair(n, id)) ?? 0) > 0);
+    const auxOut = [...nbrs].filter((n) => (primaryInter.get(idPair(id, n)) ?? 0) > 0);
+    if (auxIn.length > 0) {
+      zoneStage.set(id, Math.max(...auxIn.map((n) => (zoneStage.get(n) ?? 0) + 1)));
+    } else if (auxOut.length > 0) {
+      zoneStage.set(id, Math.max(0, Math.min(...auxOut.map((n) => (zoneStage.get(n) ?? 0) - 1))));
+    } else {
+      const stages = [...nbrs].map((n) => zoneStage.get(n) ?? 0);
+      zoneStage.set(id, Math.round(stages.reduce((a, b) => a + b, 0) / stages.length));
     }
   }
 

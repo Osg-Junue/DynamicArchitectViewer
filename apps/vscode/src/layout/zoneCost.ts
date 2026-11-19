@@ -2,11 +2,12 @@ import type { DavDocument } from '../model/types';
 import {
   analyzeFlow,
   type FlowAnalysis,
+  flowPairKey,
   type PrimaryCorridor,
   primaryCorridors,
   type TransitionRole,
 } from './flow';
-import { properlyCross, type Segment, shareStation } from './links';
+import { properlyCross, type Segment } from './links';
 import { type Rect, STATION_CENTER } from './metrics';
 import {
   type Block,
@@ -41,6 +42,7 @@ const CROSSING_COST = 250;
 const THROUGH_COST = 130;
 const STAGE_OVERLAP_COST = 2400;
 const LAYER_INTRUSION_COST = 1200;
+const RIBBON_MAX_ASPECT = 6.2;
 
 export interface FlowContext {
   preserveFlow: boolean;
@@ -53,9 +55,15 @@ export interface FlowContext {
   /** Pre-indexed block slots for zero-allocation `flowPenalty` checks in `anneal`. */
   slotOf: ReadonlyMap<string, number>;
   slots: Array<Placed | undefined>;
+  placedSlots: Int32Array;
   stagePairIdx: ReadonlyArray<readonly [number, number]>;
   pendantPairIdx: ReadonlyArray<readonly [number, number]>;
-  corridorIdx: ReadonlyArray<{ a: number; b: number; allowed: ReadonlySet<string> }>;
+  corridorIdx: ReadonlyArray<{
+    a: number;
+    b: number;
+    allowed: ReadonlySet<string>;
+    allowedSlots: Uint8Array;
+  }>;
 }
 
 /** Builds stage progression and primary-corridor metadata for `zoneCost`. */
@@ -122,7 +130,13 @@ export function buildFlowContext(
   const corridorIdx = corridors.flatMap(({ a, b, allowed }) => {
     const ia = slotOf.get(a);
     const ib = slotOf.get(b);
-    return ia !== undefined && ib !== undefined ? [{ a: ia, b: ib, allowed }] : [];
+    if (ia === undefined || ib === undefined) return [];
+    const allowedSlots = new Uint8Array(blockIds.length);
+    for (const id of allowed) {
+      const sIdx = slotOf.get(id);
+      if (sIdx !== undefined) allowedSlots[sIdx] = 1;
+    }
+    return [{ a: ia, b: ib, allowed, allowedSlots }];
   });
 
   return {
@@ -134,6 +148,7 @@ export function buildFlowContext(
     corridors,
     slotOf,
     slots: new Array<Placed | undefined>(blockIds.length),
+    placedSlots: new Int32Array(Math.max(16, blockIds.length)),
     stagePairIdx: indexPairs(stagePairs),
     pendantPairIdx: indexPairs(pendantPairs),
     corridorIdx,
@@ -157,6 +172,10 @@ export interface BlockLink extends Segment {
    * below and above. A way is open when no node of either zone stands on it.
    */
   open: readonly [number, number, number, number];
+  sourceFree: readonly [number, number];
+  targetFree: readonly [number, number];
+  fromIdx: number;
+  toIdx: number;
   minX: number;
   maxX: number;
   minY: number;
@@ -164,6 +183,7 @@ export interface BlockLink extends Segment {
 }
 
 interface Anchor {
+  idx: number;
   p: Placed;
   x: number;
   y: readonly [number, number];
@@ -297,7 +317,12 @@ function offFlow(l: BlockLink): number {
 
 function crossingCost(s: BlockLink, t: BlockLink, preserveFlow: boolean): number {
   if (s.maxX < t.minX || t.maxX < s.minX || s.maxY < t.minY || t.maxY < s.minY) return 0;
-  return !shareStation(s, t) && properlyCross(s, t)
+  const shares =
+    s.fromIdx === t.fromIdx ||
+    s.fromIdx === t.toIdx ||
+    s.toIdx === t.fromIdx ||
+    s.toIdx === t.toIdx;
+  return !shares && properlyCross(s, t)
     ? CROSSING_COST * Math.min(crossingWeight(s, preserveFlow), crossingWeight(t, preserveFlow))
     : 0;
 }
@@ -366,6 +391,346 @@ function throughCost(l: BlockLink, placed: readonly Placed[], preserveFlow: bool
   return total;
 }
 
+/**
+ * Counts how many `(link, intermediate zone)` pairs block BOTH 1-bend L-paths (`hitsL1 && hitsL2`),
+ * each of which forces the orthogonal router into a 3-or-4-turn U-detour (`winding`).
+ */
+export function wallDetourCount(links: readonly BlockLink[], placed: readonly Placed[]): number {
+  let walls = 0;
+  const pad = 3.5;
+  for (const l of links) {
+    for (const p of placed) {
+      if (p === l.source || p === l.target) continue;
+      const left = p.x - pad;
+      const right = p.x + p.block.width + pad;
+      const top = p.y - pad;
+      const bottom = p.y + p.block.height + pad;
+      if (l.maxX <= left || l.minX >= right || l.maxY <= top || l.minY >= bottom) continue;
+      const hitsL1 = (l.ay > top && l.ay < bottom) || (l.bx > left && l.bx < right);
+      const hitsL2 = (l.ax > left && l.ax < right) || (l.by > top && l.by < bottom);
+      if (hitsL1 && hitsL2) walls++;
+    }
+  }
+  return walls;
+}
+
+/** Counts primary inter-zone links whose directional exit/entry ports are blocked by sibling nodes. */
+export function blockedPrimaryPorts(links: readonly BlockLink[]): number {
+  let count = 0;
+  for (const l of links) {
+    if (l.role !== 'primary') continue;
+    const dx = l.bx - l.ax;
+    const dy = l.by - l.ay;
+    const open = l.open[l.source.flip * 2 + l.target.flip] ?? 0;
+    const hOpen = (dx > 16 && (open & 1) !== 0) || (dx < -16 && (open & 2) !== 0);
+    const vOpen = (dy > 36 && (open & 4) !== 0) || (dy < -36 && (open & 8) !== 0);
+    if (!hOpen && !vOpen) count++;
+  }
+  return count;
+}
+
+/** Share of inter-zone links directed into the forward rightward 45-degree cone (`dx > 0 && dx >= |dy|`). */
+export function rightwardShare(links: readonly BlockLink[]): number {
+  if (links.length === 0) return 1;
+  let right = 0;
+  for (const l of links) {
+    const dx = l.bx - l.ax;
+    if (dx > 0 && dx >= Math.abs(l.by - l.ay)) right++;
+  }
+  return right / links.length;
+}
+
+export interface RoutingDefects {
+  jogs: number;
+  portWindings: number;
+  primaryPortWindings: number;
+  sharedCrossings: number;
+  orthoPrimaryCrossings: number;
+}
+
+/**
+ * Estimates orthogonal routing defects from station free-side masks and block bounding boxes:
+ * - `jogs`: separated facing channels whose stations miss straight alignment by `0.5..120px`.
+ * - `portWindings` / `primaryPortWindings`: links lacking any unobstructed 0-, 1-, or 2-turn channel.
+ * - `sharedCrossings` / `orthoPrimaryCrossings`: polyline crossings on approximate orthogonal routes.
+ */
+export function estimateRoutingDefects(
+  links: readonly BlockLink[],
+  placed: readonly Placed[],
+  includePartialFacingJogs = false,
+): RoutingDefects {
+  let jogs = 0;
+  let portWindings = 0;
+  let primaryPortWindings = 0;
+
+  const corridorClear = (
+    l: BlockLink,
+    minX: number,
+    maxX: number,
+    minY: number,
+    maxY: number,
+  ): boolean => {
+    for (const p of placed) {
+      if (p === l.source || p === l.target) continue;
+      if (p.x < maxX && p.x + p.block.width > minX && p.y < maxY && p.y + p.block.height > minY) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const polys: Array<ReadonlyArray<readonly [number, number]>> = [];
+
+  for (const l of links) {
+    const sf = l.sourceFree[l.source.flip] ?? 0;
+    const tf = l.targetFree[l.target.flip] ?? 0;
+    const sLeft = l.source.x;
+    const sRight = sLeft + l.source.block.width;
+    const sTop = l.source.y;
+    const sBot = sTop + l.source.block.height;
+    const tLeft = l.target.x;
+    const tRight = tLeft + l.target.block.width;
+    const tTop = l.target.y;
+    const tBot = tTop + l.target.block.height;
+
+    const minX = Math.min(l.ax, l.bx);
+    const maxX = Math.max(l.ax, l.bx);
+    const minY = Math.min(l.ay, l.by);
+    const maxY = Math.max(l.ay, l.by);
+
+    const hRight =
+      sRight <= tLeft &&
+      (sf & 1) !== 0 &&
+      (tf & 2) !== 0 &&
+      corridorClear(l, sRight, tLeft, minY - 2, maxY + 2);
+    const hLeft =
+      tRight <= sLeft &&
+      (sf & 2) !== 0 &&
+      (tf & 1) !== 0 &&
+      corridorClear(l, tRight, sLeft, minY - 2, maxY + 2);
+    const vDown =
+      sBot <= tTop &&
+      (sf & 4) !== 0 &&
+      (tf & 8) !== 0 &&
+      corridorClear(l, minX - 2, maxX + 2, sBot, tTop);
+    const vUp =
+      tBot <= sTop &&
+      (sf & 8) !== 0 &&
+      (tf & 4) !== 0 &&
+      corridorClear(l, minX - 2, maxX + 2, tBot, sTop);
+
+    const lHV =
+      ((l.bx > sRight && (sf & 1) !== 0) || (l.bx < sLeft && (sf & 2) !== 0)) &&
+      ((l.ay < tTop && (tf & 8) !== 0) || (l.ay > tBot && (tf & 4) !== 0)) &&
+      corridorClear(l, minX, maxX, l.ay - 2, l.ay + 2) &&
+      corridorClear(l, l.bx - 2, l.bx + 2, minY, maxY);
+    const lVH =
+      ((l.by > sBot && (sf & 4) !== 0) || (l.by < sTop && (sf & 8) !== 0)) &&
+      ((l.ax < tLeft && (tf & 2) !== 0) || (l.ax > tRight && (tf & 1) !== 0)) &&
+      corridorClear(l, l.ax - 2, l.ax + 2, minY, maxY) &&
+      corridorClear(l, minX, maxX, l.by - 2, l.by + 2);
+
+    const partialHRight =
+      includePartialFacingJogs &&
+      !hRight &&
+      sRight <= tLeft &&
+      ((sf & 1) !== 0 || (tf & 2) !== 0) &&
+      corridorClear(l, sRight, tLeft, minY - 2, maxY + 2);
+    const partialHLeft =
+      includePartialFacingJogs &&
+      !hLeft &&
+      tRight <= sLeft &&
+      ((sf & 2) !== 0 || (tf & 1) !== 0) &&
+      corridorClear(l, tRight, sLeft, minY - 2, maxY + 2);
+
+    if (hRight || hLeft || partialHRight || partialHLeft) {
+      const apart = Math.abs(l.by - l.ay);
+      if (apart >= 0.5 && apart <= 120) jogs++;
+      if (hRight || hLeft) {
+        if (apart < 0.5) {
+          polys.push([
+            [l.ax, l.ay],
+            [l.bx, l.by],
+          ]);
+        } else {
+          const midX = hRight ? (sRight + tLeft) / 2 : (tRight + sLeft) / 2;
+          polys.push([
+            [l.ax, l.ay],
+            [midX, l.ay],
+            [midX, l.by],
+            [l.bx, l.by],
+          ]);
+        }
+        continue;
+      }
+    }
+    if (vDown || vUp) {
+      const apart = Math.abs(l.bx - l.ax);
+      if (apart >= 0.5 && apart <= 120) jogs++;
+      if (apart < 0.5) {
+        polys.push([
+          [l.ax, l.ay],
+          [l.bx, l.by],
+        ]);
+      } else {
+        const midY = vDown ? (sBot + tTop) / 2 : (tBot + sTop) / 2;
+        polys.push([
+          [l.ax, l.ay],
+          [l.ax, midY],
+          [l.bx, midY],
+          [l.bx, l.by],
+        ]);
+      }
+      continue;
+    }
+    if (lHV) {
+      polys.push([
+        [l.ax, l.ay],
+        [l.bx, l.ay],
+        [l.bx, l.by],
+      ]);
+      continue;
+    }
+    if (lVH) {
+      polys.push([
+        [l.ax, l.ay],
+        [l.ax, l.by],
+        [l.bx, l.by],
+      ]);
+      continue;
+    }
+
+    const cTop =
+      (sf & 8) !== 0 &&
+      (tf & 8) !== 0 &&
+      !(sTop > tTop && l.ax >= tLeft && l.ax <= tRight) &&
+      !(tTop > sTop && l.bx >= sLeft && l.bx <= sRight) &&
+      corridorClear(l, minX, maxX, Math.min(sTop, tTop) - 16, Math.max(sTop, tTop));
+    const cBot =
+      (sf & 4) !== 0 &&
+      (tf & 4) !== 0 &&
+      !(sBot < tBot && l.ax >= tLeft && l.ax <= tRight) &&
+      !(tBot < sBot && l.bx >= sLeft && l.bx <= sRight) &&
+      corridorClear(l, minX, maxX, Math.min(sBot, tBot), Math.max(sBot, tBot) + 16);
+    const cLeft =
+      (sf & 2) !== 0 &&
+      (tf & 2) !== 0 &&
+      !(sLeft > tLeft && l.ay >= tTop && l.ay <= tBot) &&
+      !(tLeft > sLeft && l.by >= sTop && l.by <= sBot) &&
+      corridorClear(l, Math.min(sLeft, tLeft) - 16, Math.max(sLeft, tLeft), minY, maxY);
+    const cRight =
+      (sf & 1) !== 0 &&
+      (tf & 1) !== 0 &&
+      !(sRight < tRight && l.ay >= tTop && l.ay <= tBot) &&
+      !(tRight < sRight && l.by >= sTop && l.by <= sBot) &&
+      corridorClear(l, Math.min(sRight, tRight), Math.max(sRight, tRight) + 16, minY, maxY);
+
+    if (cTop || cBot) {
+      const bridgeY = cTop ? Math.min(sTop, tTop) - 14 : Math.max(sBot, tBot) + 14;
+      polys.push([
+        [l.ax, l.ay],
+        [l.ax, bridgeY],
+        [l.bx, bridgeY],
+        [l.bx, l.by],
+      ]);
+    } else if (cLeft || cRight) {
+      const bridgeX = cLeft ? Math.min(sLeft, tLeft) - 14 : Math.max(sRight, tRight) + 14;
+      polys.push([
+        [l.ax, l.ay],
+        [bridgeX, l.ay],
+        [bridgeX, l.by],
+        [l.bx, l.by],
+      ]);
+    } else {
+      portWindings++;
+      if (l.role === 'primary') primaryPortWindings++;
+      const exitY = l.by < l.ay ? sTop - 14 : sBot + 14;
+      const enterX = l.ax < l.bx ? tLeft - 14 : tRight + 14;
+      polys.push([
+        [l.ax, l.ay],
+        [l.ax, exitY],
+        [enterX, exitY],
+        [enterX, l.by],
+        [l.bx, l.by],
+      ]);
+    }
+  }
+
+  let sharedCrossings = 0;
+  let orthoPrimaryCrossings = 0;
+  const segsProperlyCross = (
+    p1: readonly [number, number],
+    p2: readonly [number, number],
+    q1: readonly [number, number],
+    q2: readonly [number, number],
+  ): boolean => {
+    const s1 = (p2[0] - p1[0]) * (q1[1] - p1[1]) - (p2[1] - p1[1]) * (q1[0] - p1[0]);
+    const s2 = (p2[0] - p1[0]) * (q2[1] - p1[1]) - (p2[1] - p1[1]) * (q2[0] - p1[0]);
+    if (s1 * s2 >= -1e-6) return false;
+    const s3 = (q2[0] - q1[0]) * (p1[1] - q1[1]) - (q2[1] - q1[1]) * (p1[0] - q1[0]);
+    const s4 = (q2[0] - q1[0]) * (p2[1] - q1[1]) - (q2[1] - q1[1]) * (p2[0] - q1[0]);
+    return s3 * s4 < -1e-6;
+  };
+
+  for (let i = 0; i < links.length; i++) {
+    const la = links[i];
+    const pa = polys[i];
+    if (!la || !pa) continue;
+    for (let j = i + 1; j < links.length; j++) {
+      const lb = links[j];
+      const pb = polys[j];
+      if (!lb || !pb) continue;
+      const shared =
+        (la.fromIdx === lb.fromIdx ? 1 : 0) +
+        (la.fromIdx === lb.toIdx ? 1 : 0) +
+        (la.toIdx === lb.fromIdx ? 1 : 0) +
+        (la.toIdx === lb.toIdx ? 1 : 0);
+      if (shared === 2) continue;
+      if (shared === 0 && (la.role !== 'primary' || lb.role !== 'primary')) continue;
+      let hits = 0;
+      for (let sa = 0; sa + 1 < pa.length; sa++) {
+        const a1 = pa[sa];
+        const a2 = pa[sa + 1];
+        if (!a1 || !a2) continue;
+        for (let sb = 0; sb + 1 < pb.length; sb++) {
+          const b1 = pb[sb];
+          const b2 = pb[sb + 1];
+          if (!b1 || !b2) continue;
+          if (segsProperlyCross(a1, a2, b1, b2)) hits++;
+        }
+      }
+      if (hits > 0) {
+        if (shared === 1) sharedCrossings += hits;
+        else orthoPrimaryCrossings += hits;
+      } else if (shared === 1) {
+        // Detect spread-rail inversions where two links sharing one station fan out in the same
+        // quadrant with the closer-X target turning further vertically than the further-X target.
+        const sameFrom = la.fromIdx === lb.fromIdx;
+        const ux = sameFrom ? la.ax : la.bx;
+        const uy = sameFrom ? la.ay : la.by;
+        const v1x = sameFrom ? la.bx : la.ax;
+        const v1y = sameFrom ? la.by : la.ay;
+        const v2x = sameFrom ? lb.bx : lb.ax;
+        const v2y = sameFrom ? lb.by : lb.ay;
+        const dx1 = v1x - ux;
+        const dx2 = v2x - ux;
+        const dy1 = v1y - uy;
+        const dy2 = v2y - uy;
+        if (dx1 * dx2 > 0 && Math.abs(dx1) > 40 && Math.abs(dx2) > 40 && dy1 * dy2 > 0) {
+          if (
+            (Math.abs(dx1) + 40 < Math.abs(dx2) && Math.abs(dy1) > Math.abs(dy2) + 24) ||
+            (Math.abs(dx2) + 40 < Math.abs(dx1) && Math.abs(dy2) > Math.abs(dy1) + 24)
+          ) {
+            sharedCrossings++;
+          }
+        }
+      }
+    }
+  }
+
+  return { jogs, portWindings, primaryPortWindings, sharedCrossings, orthoPrimaryCrossings };
+}
+
 /** The width and the height of the rectangle around the whole arrangement. */
 export function extent(placed: readonly Placed[]): { width: number; height: number } {
   let left = Number.POSITIVE_INFINITY;
@@ -394,10 +759,11 @@ function sizeCost(
     (OFF_FLOW_NONE_ASPECT - width / Math.max(1, height)) /
     (OFF_FLOW_NONE_ASPECT - OFF_FLOW_FULL_ASPECT);
   const minFlow = preserveFlow ? 0.35 : 0;
+  const ribbonExcess = preserveFlow ? Math.max(0, width - height * RIBBON_MAX_ASPECT) * 3.5 : 0;
   return {
     // The longer side of the canvas the arrangement needs: growing along the other side is
     // free, so the search fills the canvas instead of stretching into a strip.
-    spread: Math.max(width, height * CANVAS_ASPECT) * 1.2,
+    spread: Math.max(width, height * CANVAS_ASPECT) * 1.2 + ribbonExcess,
     offFlowWeight: OFF_FLOW_WEIGHT * Math.min(1, Math.max(minFlow, narrow)),
   };
 }
@@ -406,11 +772,23 @@ function flowPenalty(placed: readonly Placed[], ctx?: FlowContext): number {
   if (!ctx?.preserveFlow) return 0;
   const { slots, slotOf, stagePairIdx, pendantPairIdx, corridorIdx } = ctx;
   slots.fill(undefined);
+  if (ctx.placedSlots.length < placed.length) {
+    ctx.placedSlots = new Int32Array(placed.length);
+  }
+  const { placedSlots } = ctx;
   for (let i = 0; i < placed.length; i++) {
     const p = placed[i];
-    if (!p) continue;
+    if (!p) {
+      placedSlots[i] = -1;
+      continue;
+    }
     const idx = slotOf.get(p.block.id);
-    if (idx !== undefined) slots[idx] = p;
+    if (idx !== undefined) {
+      slots[idx] = p;
+      placedSlots[i] = idx;
+    } else {
+      placedSlots[i] = -1;
+    }
   }
 
   let penalty = 0;
@@ -446,7 +824,8 @@ function flowPenalty(placed: readonly Placed[], ctx?: FlowContext): number {
     const bandBot = Math.max(ra.y + ra.block.height, rb.y + rb.block.height);
     for (let j = 0; j < placed.length; j++) {
       const rc = placed[j];
-      if (!rc || rc === ra || rc === rb || c.allowed.has(rc.block.id)) continue;
+      const sIdx = placedSlots[j] ?? -1;
+      if (!rc || rc === ra || rc === rb || (sIdx >= 0 && c.allowedSlots[sIdx] === 1)) continue;
       const cx = rc.x + rc.block.width / 2;
       if (cx > minX && cx < maxX && rc.y < bandBot && rc.y + rc.block.height > bandTop) {
         penalty += LAYER_INTRUSION_COST;
@@ -525,12 +904,16 @@ function movedCost(
   return total;
 }
 
-export function isClear(a: Placed, placed: readonly Placed[]): boolean {
+export function isClear(
+  a: Placed,
+  placed: readonly Placed[],
+  horizontalClearance = HORIZONTAL_CLEARANCE,
+): boolean {
   for (const b of placed) {
     if (b === a) continue;
     if (
-      a.x < b.x + b.block.width + HORIZONTAL_CLEARANCE &&
-      b.x < a.x + a.block.width + HORIZONTAL_CLEARANCE &&
+      a.x < b.x + b.block.width + horizontalClearance &&
+      b.x < a.x + a.block.width + horizontalClearance &&
       a.y < b.y + b.block.height + VERTICAL_CLEARANCE &&
       b.y < a.y + a.block.height + VERTICAL_CLEARANCE
     ) {
@@ -568,6 +951,7 @@ export function evaluateMove(
   nextOY = 0,
   nextOFlip: 0 | 1 = 0,
   ctx?: FlowContext,
+  horizontalClearance = HORIZONTAL_CLEARANCE,
 ): number {
   const prevAX = a.x;
   const prevAY = a.y;
@@ -584,7 +968,9 @@ export function evaluateMove(
     other.y = nextOY;
     other.flip = nextOFlip;
   }
-  const clear = isClear(a, placed) && (!other || isClear(other, placed));
+  const clear =
+    isClear(a, placed, horizontalClearance) &&
+    (!other || isClear(other, placed, horizontalClearance));
   a.x = prevAX;
   a.y = prevAY;
   a.flip = prevAFlip;
@@ -628,6 +1014,14 @@ function isFreeSide(block: Block, id: string, side: number, flip: 0 | 1): boolea
   return true;
 }
 
+function freeSideMask(block: Block, id: string, flip: 0 | 1): number {
+  let bits = 0;
+  for (const side of [0, 1, 2, 3] as const) {
+    if (isFreeSide(block, id, side, flip)) bits |= 1 << side;
+  }
+  return bits;
+}
+
 function openWays(source: Block, from: string, target: Block, to: string): BlockLink['open'] {
   const ways = (sourceFlip: 0 | 1, targetFlip: 0 | 1) => {
     let bits = 0;
@@ -657,9 +1051,11 @@ export function buildLinks(
   flow: FlowAnalysis = analyzeFlow(doc),
 ): BlockLink[] {
   const anchorOf = new Map<string, Anchor>();
+  let nextIdx = 0;
   for (const p of placed) {
     for (const [id, r] of p.block.nodes) {
       anchorOf.set(id, {
+        idx: nextIdx++,
         p,
         x: r.x + r.width / 2,
         y: [r.y + STATION_CENTER, flippedY(p.block, r, id) + STATION_CENTER],
@@ -671,9 +1067,16 @@ export function buildLinks(
     const b = anchorOf.get(e.to);
     if (!a || !b || a.p === b.p) return [];
     const auxTouch = flow.auxiliaryZones.has(a.p.block.id) || flow.auxiliaryZones.has(b.p.block.id);
+    const firstStep = flow.pairFirstStep.get(flowPairKey(e.from, e.to)) ?? 0;
+    const isLateAuxAlert =
+      e.role === 'primary' &&
+      flow.auxiliaryZones.has(a.p.block.id) &&
+      !flow.auxiliaryZones.has(b.p.block.id) &&
+      firstStep >= 2 &&
+      (flow.zoneStage.get(a.p.block.id) ?? 0) >= (flow.zoneStage.get(b.p.block.id) ?? 0);
     return [
       {
-        role: e.role,
+        role: isLateAuxAlert ? 'return' : e.role,
         auxTouch,
         source: a.p,
         target: b.p,
@@ -683,7 +1086,11 @@ export function buildLinks(
         targetY: b.y,
         from: e.from,
         to: e.to,
+        fromIdx: a.idx,
+        toIdx: b.idx,
         open: openWays(a.p.block, e.from, b.p.block, e.to),
+        sourceFree: [freeSideMask(a.p.block, e.from, 0), freeSideMask(a.p.block, e.from, 1)],
+        targetFree: [freeSideMask(b.p.block, e.to, 0), freeSideMask(b.p.block, e.to, 1)],
         ax: 0,
         ay: 0,
         bx: 0,

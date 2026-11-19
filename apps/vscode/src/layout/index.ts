@@ -1,10 +1,10 @@
 import { synthesizedConnections } from '../model/connections';
 import type { DavDocument } from '../model/types';
-import { topLevelGroups } from '../model/zones';
+import { topLevelGroups, zoneOfGroups } from '../model/zones';
 import { computeColumnLayout } from './columns';
 import { analyzeFlow, countCorridorIntrusions, primaryCorridors } from './flow';
 import { countCrossings, primaryCrossingsOf } from './links';
-import type { Layout, Rect } from './metrics';
+import { enclosingRect, type Layout, type Rect } from './metrics';
 import { type BackEdge, computeRanks } from './ranks';
 import { straightenNodes } from './straightenNodes';
 import {
@@ -111,6 +111,35 @@ export interface ZoneSearch {
   links: number;
 }
 
+function connectedSubdoc(doc: DavDocument): DavDocument {
+  const owners = ownersOf(doc);
+  const flow = analyzeFlow(doc);
+  const connectedIds = new Set<string>();
+  for (const c of flow.connections) {
+    const bu = owners.get(c.from) ?? c.from;
+    const bv = owners.get(c.to) ?? c.to;
+    if (bu !== bv) {
+      connectedIds.add(bu);
+      connectedIds.add(bv);
+    }
+  }
+  if (connectedIds.size === 0) return doc;
+  const allGroupsConnected = topLevelGroups(doc.groups).every((g) => connectedIds.has(g.id));
+  const allNodesConnected = doc.nodes.every((n) => connectedIds.has(owners.get(n.id) ?? n.id));
+  if (allGroupsConnected && allNodesConnected) return doc;
+
+  const zoneOf = zoneOfGroups(doc.groups);
+  const groups = doc.groups.filter((g) => connectedIds.has(zoneOf.get(g.id) ?? g.id));
+  const nodes = doc.nodes.filter((n) => connectedIds.has(owners.get(n.id) ?? n.id));
+  const keptNodes = new Set(nodes.map((n) => n.id));
+  const steps = doc.steps.map((s) => ({
+    ...s,
+    animations: s.animations.filter((a) => keptNodes.has(a.from) && keptNodes.has(a.to)),
+    statics: s.statics.filter((st) => keptNodes.has(st.from) && keptNodes.has(st.to)),
+  }));
+  return { ...doc, groups, nodes, steps };
+}
+
 /**
  * The search `computeLayout` would have to run for this diagram before it can answer, which
  * takes a noticeable moment on a large one; `undefined` when it answers at once. A caller that
@@ -121,11 +150,12 @@ export function pendingZoneSearch(doc: DavDocument): ZoneSearch | undefined {
   const key = structureKey(doc);
   if (zonePlan?.key === key) return undefined;
   const bare = withoutLabels(doc);
-  const columns = computeColumnLayout(bare);
+  const connBare = connectedSubdoc(bare);
+  const columns = computeColumnLayout(connBare);
   // Most diagrams have no link long enough to move a zone for and no crossing to take out,
   // and that is quick to see. A diagram whose zones are linked across one another can have
   // short links and still cross where its zones stand in shared columns.
-  if (longLinkExcess(bare, columns) > 0 || countCrossings(bare, columns) > 0) {
+  if (longLinkExcess(connBare, columns) > 0 || countCrossings(connBare, columns) > 0) {
     return { key, doc: bare, links: linksBetweenZones(bare) };
   }
   zonePlan = { key, placement: undefined };
@@ -157,6 +187,7 @@ export interface SeedSearch {
  */
 export function searchZonesFrom(doc: DavDocument, seed: number): SeedSearch {
   const { score, placement } = searchZonePlacementFrom(doc, computeColumnLayout, seed);
+  if (!Number.isFinite(score)) return { score, placement: undefined };
   return { score, placement: ifWorthMoving(doc, placement) };
 }
 
@@ -166,21 +197,31 @@ export function pickSeedSearch(found: ReadonlyMap<number, SeedSearch>): ZonePlac
 }
 
 function ifWorthMoving(doc: DavDocument, placement: ZonePlacement): ZonePlacement | undefined {
-  const columns = computeColumnLayout(doc);
-  const zoned = applyZonePlacement(doc, placement, computeColumnLayout);
-  const flow = analyzeFlow(doc);
-  const owners = ownersOf(doc);
+  const evalDoc = connectedSubdoc(doc);
+  const columns = computeColumnLayout(evalDoc);
+  const zoned = applyZonePlacement(evalDoc, placement, computeColumnLayout);
+  const flow = analyzeFlow(evalDoc);
+  const owners = ownersOf(evalDoc);
 
   // Strip-mode chains (e.g. ultra-wide synthetic strips) intentionally wrap rows backwards across
   // row breaks, so judge them purely by link length + crossings as before.
-  const { blocks } = buildBlocks(doc, computeColumnLayout, undefined, flow);
+  const { blocks } = buildBlocks(evalDoc, computeColumnLayout, undefined, flow);
   if (!shouldPreserveFlow(blocks, flow)) {
     const burden = (layout: Layout): number =>
-      longLinkExcess(doc, layout) + countCrossings(doc, layout) * LONG_LINK;
+      longLinkExcess(evalDoc, layout) + countCrossings(evalDoc, layout) * LONG_LINK;
     return burden(zoned) < burden(columns) ? placement : undefined;
   }
 
   const corridors = primaryCorridors(flow, owners);
+  const topGroups = topLevelGroups(evalDoc.groups);
+  let sharedColumnBloat = 0;
+  for (const g of topGroups) {
+    const cr = columns.groups[g.id];
+    const zr = zoned.groups[g.id];
+    if (cr && zr) {
+      sharedColumnBloat += Math.abs(cr.width - zr.width) + Math.abs(cr.height - zr.height);
+    }
+  }
 
   const burden = (layout: Layout): number => {
     let backwards = 0;
@@ -194,23 +235,44 @@ function ifWorthMoving(doc: DavDocument, placement: ZonePlacement): ZonePlacemen
       if (ra && rb && rb.x + rb.width / 2 <= ra.x + ra.width / 2) backwards++;
     }
     const blockRect = new Map<string, Rect>();
-    for (const g of topLevelGroups(doc.groups)) {
+    for (const g of topLevelGroups(evalDoc.groups)) {
       if (layout.groups[g.id]) blockRect.set(g.id, layout.groups[g.id] as Rect);
     }
-    for (const n of doc.nodes) {
+    for (const n of evalDoc.nodes) {
       if (!owners.has(n.id) || owners.get(n.id) === n.id) {
         if (layout.nodes[n.id]) blockRect.set(n.id, layout.nodes[n.id] as Rect);
       }
     }
+    let stageOverlaps = 0;
+    for (const key of flow.primaryZonePairs) {
+      const sep = key.indexOf('\0');
+      if (sep < 0) continue;
+      const za = key.slice(0, sep);
+      const zb = key.slice(sep + 1);
+      if (flow.auxiliaryZones.has(za) || flow.auxiliaryZones.has(zb)) continue;
+      const sa = flow.zoneStage.get(za) ?? 0;
+      const sb = flow.zoneStage.get(zb) ?? 0;
+      if (sa === sb) continue;
+      const u = sa < sb ? za : zb;
+      const v = sa < sb ? zb : za;
+      const ru = blockRect.get(u);
+      const rv = blockRect.get(v);
+      if (ru && rv && ru.x + ru.width > rv.x) stageOverlaps++;
+    }
+    const bounds = enclosingRect([...Object.values(layout.nodes), ...Object.values(layout.groups)]);
+    const asp = bounds.width / Math.max(1, bounds.height);
+    const portraitBurden = asp < 1.05 ? (1.05 - asp) * 40000 : 0;
     const intrusions = countCorridorIntrusions(corridors, blockRect);
     const priCross = primaryCrossingsOf(flow.connections, layout);
     return (
       backwards * LONG_LINK * 3 +
       intrusions * LONG_LINK * 2 +
+      stageOverlaps * LONG_LINK +
+      portraitBurden +
       priCross * 300 +
-      countCrossings(doc, layout) * LONG_LINK +
-      longLinkExcess(doc, layout)
+      countCrossings(evalDoc, layout) * LONG_LINK +
+      longLinkExcess(evalDoc, layout)
     );
   };
-  return burden(zoned) < burden(columns) ? placement : undefined;
+  return burden(zoned) < burden(columns) + sharedColumnBloat * 1.5 ? placement : undefined;
 }
