@@ -285,4 +285,103 @@ describe('routing border clearance, port spacing, framing, and dimmed callout av
       expect(overlapsDimmed).toBe(false);
     }
   });
+
+  it('keeps intra-group routes inside their shared LCA container (both nested and top-level)', () => {
+    const buildBody = (wrapped: boolean) => {
+      const inner = `
+        group pay_vpc "Payment VPC" {
+          node tgw "TGW Attach" [icon: router, mount: border]
+          node alb "Application LB" [icon: lb]
+          group az_a "AZ-a" {
+            node pay_a "Payment API A" [icon: container]
+            node settle_a "Settlement A" [icon: container]
+          }
+          group az_b "AZ-b" {
+            node pay_b "Payment API B" [icon: container]
+          }
+        }
+        node hub "Transit Hub" [icon: hub]
+        step "Route" {
+          animate alb --> pay_a : "Route A"
+          animate alb --> pay_b : "Route B" [parallel: true]
+          animate pay_a --> tgw : "Check A"
+          animate settle_a --> tgw : "Clear A"
+          animate pay_b --> tgw : "Check B"
+          animate tgw --> hub : "Mesh"
+        }
+      `;
+      return wrapped
+        ? `title "Nested VPC"\ngroup org "AWS Org" {\n${inner}\n}`
+        : `title "Top-Level VPC"\n${inner}`;
+    };
+
+    for (const wrapped of [true, false]) {
+      const doc = parse(buildBody(wrapped)).document;
+      const layout = computeLayout(doc);
+      const view = resolveView(doc, layout, null);
+      const vpc = must(
+        view.groups.find((g) => g.id === 'pay_vpc'),
+        `pay_vpc (wrapped=${wrapped})`,
+      ).rect;
+      const intra = ['alb->pay_b', 'pay_a->tgw', 'settle_a->tgw', 'pay_b->tgw'];
+      for (const pair of intra) {
+        const [from, to] = pair.split('->');
+        const edge = must(
+          view.edges.find(
+            (e) => (e.from === from && e.to === to) || (e.from === to && e.to === from),
+          ),
+          `${pair} (wrapped=${wrapped})`,
+        );
+        expect('points' in edge.path).toBe(true);
+        if (!('points' in edge.path)) continue;
+        for (const pt of edge.path.points) {
+          expect(pt.x, `${pair} x inside vpc`).toBeGreaterThanOrEqual(vpc.x - 2);
+          expect(pt.x, `${pair} x inside vpc`).toBeLessThanOrEqual(vpc.x + vpc.width + 2);
+          expect(pt.y, `${pair} y inside vpc`).toBeGreaterThanOrEqual(vpc.y - 2);
+          expect(pt.y, `${pair} y inside vpc`).toBeLessThanOrEqual(vpc.y + vpc.height + 2);
+        }
+      }
+    }
+  });
+
+  it('keeps spread parallel rails clear of wide node labelArea boxes', () => {
+    // Obstacle node 0 has a wide labelArea (160px wide, x: 220..380) wider than its 96px area.
+    // Five vertical routes share the grid line just left of labelArea (x = 208) and spread apart;
+    // none may shift right into labelArea (x >= 220).
+    const obstacle: RouteNode = {
+      station: { x: 278, y: 278, width: 44, height: 44 },
+      area: { x: 252, y: 266, width: 96, height: 84 },
+      labelArea: { x: 220, y: 322, width: 160, height: 32 },
+      badge: { x: 252, y: 245, width: 96, height: 20 },
+    };
+    const topSources = Array.from({ length: 5 }, (_, i) => makeNode(100, 60 + i * 30));
+    const botTargets = Array.from({ length: 5 }, (_, i) => makeNode(480, 420 + i * 30));
+    const nodes: RouteNode[] = [obstacle, ...topSources, ...botTargets];
+    // Funnel all 5 routes through the gap between x=170 and obstacle's wide labelArea (x=220).
+    const walls = [
+      { x: 140, y: 240, width: 30, height: 140 },
+      { x: 390, y: 240, width: 160, height: 140 },
+    ];
+    const edges = topSources.map((_, i) => makeEdge(`r${i}`, 1 + i, 6 + i));
+    const rails = routeEdges(nodes, [], walls, edges);
+
+    const la = must(obstacle.labelArea, 'labelArea');
+    for (const [id, rail] of rails) {
+      for (let i = 0; i + 1 < rail.points.length; i++) {
+        const a = rail.points[i];
+        const b = rail.points[i + 1];
+        if (!a || !b) continue;
+        const minX = Math.min(a.x, b.x);
+        const maxX = Math.max(a.x, b.x);
+        const minY = Math.min(a.y, b.y);
+        const maxY = Math.max(a.y, b.y);
+        const overlapsLabel =
+          maxX > la.x + 0.5 &&
+          minX < la.x + la.width - 0.5 &&
+          maxY > la.y + 0.5 &&
+          minY < la.y + la.height - 0.5;
+        expect(overlapsLabel, `${id} segment must not enter wide labelArea`).toBe(false);
+      }
+    }
+  });
 });

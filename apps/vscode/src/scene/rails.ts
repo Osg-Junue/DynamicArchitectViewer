@@ -435,11 +435,26 @@ function routeDiagram(doc: DavDocument, layout: Layout, nodes: readonly Resolved
     const b = endpointIndex.get(conn.to);
     if (a === undefined || b === undefined) return;
     const id = `c${i}`;
+    const fromZones = zonesAround(conn.from);
+    const toZones = zonesAround(conn.to);
+    const toZoneSet = new Set(toZones);
+    const lca = fromZones.find((z) => toZoneSet.has(z));
+    // When both endpoints lie inside a shared enclosing zone (their LCA), restrict `home` to
+    // zones within that LCA so intra-group routes stay inside their shared container instead of
+    // detouring out into an outer ancestor or open canvas.
+    const home =
+      lca === undefined
+        ? new Set([...fromZones, ...toZones])
+        : new Set([
+            ...fromZones.slice(0, fromZones.indexOf(lca) + 1),
+            ...toZones.slice(0, toZones.indexOf(lca) + 1),
+          ]);
     wanted.push({
       id,
       from: a,
       to: b,
-      home: new Set([...zonesAround(conn.from), ...zonesAround(conn.to)]),
+      home,
+      contained: lca !== undefined,
       bothWays: conn.direction === 'bidirectional',
     });
     entries.set(unorderedPairKey(conn.from, conn.to), { conn, id });

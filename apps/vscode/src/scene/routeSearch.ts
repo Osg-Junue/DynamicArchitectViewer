@@ -599,7 +599,7 @@ export class RouteSearch {
           ? Math.abs((xs[nx] as number) - (xs[ix] as number))
           : Math.abs((ys[ny] as number) - (ys[iy] as number));
         const zone = lane.zone[stretch] as number;
-        const foreign = zone >= 0 && homeRun[zone] !== run;
+        const foreign = zone >= 0 ? homeRun[zone] !== run : edge.contained === true;
         // Keep endpoint station centerlines free of border-hugging detours so straight
         // approaches do not sprout unnecessary 3-turn jogs right before a station.
         const onEndpointCenterline = level

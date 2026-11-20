@@ -46,6 +46,8 @@ export interface RouteEdge {
   to: number;
   /** The zones around either end: passing through any other zone costs extra. */
   home: ReadonlySet<number>;
+  /** Both ends share an enclosing zone (the LCA in `home`): leaving it for open canvas also costs extra. */
+  contained?: boolean;
   /** The rail has an arrowhead at its start too. */
   bothWays?: boolean;
 }

@@ -454,18 +454,20 @@ function spread(
       let maxOff = room;
       const gLo = Math.min(...group.map((s) => s.lo)) + 1;
       const gHi = Math.max(...group.map((s) => s.hi)) - 1;
-      // No rail is moved into the area of a node beside the line.
-      for (const { area, groupBorder } of nodes) {
+      // No rail is moved into the station or label area of a node beside the line.
+      for (const { area, labelArea, groupBorder } of nodes) {
         if (groupBorder) continue;
-        const { x, y, width, height } = area;
-        if (line.upright) {
-          if (gHi <= y || gLo >= y + height) continue;
-          if (x + width <= line.fixed) minOff = Math.max(minOff, x + width + 1.5 - line.fixed);
-          else if (x >= line.fixed) maxOff = Math.min(maxOff, x - 1.5 - line.fixed);
-        } else {
-          if (gHi <= x || gLo >= x + width) continue;
-          if (y + height <= line.fixed) minOff = Math.max(minOff, y + height + 1.5 - line.fixed);
-          else if (y >= line.fixed) maxOff = Math.min(maxOff, y - 1.5 - line.fixed);
+        const boxes = labelArea ? [area, labelArea] : [area];
+        for (const { x, y, width, height } of boxes) {
+          if (line.upright) {
+            if (gHi <= y || gLo >= y + height) continue;
+            if (x + width <= line.fixed) minOff = Math.max(minOff, x + width + 1.5 - line.fixed);
+            else if (x >= line.fixed) maxOff = Math.min(maxOff, x - 1.5 - line.fixed);
+          } else {
+            if (gHi <= x || gLo >= x + width) continue;
+            if (y + height <= line.fixed) minOff = Math.max(minOff, y + height + 1.5 - line.fixed);
+            else if (y >= line.fixed) maxOff = Math.min(maxOff, y - 1.5 - line.fixed);
+          }
         }
       }
       // Keep spread bundles clear of parallel zone borders.
