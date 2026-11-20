@@ -183,6 +183,55 @@ step "Traffic" {
     expect(Math.abs(tgwAttach.y - glue.y)).toBeLessThanOrEqual(1);
   });
 
+  it('expands a parent top border upward so a top-mounted node label clears an inner subnet header', () => {
+    const dsl = `
+title "Top Mount Header Clearance"
+node user "User" [icon: users]
+group cloud "Cloud" {
+  group edge "Global Edge" {
+    node cdn "CloudFront" [icon: cdn]
+    node waf "WAF" [icon: firewall]
+  }
+  group acct "Control Account" {
+    group vpc "Control VPC" {
+      node igw "Control IGW" [icon: router, mount: border]
+      group sub "Control Services Subnet" {
+        node alb "Control ALB" [icon: lb]
+        node router "Tenant Router" [icon: container]
+      }
+    }
+    group side "Auth Tier" {
+      node api "Control API" [icon: api]
+      node db "Registry DB" [icon: database]
+      node bus "Control Bus" [icon: event]
+    }
+  }
+}
+step "Flow" {
+  animate user --> waf : "HTTPS"
+  animate waf --> cdn
+  animate cdn --> igw : "mTLS"
+  animate igw --> alb
+  animate alb --> router
+  animate router --> db : "Lookup"
+  animate api --> db
+  animate api --> bus
+}
+`;
+    const doc = parse(dsl).document;
+    const layout = computeLayout(doc);
+    const igw = must(layout.nodes.igw, 'igw');
+    const sub = must(layout.groups.sub, 'sub');
+    const vpc = must(layout.groups.vpc, 'vpc');
+    const igwStation = stationRect(igw, 'router');
+    const igwCy = igwStation.y + igwStation.height / 2;
+
+    // If mounted on the top border, `igw`'s full label box (`igw.y + igw.height`) must clear `sub.y`.
+    if (Math.abs(igwCy - vpc.y) <= 1) {
+      expect(igw.y + igw.height).toBeLessThanOrEqual(sub.y);
+    }
+  });
+
   it('routes static group-endpoint rails cleanly from the group border without entering interior nodes', () => {
     const doc = parse(PHASE3_CLOUD_DSL).document;
     const layout = computeLayout(doc);

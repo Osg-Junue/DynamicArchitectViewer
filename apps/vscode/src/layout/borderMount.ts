@@ -3,6 +3,7 @@ import type { DavDocument, DavNode } from '../model/types';
 import { ancestorIds, parentMap } from '../model/zones';
 import {
   enclosingRect,
+  GROUP_PADDING,
   groupHeaderHeight,
   type Layout,
   NODE_SIZE,
@@ -17,6 +18,9 @@ type Side = 'left' | 'right' | 'top' | 'bottom';
 
 const MIN_INNER_CLEAR_X = 56;
 const MIN_INNER_CLEAR_Y = 44;
+const TOP_MOUNT_INNER_CLEAR = NODE_SIZE.height - STATION_CENTER + 8;
+const BOT_MOUNT_INNER_CLEAR = 36;
+const MOUNT_OUTER_CLEAR = 28;
 const MIN_EDGE_INSET_X = 20;
 const MIN_EDGE_INSET_Y = 24;
 const SIDE_SEP_Y = NODE_SIZE.height + 12;
@@ -203,7 +207,32 @@ export function applyBorderMounts(doc: DavDocument, layout: Layout): Layout {
       bySide[side].push({ node: m, mCenter, intNbrs, extNbrs });
     }
 
-    // Shrink parent group borders inward onto mounted stations where interior space permits.
+    // Collect outer bounds from enclosing parent and siblings so any outward border expansion
+    // needed to clear a mounted node's label never violates containment or sibling separation.
+    const grandparentId = group.parentId;
+    const grandparentRect = grandparentId ? groups[grandparentId] : undefined;
+    const grandparentGroup = grandparentId ? groupById.get(grandparentId) : undefined;
+    const grandparentHdrH =
+      grandparentGroup && grandparentRect
+        ? groupHeaderHeight(grandparentGroup.label, grandparentRect.width)
+        : 0;
+    const siblingRects: Rect[] = [];
+    for (const sg of doc.groups) {
+      if (sg.parentId === grandparentId && sg.id !== parentId) {
+        const sr = groups[sg.id];
+        if (sr) siblingRects.push(sr);
+      }
+    }
+    for (const sn of doc.nodes) {
+      if (sn.parentId === grandparentId) {
+        const sr = nodes[sn.id];
+        if (sr) siblingRects.push(sr);
+      }
+    }
+
+    // Shrink parent group borders inward onto mounted stations where interior space permits,
+    // or expand outward within available parent/sibling clearance when a mounted node's station
+    // or label would otherwise intrude into interior members (e.g. top-mounted IGW above a subnet).
     let newLeft = oldRect.x;
     let newRight = oldRect.x + oldRect.width;
     let newTop = oldRect.y;
@@ -217,6 +246,18 @@ export function applyBorderMounts(doc: DavDocument, layout: Layout): Layout {
         );
         if (maxLeft >= oldRect.x + MIN_EDGE_INSET_X) {
           newLeft = Math.round(clamp(desired, oldRect.x + MIN_EDGE_INSET_X, maxLeft));
+        } else if (maxLeft < oldRect.x) {
+          let minAllowedLeft = grandparentRect
+            ? grandparentRect.x + GROUP_PADDING + MOUNT_OUTER_CLEAR
+            : Number.NEGATIVE_INFINITY;
+          for (const sr of siblingRects) {
+            if (sr.y < newBot && sr.y + sr.height > newTop && sr.x + sr.width <= oldRect.x + 1) {
+              minAllowedLeft = Math.max(minAllowedLeft, sr.x + sr.width + MOUNT_OUTER_CLEAR);
+            }
+          }
+          if (minAllowedLeft < oldRect.x) {
+            newLeft = Math.round(Math.max(minAllowedLeft, maxLeft));
+          }
         }
       }
       if (bySide.right.length > 0) {
@@ -231,20 +272,48 @@ export function applyBorderMounts(doc: DavDocument, layout: Layout): Layout {
           newRight = Math.round(
             clamp(desired, minRight, oldRect.x + oldRect.width - MIN_EDGE_INSET_X),
           );
+        } else if (minRight > oldRect.x + oldRect.width) {
+          let maxAllowedRight = grandparentRect
+            ? grandparentRect.x + grandparentRect.width - GROUP_PADDING - MOUNT_OUTER_CLEAR
+            : Number.POSITIVE_INFINITY;
+          for (const sr of siblingRects) {
+            if (
+              sr.y < newBot &&
+              sr.y + sr.height > newTop &&
+              sr.x >= oldRect.x + oldRect.width - 1
+            ) {
+              maxAllowedRight = Math.min(maxAllowedRight, sr.x - MOUNT_OUTER_CLEAR);
+            }
+          }
+          if (maxAllowedRight > oldRect.x + oldRect.width) {
+            newRight = Math.round(Math.min(maxAllowedRight, minRight));
+          }
         }
       }
       const hdrH = groupHeaderHeight(group.label, newRight - newLeft);
       if (bySide.top.length > 0) {
-        const maxTop = inner.y - hdrH - MIN_INNER_CLEAR_Y;
+        const maxTop = inner.y - Math.max(hdrH + MIN_INNER_CLEAR_Y, TOP_MOUNT_INNER_CLEAR);
         const desired = Math.max(
           ...bySide.top.map((e) => centerOf(nodes[e.node.id] as Rect, true).y),
         );
         if (maxTop >= oldRect.y + MIN_EDGE_INSET_Y) {
           newTop = Math.round(clamp(desired, oldRect.y + MIN_EDGE_INSET_Y, maxTop));
+        } else if (maxTop < oldRect.y) {
+          let minAllowedTop = grandparentRect
+            ? grandparentRect.y + grandparentHdrH + GROUP_PADDING + MOUNT_OUTER_CLEAR
+            : Number.NEGATIVE_INFINITY;
+          for (const sr of siblingRects) {
+            if (sr.x < newRight && sr.x + sr.width > newLeft && sr.y + sr.height <= oldRect.y + 1) {
+              minAllowedTop = Math.max(minAllowedTop, sr.y + sr.height + MOUNT_OUTER_CLEAR);
+            }
+          }
+          if (minAllowedTop < oldRect.y) {
+            newTop = Math.round(Math.max(minAllowedTop, maxTop));
+          }
         }
       }
       if (bySide.bottom.length > 0) {
-        const minBot = inner.y + inner.height + MIN_INNER_CLEAR_Y;
+        const minBot = inner.y + inner.height + Math.max(MIN_INNER_CLEAR_Y, BOT_MOUNT_INNER_CLEAR);
         const desired = Math.min(
           ...bySide.bottom.map((e) => centerOf(nodes[e.node.id] as Rect, true).y),
         );
@@ -252,6 +321,22 @@ export function applyBorderMounts(doc: DavDocument, layout: Layout): Layout {
           newBot = Math.round(
             clamp(desired, minBot, oldRect.y + oldRect.height - MIN_EDGE_INSET_Y),
           );
+        } else if (minBot > oldRect.y + oldRect.height) {
+          let maxAllowedBot = grandparentRect
+            ? grandparentRect.y + grandparentRect.height - GROUP_PADDING - MOUNT_OUTER_CLEAR
+            : Number.POSITIVE_INFINITY;
+          for (const sr of siblingRects) {
+            if (
+              sr.x < newRight &&
+              sr.x + sr.width > newLeft &&
+              sr.y >= oldRect.y + oldRect.height - 1
+            ) {
+              maxAllowedBot = Math.min(maxAllowedBot, sr.y - MOUNT_OUTER_CLEAR);
+            }
+          }
+          if (maxAllowedBot > oldRect.y + oldRect.height) {
+            newBot = Math.round(Math.min(maxAllowedBot, minBot));
+          }
         }
       }
     }
