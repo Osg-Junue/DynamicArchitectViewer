@@ -797,6 +797,7 @@ function placeContainerChildren(
     const b0Step = b0 ? blockFirstPriStep.get(b0.id) : undefined;
     const b1ExtStep = b1 ? extPriInFirstStep.get(b1.id) : undefined;
     if (
+      c1 &&
       b0 &&
       b1 &&
       b0.groups.size >= 1 &&

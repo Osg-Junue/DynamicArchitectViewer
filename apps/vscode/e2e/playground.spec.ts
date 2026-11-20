@@ -5,11 +5,9 @@ import { type PreviewServer, preview } from 'vite';
 import { watchErrors } from './helpers';
 
 const DSL = [
-  'dav 1',
   'title "Hello"',
   'node alpha "Alpha"',
   'node beta "Beta"',
-  'alpha --> beta : "go"',
   'step "One" {',
   '  animate alpha --> beta : "ping"',
   '}',
@@ -57,7 +55,7 @@ test.describe('the playground', () => {
     const errors = watchErrors(page);
     await open(page);
     await expect(page.locator('.dav-title')).toHaveText(/AWS/);
-    await expect(line(page, /^dav\s1$/)).toBeVisible();
+    await expect(line(page, /^title\s"AWS/)).toBeVisible();
     // The words of the language have the colors of a keyword and a string.
     await expect(page.locator('.pg-editor .view-line .mtk1')).not.toHaveCount(0);
     // The colors come from a tokenizer that runs after the text is shown; wait for them.
@@ -87,7 +85,7 @@ test.describe('the playground', () => {
   test('underlines an error and applies its Quick Fix', async ({ page }) => {
     const errors = watchErrors(page);
     await open(page);
-    await setText(page, 'dav 1\nnode alpha "Alpha" [icon: serverr]\n');
+    await setText(page, 'node alpha "Alpha" [icon: serverr]\nstep "One" {}\n');
     await expect(
       page.locator('.pg-editor .squiggly-error, .pg-editor .squiggly-warning'),
     ).toHaveCount(1);
@@ -109,7 +107,7 @@ test.describe('the playground', () => {
   test('completes a statement and formats the text', async ({ page }) => {
     const errors = watchErrors(page);
     await open(page);
-    await setText(page, 'dav 1\nnode   alpha   "Alpha"\n');
+    await setText(page, 'node   alpha   "Alpha"\nstep "One" {}\n');
     await page.keyboard.press('ControlOrMeta+End');
     await page.keyboard.press('ControlOrMeta+Space');
     const suggestions = page.locator('.pg-editor .suggest-widget');

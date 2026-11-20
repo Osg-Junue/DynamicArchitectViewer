@@ -727,6 +727,8 @@ test('every dropdown of the bar looks and works the same', async ({ page }) => {
 
 test('the bar keeps its controls in place and apart', async ({ page }) => {
   await openWebview(page);
+  // The bar takes its final shape once the diagram is drawn.
+  await expect(page.locator('.dav-node')).not.toHaveCount(0);
   const exportBtn = page.getByTestId('btn-export');
   const caret = page.getByTestId('select-speed').locator('svg');
   // The speed shown, and where its text is drawn.

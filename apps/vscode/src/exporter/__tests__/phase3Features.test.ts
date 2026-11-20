@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { computeCompletions, parse } from '../../dsl';
-import { computeLayout, stationRect } from '../../layout';
-import { ICON_NAMES } from '../../model/types';
+import { computeLayout, type Layout, type Rect, stationRect } from '../../layout';
+import { type DavDocument, ICON_NAMES } from '../../model/types';
+import { ancestorIds, parentMap } from '../../model/zones';
 import { resolveView } from '../../scene';
 import { exportSvg } from '../svg';
 
@@ -60,6 +61,27 @@ function must<T>(value: T | undefined, label: string): T {
   expect(value, label).toBeDefined();
   if (value === undefined) throw new Error(`Missing ${label}`);
   return value;
+}
+
+/** Each node and group a mounted node covers, other than the groups it stands in. */
+function coveredByMounts(doc: DavDocument, layout: Layout): string[] {
+  const parents = parentMap(doc.groups);
+  const overlap = (a: Rect, b: Rect) =>
+    Math.min(a.x + a.width, b.x + b.width) > Math.max(a.x, b.x) &&
+    Math.min(a.y + a.height, b.y + b.height) > Math.max(a.y, b.y);
+  return doc.nodes
+    .filter((m) => m.mount === 'border')
+    .flatMap((m) => {
+      const rect = must(layout.nodes[m.id], m.id);
+      const around = new Set(ancestorIds(parents, m.parentId));
+      const nodes = doc.nodes.filter(
+        (n) => n.id !== m.id && overlap(rect, must(layout.nodes[n.id], n.id)),
+      );
+      const groups = doc.groups.filter(
+        (g) => !around.has(g.id) && overlap(rect, must(layout.groups[g.id], g.id)),
+      );
+      return [...nodes, ...groups].map((o) => `${m.id} covers ${o.id}`);
+    });
 }
 
 describe('Phase 3 features: dashed borders, border mounts, group endpoints, new icons, and still labels', () => {
@@ -230,6 +252,74 @@ step "Flow" {
     if (Math.abs(igwCy - vpc.y) <= 1) {
       expect(igw.y + igw.height).toBeLessThanOrEqual(sub.y);
     }
+  });
+
+  it('lengthens a side that holds more mounted nodes than fit on it, keeping each on the border', () => {
+    const doc = parse(`
+group vpc "VPC" {
+  node m1 "Gateway 1" [mount: border]
+  node m2 "Gateway 2" [mount: border]
+  node m3 "Gateway 3" [mount: border]
+  node m4 "Gateway 4" [mount: border]
+  node app "App"
+}
+node x "Internet"
+step "s" {
+  animate x --> m1
+  animate x --> m2
+  animate x --> m3
+  animate x --> m4
+  animate m1 --> app
+}`).document;
+    const layout = computeLayout(doc);
+    const vpc = must(layout.groups.vpc, 'vpc');
+    for (const id of ['m1', 'm2', 'm3', 'm4']) {
+      const station = stationRect(must(layout.nodes[id], id), 'server');
+      const cx = station.x + station.width / 2;
+      const cy = station.y + station.height / 2;
+      // Before, three of the four stood below the group, off its border.
+      expect(
+        Math.min(Math.abs(cx - vpc.x), Math.abs(cx - (vpc.x + vpc.width))),
+      ).toBeLessThanOrEqual(1);
+      expect(cy).toBeGreaterThan(vpc.y);
+      expect(cy).toBeLessThan(vpc.y + vpc.height);
+    }
+    expect(coveredByMounts(doc, layout)).toEqual([]);
+  });
+
+  it('opens room so a mounted node covers no node or group it does not stand in', () => {
+    // Before, the gateway covered the data subnet's frame and the replica beside it.
+    const doc = parse(`
+group vpc "Payment VPC" {
+  group app_sub "Private App Subnet" {
+    node engine "Payment Engine"
+    node risk "Risk Orchestrator"
+  }
+  group data_sub "Isolated Data Subnet" {
+    node db "Aurora Primary" [icon: database]
+    node replica "Aurora Replica" [icon: database]
+  }
+  node vgw "Virtual Private GW" [icon: router, mount: border]
+}
+group dc "Corporate Data Center" {
+  node cgw "Customer GW" [icon: router]
+  node core "Core Banking"
+}
+step "Settle" {
+  animate engine --> risk : "Score"
+  animate risk --> db : "Write"
+  static db ..> replica : "Replicate"
+  animate engine --> vgw : "Private Route"
+  animate vgw --> cgw : "Direct Connect"
+  animate cgw --> core : "Post Ledger"
+}`).document;
+    const layout = computeLayout(doc);
+    expect(coveredByMounts(doc, layout)).toEqual([]);
+    const vpc = must(layout.groups.vpc, 'vpc');
+    const vgw = stationRect(must(layout.nodes.vgw, 'vgw'), 'router');
+    // Still on the border of its VPC, the side that faces the data center.
+    expect(Math.abs(vgw.x + vgw.width / 2 - (vpc.x + vpc.width))).toBeLessThanOrEqual(1);
+    expect(computeLayout(doc)).toEqual(layout);
   });
 
   it('routes static group-endpoint rails cleanly from the group border without entering interior nodes', () => {

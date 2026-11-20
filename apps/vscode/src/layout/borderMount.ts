@@ -78,10 +78,202 @@ function spaceAlongSide(targets: number[], minSep: number, lo: number, hi: numbe
   return out;
 }
 
+/** The least room kept between a node mounted on a border and anything it does not belong to. */
+const MOUNT_GAP = 8;
+/** At most this many openings, so that the pass ends whatever the diagram. */
+const MAX_OPENINGS = 400;
+
+type Axis = 'x' | 'y';
+
+/** Where a mounted node went: its group, and the side of the group it stands on. */
+interface Mount {
+  parentId: string;
+  side: Side;
+}
+
+const startOf = (r: Rect, axis: Axis): number => (axis === 'x' ? r.x : r.y);
+const endOf = (r: Rect, axis: Axis): number => (axis === 'x' ? r.x + r.width : r.y + r.height);
+/** A node counts by its station, the point a mounted node puts on the border. */
+const stationOf = (r: Rect, axis: Axis): number =>
+  axis === 'x' ? r.x + r.width / 2 : r.y + STATION_CENTER;
+
+/**
+ * Whether a node lies beyond the line `at` on `axis`. A node mounted on the near side of its group
+ * (left or top) goes with the group, and one on the far side (right or bottom) goes with that side
+ * of it, so that both stay on their border. Any other node goes by its station.
+ */
+function nodeBeyond(
+  id: string,
+  rect: Rect,
+  groups: Readonly<Record<string, Rect>>,
+  mounts: ReadonlyMap<string, Mount>,
+  axis: Axis,
+  at: number,
+): boolean {
+  const mount = mounts.get(id);
+  const parent = mount ? groups[mount.parentId] : undefined;
+  if (mount && parent) {
+    if (mount.side === (axis === 'x' ? 'left' : 'top')) return startOf(parent, axis) >= at;
+    if (mount.side === (axis === 'x' ? 'right' : 'bottom')) return endOf(parent, axis) > at;
+  }
+  return stationOf(rect, axis) >= at;
+}
+
+/**
+ * Opens `delta` of room across the whole diagram at the line `at` on `axis`: a group wholly beyond
+ * the line moves, a group across it grows, and a node beyond it moves. Nothing that stood apart
+ * comes closer, and every member stays inside its group.
+ */
+function openRoom(
+  nodes: Record<string, Rect>,
+  groups: Record<string, Rect>,
+  mounts: ReadonlyMap<string, Mount>,
+  axis: Axis,
+  at: number,
+  delta: number,
+): void {
+  // Decided before anything moves, since a mounted node follows the border of its group.
+  const moving = Object.entries(nodes)
+    .filter(([id, r]) => nodeBeyond(id, r, groups, mounts, axis, at))
+    .map(([, r]) => r);
+  for (const r of Object.values(groups)) {
+    if (startOf(r, axis) >= at) {
+      if (axis === 'x') r.x += delta;
+      else r.y += delta;
+    } else if (endOf(r, axis) > at) {
+      if (axis === 'x') r.width += delta;
+      else r.height += delta;
+    }
+  }
+  for (const r of moving) {
+    if (axis === 'x') r.x += delta;
+    else r.y += delta;
+  }
+}
+
+interface Placed {
+  id: string;
+  rect: Rect;
+  isNode: boolean;
+}
+
+interface Opening {
+  axis: Axis;
+  at: number;
+  delta: number;
+}
+
+/**
+ * The opening on `axis` that takes `other` clear of the mounted node `self`, moving whichever of
+ * the two lies further along, or `undefined` when no line on `axis` parts them.
+ */
+function openingBetween(
+  self: Placed,
+  other: Placed,
+  groups: Readonly<Record<string, Rect>>,
+  mounts: ReadonlyMap<string, Mount>,
+  axis: Axis,
+): Opening | undefined {
+  const beyond = (p: Placed, at: number) =>
+    p.isNode ? nodeBeyond(p.id, p.rect, groups, mounts, axis, at) : startOf(p.rect, axis) >= at;
+  const before = (p: Placed, at: number) =>
+    p.isNode ? !nodeBeyond(p.id, p.rect, groups, mounts, axis, at) : endOf(p.rect, axis) <= at;
+  // The furthest line that still moves `p`.
+  const lineOf = (p: Placed): number => {
+    if (!p.isNode) return startOf(p.rect, axis);
+    const mount = mounts.get(p.id);
+    const parent = mount ? groups[mount.parentId] : undefined;
+    if (mount && parent && mount.side === (axis === 'x' ? 'left' : 'top')) {
+      return startOf(parent, axis);
+    }
+    if (mount && parent && mount.side === (axis === 'x' ? 'right' : 'bottom')) {
+      return endOf(parent, axis) - 0.5;
+    }
+    return stationOf(p.rect, axis);
+  };
+  const middle = (p: Placed) =>
+    p.isNode ? stationOf(p.rect, axis) : (startOf(p.rect, axis) + endOf(p.rect, axis)) / 2;
+  const pairs: Array<[Placed, Placed]> =
+    middle(other) < middle(self)
+      ? [
+          [self, other],
+          [other, self],
+        ]
+      : [
+          [other, self],
+          [self, other],
+        ];
+  for (const [mover, stayer] of pairs) {
+    const at = lineOf(mover);
+    if (!beyond(mover, at) || !before(stayer, at)) continue;
+    const delta = endOf(stayer.rect, axis) + MOUNT_GAP - startOf(mover.rect, axis);
+    if (delta > 0) return { axis, at, delta: Math.ceil(delta) };
+  }
+  return undefined;
+}
+
+/** Whether two rectangles come closer than `MOUNT_GAP`. */
+const tooClose = (a: Rect, b: Rect): boolean =>
+  a.x - MOUNT_GAP < b.x + b.width &&
+  b.x < a.x + a.width + MOUNT_GAP &&
+  a.y - MOUNT_GAP < b.y + b.height &&
+  b.y < a.y + a.height + MOUNT_GAP;
+
+/**
+ * A mounted node stands half outside its group, in room the layout did not keep for it, so it can
+ * cover a node or the frame of a group beside it. Opens room until no mounted node comes closer
+ * than `MOUNT_GAP` to anything but the groups around it: one mounted node at a time, in the order
+ * of the file, the largest opening first. A diagram where nothing is too close is left as it is.
+ */
+function separateMounted(
+  doc: DavDocument,
+  nodes: Record<string, Rect>,
+  groups: Record<string, Rect>,
+  mounts: ReadonlyMap<string, Mount>,
+): void {
+  if (mounts.size === 0) return;
+  const groupParent = parentMap(doc.groups);
+  const everything = [
+    ...doc.nodes.map((n) => ({ id: n.id, isNode: true })),
+    ...doc.groups.map((g) => ({ id: g.id, isNode: false })),
+  ];
+  const parted = new Set<string>();
+  for (let round = 0; round < MAX_OPENINGS; round++) {
+    let best: Opening | undefined;
+    for (const n of doc.nodes) {
+      const mount = mounts.get(n.id);
+      const rect = nodes[n.id];
+      if (!mount || !rect) continue;
+      const around = new Set(ancestorIds(groupParent, mount.parentId));
+      const normal: Axis = mount.side === 'left' || mount.side === 'right' ? 'x' : 'y';
+      const across: Axis = normal === 'x' ? 'y' : 'x';
+      const self: Placed = { id: n.id, rect, isNode: true };
+      for (const o of everything) {
+        if (o.id === n.id || (!o.isNode && around.has(o.id))) continue;
+        const r = o.isNode ? nodes[o.id] : groups[o.id];
+        const key = `${n.id}\0${o.id}`;
+        if (!r || parted.has(key) || !tooClose(rect, r)) continue;
+        const other: Placed = { id: o.id, rect: r, isNode: o.isNode };
+        const opening =
+          openingBetween(self, other, groups, mounts, normal) ??
+          openingBetween(self, other, groups, mounts, across);
+        // No line parts these two: leave them, rather than ask again.
+        if (!opening) parted.add(key);
+        else if (!best || opening.delta > best.delta) best = opening;
+      }
+      if (best) break;
+    }
+    if (!best) return;
+    openRoom(nodes, groups, mounts, best.axis, best.at, best.delta);
+  }
+}
+
 /**
  * Positions nodes declared with `[mount: border]` so their station center straddles their parent
  * group's boundary on the side facing their external connections, shrinking the parent group's
- * border inward to the mounted station when interior space permits.
+ * border inward to the mounted station when interior space permits. A side lengthens when more
+ * nodes are mounted on it than it holds, and room opens where a mounted node would come too close
+ * to a node or a group it does not belong to.
  *
  * Returns `layout` unchanged when no node uses `mount: 'border'`.
  */
@@ -100,6 +292,8 @@ export function applyBorderMounts(doc: DavDocument, layout: Layout): Layout {
   for (const [id, r] of Object.entries(layout.nodes)) nodes[id] = { ...r };
   const groups = rectRecord();
   for (const [id, r] of Object.entries(layout.groups)) groups[id] = { ...r };
+  // Each node once it stands on its border, so that room opened later keeps it there.
+  const mounts = new Map<string, Mount>();
 
   const groupParent = parentMap(doc.groups);
   const groupById = new Map(doc.groups.map((g) => [g.id, g]));
@@ -380,7 +574,7 @@ export function applyBorderMounts(doc: DavDocument, layout: Layout): Layout {
 
     // Snap mounted nodes onto `newRect`'s edges with clean separation and header clearance.
     const hdrH = groupHeaderHeight(group.label, newRect.width);
-    const labelClearX =
+    const labelClearX = () =>
       newRect.x + Math.min(zoneNeededWidth(group.label) + 40, newRect.width * 0.65);
 
     // Prefer primary (`animate`) neighbors lying within the mountable edge span `[lo, hi]`
@@ -413,67 +607,66 @@ export function applyBorderMounts(doc: DavDocument, layout: Layout): Layout {
     for (const side of ['left', 'right', 'top', 'bottom'] as const) {
       const rawItems = bySide[side];
       if (rawItems.length === 0) continue;
-      if (side === 'left' || side === 'right') {
-        const cx = side === 'left' ? newRect.x : newRect.x + newRect.width;
-        const lo = newRect.y + hdrH + 36;
-        const hi = newRect.y + newRect.height - (NODE_SIZE.height - STATION_CENTER);
-        const items = rawItems
-          .map((entry) => ({
-            node: entry.node,
-            targetCoord: targetCoordOf(entry, true, lo, hi),
-          }))
-          .sort(
-            (a, b) =>
-              a.targetCoord - b.targetCoord ||
-              (a.node.id < b.node.id ? -1 : a.node.id > b.node.id ? 1 : 0),
-          );
-        const ys = spaceAlongSide(
-          items.map((i) => i.targetCoord),
-          SIDE_SEP_Y,
-          lo,
-          hi,
+      const vertical = side === 'left' || side === 'right';
+      const sep = vertical ? SIDE_SEP_Y : SIDE_SEP_X;
+      // Where stations may stand along this side of the group as it is now.
+      const spanOf = (): [number, number] =>
+        vertical
+          ? [
+              newRect.y + hdrH + 36,
+              newRect.y + newRect.height - (NODE_SIZE.height - STATION_CENTER),
+            ]
+          : [
+              side === 'top' ? Math.max(newRect.x + 56, labelClearX()) : newRect.x + 56,
+              newRect.x + newRect.width - 56,
+            ];
+      let [lo, hi] = spanOf();
+      const items = rawItems
+        .map((entry) => ({
+          node: entry.node,
+          targetCoord: targetCoordOf(entry, vertical, lo, hi),
+        }))
+        .sort(
+          (a, b) =>
+            a.targetCoord - b.targetCoord ||
+            (a.node.id < b.node.id ? -1 : a.node.id > b.node.id ? 1 : 0),
         );
-        items.forEach((item, idx) => {
-          const cy = ys[idx] ?? lo;
-          nodes[item.node.id] = {
-            x: Math.round(cx - NODE_SIZE.width / 2),
-            y: Math.round(cy - STATION_CENTER),
-            width: NODE_SIZE.width,
-            height: NODE_SIZE.height,
-          };
-        });
-      } else {
-        const cy = side === 'top' ? newRect.y : newRect.y + newRect.height;
-        const lo = side === 'top' ? Math.max(newRect.x + 56, labelClearX) : newRect.x + 56;
-        const hi = newRect.x + newRect.width - 56;
-        const items = rawItems
-          .map((entry) => ({
-            node: entry.node,
-            targetCoord: targetCoordOf(entry, false, lo, hi),
-          }))
-          .sort(
-            (a, b) =>
-              a.targetCoord - b.targetCoord ||
-              (a.node.id < b.node.id ? -1 : a.node.id > b.node.id ? 1 : 0),
-          );
-        const xs = spaceAlongSide(
-          items.map((i) => i.targetCoord),
-          SIDE_SEP_X,
-          lo,
-          hi,
-        );
-        items.forEach((item, idx) => {
-          const cx = xs[idx] ?? lo;
-          nodes[item.node.id] = {
-            x: Math.round(cx - NODE_SIZE.width / 2),
-            y: Math.round(cy - STATION_CENTER),
-            width: NODE_SIZE.width,
-            height: NODE_SIZE.height,
-          };
-        });
+      // More nodes than the side holds: the group lengthens at the far end of that side.
+      for (let grow = 0; grow < 4; grow++) {
+        const short = (items.length - 1) * sep - (hi - lo);
+        if (short <= 0) break;
+        const end = vertical ? newRect.y + newRect.height : newRect.x + newRect.width;
+        openRoom(nodes, groups, mounts, vertical ? 'y' : 'x', end - 0.5, Math.ceil(short));
+        [lo, hi] = spanOf();
       }
+      const along = spaceAlongSide(
+        items.map((i) => i.targetCoord),
+        sep,
+        lo,
+        hi,
+      );
+      const border =
+        side === 'left'
+          ? newRect.x
+          : side === 'right'
+            ? newRect.x + newRect.width
+            : side === 'top'
+              ? newRect.y
+              : newRect.y + newRect.height;
+      items.forEach((item, idx) => {
+        const c = along[idx] ?? lo;
+        const [cx, cy] = vertical ? [border, c] : [c, border];
+        nodes[item.node.id] = {
+          x: Math.round(cx - NODE_SIZE.width / 2),
+          y: Math.round(cy - STATION_CENTER),
+          width: NODE_SIZE.width,
+          height: NODE_SIZE.height,
+        };
+        mounts.set(item.node.id, { parentId, side });
+      });
     }
   }
 
+  separateMounted(doc, nodes, groups, mounts);
   return { nodes, groups };
 }

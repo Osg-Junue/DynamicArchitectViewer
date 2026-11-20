@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { DIAGNOSTIC_CODES } from '../src/dsl/diagnostics';
 import { ICON_NAMES } from '../src/model/types';
 import { openWebview, watchErrors } from './helpers';
 
@@ -13,7 +14,7 @@ test.describe('the documentation inside the preview', () => {
         headers: {
           ...response.headers(),
           'content-security-policy':
-            "default-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'",
+            "default-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; worker-src blob:",
         },
       });
     });
@@ -66,17 +67,19 @@ test.describe('the documentation inside the preview', () => {
     await expect(page.getByTestId('doc-phase-strip').first().locator('.doc-phase')).toHaveCount(3);
     await expect(page.locator('.doc-phase.is-active').first()).toBeVisible();
 
-    // State shows accumulated values, including the reset in the last step.
+    // State shows the value of each step on its own, and the last step sets none.
     await page.getByTestId('doc-nav-state').click();
     const badgeRow = page.getByTestId('doc-state-matrix').locator('tbody tr').first();
     await expect(badgeRow.locator('th')).toHaveText('db.badge');
     await expect(badgeRow.locator('td').last()).toHaveText('—');
 
     await page.getByTestId('doc-nav-diagnostics').click();
-    await expect(page.getByTestId('doc-diagnostics').locator('tbody tr')).toHaveCount(20);
+    await expect(page.getByTestId('doc-diagnostics').locator('tbody tr')).toHaveCount(
+      DIAGNOSTIC_CODES.length,
+    );
 
     await page.getByTestId('doc-nav-prompt').click();
-    await expect(page.getByTestId('ai-prompt-textarea')).toHaveValue(/dav 1/);
+    await expect(page.getByTestId('ai-prompt-textarea')).toHaveValue(/`static`/);
     await page.getByTestId('chk-include-current-dsl').check();
     await expect(page.getByTestId('ai-prompt-textarea')).toHaveValue(/AWS/);
 
@@ -159,6 +162,10 @@ test('documentation examples keep the source where the reader scrolled it', asyn
   const figure = page.getByTestId('doc-figure').first();
   const code = figure.locator('.doc-code');
   const scrollTop = () => code.evaluate((el) => el.scrollTop);
+  // The example fits in its box on a tall screen; a short box puts its second step below.
+  await code.evaluate((el) => {
+    el.style.maxHeight = '120px';
+  });
 
   // Changing steps brings the step into view.
   await figure.locator('.dav-tick').nth(1).click();
