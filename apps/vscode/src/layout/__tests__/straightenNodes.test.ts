@@ -120,4 +120,23 @@ step "S" {
 }`).document;
     expect(straightenNodes(alone, { nodes, groups: {} }).nodes.a).toEqual(narrow(128, 180));
   });
+
+  it('does not count a rail passing through another node self-loop room as unobstructed straight', () => {
+    // `c` stands at station y = 180 (rect top = 130); with a self-loop its headroom reaches y = 100.
+    // Moving `a` down from y = 95 to `b` at y = 115 would run `a --> b` through `[100, 130]`, so
+    // `a` refuses that move and `b` comes up to `y = 95` above `c`'s loop instead.
+    const layout: Layout = {
+      nodes: { a: node(120, 95), b: node(680, 115), c: node(400, 180) },
+      groups: {},
+    };
+    const withoutLoop = parse('node a\nnode b\nnode c\nstep "S" {\n  static a --> b\n}').document;
+    expect(straightenNodes(withoutLoop, layout).nodes.a).toEqual(node(120, 115));
+
+    const withSelfLoop = parse(
+      'node a\nnode b\nnode c\nstep "S" {\n  static a --> b\n  animate c --> c\n}',
+    ).document;
+    const res = straightenNodes(withSelfLoop, layout).nodes;
+    expect(res.a).toEqual(node(120, 95));
+    expect(res.b).toEqual(node(680, 95));
+  });
 });

@@ -45,3 +45,5 @@ Evaluations must distinguish **semantic flow** from **geometric noise**:
    - Respect `group` declaration order whenever flow constraints leave ties.
 3. **Micro ordering & routing:**
    - Reorder nodes within each column/zone and route rails to reduce local crossings, jogs, and shared-port tangles without breaking macro zone placement or backbone direction.
+
+For the exact rules, solver regimes, formulas, and constants implemented in `apps/vscode/src/layout/`, see [Layout algorithm specification](layout-algorithm.md).

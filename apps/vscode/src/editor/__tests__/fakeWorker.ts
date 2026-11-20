@@ -1,4 +1,4 @@
-import { searchZones, searchZonesFrom } from '../../layout';
+import { searchZones } from '../../layout';
 import type { SearchWorker } from '../zonePlanner';
 import type { ZoneSearchRequest } from '../zoneSearch.worker';
 
@@ -31,12 +31,9 @@ export class FakeWorker implements SearchWorker {
     const request = this.posted.at(-1);
     if (!request) throw new Error('nothing was posted');
     this.answered = this.posted.length;
-    const { key, doc, seed } = request;
-    const whole = () => (this.#searches ? searchZones(doc) : undefined);
-    const part = (of: number) =>
-      this.#searches ? searchZonesFrom(doc, of) : { score: of, placement: undefined };
+    const { key, doc } = request;
     this.onmessage?.({
-      data: seed === undefined ? { key, placement: whole() } : { key, seed, ...part(seed) },
+      data: { key, placement: this.#searches ? searchZones(doc) : undefined },
     });
   }
 

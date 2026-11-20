@@ -1,6 +1,6 @@
 /**
- * A diagram with so many links between its zones that its search is spread over several
- * workers: ten zones in a chain, five links from each to the next, and eight from the first.
+ * A diagram with enough links between its zones (`>= 50`) to trigger settling before
+ * background zone search: ten zones in a chain, five links from each to the next, and eight from the first.
  */
 export function largeDiagram(extra = ''): string {
   const lines: string[] = [];

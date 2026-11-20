@@ -58,17 +58,13 @@ test.describe('searching for where the zones go', () => {
     expect(workers).toBe(1);
   });
 
-  test('is spread over several workers for a large diagram, with the layout one worker gives', async ({
+  test('runs a large diagram deterministically in a single worker across runs', async ({
     browser,
   }) => {
-    /** Where the nodes are drawn on a machine with that many cores, and by how many workers. */
-    const drawnWith = async (cores: number) => {
+    const drawnOnce = async () => {
       const page = await browser.newPage();
       let workers = 0;
       page.on('worker', () => workers++);
-      await page.addInitScript((count) => {
-        Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => count });
-      }, cores);
       await underWebviewPolicy(page, true);
       await openWebview(page, largeDiagram());
       await expect(page.locator('.dav-node')).toHaveCount(40);
@@ -81,34 +77,23 @@ test.describe('searching for where the zones go', () => {
       await page.close();
       return { workers, where };
     };
-    // One core is left to the page: with two there is a single worker, which searches whole.
-    const whole = await drawnWith(2);
-    const spread = await drawnWith(4);
-    expect(whole.workers).toBe(1);
-    expect(spread.workers).toBe(3);
-    expect(new Set(spread.where).size).toBe(40);
-    expect(spread.where).toEqual(whole.where);
+    const first = await drawnOnce();
+    const second = await drawnOnce();
+    expect(first.workers).toBe(1);
+    expect(second.workers).toBe(1);
+    expect(new Set(first.where).size).toBe(40);
+    expect(first.where).toEqual(second.where);
   });
 
-  test('ends the workers it made for a large diagram once they have rested, but for one', async ({
-    page,
-  }) => {
-    await page.clock.install();
-    await page.addInitScript(() => {
-      Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 4 });
-    });
+  test('reuses the single worker across large diagrams', async ({ page }) => {
     await underWebviewPolicy(page, true);
     await openWebview(page, largeDiagram());
     await expect(page.locator('.dav-node')).toHaveCount(40);
-    expect(page.workers()).toHaveLength(3);
+    expect(page.workers()).toHaveLength(1);
 
-    // Another large diagram is searched by the same workers: none is made beside them.
     await sendDsl(page, largeDiagram('node more'), 'file:///other.dav');
     await expect(page.locator('.dav-node')).toHaveCount(41);
-    expect(page.workers()).toHaveLength(3);
-
-    await page.clock.fastForward(30_000);
-    await expect.poll(() => page.workers().length).toBe(1);
+    expect(page.workers()).toHaveLength(1);
   });
 
   test('runs on the page itself where workers are not allowed', async ({ page }) => {

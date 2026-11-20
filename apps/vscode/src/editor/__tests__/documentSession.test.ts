@@ -35,8 +35,7 @@ function setup() {
     show: (valid) => told.push(`show ${valid.document.nodes.length} nodes`),
     cursorAt: (elementId, stepIndex) => told.push(`cursor ${elementId} step ${stepIndex}`),
   };
-  // One core: the search is never spread, whatever the machine the tests run on.
-  const session = new DocumentSession(new ZonePlanner(() => worker, 1), view);
+  const session = new DocumentSession(new ZonePlanner(() => worker), view);
   return { session, worker, told };
 }
 
@@ -193,7 +192,7 @@ describe('DocumentSession', () => {
         const worker = new FakeWorker(false);
         workers.push(worker);
         return worker;
-      }, 4);
+      });
       const session = new DocumentSession(planner, view);
       const answerAll = () => {
         for (let busy = workers.filter((w) => w.busy); busy.length > 0; ) {
@@ -203,14 +202,14 @@ describe('DocumentSession', () => {
       };
 
       session.docChanged({ dsl: largeDiagram(), uri: 'file:///large.dav', version: 1 });
-      expect(workers.filter((w) => w.busy)).toHaveLength(3);
+      expect(workers.filter((w) => w.busy)).toHaveLength(1);
       answerAll();
       expect(told).toEqual(['show 40 nodes']);
 
       session.docChanged({ dsl: largeDiagram('node more'), uri: 'file:///large.dav', version: 2 });
       expect(workers.filter((w) => w.busy)).toHaveLength(0);
       vi.advanceTimersByTime(SETTLE_MS);
-      expect(workers.filter((w) => w.busy)).toHaveLength(3);
+      expect(workers.filter((w) => w.busy)).toHaveLength(1);
       answerAll();
       expect(told).toEqual(['show 40 nodes', 'show 41 nodes']);
     } finally {
@@ -232,19 +231,19 @@ describe('DocumentSession', () => {
         const worker = new FakeWorker(false);
         workers.push(worker);
         return worker;
-      }, 4);
+      });
       const session = new DocumentSession(planner, view);
 
       session.docChanged({ dsl: largeDiagram(), uri: 'file:///one.dav', version: 1 });
       session.docChanged({ dsl: largeDiagram('node more'), uri: 'file:///two.dav', version: 1 });
-      // Nothing of the second document is on screen either: its search does not wait.
-      expect(workers.map((w) => w.terminated)).toEqual([true, true, true, false, false, false]);
-      expect(workers.slice(3).every((w) => w.busy)).toBe(true);
+      // Both jobs use the single worker; the second starts after the first answers without settling.
+      expect(workers).toHaveLength(1);
+      expect(workers[0]?.busy).toBe(true);
 
-      for (let busy = workers.filter((w) => w.busy); busy.length > 0; ) {
-        busy[0]?.answer();
-        busy = workers.filter((w) => w.busy);
-      }
+      workers[0]?.answer();
+      expect(told).toEqual([]);
+      expect(workers[0]?.busy).toBe(true);
+      workers[0]?.answer();
       expect(told).toEqual(['show 41 nodes']);
     } finally {
       vi.useRealTimers();

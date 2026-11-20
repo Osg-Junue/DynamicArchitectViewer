@@ -4,18 +4,26 @@ import { describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
 import { zoneOfNodes } from '../../model/zones';
 import { computeColumnLayout } from '../columns';
-import { analyzeFlow, flowPairKey } from '../flow';
-import { computeLayout, pendingZoneSearch, zonesPlacedFreely } from '../index';
+import { analyzeFlow, flowPairKey, primaryCorridors } from '../flow';
+import { adoptZonePlan, computeLayout, pendingZoneSearch, zonesPlacedFreely } from '../index';
 import { type Rect, rectContains, rectOverlaps, STATION_CENTER } from '../metrics';
 import { straightenNodes } from '../straightenNodes';
 import {
   applyZonePlacement,
+  type Block,
   buildBlocks,
   initialPositions,
+  ownersOf,
+  type Placed,
   partitionIsolatedBlocks,
+  placeAuxiliaryBand,
+  placeAuxiliaryBlocks,
   placeIsolatedBlocks,
+  prepareMacroGrid,
   shouldPreserveFlow,
+  stageColumns,
   structureKey,
+  wrapStageColumns,
   type ZonePlacement,
 } from '../zoneBlocks';
 
@@ -26,6 +34,321 @@ const rectOf = (record: Readonly<Record<string, Rect>>, id: string): Rect => {
   if (!rect) throw new Error(`Missing layout rect for "${id}"`);
   return rect;
 };
+
+const EV_SMART_GRID_DSL = `
+group g_clients "Drivers & Staff" [color: teal] {
+  node driver_app "Driver App"
+  node ops_console "NOC Console"
+  node field_tech "Field Tech"
+}
+group g_sites "Charging Sites" [color: teal] {
+  group g_hwy "Highway Hub" [color: teal] {
+    node cp_dc1 "DC Charger 01"
+    node cp_dc2 "DC Charger 02"
+    node site_ems "Site EMS"
+  }
+}
+group g_edge "Edge & Ingress" [color: purple] {
+  node waf "WAF"
+  node api_gw "API Gateway"
+  group g_device_edge "Device Edge" [color: purple] {
+    node ocpp_lb "OCPP LB"
+    node mqtt_broker "MQTT"
+  }
+}
+group g_app "App Backend" [color: blue] {
+  node driver_bff "Driver BFF"
+  node route_planner "Route Planner"
+}
+group g_cpms "CPMS" [color: blue] {
+  group g_conn "Connectivity" [color: blue] {
+    node ocpp_gw "OCPP GW"
+    node conn_reg "Socket Reg"
+  }
+  group g_sessions "Sessions" [color: blue] {
+    node session_svc "Session Svc"
+    group g_session_store "Session Store" [color: blue] {
+      node session_db "Session DB"
+      node session_rep "Replica"
+    }
+  }
+}
+group g_energy "Energy Mgmt" [color: green] {
+  node load_mgr "Load Manager"
+  node der_ctrl "DER Controller"
+}
+group g_events "Event Streaming" [color: yellow] {
+  node outbox_relay "CDC Relay"
+  node event_bus "Event Bus"
+  node anomaly_svc "Anomaly Svc"
+}
+group g_pricing "Pricing & Billing" [color: pink] {
+  node cdr_svc "CDR Service"
+  node payment_svc "Payments"
+}
+group g_field "Field Service" [color: orange] {
+  node work_orders "Work Orders"
+  node dispatch_svc "Tech Dispatch"
+}
+group g_ml "ML Platform" [color: green] {
+  node feature_store "Feature Store"
+  node model_serving "Model Serving"
+}
+group g_data "Data & Reporting" [color: green] {
+  node dwh "Warehouse"
+  node bi "BI Dashboards"
+}
+group g_obs "Observability" [color: red] {
+  node otel "OTel"
+  node metrics "Metrics"
+  group g_secops "SecOps" [color: red] {
+    node siem "SIEM"
+  }
+}
+
+step "1. Ingress" {
+  animate driver_app --> waf : "HTTPS"
+  animate waf --> api_gw : "Token"
+  animate api_gw --> driver_bff : "GraphQL"
+  animate driver_bff --> route_planner : "Route"
+  static api_gw ..> otel : "Spans"
+}
+step "2. Charger Boot & Session" {
+  animate cp_dc1 --> ocpp_lb : "WSS"
+  animate ocpp_lb --> ocpp_gw : "OCPP"
+  animate ocpp_gw <-> conn_reg : "Register"
+  animate ocpp_gw --> session_svc : "Start"
+  animate session_svc <-> session_db : "Insert"
+  static session_db --> session_rep : "WAL"
+  static ocpp_gw ..> otel : "Spans"
+}
+step "3. Energy & Telemetry" {
+  animate site_ems --> mqtt_broker : "Power"
+  animate mqtt_broker --> der_ctrl : "State"
+  animate der_ctrl --> load_mgr : "Headroom"
+  static load_mgr ..> metrics : "kW"
+}
+step "4. Events & Billing" {
+  animate session_svc --> cdr_svc : "Close"
+  animate cdr_svc --> payment_svc : "Capture"
+  animate session_db --> outbox_relay : "CDC"
+  animate outbox_relay --> event_bus : "CdrCreated"
+  animate event_bus --> anomaly_svc : "Stream"
+  static event_bus ..> otel : "Lag"
+}
+step "5. Analytics & Dispatch" {
+  animate payment_svc --> feature_store : "Features"
+  animate feature_store --> model_serving : "Score"
+  animate model_serving --> dwh : "Facts"
+  animate dwh --> bi : "Dashboards"
+  animate anomaly_svc --> work_orders : "Predict"
+  animate work_orders --> dispatch_svc : "WO"
+  static dispatch_svc ..> siem : "Audit"
+}
+step "6. Field Dispatch" {
+  animate dispatch_svc --> field_tech : "Assign"
+  animate field_tech --> cp_dc2 : "Replace cable"
+}
+`;
+
+const ULTRA_COMPLEX_DSL = `
+group edge_access "Clients & Edge" [color: teal] {
+  node dev_user "Dev"
+  node portal "Portal"
+  node waf "WAF"
+  node api_gw "API GW"
+}
+group auth_zone "Auth & Zero Trust" [color: purple] {
+  node idp "IdP"
+  node policy "Policy"
+  node sa_broker "SA Broker"
+  node token_cache "Token Cache"
+  node kms "KMS"
+}
+group sync_runtime "Sync Runtime" [color: blue] {
+  node scheduler "Scheduler"
+  node sync_job "Sync Job"
+  node webhook_rx "Webhook RX"
+  group grant_core "Grant Core" [color: blue] {
+    node access_svc "Access Svc"
+    node reconciler "Reconciler"
+    node dlq_worker "DLQ Worker"
+  }
+  node workflow "Workflow"
+}
+group event_hub "Event Hub" [color: purple] {
+  node event_bus "Event Bus"
+  node schema_reg "Schema Reg"
+  node dlq "DLQ"
+  node router_fn "Router"
+}
+group dwh_zone "DWH" [color: yellow] {
+  node raw_tbl "Raw"
+  node latest_view "Latest"
+  group dwh_mart "Audit Mart" [color: orange] {
+    node audit_mart "Audit Mart"
+    node risk_score "Risk Score"
+  }
+}
+group cache_state "State Store" [color: green] {
+  node grant_db "Grant DB"
+  node lock_redis "Redis"
+  node outbox_relay "Outbox"
+  node artifact_gcs "GCS"
+}
+group external_saas "External SaaS" [color: orange] {
+  node gitlab "GitLab"
+  node hr_idp "HR SaaS"
+  node slack_bot "Slack"
+}
+group obs_zone "Observability" [color: teal] {
+  node audit_log "Audit Log"
+  node trace_col "Trace"
+  node metrics_db "Metrics"
+  node alert_mgr "Alert Mgr"
+  node siem "SIEM"
+  node dash "Dashboard"
+  node sre_oncall "SRE"
+}
+
+step "1. Auth & Request" {
+  animate dev_user --> portal : "HTTPS"
+  animate portal --> waf : "TLS"
+  animate waf --> api_gw : "Check"
+  animate api_gw <-> idp : "OIDC"
+  animate idp <-> token_cache : "Session" [parallel: true]
+  animate api_gw <-> policy : "RBAC"
+  animate api_gw --> workflow : "Submit"
+  animate workflow --> slack_bot : "Notify"
+  static idp --> sa_broker : "Delegate"
+  static sa_broker <-> kms : "Sign"
+  static api_gw ..> audit_log : "Access"
+  static api_gw ..> trace_col : "Span"
+}
+step "2. DWH & Mart" {
+  animate scheduler ..> raw_tbl : "Ingest"
+  animate raw_tbl --> latest_view : "Snapshot"
+  animate raw_tbl --> audit_mart : "Archive"
+  animate latest_view --> risk_score : "Score"
+  static policy ..> latest_view : "Attr"
+}
+step "3. Sync & Snapshot" {
+  animate scheduler ..> sync_job : "Trigger"
+  animate sync_job <-> sa_broker : "Token"
+  animate sync_job --> latest_view : "Select"
+  animate sync_job --> event_bus : "Synced"
+  static sync_job --> gitlab : "Members"
+  static sync_job ..> audit_log : "Sync Log"
+  static sync_job ..> trace_col : "Span"
+}
+step "4. Grant & Outbox" {
+  animate workflow --> access_svc : "Execute"
+  animate access_svc <-> lock_redis : "Lock"
+  animate access_svc --> grant_db : "Persist"
+  animate grant_db --> outbox_relay : "CDC"
+  animate outbox_relay --> event_bus : "Publish"
+  animate hr_idp --> webhook_rx : "HR"
+  animate webhook_rx --> event_bus : "Webhook" [parallel: true]
+  animate event_bus --> router_fn : "Route"
+  animate router_fn --> reconciler : "Reconcile"
+  static event_bus <.> schema_reg : "Schema"
+  static event_bus --> metrics_db : "Lag"
+  static grant_db ..> artifact_gcs : "WORM"
+  static access_svc ..> audit_log : "Grant Log"
+}
+step "5. DLQ Replay" {
+  animate access_svc ..> dlq : "429"
+  animate dlq --> alert_mgr : "Alert"
+  animate alert_mgr --> sre_oncall : "Page"
+  animate sre_oncall --> dlq_worker : "Replay"
+  animate dlq_worker --> access_svc : "Retry"
+}
+step "6. Audit Correlation" {
+  static audit_log --> siem : "Logs"
+  static risk_score --> siem : "Risk"
+  static audit_log --> artifact_gcs : "WORM"
+  static trace_col --> dash : "Latency"
+  static metrics_db --> dash : "Metrics"
+  static audit_mart --> dash : "監査集計"
+}
+`;
+
+const NESTED_ZONES_DSL = `
+node users "Users"
+group region_tokyo "Tokyo" [color: blue] {
+  node edge_tokyo "LB"
+  group vpc_tokyo "Prod VPC" [color: teal] {
+    group az_tokyo_a "AZ-a" [color: green] {
+      node web_a "Web A"
+      node app_a "App A"
+    }
+    group az_tokyo_c "AZ-c" [color: green] {
+      node web_c "Web C"
+      node app_c "App C"
+    }
+    node db_tokyo "DB"
+  }
+}
+group region_osaka "Osaka" [color: purple] {
+  node edge_osaka "LB"
+  group vpc_osaka "DR VPC" [color: teal] {
+    group az_osaka_a "AZ-a" [color: green] {
+      node web_o "Web O"
+      node app_o "App O"
+    }
+    node db_osaka "Replica"
+  }
+}
+group shared "Shared" [color: gray] {
+  group observability "Obs" [color: red] {
+    node metrics "Metrics"
+    node logs "Logs"
+  }
+  group security "Sec" [color: orange] {
+    node vault "Vault"
+    node audit "Audit"
+  }
+}
+group batch "Batch" [color: yellow] {
+  node scheduler "Scheduler"
+  node worker_1 "Worker 1"
+  node worker_2 "Worker 2"
+  node report "Report"
+}
+
+step "1. Tokyo" {
+  animate users --> edge_tokyo : "HTTPS"
+  animate edge_tokyo --> web_a : "Route"
+  animate web_a --> app_a : "API"
+  animate app_a <-> db_tokyo : "SQL"
+  static db_tokyo ..> db_osaka : "Repl"
+}
+step "2. Cross-zone Shared" {
+  animate app_a ..> metrics : "Metrics"
+  animate app_c ..> logs : "Logs" [parallel: true]
+  animate app_a <-> vault : "Secrets"
+  static logs --> audit : "Archive"
+}
+step "3. Osaka Failover" {
+  animate db_tokyo ..> db_osaka : "Failover"
+  animate users ..> edge_osaka : "Switch"
+  animate edge_osaka --> web_o : "Route"
+  animate web_o --> app_o : "API"
+  animate app_o <-> db_osaka : "SQL"
+}
+step "4. Intra-region" {
+  animate app_c <-> db_tokyo : "SQL"
+  animate web_c --> app_c : "API" [parallel: true]
+  static edge_tokyo --> web_c : "Route"
+}
+step "5. Nightly Batch" {
+  animate scheduler --> worker_1 : "Start"
+  animate worker_1 --> worker_2 : "Next"
+  animate worker_2 --> report : "Aggregate"
+  animate report ..> db_tokyo : "Read"
+  static users --> scheduler : "手動実行"
+}
+`;
 
 describe('analyzeFlow & flow-aware layout', () => {
   it('classifies cyclic return transitions via static telemetry bridges without inverting stages', () => {
@@ -322,22 +645,19 @@ step "flow" {
   });
 
   it('keeps early-established stages and auxiliaryZones invariant under late-step cross-cutting links', () => {
-    const evRaw = readFileSync(
-      resolve(__dirname, '../../../../../scratch/ev-charging-smart-grid.dav'),
-      'utf8',
-    );
+    const evRaw = EV_SMART_GRID_DSL;
     const evDoc = parse(evRaw).document;
     const evFlow = analyzeFlow(evDoc);
     const evLateStatic = parse(
       evRaw.replace(
-        'animate field_tech --> cp_dc2 : "Replace cable" [color: green, desc: "At 08:20 the cable is replaced, and the charger is back in service 25 minutes later"]',
-        'animate field_tech --> cp_dc2 : "Replace cable" [color: green, desc: "At 08:20 the cable is replaced, and the charger is back in service 25 minutes later"]\n  static work_orders ..> bi : "MTTR report"',
+        'animate field_tech --> cp_dc2 : "Replace cable"',
+        'animate field_tech --> cp_dc2 : "Replace cable"\n  static work_orders ..> bi : "MTTR report"',
       ),
     ).document;
     const evLateRevStatic = parse(
       evRaw.replace(
-        'animate field_tech --> cp_dc2 : "Replace cable" [color: green, desc: "At 08:20 the cable is replaced, and the charger is back in service 25 minutes later"]',
-        'animate field_tech --> cp_dc2 : "Replace cable" [color: green, desc: "At 08:20 the cable is replaced, and the charger is back in service 25 minutes later"]\n  static bi ..> work_orders : "Usage"',
+        'animate field_tech --> cp_dc2 : "Replace cable"',
+        'animate field_tech --> cp_dc2 : "Replace cable"\n  static bi ..> work_orders : "Usage"',
       ),
     ).document;
 
@@ -348,15 +668,12 @@ step "flow" {
 
       const bA = buildBlocks(evDoc, computeColumnLayout, undefined, evFlow);
       const bB = buildBlocks(edited, computeColumnLayout, undefined, f);
-      const pA = initialPositions(evDoc, bA.blocks, bA.owners, computeColumnLayout, evFlow);
-      const pB = initialPositions(edited, bB.blocks, bB.owners, computeColumnLayout, f);
+      const pA = initialPositions(evDoc, bA.blocks, bA.owners, evFlow);
+      const pB = initialPositions(edited, bB.blocks, bB.owners, f);
       expect(pB).toEqual(pA);
     }
 
-    const ultraRaw = readFileSync(
-      resolve(__dirname, '../../../../../scratch/ultra-complex-architecture.dav'),
-      'utf8',
-    );
+    const ultraRaw = ULTRA_COMPLEX_DSL;
     const ultraBase = analyzeFlow(parse(ultraRaw).document);
     // Core multi-primary backbone zones (auth_zone, event_hub) stay primary; only obs_zone is auxiliary.
     expect([...ultraBase.auxiliaryZones]).toEqual(['obs_zone']);
@@ -381,10 +698,7 @@ step "flow" {
     expect(ultraLateStatic.auxiliaryZones).toEqual(ultraBase.auxiliaryZones);
     expect(ultraLateStatic.zoneStage).toEqual(ultraBase.zoneStage);
 
-    const nestedRaw = readFileSync(
-      resolve(__dirname, '../../../../../scratch/nested-zones.dav'),
-      'utf8',
-    );
+    const nestedRaw = NESTED_ZONES_DSL;
     const nestedBase = analyzeFlow(parse(nestedRaw).document);
     const nestedLateStatic = analyzeFlow(
       parse(
@@ -399,9 +713,7 @@ step "flow" {
   });
 
   it('uses aspect ratio rather than raw width in shouldPreserveFlow and ignores isolated blocks', () => {
-    const evDoc = parse(
-      readFileSync(resolve(__dirname, '../../../../../scratch/ev-charging-smart-grid.dav'), 'utf8'),
-    ).document;
+    const evDoc = parse(EV_SMART_GRID_DSL).document;
     const evFlow = analyzeFlow(evDoc);
     const { blocks: evBlocks } = buildBlocks(evDoc, computeColumnLayout, undefined, evFlow);
     expect(shouldPreserveFlow(evBlocks, evFlow)).toBe(true);
@@ -469,24 +781,12 @@ step "backbone" {
     const docOne = parse(`${base}\n${stepsBase}`).document;
     const flowOne = analyzeFlow(docOne);
     const builtOne = buildBlocks(docOne, computeColumnLayout, undefined, flowOne);
-    const posOne = initialPositions(
-      docOne,
-      builtOne.blocks,
-      builtOne.owners,
-      computeColumnLayout,
-      flowOne,
-    );
+    const posOne = initialPositions(docOne, builtOne.blocks, builtOne.owners, flowOne);
 
     const docTwo = parse(`${withSecondAux}\n${stepsTwoAux}`).document;
     const flowTwo = analyzeFlow(docTwo);
     const builtTwo = buildBlocks(docTwo, computeColumnLayout, undefined, flowTwo);
-    const posTwo = initialPositions(
-      docTwo,
-      builtTwo.blocks,
-      builtTwo.owners,
-      computeColumnLayout,
-      flowTwo,
-    );
+    const posTwo = initialPositions(docTwo, builtTwo.blocks, builtTwo.owners, flowTwo);
 
     expect(flowTwo.auxiliaryZones.has('aux_top')).toBe(true);
     expect(flowTwo.auxiliaryZones.has('aux_bot')).toBe(true);
@@ -521,13 +821,7 @@ step "s" {
 `).document;
     const tiedFlow = analyzeFlow(tiedDoc);
     const tiedBuilt = buildBlocks(tiedDoc, computeColumnLayout, undefined, tiedFlow);
-    const tiedPos = initialPositions(
-      tiedDoc,
-      tiedBuilt.blocks,
-      tiedBuilt.owners,
-      computeColumnLayout,
-      tiedFlow,
-    );
+    const tiedPos = initialPositions(tiedDoc, tiedBuilt.blocks, tiedBuilt.owners, tiedFlow);
     const tiedMap = new Map(tiedBuilt.blocks.map((b) => [b.id, b]));
     const rectA = {
       ...(tiedPos.get('aux_a') as { x: number; y: number }),
@@ -612,5 +906,507 @@ step "iso_internal" {
     // Also verify placeIsolatedBlocks directly handles empty connectedPlaced cleanly.
     const pureIso = placeIsolatedBlocks(isolated, []);
     expect(pureIso.map((p) => p.block.id)).toEqual(['g_empty_outer', 'g_iso_early', 'loose_iso']);
+  });
+
+  it('keeps cold===warm under empty desc/focus/state steps, step-index shifts, and repeat return animations', () => {
+    const baseDsl = `
+group g0 "G0" { node a0 "A0"; node a1 "A1" }
+group g1 "G1" { node b0 "B0"; node b1 "B1" }
+group g2 "G2" { node c0 "C0"; node c1 "C1" }
+group g3 "G3" { node d0 "D0"; node d1 "D1" }
+step "S1" {
+  animate a0 --> a1
+  animate a1 --> b0
+  animate b0 --> b1
+}
+step "S2" {
+  animate b1 --> c0
+  animate c0 --> c1
+  animate c1 --> a0
+}
+step "S3" {
+  static a0 ..> d0
+  static b0 ..> d0
+  static c0 ..> d1
+  animate d1 --> b0
+}
+`;
+    const withEmptyOverview = baseDsl.replace(
+      'step "S1"',
+      'step "Overview" {\n  desc "Overview"\n  focus a0\n  state a0 [badge: "OK"]\n}\nstep "S1"',
+    );
+    const withRepeatReturn = `${baseDsl}\nstep "S4" {\n  animate a0 --> c1\n  animate c1 --> a0\n}\n`;
+    const withShiftedFirstStep = baseDsl.replace(
+      'step "S1"',
+      'step "S0" {\n  static d0 ..> d1\n}\nstep "S1"',
+    );
+
+    const baseDoc = parse(baseDsl).document;
+    const overviewDoc = parse(withEmptyOverview).document;
+    const repeatDoc = parse(withRepeatReturn).document;
+    const shiftedDoc = parse(withShiftedFirstStep).document;
+
+    adoptZonePlan('', undefined);
+    const coldBase = computeLayout(baseDoc);
+
+    // Edge-free steps neither shift pairFirstStep nor invalidate structureKey.
+    expect(structureKey(overviewDoc)).toBe(structureKey(baseDoc));
+    adoptZonePlan('', undefined);
+    const coldOverview = computeLayout(overviewDoc);
+    computeLayout(baseDoc);
+    expect(computeLayout(overviewDoc)).toEqual(coldOverview);
+    expect(coldOverview).toEqual(coldBase);
+
+    // Repeat animations on an already-classified 'return' pair do not push forwardEdges or drift.
+    const fBase = analyzeFlow(baseDoc);
+    const fRepeat = analyzeFlow(repeatDoc);
+    expect(fRepeat.byPair.get(flowPairKey('a0', 'c1'))).toEqual(
+      fBase.byPair.get(flowPairKey('a0', 'c1')),
+    );
+    expect(fRepeat.forwardEdges).toEqual(fBase.forwardEdges);
+    adoptZonePlan('', undefined);
+    const coldRepeat = computeLayout(repeatDoc);
+    computeLayout(baseDoc);
+    expect(computeLayout(repeatDoc)).toEqual(coldRepeat);
+    expect(coldRepeat).toEqual(coldBase);
+
+    // A connection-bearing step that shifts pairFirstStep invalidates structureKey so cold === warm.
+    expect(structureKey(shiftedDoc)).not.toBe(structureKey(baseDoc));
+    adoptZonePlan('', undefined);
+    const coldShifted = computeLayout(shiftedDoc);
+    computeLayout(baseDoc);
+    expect(computeLayout(shiftedDoc)).toEqual(coldShifted);
+  });
+
+  it('prevents isolated internal animations and self-loops from perturbing static-only connected zones', () => {
+    const baseStatic = `
+group g0 "G0" { node a0; node a1; node a2 }
+group g1 "G1" { node b0; node b1; node b2 }
+group g2 "G2" { node c0; node c1; node c2 }
+group g3 "G3" { node d0; node d1; node d2 }
+step "Static" {
+  static a0 --> a1
+  static a1 --> a2
+  static b0 --> b1
+  static b1 --> b2
+  static c0 --> c1
+  static c1 --> c2
+  static d0 --> d1
+  static d1 --> d2
+  static a2 --> b0
+  static b2 --> c0
+  static c2 --> d0
+  static a0 --> d2
+}
+`;
+    const withIsolated = `
+group iso_grp "Isolated" {
+  node ia
+  node ib
+}
+node iso_self
+${baseStatic}
+step "Iso Anim" {
+  animate ia --> ib
+  animate ia --> ia
+  animate iso_self --> iso_self
+}
+`;
+    const docBase = parse(baseStatic).document;
+    const docIso = parse(withIsolated).document;
+    adoptZonePlan('', undefined);
+    const layoutBase = computeLayout(docBase);
+    adoptZonePlan('', undefined);
+    const layoutIso = computeLayout(docIso);
+
+    for (const n of docBase.nodes) {
+      expect(layoutIso.nodes[n.id]).toEqual(layoutBase.nodes[n.id]);
+    }
+    for (const g of docBase.groups) {
+      expect(layoutIso.groups[g.id]).toEqual(layoutBase.groups[g.id]);
+    }
+  });
+
+  it('prevents all-auxiliary collapse on intra-zone animated / inter-zone static graphs and omits aux corridors', () => {
+    const allStaticInter = parse(`
+group g0 { node a0; node a1 }
+group g1 { node b0 }
+group g2 { node c0 }
+step "S" {
+  animate a0 --> a1
+  static a1 --> b0
+  static b0 --> c0
+  static a0 --> c0
+}
+`).document;
+    const fStaticInter = analyzeFlow(allStaticInter);
+    expect(fStaticInter.auxiliaryZones.size).toBe(0);
+    expect(fStaticInter.zoneStage.get('g0')).toBeLessThan(fStaticInter.zoneStage.get('g1') ?? -1);
+    expect(fStaticInter.zoneStage.get('g1')).toBeLessThan(fStaticInter.zoneStage.get('g2') ?? -1);
+
+    const lines15 = ['group g0 { node g0_0; node g0_1 }'];
+    const steps15 = ['  animate g0_0 --> g0_1'];
+    for (let i = 1; i < 15; i++) {
+      lines15.push(`group g${i} { node g${i}_0 }`);
+      steps15.push(`  static g${i - 1}_0 --> g${i}_0`);
+      if (i >= 2) steps15.push(`  static g0_0 --> g${i}_0`);
+    }
+    const doc15 = parse(`${lines15.join('\n')}\nstep "S" {\n${steps15.join('\n')}\n}`).document;
+    adoptZonePlan('', undefined);
+    const lay15 = computeLayout(doc15);
+    const rects15 = Object.values(lay15.groups);
+    for (let i = 0; i < rects15.length; i++) {
+      for (let j = i + 1; j < rects15.length; j++) {
+        expect(rectOverlaps(rects15[i] as Rect, rects15[j] as Rect)).toBe(false);
+      }
+    }
+
+    const auxAlertDoc = parse(`
+group g0 { node a }
+group g1 { node b }
+group g2 { node c }
+group obs { node m; node al }
+step "S1" {
+  animate a --> b
+  animate b --> c
+  static a ..> m
+  static b ..> m
+  static c ..> m
+}
+step "S2" {
+  animate m --> al
+  animate al --> c
+}
+`).document;
+    const fAlert = analyzeFlow(auxAlertDoc);
+    expect(fAlert.auxiliaryZones.has('obs')).toBe(true);
+    const corridors = primaryCorridors(fAlert, ownersOf(auxAlertDoc));
+    expect(corridors.some((c) => c.a === 'obs' || c.b === 'obs')).toBe(false);
+  });
+
+  it('prepares MacroGrid with row wrapping and splits tall static columns deterministically', () => {
+    // 1. Normal animated 4-stage pipeline + auxiliary zone -> wrapped === false, rowOfBlock = 0 for primary only.
+    const normalDoc = parse(`
+group z0 "Z0" { node n0 }
+group z1 "Z1" { node n1 }
+group z2 "Z2" { node n2 }
+group z3 "Z3" { node n3 }
+group aux "Aux" { node ax }
+step "S" {
+  animate n0 --> n1
+  animate n1 --> n2
+  animate n2 --> n3
+  static n0 ..> ax
+  static n1 ..> ax
+  static n2 ..> ax
+  static n3 ..> ax
+}
+`).document;
+    const normalFlow = analyzeFlow(normalDoc);
+    const normalBuilt = buildBlocks(normalDoc, computeColumnLayout, undefined, normalFlow);
+    const normalGrid = prepareMacroGrid(normalBuilt.blocks, normalFlow, normalBuilt.owners);
+    expect(normalGrid.wrapped).toBe(false);
+    expect(normalGrid.rows).toHaveLength(1);
+    expect(normalGrid.rows[0]).toHaveLength(4);
+    expect(normalGrid.auxiliary.map((b) => b.id)).toEqual(['aux']);
+    expect(normalGrid.rowOfBlock.has('aux')).toBe(false);
+    for (const id of ['z0', 'z1', 'z2', 'z3']) {
+      expect(normalGrid.rowOfBlock.get(id)).toBe(0);
+    }
+
+    // 2. Ultra-wide 7-stage strip -> wrapped === true with accurate rowOfBlock per wrapped row.
+    const stripLines: string[] = [];
+    const stripLinks: string[] = [];
+    for (let z = 0; z < 7; z++) {
+      stripLines.push(`group z${z} "Z${z}" {`);
+      for (let n = 0; n < 4; n++) stripLines.push(`  node z${z}n${n}`);
+      stripLines.push('}');
+      for (let n = 1; n < 4; n++) stripLinks.push(`  animate z${z}n${n - 1} --> z${z}n${n}`);
+      if (z > 0) stripLinks.push(`  animate z${z - 1}n3 --> z${z}n0`);
+    }
+    const stripDoc = parse(
+      `${stripLines.join('\n')}\nstep "S" {\n${stripLinks.join('\n')}\n}`,
+    ).document;
+    const stripFlow = analyzeFlow(stripDoc);
+    const stripBuilt = buildBlocks(stripDoc, computeColumnLayout, undefined, stripFlow);
+    const stripGrid = prepareMacroGrid(stripBuilt.blocks, stripFlow, stripBuilt.owners);
+    expect(stripGrid.wrapped).toBe(true);
+    expect(stripGrid.rows.length).toBeGreaterThanOrEqual(2);
+    stripGrid.rows.forEach((rowCols, rowIdx) => {
+      for (const col of rowCols) {
+        for (const b of col) {
+          expect(stripGrid.rowOfBlock.get(b.id)).toBe(rowIdx);
+        }
+      }
+    });
+
+    // 3. Static tall column splitting (`!flow.hasAnimate && col.length >= 4`):
+    //    static star, static mesh, and disconnected static clusters split tall columns and stay compact.
+    const starDoc = parse(`
+group hub "Hub" { node h }
+${Array.from({ length: 6 }, (_, i) => `group s${i} "S${i}" { node n${i} }`).join('\n')}
+step "Static" {
+  ${Array.from({ length: 6 }, (_, i) => `static h --> n${i}`).join('\n  ')}
+}
+`).document;
+    const starDocReversed = parse(`
+${Array.from({ length: 6 }, (_, i) => `group s${5 - i} "S${5 - i}" { node n${5 - i} }`).join('\n')}
+group hub "Hub" { node h }
+step "Static" {
+  ${Array.from({ length: 6 }, (_, i) => `static h --> n${5 - i}`).join('\n  ')}
+}
+`).document;
+    const starFlow = analyzeFlow(starDoc);
+    const starBuilt = buildBlocks(starDoc, computeColumnLayout, undefined, starFlow);
+    const starCols = stageColumns(starBuilt.blocks, starFlow).columns;
+    expect(starCols.length).toBeLessThanOrEqual(2);
+    expect(starCols.some((c) => c.length >= 4)).toBe(true);
+
+    const starGrid = prepareMacroGrid(starBuilt.blocks, starFlow, starBuilt.owners);
+    const starRevFlow = analyzeFlow(starDocReversed);
+    const starRevBuilt = buildBlocks(starDocReversed, computeColumnLayout, undefined, starRevFlow);
+    const starRevGrid = prepareMacroGrid(starRevBuilt.blocks, starRevFlow, starRevBuilt.owners);
+    expect(starGrid.wrapped).toBe(true);
+    expect(starGrid.rows.flat().every((col) => col.length < 4)).toBe(true);
+    expect(starGrid.rows.map((r) => r.map((c) => c.map((b) => b.id)))).toEqual(
+      starRevGrid.rows.map((r) => r.map((c) => c.map((b) => b.id))),
+    );
+
+    const starPos = initialPositions(starDoc, starBuilt.blocks, starBuilt.owners, starFlow);
+    const starRects = starBuilt.blocks.map((b) => ({
+      ...(starPos.get(b.id) as { x: number; y: number }),
+      width: b.width,
+      height: b.height,
+    }));
+    for (let i = 0; i < starRects.length; i++) {
+      for (let j = i + 1; j < starRects.length; j++) {
+        expect(rectOverlaps(starRects[i] as Rect, starRects[j] as Rect)).toBe(false);
+      }
+    }
+    const starMinX = Math.min(...starRects.map((r) => r.x));
+    const starMaxX = Math.max(...starRects.map((r) => r.x + r.width));
+    const starMinY = Math.min(...starRects.map((r) => r.y));
+    const starMaxY = Math.max(...starRects.map((r) => r.y + r.height));
+    const starAspect = (starMaxX - starMinX) / Math.max(1, starMaxY - starMinY);
+    expect(starAspect).toBeLessThan(3.5);
+    expect(starAspect).toBeGreaterThan(0.7);
+
+    // 4. Static 12-node mesh / disconnected cluster wraps into >= 2 rows via wrapStageColumns.
+    const meshDoc = parse(`
+${Array.from({ length: 12 }, (_, i) => `group m${i} "M${i}" { node u${i} }`).join('\n')}
+step "Mesh" {
+  ${Array.from({ length: 6 }, (_, i) => `static u${i * 2} <-> u${i * 2 + 1}`).join('\n  ')}
+  static u0 <-> u2
+  static u2 <-> u4
+  static u6 <-> u8
+  static u8 <-> u10
+}
+`).document;
+    const meshFlow = analyzeFlow(meshDoc);
+    const meshBuilt = buildBlocks(meshDoc, computeColumnLayout, undefined, meshFlow);
+    const meshGrid = prepareMacroGrid(meshBuilt.blocks, meshFlow, meshBuilt.owners);
+    const wrappedDirect = wrapStageColumns(
+      stageColumns(meshBuilt.blocks, meshFlow).columns,
+      meshFlow,
+      meshBuilt.owners,
+    );
+    expect(meshGrid.wrapped).toBe(true);
+    expect(meshGrid.rows.length).toBeGreaterThanOrEqual(2);
+    expect(wrappedDirect.length).toBe(meshGrid.rows.length);
+
+    // 5. Multi-stage static fan-out (1 -> 1 -> 10, columns.length === 3) splits tall >= 4 columns.
+    const fanDoc = parse(`
+group root "Root" { node r0 }
+group mid "Mid" { node m0 }
+${Array.from({ length: 10 }, (_, i) => `group leaf${i} "Leaf ${i}" { node l${i} }`).join('\n')}
+step "Fan" {
+  static r0 --> m0
+  ${Array.from({ length: 10 }, (_, i) => `static m0 --> l${i}`).join('\n  ')}
+}
+`).document;
+    const fanFlow = analyzeFlow(fanDoc);
+    const fanBuilt = buildBlocks(fanDoc, computeColumnLayout, undefined, fanFlow);
+    const fanCols = stageColumns(fanBuilt.blocks, fanFlow).columns;
+    expect(fanCols).toHaveLength(3);
+    expect(fanCols.some((c) => c.length >= 4)).toBe(true);
+
+    const fanGrid = prepareMacroGrid(fanBuilt.blocks, fanFlow, fanBuilt.owners);
+    expect(fanGrid.wrapped).toBe(true);
+    const fanPackedCols = fanGrid.rows.flat();
+    expect(fanPackedCols.length).toBeGreaterThan(fanCols.length);
+    expect(Math.max(...fanPackedCols.map((c) => c.length))).toBeLessThan(
+      Math.max(...fanCols.map((c) => c.length)),
+    );
+    for (const b of fanBuilt.blocks) {
+      expect(fanGrid.rowOfBlock.has(b.id)).toBe(true);
+    }
+
+    const fanPos = initialPositions(fanDoc, fanBuilt.blocks, fanBuilt.owners, fanFlow);
+    const fanRects = fanBuilt.blocks.map((b) => ({
+      ...(fanPos.get(b.id) as { x: number; y: number }),
+      width: b.width,
+      height: b.height,
+    }));
+    const fanMinX = Math.min(...fanRects.map((r) => r.x));
+    const fanMaxX = Math.max(...fanRects.map((r) => r.x + r.width));
+    const fanMinY = Math.min(...fanRects.map((r) => r.y));
+    const fanMaxY = Math.max(...fanRects.map((r) => r.y + r.height));
+    const fanAspect = (fanMaxX - fanMinX) / Math.max(1, fanMaxY - fanMinY);
+    expect(fanAspect).toBeGreaterThan(0.7);
+    expect(fanAspect).toBeLessThan(4.5);
+
+    // 6. Permutation invariance on unidirectional disconnected static clusters (2x4):
+    //    reversing groups declaration order yields an identical MacroGrid.
+    const clusForward = parse(`
+group a0 "A0" { node an0 }
+group a1 "A1" { node an1 }
+group a2 "A2" { node an2 }
+group a3 "A3" { node an3 }
+group b0 "B0" { node bn0 }
+group b1 "B1" { node bn1 }
+group b2 "B2" { node bn2 }
+group b3 "B3" { node bn3 }
+step "Clusters" {
+  static an0 --> an1
+  static an1 --> an2
+  static an2 --> an3
+  static bn0 --> bn1
+  static bn1 --> bn2
+  static bn2 --> bn3
+}
+`).document;
+    const clusReversed = parse(`
+group b3 "B3" { node bn3 }
+group b2 "B2" { node bn2 }
+group b1 "B1" { node bn1 }
+group b0 "B0" { node bn0 }
+group a3 "A3" { node an3 }
+group a2 "A2" { node an2 }
+group a1 "A1" { node an1 }
+group a0 "A0" { node an0 }
+step "Clusters" {
+  static bn2 --> bn3
+  static bn1 --> bn2
+  static bn0 --> bn1
+  static an2 --> an3
+  static an1 --> an2
+  static an0 --> an1
+}
+`).document;
+    const clusFwdFlow = analyzeFlow(clusForward);
+    const clusFwdBuilt = buildBlocks(clusForward, computeColumnLayout, undefined, clusFwdFlow);
+    const clusFwdGrid = prepareMacroGrid(clusFwdBuilt.blocks, clusFwdFlow, clusFwdBuilt.owners);
+
+    const clusRevFlow = analyzeFlow(clusReversed);
+    const clusRevBuilt = buildBlocks(clusReversed, computeColumnLayout, undefined, clusRevFlow);
+    const clusRevGrid = prepareMacroGrid(clusRevBuilt.blocks, clusRevFlow, clusRevBuilt.owners);
+
+    expect(clusFwdGrid.rows.map((r) => r.map((c) => c.map((b) => b.id)))).toEqual(
+      clusRevGrid.rows.map((r) => r.map((c) => c.map((b) => b.id))),
+    );
+    expect([...clusFwdGrid.rowOfBlock.entries()].sort()).toEqual(
+      [...clusRevGrid.rowOfBlock.entries()].sort(),
+    );
+  });
+
+  it('places auxiliary blocks cleanly in both bands and right-top modes via shared placeAuxiliaryBlocks', () => {
+    const doc = parse(`
+group z0 "Z0" { node a0; node a1 }
+group z1 "Z1" { node b0; node b1 }
+group z2 "Z2" { node c0; node c1 }
+group aux_band "Aux Band" { node ab0 }
+group aux_right "Aux Right" { node ar0 }
+step "S1" {
+  animate a0 --> b0
+  animate b0 --> c0
+  static a0 ..> ab0
+  static b0 ..> ab0
+  static b1 ..> ar0
+  static c1 ..> ar0
+}
+step "S2" {
+  animate a1 --> b1
+  animate b1 --> c1
+}
+step "S3" {
+  animate ar0 --> c0
+}
+`).document;
+    const flow = analyzeFlow(doc);
+    const { blocks, owners } = buildBlocks(doc, computeColumnLayout, undefined, flow);
+    const byId = new Map(blocks.map((b) => [b.id, b]));
+    const { columns, auxiliary } = stageColumns(blocks, flow);
+    expect(auxiliary.map((b) => b.id).sort()).toEqual(['aux_band', 'aux_right']);
+
+    const makePrimary = (): Placed[] => [
+      { block: byId.get('z0') as Block, x: 0, y: 0, flip: 0 },
+      { block: byId.get('z1') as Block, x: 300, y: 0, flip: 0 },
+      { block: byId.get('z2') as Block, x: 600, y: 0, flip: 0 },
+    ];
+    const makeAux = (): Placed[] => auxiliary.map((b) => ({ block: b, x: 0, y: 0, flip: 0 }));
+
+    // Mode 1: bands mode with stationY
+    const priBands = makePrimary();
+    const auxBands = makeAux();
+    const orderedBands = placeAuxiliaryBlocks(auxBands, priBands, owners, flow, {
+      auxMode: 'bands',
+      sideMode: 'stationY',
+    });
+    expect(orderedBands).toHaveLength(2);
+    for (const ap of auxBands) {
+      for (const pp of priBands) {
+        expect(rectOverlaps({ ...ap, ...ap.block }, { ...pp, ...pp.block })).toBe(false);
+      }
+    }
+
+    // Mode 2: right-top mode with rowFrac, clampMaxSource, and decayStatic
+    const priRight = makePrimary();
+    const auxRight = makeAux();
+    const rowFracOf = new Map([
+      ['z0', 0.5],
+      ['z1', 0.5],
+      ['z2', 0.5],
+    ]);
+    const orderedRight = placeAuxiliaryBlocks(auxRight, priRight, owners, flow, {
+      auxMode: 'right-top',
+      cols: columns,
+      rowFracOf,
+      sideMode: 'rowFrac',
+      clampMaxSource: true,
+      decayStatic: true,
+    });
+    expect(orderedRight).toHaveLength(2);
+    const arRight = auxRight.find((p) => p.block.id === 'aux_right') as Placed;
+    const z2Right = priRight.find((p) => p.block.id === 'z2') as Placed;
+    expect(arRight.x).toBe(z2Right.x);
+    expect(arRight.y + arRight.block.height).toBeLessThan(z2Right.y);
+    const allRight = [...priRight, ...auxRight];
+    for (let i = 0; i < allRight.length; i++) {
+      for (let j = i + 1; j < allRight.length; j++) {
+        const a = allRight[i] as Placed;
+        const b = allRight[j] as Placed;
+        expect(rectOverlaps({ ...a, ...a.block }, { ...b, ...b.block })).toBe(false);
+      }
+    }
+
+    // Direct placeAuxiliaryBand packs items clear of primary band bounds.
+    const bandEntryA: Placed = { block: byId.get('aux_band') as Block, x: 0, y: 0, flip: 0 };
+    const bandEntryB: Placed = { block: byId.get('aux_right') as Block, x: 0, y: 0, flip: 0 };
+    placeAuxiliaryBand(
+      [
+        { placed: bandEntryA, cx: 100, maxRight: Number.POSITIVE_INFINITY },
+        { placed: bandEntryB, cx: 100, maxRight: Number.POSITIVE_INFINITY },
+      ],
+      true,
+      0,
+      100,
+      300,
+      1600,
+    );
+    expect(bandEntryA.y + bandEntryA.block.height).toBeLessThan(100);
+    expect(bandEntryB.y + bandEntryB.block.height).toBeLessThan(100);
+    expect(
+      rectOverlaps({ ...bandEntryA, ...bandEntryA.block }, { ...bandEntryB, ...bandEntryB.block }),
+    ).toBe(false);
   });
 });

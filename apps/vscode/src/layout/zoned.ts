@@ -1,10 +1,4 @@
 export {
-  bestOfSeeds,
-  SEEDS,
-  searchZonePlacement,
-  searchZonePlacementFrom,
-} from './zoneAnneal';
-export {
   applyZonePlacement,
   buildBlocks,
   type ColumnLayout,
@@ -19,3 +13,4 @@ export {
   withoutLabels,
   type ZonePlacement,
 } from './zoneBlocks';
+export { searchZonePlacement } from './zonePlace';

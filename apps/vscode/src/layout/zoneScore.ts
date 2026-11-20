@@ -1,20 +1,29 @@
 import type { DavDocument } from '../model/types';
 import {
   analyzeFlow,
+  countCorridorIntrusions,
   type FlowAnalysis,
   flowPairKey,
+  isLateAuxAlert,
   type PrimaryCorridor,
   primaryCorridors,
   type TransitionRole,
 } from './flow';
-import { properlyCross, type Segment } from './links';
-import { type Rect, STATION_CENTER } from './metrics';
+import {
+  countCrossings,
+  type Link,
+  primaryCrossingsOf,
+  properlyCross,
+  type Segment,
+} from './links';
+import { enclosingRect, type Layout, ORIGIN, type Rect, STATION_CENTER } from './metrics';
 import {
   type Block,
   flippedY,
   HORIZONTAL_CLEARANCE,
   LONG_LINK,
   type Placed,
+  toLayout,
   VERTICAL_CLEARANCE,
 } from './zoneBlocks';
 
@@ -43,16 +52,32 @@ const THROUGH_COST = 130;
 const STAGE_OVERLAP_COST = 2400;
 const LAYER_INTRUSION_COST = 1200;
 const RIBBON_MAX_ASPECT = 6.2;
+const RAIL_CLEARANCE = 12;
+
+/** What a crossing anywhere in the diagram, inside a zone too, costs an arrangement in the end. */
+export const DIAGRAM_CROSSING_COST = 180;
+/** How much cost one straight inter-zone link is worth during candidate scoring and straightening. */
+export const STRAIGHT_WORTH = 120;
+/**
+ * What one straight link is worth once a seed's arrangement is scored. A link a few units off
+ * level costs its rail two bends, which the cost does not count. At `STRAIGHT_WORTH` 12 of the
+ * 26 such links between zones in 22 test diagrams stayed bent, the move that would straighten
+ * one raising the rest of the cost by 200 or more. It moves the arrangement after its score is
+ * taken, so it does not change which seed wins.
+ */
+export const CHOSEN_STRAIGHT_WORTH = 300;
 
 export interface FlowContext {
   preserveFlow: boolean;
+  wrapped: boolean;
+  rowOfBlock?: ReadonlyMap<string, number>;
   zoneStage: ReadonlyMap<string, number>;
   auxiliaryZones: ReadonlySet<string>;
   stagePairs: ReadonlyArray<readonly [string, string]>;
   /** Pendant feedback branches (`za -> zb`) aligned under/above `za` without drifting upstream of `za`. */
   pendantPairs: ReadonlyArray<readonly [string, string]>;
   corridors: readonly PrimaryCorridor[];
-  /** Pre-indexed block slots for zero-allocation `flowPenalty` checks in `anneal`. */
+  /** Pre-indexed block slots for zero-allocation `flowPenalty` checks. */
   slotOf: ReadonlyMap<string, number>;
   slots: Array<Placed | undefined>;
   placedSlots: Int32Array;
@@ -66,11 +91,20 @@ export interface FlowContext {
   }>;
 }
 
-/** Builds stage progression and primary-corridor metadata for `zoneCost`. */
+function isCrossRow(ctx: FlowContext | undefined, aId: string, bId: string): boolean {
+  if (!ctx?.wrapped || !ctx.rowOfBlock) return false;
+  const ra = ctx.rowOfBlock.get(aId);
+  const rb = ctx.rowOfBlock.get(bId);
+  return ra !== undefined && rb !== undefined && ra !== rb;
+}
+
+/** Builds stage progression and primary-corridor metadata for `zoneScore`. */
 export function buildFlowContext(
   flow: FlowAnalysis,
   owners: ReadonlyMap<string, string>,
   preserveFlow: boolean,
+  wrapped = false,
+  rowOfBlock?: ReadonlyMap<string, number>,
 ): FlowContext {
   const allNbrs = new Map<string, Set<string>>();
   const outPrimary = new Map<string, Set<string>>();
@@ -141,6 +175,8 @@ export function buildFlowContext(
 
   return {
     preserveFlow,
+    wrapped,
+    ...(rowOfBlock ? { rowOfBlock } : {}),
     zoneStage: flow.zoneStage,
     auxiliaryZones: flow.auxiliaryZones,
     stagePairs,
@@ -201,12 +237,27 @@ function runsThroughBox(
 ): boolean {
   const dx = bx - ax;
   const dy = by - ay;
-  for (let i = 1; i < 7; i++) {
-    const x = ax + (dx * i) / 7;
-    const y = ay + (dy * i) / 7;
-    if (x > left && x < right && y > top && y < bottom) return true;
-  }
-  return false;
+  let t0 = 0;
+  let t1 = 1;
+  const clip = (p: number, q: number): boolean => {
+    if (p === 0) return q > 0;
+    const r = q / p;
+    if (p < 0) {
+      if (r > t1) return false;
+      if (r > t0) t0 = r;
+    } else {
+      if (r < t0) return false;
+      if (r < t1) t1 = r;
+    }
+    return true;
+  };
+  return (
+    clip(-dx, ax - left) &&
+    clip(dx, right - ax) &&
+    clip(-dy, ay - top) &&
+    clip(dy, bottom - ay) &&
+    t0 + 1e-12 < t1
+  );
 }
 
 export function runsThrough(link: BlockLink, p: Placed): boolean {
@@ -274,7 +325,7 @@ const throughWeight = (l: BlockLink, preserveFlow: boolean): number =>
         ? 0.8
         : 0.75;
 
-function shapeCost(l: BlockLink, preserveFlow: boolean): number {
+function shapeCost(l: BlockLink, preserveFlow: boolean, ctx?: FlowContext): number {
   const dx = l.bx - l.ax;
   const length = Math.hypot(dx, l.by - l.ay);
   if (l.role === 'return') {
@@ -286,17 +337,19 @@ function shapeCost(l: BlockLink, preserveFlow: boolean): number {
     const straightScale = l.auxTouch ? 1.0 : 0.3;
     return offStraight(l) * straightScale + length * lengthScale;
   }
-  const backward = preserveFlow
-    ? dx <= 0
-      ? 2200 + -dx * 4.0
-      : dx < 40
-        ? (40 - dx) * 10
-        : 0
-    : dx < -30
-      ? 450 + -dx * 0.45
-      : dx < 0
-        ? 120
-        : 0;
+  const backward = isCrossRow(ctx, l.source.block.id, l.target.block.id)
+    ? 0
+    : preserveFlow
+      ? dx <= 0
+        ? 2200 + -dx * 4.0
+        : dx < 40
+          ? (40 - dx) * 10
+          : 0
+      : dx < -30
+        ? 450 + -dx * 0.45
+        : dx < 0
+          ? 120
+          : 0;
   return (
     offStraight(l) * (preserveFlow ? 2.5 : OFF_STRAIGHT_WEIGHT) +
     // Every unit of a link counts, and counts again past a comfortable length. Counting only
@@ -395,12 +448,25 @@ function throughCost(l: BlockLink, placed: readonly Placed[], preserveFlow: bool
  * Counts how many `(link, intermediate zone)` pairs block BOTH 1-bend L-paths (`hitsL1 && hitsL2`),
  * each of which forces the orthogonal router into a 3-or-4-turn U-detour (`winding`).
  */
-export function wallDetourCount(links: readonly BlockLink[], placed: readonly Placed[]): number {
+export function wallDetourCount(
+  links: readonly BlockLink[],
+  placed: readonly Placed[],
+  ctx?: FlowContext,
+): number {
   let walls = 0;
   const pad = 3.5;
   for (const l of links) {
+    if (isCrossRow(ctx, l.source.block.id, l.target.block.id)) continue;
     for (const p of placed) {
       if (p === l.source || p === l.target) continue;
+      if (
+        ctx?.wrapped &&
+        ctx.rowOfBlock &&
+        isCrossRow(ctx, l.source.block.id, p.block.id) &&
+        isCrossRow(ctx, l.target.block.id, p.block.id)
+      ) {
+        continue;
+      }
       const left = p.x - pad;
       const right = p.x + p.block.width + pad;
       const top = p.y - pad;
@@ -415,10 +481,11 @@ export function wallDetourCount(links: readonly BlockLink[], placed: readonly Pl
 }
 
 /** Counts primary inter-zone links whose directional exit/entry ports are blocked by sibling nodes. */
-export function blockedPrimaryPorts(links: readonly BlockLink[]): number {
+export function blockedPrimaryPorts(links: readonly BlockLink[], ctx?: FlowContext): number {
   let count = 0;
   for (const l of links) {
     if (l.role !== 'primary') continue;
+    if (isCrossRow(ctx, l.source.block.id, l.target.block.id)) continue;
     const dx = l.bx - l.ax;
     const dy = l.by - l.ay;
     const open = l.open[l.source.flip * 2 + l.target.flip] ?? 0;
@@ -430,14 +497,16 @@ export function blockedPrimaryPorts(links: readonly BlockLink[]): number {
 }
 
 /** Share of inter-zone links directed into the forward rightward 45-degree cone (`dx > 0 && dx >= |dy|`). */
-export function rightwardShare(links: readonly BlockLink[]): number {
-  if (links.length === 0) return 1;
+export function rightwardShare(links: readonly BlockLink[], ctx?: FlowContext): number {
+  let total = 0;
   let right = 0;
   for (const l of links) {
+    if (isCrossRow(ctx, l.source.block.id, l.target.block.id)) continue;
+    total++;
     const dx = l.bx - l.ax;
     if (dx > 0 && dx >= Math.abs(l.by - l.ay)) right++;
   }
-  return right / links.length;
+  return total === 0 ? 1 : right / total;
 }
 
 export interface RoutingDefects {
@@ -733,6 +802,7 @@ export function estimateRoutingDefects(
 
 /** The width and the height of the rectangle around the whole arrangement. */
 export function extent(placed: readonly Placed[]): { width: number; height: number } {
+  if (placed.length === 0) return { width: 0, height: 0 };
   let left = Number.POSITIVE_INFINITY;
   let right = Number.NEGATIVE_INFINITY;
   let top = Number.POSITIVE_INFINITY;
@@ -798,6 +868,7 @@ function flowPenalty(placed: readonly Placed[], ctx?: FlowContext): number {
     const u = slots[pair[0]];
     const v = slots[pair[1]];
     if (!u || !v) continue;
+    if (isCrossRow(ctx, u.block.id, v.block.id)) continue;
     const overlap = u.x + u.block.width + HORIZONTAL_CLEARANCE - v.x;
     if (overlap > 0) penalty += STAGE_OVERLAP_COST + overlap * 3.0;
   }
@@ -807,6 +878,7 @@ function flowPenalty(placed: readonly Placed[], ctx?: FlowContext): number {
     const u = slots[pair[0]];
     const v = slots[pair[1]];
     if (!u || !v) continue;
+    if (isCrossRow(ctx, u.block.id, v.block.id)) continue;
     const leftDrift = u.x - v.x;
     if (leftDrift > 0) penalty += STAGE_OVERLAP_COST + leftDrift * 3.0;
   }
@@ -816,6 +888,7 @@ function flowPenalty(placed: readonly Placed[], ctx?: FlowContext): number {
     const ra = slots[c.a];
     const rb = slots[c.b];
     if (!ra || !rb) continue;
+    if (isCrossRow(ctx, ra.block.id, rb.block.id)) continue;
     const ax = ra.x + ra.block.width / 2;
     const bx = rb.x + rb.block.width / 2;
     const minX = Math.min(ax, bx);
@@ -826,6 +899,9 @@ function flowPenalty(placed: readonly Placed[], ctx?: FlowContext): number {
       const rc = placed[j];
       const sIdx = placedSlots[j] ?? -1;
       if (!rc || rc === ra || rc === rb || (sIdx >= 0 && c.allowedSlots[sIdx] === 1)) continue;
+      if (isCrossRow(ctx, ra.block.id, rc.block.id) || isCrossRow(ctx, rb.block.id, rc.block.id)) {
+        continue;
+      }
       const cx = rc.x + rc.block.width / 2;
       if (cx > minX && cx < maxX && rc.y < bandBot && rc.y + rc.block.height > bandTop) {
         penalty += LAYER_INTRUSION_COST;
@@ -849,7 +925,7 @@ export function linkCost(
     if (!s) continue;
     updateSegment(s);
     total +=
-      shapeCost(s, preserveFlow) +
+      shapeCost(s, preserveFlow, ctx) +
       offFlow(s) * offFlowWeight +
       throughCost(s, placed, preserveFlow);
     for (let j = 0; j < i; j++) {
@@ -895,7 +971,7 @@ function movedCost(
   for (let i = 0; i < links.length; i++) {
     const s = links[i];
     if (!s || !touches(s, a, b)) continue;
-    total += shapeCost(s, preserveFlow) + throughCost(s, placed, preserveFlow);
+    total += shapeCost(s, preserveFlow, ctx) + throughCost(s, placed, preserveFlow);
     for (let j = 0; j < links.length; j++) {
       const t = links[j];
       if (t && j !== i && (j > i || !touches(t, a, b))) total += crossingCost(s, t, preserveFlow);
@@ -1051,6 +1127,7 @@ export function buildLinks(
   flow: FlowAnalysis = analyzeFlow(doc),
 ): BlockLink[] {
   const anchorOf = new Map<string, Anchor>();
+  const blockOf = new Map<string, string>();
   let nextIdx = 0;
   for (const p of placed) {
     for (const [id, r] of p.block.nodes) {
@@ -1060,6 +1137,7 @@ export function buildLinks(
         x: r.x + r.width / 2,
         y: [r.y + STATION_CENTER, flippedY(p.block, r, id) + STATION_CENTER],
       });
+      blockOf.set(id, p.block.id);
     }
   }
   return flow.connections.flatMap((e) => {
@@ -1067,16 +1145,9 @@ export function buildLinks(
     const b = anchorOf.get(e.to);
     if (!a || !b || a.p === b.p) return [];
     const auxTouch = flow.auxiliaryZones.has(a.p.block.id) || flow.auxiliaryZones.has(b.p.block.id);
-    const firstStep = flow.pairFirstStep.get(flowPairKey(e.from, e.to)) ?? 0;
-    const isLateAuxAlert =
-      e.role === 'primary' &&
-      flow.auxiliaryZones.has(a.p.block.id) &&
-      !flow.auxiliaryZones.has(b.p.block.id) &&
-      firstStep >= 2 &&
-      (flow.zoneStage.get(a.p.block.id) ?? 0) >= (flow.zoneStage.get(b.p.block.id) ?? 0);
     return [
       {
-        role: isLateAuxAlert ? 'return' : e.role,
+        role: isLateAuxAlert(e, flow, blockOf) ? 'return' : e.role,
         auxTouch,
         source: a.p,
         target: b.p,
@@ -1102,4 +1173,539 @@ export function buildLinks(
       },
     ];
   });
+}
+
+/**
+ * The stations at the ends of the link are level, or one is straight above the other, and
+ * nothing stands between them: a rail can join them in one straight line.
+ */
+function isStraight(l: BlockLink, placed: readonly Placed[]): boolean {
+  if (Math.abs(l.ay - l.by) >= 0.5 && Math.abs(l.ax - l.bx) >= 0.5) return false;
+  for (const p of placed) {
+    if (p !== l.source && p !== l.target) {
+      if (runsThrough(l, p)) return false;
+      const pTop = p.y - (p.block.groups.size === 0 ? p.block.loopRoom : 0);
+      const pBot = p.y + p.block.height;
+      if (
+        Math.abs(l.ay - l.by) < 0.5 &&
+        l.maxX > p.x - RAIL_CLEARANCE &&
+        l.minX < p.x + p.block.width + RAIL_CLEARANCE &&
+        l.ay > pTop - RAIL_CLEARANCE &&
+        l.ay < pBot + RAIL_CLEARANCE
+      ) {
+        return false;
+      }
+      if (
+        Math.abs(l.ax - l.bx) < 0.5 &&
+        l.maxY > pTop - RAIL_CLEARANCE &&
+        l.minY < pBot + RAIL_CLEARANCE &&
+        l.ax > p.x - RAIL_CLEARANCE &&
+        l.ax < p.x + p.block.width + RAIL_CLEARANCE
+      ) {
+        return false;
+      }
+      continue;
+    }
+    for (const [id, r] of p.block.nodes) {
+      if (id === l.from || id === l.to) continue;
+      const room = p.block.nodeLoopRoom.get(id) ?? 0;
+      const x = p.x + r.x;
+      const y = p.y + (p.flip ? flippedY(p.block, r, id) : r.y) - room;
+      if (l.maxX > x && l.minX < x + r.width && l.maxY > y && l.minY < y + r.height + room) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+export function straightLinks(
+  links: readonly BlockLink[],
+  placed: readonly Placed[],
+  a?: Placed,
+  b?: Placed,
+): number {
+  let count = 0;
+  for (const l of links) {
+    if (
+      (!a ||
+        l.source === a ||
+        l.target === a ||
+        (b !== undefined && (l.source === b || l.target === b))) &&
+      isStraight(l, placed)
+    ) {
+      count++;
+    }
+  }
+  return count;
+}
+
+export function diagramCrossingPenalty(
+  doc: DavDocument,
+  layout: Layout,
+  flow: FlowAnalysis,
+  preserveFlow: boolean,
+): number {
+  const total = countCrossings(doc, layout);
+  if (total === 0) return 0;
+  if (!preserveFlow) return total * DIAGRAM_CROSSING_COST;
+  return total * DIAGRAM_CROSSING_COST + primaryCrossingsOf(flow.connections, layout) * 440;
+}
+
+export function countBackwardPrimary(links: readonly BlockLink[], ctx?: FlowContext): number {
+  let cnt = 0;
+  for (const l of links) {
+    if (l.role !== 'primary') continue;
+    if (isCrossRow(ctx, l.source.block.id, l.target.block.id)) continue;
+    if (l.bx <= l.ax) cnt++;
+  }
+  return cnt;
+}
+
+export interface ArrangementScoreOptions {
+  mode?: 'full' | 'staged' | 'intrusion' | 'flip';
+  layout?: Layout;
+  preserveFlowOverride?: boolean;
+  /** Used by `'intrusion'` mode. */
+  intrusions?: number;
+  /** Used by `'flip'` and `'full'` modes. */
+  entryMask?: Uint8Array;
+  /** Used by `'full'` mode. */
+  columnsCount?: number;
+  hasNestedGroups?: boolean;
+  allFlippable?: boolean;
+  firstAuxIdx?: number;
+}
+
+/**
+ * Unified arrangement-level objective evaluator consolidating full candidate scoring (`'full'`),
+ * staged-pipeline scoring (`'staged'`), corridor-intrusion cleanup (`'intrusion'`), and
+ * flip/slack-rank evaluation (`'flip'`).
+ */
+export function evaluateArrangementScore(
+  doc: DavDocument,
+  placed: readonly Placed[],
+  links: readonly BlockLink[],
+  flow: FlowAnalysis,
+  flowCtx: FlowContext,
+  opts: ArrangementScoreOptions = {},
+): number {
+  refreshSegments(links);
+  const mode = opts.mode ?? 'full';
+  const candLayout = opts.layout ?? toLayout(placed);
+
+  if (mode === 'flip') {
+    const preserveCrossing = opts.preserveFlowOverride ?? flowCtx.preserveFlow;
+    let obj =
+      linkCost(links, placed, flowCtx) +
+      diagramCrossingPenalty(doc, candLayout, flow, preserveCrossing);
+    if (opts.entryMask) {
+      for (let i = 0; i < placed.length; i++) {
+        if (opts.entryMask[i] === 1 && placed[i]?.flip === 1) obj += 120;
+      }
+    }
+    return obj;
+  }
+
+  if (mode === 'intrusion') {
+    const ext = extent(placed);
+    const a = ext.width / Math.max(1, ext.height);
+    const tallAspectPen = a < 1.35 ? (1.35 - a) * 10000 : 0;
+    const intrusions = opts.intrusions ?? 0;
+    return (
+      linkCost(links, placed, flowCtx) +
+      diagramCrossingPenalty(doc, candLayout, flow, opts.preserveFlowOverride ?? true) +
+      intrusions * 4200 +
+      tallAspectPen
+    );
+  }
+
+  if (mode === 'staged') {
+    const ext = extent(placed);
+    const asp = ext.width / Math.max(1, ext.height);
+    const portraitPen = asp < 1.2 ? (1.2 - asp) * 35000 : 0;
+    return (
+      linkCost(links, placed, flowCtx) +
+      diagramCrossingPenalty(
+        doc,
+        candLayout,
+        flow,
+        opts.preserveFlowOverride ?? flowCtx.preserveFlow,
+      ) +
+      portraitPen -
+      straightLinks(links, placed) * STRAIGHT_WORTH
+    );
+  }
+
+  const layoutBounds = enclosingRect([
+    ...Object.values(candLayout.nodes),
+    ...Object.values(candLayout.groups),
+  ]);
+  const layoutAsp = layoutBounds.width / Math.max(1, layoutBounds.height);
+  const ext = extent(placed);
+  const asp = ext.width / Math.max(1, ext.height);
+  const connectedCount = placed.length;
+  const minAsp = connectedCount >= 7 ? 1.28 : 1.08;
+  const portraitPen =
+    flowCtx.preserveFlow && (asp < minAsp || layoutAsp < 1.08)
+      ? Math.max(minAsp - asp, 1.08 - layoutAsp) * 35000
+      : 0;
+  const columnsCount = opts.columnsCount ?? 0;
+  const allFlippable = opts.allFlippable ?? false;
+  const firstAuxIdx = opts.firstAuxIdx ?? -1;
+  const hasNestedGroups = opts.hasNestedGroups ?? false;
+
+  const minWideAsp = columnsCount >= 4 ? 2.28 : 2.05;
+  const minNoAuxAsp = columnsCount >= 4 ? 2.48 : 1.85;
+  const clampedAsp = Math.max(1.5, layoutAsp);
+  const underTwoPen =
+    flowCtx.preserveFlow && (allFlippable || firstAuxIdx < 0)
+      ? firstAuxIdx >= 0
+        ? clampedAsp < minWideAsp
+          ? (minWideAsp - clampedAsp) * 20000
+          : 0
+        : clampedAsp < minNoAuxAsp
+          ? (minNoAuxAsp - clampedAsp) * 18000
+          : 0
+      : 0;
+  let entryPen = 0;
+  if (opts.entryMask) {
+    for (let i = 0; i < placed.length; i++) {
+      if (opts.entryMask[i] === 1 && placed[i]?.flip === 1) entryPen += 120;
+    }
+  }
+
+  let primaryThroughPen = 0;
+  if (flowCtx.preserveFlow && firstAuxIdx >= 0 && !hasNestedGroups) {
+    for (const l of links) {
+      if (isCrossRow(flowCtx, l.source.block.id, l.target.block.id)) continue;
+      if (l.role !== 'return') {
+        const len = Math.hypot(l.bx - l.ax, l.by - l.ay);
+        if (len > 1900) primaryThroughPen += (len - 1900) * 1.5;
+      }
+      if (l.role !== 'primary') continue;
+      for (const p of placed) {
+        if (p !== l.source && p !== l.target && runsThrough(l, p)) primaryThroughPen += 120;
+      }
+    }
+  }
+  const rShare = flowCtx.preserveFlow ? rightwardShare(links, flowCtx) : 1;
+  const lowRightPen =
+    flowCtx.preserveFlow && connectedCount <= 6 && rShare < 0.5 ? (0.5 - rShare) * 25000 : 0;
+  const needDefects =
+    flowCtx.preserveFlow && connectedCount <= 6 && (hasNestedGroups || firstAuxIdx >= 0);
+  const defects = needDefects
+    ? estimateRoutingDefects(links, placed)
+    : {
+        jogs: 0,
+        portWindings: 0,
+        primaryPortWindings: 0,
+        sharedCrossings: 0,
+        orthoPrimaryCrossings: 0,
+      };
+  const auxPriCrossExtra =
+    flowCtx.preserveFlow && firstAuxIdx >= 0 && connectedCount <= 6
+      ? primaryCrossingsOf(flow.connections, candLayout) * 350
+      : 0;
+  const nestedOrthoPen = hasNestedGroups
+    ? defects.orthoPrimaryCrossings * 900 +
+      defects.sharedCrossings * 450 +
+      defects.jogs * 360 +
+      defects.primaryPortWindings * 260
+    : defects.portWindings * 200;
+  const wallPen = flowCtx.preserveFlow
+    ? wallDetourCount(links, placed, flowCtx) * (hasNestedGroups ? 2800 : 800) +
+      primaryThroughPen +
+      auxPriCrossExtra +
+      (firstAuxIdx < 0 ? blockedPrimaryPorts(links, flowCtx) * 430 : 0) +
+      lowRightPen +
+      nestedOrthoPen
+    : 0;
+
+  let stageOverlapExtra = 0;
+  if (flowCtx.preserveFlow) {
+    const byId = new Map(placed.map((p) => [p.block.id, p]));
+    for (const [za, zb] of flowCtx.stagePairs) {
+      if (isCrossRow(flowCtx, za, zb)) continue;
+      const u = byId.get(za);
+      const v = byId.get(zb);
+      if (u && v && u.x + u.block.width + HORIZONTAL_CLEARANCE > v.x) {
+        stageOverlapExtra += 6000;
+      }
+    }
+    if (connectedCount >= 7) {
+      const rectMap = new Map(
+        placed.map((p) => [
+          p.block.id,
+          { x: p.x, y: p.y, width: p.block.width, height: p.block.height },
+        ]),
+      );
+      stageOverlapExtra +=
+        countCorridorIntrusions(
+          flowCtx.corridors,
+          rectMap,
+          flowCtx.wrapped ? flowCtx.rowOfBlock : undefined,
+        ) *
+          4200 +
+        primaryCrossingsOf(flow.connections, candLayout) * 420;
+    }
+  }
+
+  const sparsePen = !flowCtx.preserveFlow
+    ? (() => {
+        const area = placed.reduce((s, p) => s + p.block.width * p.block.height, 0);
+        const fill = area / Math.max(1, ext.width * ext.height);
+        return fill < 0.54 ? (0.54 - fill) * 12000 : 0;
+      })()
+    : 0;
+
+  return (
+    linkCost(links, placed, flowCtx) +
+    diagramCrossingPenalty(doc, candLayout, flow, flowCtx.preserveFlow) +
+    entryPen +
+    wallPen +
+    sparsePen +
+    stageOverlapExtra +
+    portraitPen +
+    underTwoPen -
+    straightLinks(links, placed) * STRAIGHT_WORTH
+  );
+}
+
+export interface FastCrossingEvaluator {
+  readonly segCount: number;
+  readonly totalNodes: number;
+  syncAndCountCrossings(placed: readonly Placed[]): { totalCross: number; priCross: number };
+  countIntrusions(
+    placed: readonly Placed[],
+    corridors: readonly PrimaryCorridor[],
+    rowOfBlock?: ReadonlyMap<string, number>,
+  ): number;
+}
+
+/**
+ * Pre-indexes nodes and segments into typed arrays so coordinate probes avoid
+ * `toLayout`/`synthesizedConnections` allocations and precompute intra-zone crossings once.
+ */
+export function createFastCrossingEvaluator(
+  placed: readonly Placed[],
+  docLinks: readonly Link[],
+  flow: FlowAnalysis,
+): FastCrossingEvaluator {
+  const nodeToIdx = new Map<string, number>();
+  const nodeBlockIdx: number[] = [];
+  const nodeRelX: number[] = [];
+  const nodeRelY0: number[] = [];
+  const nodeRelY1: number[] = [];
+  placed.forEach((p, pIdx) => {
+    for (const [id, r] of p.block.nodes) {
+      nodeToIdx.set(id, nodeBlockIdx.length);
+      nodeBlockIdx.push(pIdx);
+      nodeRelX.push(r.x + r.width / 2);
+      nodeRelY0.push(r.y + STATION_CENTER);
+      nodeRelY1.push(flippedY(p.block, r, id) + STATION_CENTER);
+    }
+  });
+  const totalNodes = nodeBlockIdx.length;
+  const nBlock = new Int32Array(nodeBlockIdx);
+  const nRelX = new Float64Array(nodeRelX);
+  const nRelY0 = new Float64Array(nodeRelY0);
+  const nRelY1 = new Float64Array(nodeRelY1);
+  const blockLeft = new Float64Array(placed.length);
+  const blockTop = new Float64Array(placed.length);
+
+  const segUList: number[] = [];
+  const segVList: number[] = [];
+  const segPriList: number[] = [];
+  for (const [from, to] of docLinks) {
+    const u = nodeToIdx.get(from);
+    const v = nodeToIdx.get(to);
+    if (u === undefined || v === undefined) continue;
+    segUList.push(u);
+    segVList.push(v);
+    segPriList.push(flow.byPair.get(flowPairKey(from, to))?.role === 'primary' ? 1 : 0);
+  }
+  const segCount = segUList.length;
+  const segU = new Int32Array(segUList);
+  const segV = new Int32Array(segVList);
+  const segPri = new Uint8Array(segPriList);
+  const sAx = new Float64Array(segCount);
+  const sAy = new Float64Array(segCount);
+  const sBx = new Float64Array(segCount);
+  const sBy = new Float64Array(segCount);
+  const sMinX = new Float64Array(segCount);
+  const sMaxX = new Float64Array(segCount);
+  const sMinY = new Float64Array(segCount);
+  const sMaxY = new Float64Array(segCount);
+
+  const syncSegCoords = (curPlaced: readonly Placed[]) => {
+    let minPX = Number.POSITIVE_INFINITY;
+    let minPY = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < curPlaced.length; i++) {
+      const p = curPlaced[i];
+      if (!p) continue;
+      if (p.x < minPX) minPX = p.x;
+      if (p.y < minPY) minPY = p.y;
+    }
+    for (let i = 0; i < curPlaced.length; i++) {
+      const p = curPlaced[i];
+      if (!p) continue;
+      blockLeft[i] = Math.round(p.x - minPX + ORIGIN.x);
+      blockTop[i] = Math.round(p.y - minPY + ORIGIN.y);
+    }
+    for (let m = 0; m < segCount; m++) {
+      const u = segU[m] ?? 0;
+      const v = segV[m] ?? 0;
+      const bu = nBlock[u] ?? 0;
+      const bv = nBlock[v] ?? 0;
+      const flipU = curPlaced[bu]?.flip === 1;
+      const flipV = curPlaced[bv]?.flip === 1;
+      const ax = (blockLeft[bu] ?? 0) + (nRelX[u] ?? 0);
+      const ay = (blockTop[bu] ?? 0) + ((flipU ? nRelY1[u] : nRelY0[u]) ?? 0);
+      const bx = (blockLeft[bv] ?? 0) + (nRelX[v] ?? 0);
+      const by = (blockTop[bv] ?? 0) + ((flipV ? nRelY1[v] : nRelY0[v]) ?? 0);
+      sAx[m] = ax;
+      sAy[m] = ay;
+      sBx[m] = bx;
+      sBy[m] = by;
+      sMinX[m] = Math.min(ax, bx);
+      sMaxX[m] = Math.max(ax, bx);
+      sMinY[m] = Math.min(ay, by);
+      sMaxY[m] = Math.max(ay, by);
+    }
+  };
+
+  const segsCross = (i: number, j: number): boolean => {
+    if (
+      (sMaxX[i] ?? 0) <= (sMinX[j] ?? 0) ||
+      (sMaxX[j] ?? 0) <= (sMinX[i] ?? 0) ||
+      (sMaxY[i] ?? 0) <= (sMinY[j] ?? 0) ||
+      (sMaxY[j] ?? 0) <= (sMinY[i] ?? 0)
+    ) {
+      return false;
+    }
+    const ax = sAx[i] ?? 0;
+    const ay = sAy[i] ?? 0;
+    const dx1 = (sBx[i] ?? 0) - ax;
+    const dy1 = (sBy[i] ?? 0) - ay;
+    const tax = sAx[j] ?? 0;
+    const tay = sAy[j] ?? 0;
+    const tbx = sBx[j] ?? 0;
+    const tby = sBy[j] ?? 0;
+    const s1 = dx1 * (tay - ay) - dy1 * (tax - ax);
+    const s2 = dx1 * (tby - ay) - dy1 * (tbx - ax);
+    if (Math.sign(s1) * Math.sign(s2) >= 0) return false;
+    const dx2 = tbx - tax;
+    const dy2 = tby - tay;
+    const s3 = dx2 * (ay - tay) - dy2 * (ax - tax);
+    const s4 = dx2 * ((sBy[i] ?? 0) - tay) - dy2 * ((sBx[i] ?? 0) - tax);
+    return Math.sign(s3) * Math.sign(s4) < 0;
+  };
+
+  syncSegCoords(placed);
+  const hasNested = new Uint8Array(placed.length);
+  for (let i = 0; i < placed.length; i++) {
+    if ((placed[i]?.block.groups.size ?? 0) > 1) hasNested[i] = 1;
+  }
+  let intraCross = 0;
+  let intraPriCross = 0;
+  const pairIList: number[] = [];
+  const pairJList: number[] = [];
+  const pairBothPriList: number[] = [];
+  if (totalNodes >= 4) {
+    for (let i = 0; i < segCount; i++) {
+      const ui = segU[i] ?? 0;
+      const vi = segV[i] ?? 0;
+      const bui = nBlock[ui] ?? 0;
+      const sameBlockI = bui === (nBlock[vi] ?? 0);
+      const priI = segPri[i] === 1;
+      for (let j = i + 1; j < segCount; j++) {
+        const uj = segU[j] ?? 0;
+        const vj = segV[j] ?? 0;
+        if (ui === uj || ui === vj || vi === uj || vi === vj) continue;
+        const bothPri = priI && segPri[j] === 1;
+        if (
+          sameBlockI &&
+          hasNested[bui] === 0 &&
+          bui === (nBlock[uj] ?? 0) &&
+          bui === (nBlock[vj] ?? 0)
+        ) {
+          if (segsCross(i, j)) {
+            intraCross++;
+            if (bothPri) intraPriCross++;
+          }
+        } else {
+          pairIList.push(i);
+          pairJList.push(j);
+          pairBothPriList.push(bothPri ? 1 : 0);
+        }
+      }
+    }
+  }
+  const pairI = new Int32Array(pairIList);
+  const pairJ = new Int32Array(pairJList);
+  const pairBothPri = new Uint8Array(pairBothPriList);
+  const pairLen = pairI.length;
+
+  const rectMap = new Map<string, { x: number; y: number; width: number; height: number }>();
+  for (const p of placed) {
+    rectMap.set(p.block.id, { x: p.x, y: p.y, width: p.block.width, height: p.block.height });
+  }
+
+  return {
+    segCount,
+    totalNodes,
+    syncAndCountCrossings(curPlaced: readonly Placed[]): { totalCross: number; priCross: number } {
+      syncSegCoords(curPlaced);
+      let totalCross = intraCross;
+      let priCross = intraPriCross;
+      for (let k = 0; k < pairLen; k++) {
+        if (segsCross(pairI[k] ?? 0, pairJ[k] ?? 0)) {
+          totalCross++;
+          if (pairBothPri[k] === 1) priCross++;
+        }
+      }
+      return { totalCross, priCross };
+    },
+    countIntrusions(
+      curPlaced: readonly Placed[],
+      corridors: readonly PrimaryCorridor[],
+      rowOfBlock?: ReadonlyMap<string, number>,
+    ): number {
+      for (const p of curPlaced) {
+        const r = rectMap.get(p.block.id);
+        if (r) {
+          r.x = p.x;
+          r.y = p.y;
+        }
+      }
+      return countCorridorIntrusions(corridors, rectMap, rowOfBlock);
+    },
+  };
+}
+
+export function evaluateAnchoredObjective(
+  evaluator: FastCrossingEvaluator,
+  placed: readonly Placed[],
+  links: readonly BlockLink[],
+  flowCtx: FlowContext,
+  backPriCount: number,
+): number {
+  const { totalCross, priCross } = evaluator.syncAndCountCrossings(placed);
+  const intrusions = evaluator.countIntrusions(
+    placed,
+    flowCtx.corridors,
+    flowCtx.wrapped ? flowCtx.rowOfBlock : undefined,
+  );
+  const e = extent(placed);
+  const a = e.width / Math.max(1, e.height);
+  const pPen = a < 1.28 ? (1.28 - a) * 35000 : 0;
+  return (
+    linkCost(links, placed, flowCtx) * 0.45 +
+    totalCross * 420 +
+    intrusions * 4200 +
+    priCross * 700 +
+    backPriCount * 8000 +
+    pPen
+  );
 }

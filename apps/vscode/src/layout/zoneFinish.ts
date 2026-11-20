@@ -1,6 +1,7 @@
-import { flippedY, HORIZONTAL_CLEARANCE, type Placed, VERTICAL_CLEARANCE } from './zoneBlocks';
+import { HORIZONTAL_CLEARANCE, type Placed, VERTICAL_CLEARANCE } from './zoneBlocks';
 import {
   type BlockLink,
+  CHOSEN_STRAIGHT_WORTH,
   estimateRoutingDefects,
   evaluateMove,
   extent,
@@ -9,9 +10,12 @@ import {
   linkCost,
   refreshSegments,
   refreshTouchingSegments,
-  runsThrough,
+  STRAIGHT_WORTH,
+  straightLinks,
   wallDetourCount,
-} from './zoneCost';
+} from './zoneScore';
+
+export { CHOSEN_STRAIGHT_WORTH, STRAIGHT_WORTH, straightLinks };
 
 /** Sizes of the steps a zone takes towards its neighbors, largest first. */
 const TIGHTEN_STEPS = [128, 64, 32, 16, 8, 4];
@@ -20,18 +24,8 @@ const COMPACT_MIN_SHIFT = 8;
 const ALIGN_REACH = 140;
 const ALIGN_TOLERANCE = 30;
 const STAGE_GAP = 98;
-const RAIL_CLEARANCE = 12;
-/** How far a zone moves to make a link straight, and how much cost one straight link is worth. */
+/** How far a zone moves to make a link straight. */
 const STRAIGHTEN_REACH = 120;
-export const STRAIGHT_WORTH = 120;
-/**
- * What one straight link is worth once a seed's arrangement is scored. A link a few units off
- * level costs its rail two bends, which the cost does not count. At `STRAIGHT_WORTH` 12 of the
- * 26 such links between zones in 22 test diagrams stayed bent, the move that would straighten
- * one raising the rest of the cost by 200 or more. It moves the arrangement after its score is
- * taken, so it does not change which seed wins.
- */
-export const CHOSEN_STRAIGHT_WORTH = 300;
 
 type Axis = 'x' | 'y';
 
@@ -83,7 +77,7 @@ export function alignEdges(
     if (!moved || Math.abs(to.x - prevX) > ALIGN_REACH || Math.abs(to.y - prevY) > ALIGN_REACH) {
       return;
     }
-    const wallsBefore = ctx?.preserveFlow ? wallDetourCount(links, placed) : 0;
+    const wallsBefore = ctx?.preserveFlow ? wallDetourCount(links, placed, ctx) : 0;
     const change = evaluateMove(
       links,
       placed,
@@ -99,7 +93,7 @@ export function alignEdges(
       horizontalClearance,
     );
     if (Number.isNaN(change)) return;
-    const wallsOk = !ctx?.preserveFlow || wallDetourCount(links, placed) <= wallsBefore;
+    const wallsOk = !ctx?.preserveFlow || wallDetourCount(links, placed, ctx) <= wallsBefore;
     if (wallsOk && current + change <= base + tol) {
       current += change;
       base = Math.min(base, current);
@@ -123,8 +117,7 @@ export function alignEdges(
 
 /**
  * Slides each zone towards the zones it is linked to, for as long as that lowers the cost
- * and keeps the clearances. The search leaves a zone wherever a random move last helped;
- * this closes the gaps it left, so that linked neighbors end up one clearance apart.
+ * and keeps the clearances, closing gaps so that linked neighbors end up one clearance apart.
  */
 export function tighten(
   links: readonly BlockLink[],
@@ -132,6 +125,7 @@ export function tighten(
   ctx?: FlowContext,
   horizontalClearance = HORIZONTAL_CLEARANCE,
 ): void {
+  refreshSegments(links);
   const pullWeight = (l: BlockLink, moverId: string): number => {
     if (l.role === 'primary') return 1;
     if (l.role === 'return') return 0.08;
@@ -370,66 +364,6 @@ export function restoreStageBreathingRoom(
 }
 
 /**
- * The stations at the ends of the link are level, or one is straight above the other, and
- * nothing stands between them: a rail can join them in one straight line.
- */
-function isStraight(l: BlockLink, placed: readonly Placed[]): boolean {
-  if (Math.abs(l.ay - l.by) >= 0.5 && Math.abs(l.ax - l.bx) >= 0.5) return false;
-  for (const p of placed) {
-    if (p !== l.source && p !== l.target) {
-      if (runsThrough(l, p)) return false;
-      if (
-        Math.abs(l.ay - l.by) < 0.5 &&
-        l.maxX > p.x - RAIL_CLEARANCE &&
-        l.minX < p.x + p.block.width + RAIL_CLEARANCE &&
-        l.ay > p.y - RAIL_CLEARANCE &&
-        l.ay < p.y + p.block.height + RAIL_CLEARANCE
-      ) {
-        return false;
-      }
-      if (
-        Math.abs(l.ax - l.bx) < 0.5 &&
-        l.maxY > p.y - RAIL_CLEARANCE &&
-        l.minY < p.y + p.block.height + RAIL_CLEARANCE &&
-        l.ax > p.x - RAIL_CLEARANCE &&
-        l.ax < p.x + p.block.width + RAIL_CLEARANCE
-      ) {
-        return false;
-      }
-      continue;
-    }
-    for (const [id, r] of p.block.nodes) {
-      if (id === l.from || id === l.to) continue;
-      const x = p.x + r.x;
-      const y = p.y + (p.flip ? flippedY(p.block, r, id) : r.y);
-      if (l.maxX > x && l.minX < x + r.width && l.maxY > y && l.minY < y + r.height) return false;
-    }
-  }
-  return true;
-}
-
-export function straightLinks(
-  links: readonly BlockLink[],
-  placed: readonly Placed[],
-  a?: Placed,
-  b?: Placed,
-): number {
-  let count = 0;
-  for (const l of links) {
-    if (
-      (!a ||
-        l.source === a ||
-        l.target === a ||
-        (b !== undefined && (l.source === b || l.target === b))) &&
-      isStraight(l, placed)
-    ) {
-      count++;
-    }
-  }
-  return count;
-}
-
-/**
  * Small vertical offset (`3px`, well within the `44px` station face so `l` stays a 0-turn
  * horizontal rail) when `l.to` sits above another row in `l.target` and also sends a return
  * rail into a lower row of `l.source`: aligns `l.target`'s inter-row gap above the next row's
@@ -473,7 +407,24 @@ export function straighten(
       const homeX = a.x;
       const homeY = a.y;
       const before = straightLinks(links, placed, a);
-      const wallsBefore = wallDetourCount(links, placed);
+      const alignedPrimaryFor = (p: Placed, q?: Placed): number => {
+        let cnt = 0;
+        for (const pl of links) {
+          const b = corridorReturnBiasY(pl, links);
+          if (
+            b > 0 &&
+            (pl.source === p ||
+              pl.target === p ||
+              (q !== undefined && (pl.source === q || pl.target === q))) &&
+            Math.abs(pl.by - (pl.ay + b)) < 0.5
+          ) {
+            cnt++;
+          }
+        }
+        return cnt;
+      };
+      const beforeBias = alignedPrimaryFor(a);
+      const wallsBefore = wallDetourCount(links, placed, ctx);
       const moves: Array<{ x: number; y: number; primaryY?: boolean }> = [];
       for (const l of links) {
         if (l.source !== a && l.target !== a) continue;
@@ -493,6 +444,8 @@ export function straighten(
             partner?: Placed;
             px: number;
             py: number;
+            third?: Placed;
+            ty?: number;
             gain: number;
             reach: number;
           }
@@ -516,11 +469,13 @@ export function straighten(
           horizontalClearance,
         );
         if (!Number.isNaN(change)) {
-          const gain = straightLinks(links, placed, a) - before;
+          const straightGain = straightLinks(links, placed, a) - before;
+          const biasGain = alignedPrimaryFor(a) - beforeBias;
+          const gain = Math.max(straightGain, straightGain >= 0 ? biasGain : 0);
           if (
             gain > 0 &&
             change <= gain * worth &&
-            wallDetourCount(links, placed) <= wallsBefore &&
+            wallDetourCount(links, placed, ctx) <= wallsBefore &&
             (!best || gain > best.gain || (gain === best.gain && reach < best.reach))
           ) {
             best = { x: to.x, y: to.y, px: 0, py: 0, gain, reach };
@@ -552,6 +507,7 @@ export function straighten(
             const prevAuxX = aux.x;
             const prevAuxY = aux.y;
             const beforePair = straightLinks(links, placed, a, aux);
+            const beforePairBias = alignedPrimaryFor(a, aux);
             const pairChange = evaluateMove(
               links,
               placed,
@@ -567,11 +523,13 @@ export function straighten(
               horizontalClearance,
             );
             if (!Number.isNaN(pairChange)) {
-              const gain = straightLinks(links, placed, a, aux) - beforePair;
+              const straightGain = straightLinks(links, placed, a, aux) - beforePair;
+              const biasGain = alignedPrimaryFor(a, aux) - beforePairBias;
+              const gain = Math.max(straightGain, straightGain >= 0 ? biasGain : 0);
               if (
                 gain > 0 &&
                 pairChange <= gain * worth &&
-                wallDetourCount(links, placed) <= wallsBefore &&
+                wallDetourCount(links, placed, ctx) <= wallsBefore &&
                 (!best || gain > best.gain || (gain === best.gain && reach < best.reach))
               ) {
                 best = {
@@ -662,7 +620,7 @@ export function straighten(
               if (
                 gain > 0 &&
                 pairChange <= gain * worth &&
-                wallDetourCount(links, placed) <= wallsBefore &&
+                wallDetourCount(links, placed, ctx) <= wallsBefore &&
                 (!best || gain > best.gain || (gain === best.gain && reach < best.reach))
               ) {
                 best = {
@@ -722,11 +680,20 @@ export function straighten(
                   if (
                     gain > 0 &&
                     delta <= gain * worth &&
-                    wallDetourCount(links, placed) <= wallsBefore
+                    wallDetourCount(links, placed, ctx) <= wallsBefore &&
+                    (!best || gain > best.gain || (gain === best.gain && reach < best.reach))
                   ) {
-                    moved = true;
-                    best = undefined;
-                    break;
+                    best = {
+                      x: to.x,
+                      y: to.y,
+                      partner,
+                      px: prevPX,
+                      py: prevPY + dyMove,
+                      third,
+                      ty: prevTY + dyMove,
+                      gain,
+                      reach,
+                    };
                   }
                 }
                 a.y = homeY;
@@ -745,7 +712,12 @@ export function straighten(
           best.partner.x = best.px;
           best.partner.y = best.py;
         }
-        refreshTouchingSegments(links, a, best.partner);
+        if (best.third && best.ty !== undefined) {
+          best.third.y = best.ty;
+          refreshSegments(links);
+        } else {
+          refreshTouchingSegments(links, a, best.partner);
+        }
         moved = true;
       }
     }
@@ -772,7 +744,7 @@ export function eliminateShortJogs(
       const homeY = a.y;
       const before = estimateRoutingDefects(links, placed, true);
       if (before.jogs === 0) return;
-      const wallsBefore = wallDetourCount(links, placed);
+      const wallsBefore = wallDetourCount(links, placed, ctx);
       let best: { x: number; y: number; drop: number; reach: number } | undefined;
       for (const l of links) {
         if (l.source !== a && l.target !== a) continue;
@@ -809,7 +781,7 @@ export function eliminateShortJogs(
             drop > 0 &&
             after.orthoPrimaryCrossings <= before.orthoPrimaryCrossings &&
             after.sharedCrossings <= before.sharedCrossings &&
-            wallDetourCount(links, placed) <= wallsBefore &&
+            wallDetourCount(links, placed, ctx) <= wallsBefore &&
             change <= drop * worth &&
             (!best || drop > best.drop || (drop === best.drop && reach < best.reach))
           ) {

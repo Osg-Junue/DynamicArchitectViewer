@@ -1,7 +1,7 @@
 import { synthesizedConnections } from '../model/connections';
 import { EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH, pushToMap, textWidth } from '../model/text';
 import type { DavConnection, DavDocument } from '../model/types';
-import { ancestorIds, parentMap } from '../model/zones';
+import { ancestorIds, parentMap, topLevelGroups } from '../model/zones';
 import { analyzeFlow, type FlowAnalysis } from './flow';
 import { crossingsOf, type Link, segmentsOf } from './links';
 import {
@@ -18,6 +18,8 @@ import {
   selfLoopRoom,
 } from './metrics';
 import { computeRanks, type RankResult } from './ranks';
+import { straightenNodes } from './straightenNodes';
+import { type Block, ownersOf, type Placed, placeIsolatedBlocks } from './zoneBlocks';
 
 const COLUMN_GAP = 36;
 const ROW_GAP = 14;
@@ -32,6 +34,266 @@ const MAX_REFINED_EDGES = 500;
 interface NodePlacement {
   nodes: Record<string, Rect>;
   placeholders: Record<string, Rect>;
+}
+
+const ISOLATED_ROW_GAP = 44;
+
+/**
+ * Lays out diagrams with `<= 1` top-level group, partitioning the primary component (containing
+ * the top-level group when connected or when no multi-node component exists, else the main
+ * connected subgraph), secondary ungrouped components, any isolated `deg === 0` top-level group,
+ * and `deg === 0` singletons (including self-loops) so isolated additions cause exact 0.0-unit
+ * drift on connected nodes and frames.
+ */
+export function computeSingleGroupLayout(doc: DavDocument): Layout {
+  if (doc.nodes.length === 0 && doc.groups.length === 0) {
+    return { nodes: rectRecord(), groups: rectRecord() };
+  }
+
+  const topGroups = topLevelGroups(doc.groups);
+  const topGroupId = topGroups.length === 1 ? topGroups[0]?.id : undefined;
+  const owners = ownersOf(doc);
+  const connections = synthesizedConnections(doc);
+  const knownNodes = new Set(doc.nodes.map((n) => n.id));
+  const nodeIndex = new Map(doc.nodes.map((n, i) => [n.id, i]));
+
+  const blockIds: string[] = [];
+  const blockSet = new Set<string>();
+  if (topGroupId !== undefined) {
+    blockIds.push(topGroupId);
+    blockSet.add(topGroupId);
+  }
+  for (const n of doc.nodes) {
+    const owner = owners.get(n.id) ?? n.id;
+    if (!blockSet.has(owner)) {
+      blockIds.push(owner);
+      blockSet.add(owner);
+    }
+  }
+
+  const adj = new Map<string, Set<string>>(blockIds.map((id) => [id, new Set()]));
+  for (const c of connections) {
+    if (c.from === c.to || !knownNodes.has(c.from) || !knownNodes.has(c.to)) continue;
+    const bu = owners.get(c.from) ?? c.from;
+    const bv = owners.get(c.to) ?? c.to;
+    if (bu === bv) continue;
+    adj.get(bu)?.add(bv);
+    adj.get(bv)?.add(bu);
+  }
+
+  const visited = new Set<string>();
+  const components: string[][] = [];
+  for (const start of blockIds) {
+    if (visited.has(start)) continue;
+    const comp: string[] = [];
+    const queue = [start];
+    visited.add(start);
+    for (let head = 0; head < queue.length; head++) {
+      const cur = queue[head];
+      if (cur === undefined) continue;
+      comp.push(cur);
+      for (const nxt of adj.get(cur) ?? []) {
+        if (!visited.has(nxt)) {
+          visited.add(nxt);
+          queue.push(nxt);
+        }
+      }
+    }
+    components.push(comp);
+  }
+
+  let mainComp: string[] | undefined;
+  let topGroupComp: string[] | undefined;
+  let isolatedGroupId: string | undefined;
+  const multiComps: string[][] = [];
+  const singletonIds: string[] = [];
+
+  if (topGroupId !== undefined) {
+    for (const comp of components) {
+      if (comp.includes(topGroupId)) topGroupComp = comp;
+      else if (comp.length >= 2) multiComps.push(comp);
+      else if (comp[0] !== undefined) singletonIds.push(comp[0]);
+    }
+  } else {
+    for (const comp of components) {
+      if (comp.length >= 2) multiComps.push(comp);
+      else if (comp[0] !== undefined) singletonIds.push(comp[0]);
+    }
+  }
+
+  const sortMulti = (comps: string[][]) => {
+    const earliestOf = (comp: readonly string[]): number =>
+      Math.min(...comp.map((id) => nodeIndex.get(id) ?? Number.MAX_SAFE_INTEGER));
+    comps.sort((a, b) => earliestOf(a) - earliestOf(b));
+  };
+  sortMulti(multiComps);
+  if (topGroupComp !== undefined) {
+    if (topGroupComp.length >= 2 || multiComps.length === 0) {
+      mainComp = topGroupComp;
+    } else {
+      mainComp = multiComps.shift();
+      isolatedGroupId = topGroupId;
+    }
+  } else if (multiComps.length > 0) {
+    mainComp = multiComps.shift();
+  }
+
+  if (
+    isolatedGroupId === undefined &&
+    multiComps.length === 0 &&
+    (singletonIds.length === 0 || (mainComp === undefined && singletonIds.length <= 1))
+  ) {
+    return straightenNodes(doc, computeColumnLayout(doc));
+  }
+
+  const subdoc = (nodeIds: ReadonlySet<string>, includeGroups: boolean): DavDocument => ({
+    ...doc,
+    nodes: doc.nodes.filter((n) => nodeIds.has(n.id)),
+    groups: includeGroups ? doc.groups : [],
+    steps: doc.steps.map((s) => ({
+      ...s,
+      animations: s.animations.filter((a) => nodeIds.has(a.from) && nodeIds.has(a.to)),
+      statics: s.statics.filter((st) => nodeIds.has(st.from) && nodeIds.has(st.to)),
+    })),
+  });
+
+  const nodes = rectRecord();
+  const groups = rectRecord();
+  let minX = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  const trackRect = (r: Rect) => {
+    minX = Math.min(minX, r.x);
+    maxX = Math.max(maxX, r.x + r.width);
+    maxY = Math.max(maxY, r.y + r.height);
+  };
+
+  if (mainComp) {
+    const mainBlockSet = new Set(mainComp);
+    const mainNodes = new Set<string>();
+    for (const n of doc.nodes) {
+      if (mainBlockSet.has(owners.get(n.id) ?? n.id)) mainNodes.add(n.id);
+    }
+    const mDoc = subdoc(mainNodes, isolatedGroupId === undefined && topGroupId !== undefined);
+    const mainLayout = straightenNodes(mDoc, computeColumnLayout(mDoc));
+    for (const [id, r] of Object.entries(mainLayout.nodes)) {
+      nodes[id] = r;
+      trackRect(r);
+    }
+    for (const [id, r] of Object.entries(mainLayout.groups)) {
+      groups[id] = r;
+      trackRect(r);
+    }
+  }
+
+  const docLoops = selfLoopRoom(doc);
+  for (const comp of multiComps) {
+    const cNodes = new Set(comp);
+    const cDoc = subdoc(cNodes, false);
+    const cLayout = straightenNodes(cDoc, computeColumnLayout(cDoc));
+    const entries = Object.entries(cLayout.nodes);
+    if (entries.length === 0) continue;
+    const cMinX = Math.min(...entries.map(([, r]) => r.x));
+    const cVisualTop = Math.min(...entries.map(([id, r]) => r.y - (docLoops.get(id) ?? 0)));
+    const targetX = Number.isFinite(minX) ? minX : ORIGIN.x;
+    const targetTop = Number.isFinite(maxY) ? maxY + ISOLATED_ROW_GAP : ORIGIN.y;
+    const dx = targetX - cMinX;
+    const dy = targetTop - cVisualTop;
+    for (const [id, r] of entries) {
+      const shifted: Rect = { ...r, x: r.x + dx, y: r.y + dy };
+      nodes[id] = shifted;
+      trackRect(shifted);
+    }
+  }
+
+  if (isolatedGroupId !== undefined) {
+    const gNodes = new Set<string>();
+    for (const n of doc.nodes) {
+      if (owners.get(n.id) === isolatedGroupId) gNodes.add(n.id);
+    }
+    const gDoc = subdoc(gNodes, true);
+    const gLayout = straightenNodes(gDoc, computeColumnLayout(gDoc));
+    const nodeEntries = Object.entries(gLayout.nodes);
+    const groupEntries = Object.entries(gLayout.groups);
+    if (nodeEntries.length > 0 || groupEntries.length > 0) {
+      const gMinX = Math.min(
+        ...nodeEntries.map(([, r]) => r.x),
+        ...groupEntries.map(([, r]) => r.x),
+      );
+      const gVisualTop = Math.min(
+        ...nodeEntries.map(([id, r]) => r.y - (docLoops.get(id) ?? 0)),
+        ...groupEntries.map(([, r]) => r.y),
+      );
+      const targetX = Number.isFinite(minX) ? minX : ORIGIN.x;
+      const targetTop = Number.isFinite(maxY) ? maxY + ISOLATED_ROW_GAP : ORIGIN.y;
+      const dx = targetX - gMinX;
+      const dy = targetTop - gVisualTop;
+      for (const [id, r] of nodeEntries) {
+        const shifted: Rect = { ...r, x: r.x + dx, y: r.y + dy };
+        nodes[id] = shifted;
+        trackRect(shifted);
+      }
+      for (const [id, r] of groupEntries) {
+        const shifted: Rect = { ...r, x: r.x + dx, y: r.y + dy };
+        groups[id] = shifted;
+        trackRect(shifted);
+      }
+    }
+  }
+
+  if (singletonIds.length > 0) {
+    const isoBlocks: Block[] = singletonIds.map((id) => {
+      const loopRoom = docLoops.get(id) ?? 0;
+      return {
+        id,
+        width: NODE_SIZE.width,
+        height: NODE_SIZE.height,
+        head: 0,
+        contentHeight: NODE_SIZE.height,
+        loopRoom,
+        nodeLoopRoom: loopRoom > 0 ? new Map([[id, loopRoom]]) : new Map(),
+        flippable: false,
+        nodes: new Map([[id, { x: 0, y: 0, width: NODE_SIZE.width, height: NODE_SIZE.height }]]),
+        groups: new Map(),
+        groupsFlipped: new Map(),
+        reflectConst: new Map(),
+      };
+    });
+    if (Number.isFinite(minX)) {
+      const summary: Placed = {
+        block: {
+          id: '__connected__',
+          width: maxX - minX,
+          height: 0,
+          head: 0,
+          contentHeight: 0,
+          loopRoom: 0,
+          nodeLoopRoom: new Map(),
+          flippable: false,
+          nodes: new Map(),
+          groups: new Map(),
+          groupsFlipped: new Map(),
+          reflectConst: new Map(),
+        },
+        x: minX,
+        y: maxY,
+        flip: 0,
+      };
+      for (const p of placeIsolatedBlocks(isoBlocks, [summary])) {
+        nodes[p.block.id] = { x: Math.round(p.x), y: Math.round(p.y), ...NODE_SIZE };
+      }
+    } else {
+      for (const p of placeIsolatedBlocks(isoBlocks, [])) {
+        nodes[p.block.id] = {
+          x: Math.round(p.x + ORIGIN.x),
+          y: Math.round(p.y + ORIGIN.y),
+          ...NODE_SIZE,
+        };
+      }
+    }
+  }
+
+  return { nodes, groups };
 }
 
 export function computeColumnLayout(

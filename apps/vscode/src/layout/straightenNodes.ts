@@ -82,7 +82,9 @@ export function straightenNodes(doc: DavDocument, layout: Layout): Layout {
       height: Math.abs(s.ay - s.by) + 2,
     };
     for (const id in nodes) {
-      if (id !== link[0] && id !== link[1] && near(nodes[id] as Rect, between, 0)) return false;
+      if (id !== link[0] && id !== link[1] && near(reach(id, nodes[id] as Rect), between, 0)) {
+        return false;
+      }
     }
     return true;
   };

@@ -155,12 +155,14 @@ describe('layout', () => {
   });
 
   it('places disjoint-rank groups side-by-side horizontally and stacks overlapping-rank groups vertically', () => {
-    const { layout: sideBySide } = layoutOf(`node client
-group edge_net {
-  node cdn
-}
-group vpc {
-  node alb
+    const { layout: sideBySide } = layoutOf(`group root {
+  node client
+  group edge_net {
+    node cdn
+  }
+  group vpc {
+    node alb
+  }
 }
 step "S" {
   static client --> cdn
@@ -169,13 +171,15 @@ step "S" {
     expect(sideBySide.groups.edge_net?.y).toBe(sideBySide.groups.vpc?.y);
     expect(sideBySide.groups.edge_net?.x).toBeLessThan(sideBySide.groups.vpc?.x ?? 0);
 
-    const { layout: stacked } = layoutOf(`group frontend {
-  node login
-  node catalog
-}
-group backend {
-  node auth
-  node shop
+    const { layout: stacked } = layoutOf(`group app {
+  group frontend {
+    node login
+    node catalog
+  }
+  group backend {
+    node auth
+    node shop
+  }
 }
 step "S" {
   static login --> catalog
@@ -319,5 +323,209 @@ step "S" {
       }),
       { numRuns: 200 },
     );
+  });
+
+  it('keeps existing 0-group connected nodes at 0.0 drift when a larger disconnected component is appended', () => {
+    const baseDsl = `node a "A"
+node b "B"
+step "S" {
+  animate a --> b
+}`;
+    const extendedDsl = `${baseDsl}
+node x1 "X1"
+node x2 "X2"
+node x3 "X3"
+step "D" {
+  animate x1 --> x2
+  animate x2 --> x3
+}`;
+    const { layout: base } = layoutOf(baseDsl);
+    const { layout: extended } = layoutOf(extendedDsl);
+
+    expect(extended.nodes.a).toEqual(base.nodes.a);
+    expect(extended.nodes.b).toEqual(base.nodes.b);
+    expect(extended.nodes.x1?.y).toBeGreaterThan((base.nodes.a?.y ?? 0) + NODE_SIZE.height);
+  });
+
+  it('keeps existing 0-group isolated nodes at 0.0 drift when an isolated self-loop node is appended', () => {
+    const baseDsl = `node m "M"
+node p "P"`;
+    const extendedDsl = `${baseDsl}
+node z_loop "ZL"
+step "SL" {
+  animate z_loop --> z_loop
+}`;
+    const { layout: base } = layoutOf(baseDsl);
+    const { layout: extended } = layoutOf(extendedDsl);
+
+    expect(extended.nodes.m).toEqual(base.nodes.m);
+    expect(extended.nodes.p).toEqual(base.nodes.p);
+    expect(extended.nodes.z_loop?.y).toBe((base.nodes.m?.y ?? 0) + 30);
+
+    const singleBase = layoutOf('node m "M"').layout;
+    const singleExtended = layoutOf(`node m "M"
+node z_loop "ZL"
+step "SL" {
+  animate z_loop --> z_loop
+}`).layout;
+    expect(singleExtended.nodes.m).toEqual(singleBase.nodes.m);
+    expect(singleExtended.nodes.z_loop?.y).toBe((singleBase.nodes.m?.y ?? 0) + 30);
+  });
+
+  it('keeps multi-row 0-group isolated nodes at 0.0 drift without double-counting self-loop room', () => {
+    const base9 = Array.from({ length: 9 }, (_, i) => {
+      const id = `n${String(i + 1).padStart(2, '0')}`;
+      return `node ${id} "${id.toUpperCase()}"`;
+    }).join('\n');
+    const ext9 = `${base9}
+node z_loop "ZL"
+step "SL" {
+  animate z_loop --> z_loop
+}`;
+    const { layout: lBase9 } = layoutOf(base9);
+    const { document: docExt9, layout: lExt9 } = layoutOf(ext9);
+
+    for (let i = 1; i <= 9; i++) {
+      const id = `n${String(i).padStart(2, '0')}`;
+      expect(lExt9.nodes[id]).toEqual(lBase9.nodes[id]);
+    }
+    expect(lExt9.nodes.n08?.y).toBe(202);
+    expect(lExt9.nodes.z_loop?.y).toBe(232);
+
+    const rects9 = docExt9.nodes.map((n) => {
+      const r = lExt9.nodes[n.id] as Rect;
+      return n.id === 'z_loop' ? { ...r, y: r.y - 30, height: r.height + 30 } : r;
+    });
+    for (let i = 0; i < rects9.length; i++) {
+      for (let j = i + 1; j < rects9.length; j++) {
+        expect(rectOverlaps(rects9[i] as Rect, rects9[j] as Rect)).toBe(false);
+      }
+    }
+
+    // Also verify when z_loop itself wraps onto row 2 (14 preceding nodes -> 2 full rows of 7).
+    const base14 = Array.from({ length: 14 }, (_, i) => {
+      const id = `n${String(i + 1).padStart(2, '0')}`;
+      return `node ${id} "${id.toUpperCase()}"`;
+    }).join('\n');
+    const ext14 = `${base14}
+node z_loop "ZL"
+step "SL" {
+  animate z_loop --> z_loop
+}`;
+    const { layout: lBase14 } = layoutOf(base14);
+    const { layout: lExt14 } = layoutOf(ext14);
+    for (let i = 1; i <= 14; i++) {
+      const id = `n${String(i).padStart(2, '0')}`;
+      expect(lExt14.nodes[id]).toEqual(lBase14.nodes[id]);
+    }
+    expect(lExt14.nodes.z_loop?.y).toBe(394);
+  });
+
+  it('keeps pre-existing isolated nodes at 0.0 drift when appending isolated self-loops in <= 1 and >= 2 modes', () => {
+    const assertNoExternalOverlaps = (
+      doc: ReturnType<typeof parse>['document'],
+      layout: ReturnType<typeof computeLayout>,
+      loopNodes: ReadonlySet<string>,
+    ) => {
+      for (let i = 0; i < doc.nodes.length; i++) {
+        for (let j = i + 1; j < doc.nodes.length; j++) {
+          const a = doc.nodes[i];
+          const b = doc.nodes[j];
+          if (!a || !b) continue;
+          const ra = layout.nodes[a.id] as Rect;
+          const rb = layout.nodes[b.id] as Rect;
+          expect(rectOverlaps(ra, rb)).toBe(false);
+          if (loopNodes.has(a.id) && !a.parentId) {
+            expect(rectOverlaps({ ...ra, y: ra.y - 30, height: ra.height + 30 }, rb)).toBe(false);
+          }
+          if (loopNodes.has(b.id) && !b.parentId) {
+            expect(rectOverlaps(ra, { ...rb, y: rb.y - 30, height: rb.height + 30 })).toBe(false);
+          }
+        }
+      }
+      for (let i = 0; i < doc.groups.length; i++) {
+        for (let j = i + 1; j < doc.groups.length; j++) {
+          const ga = doc.groups[i];
+          const gb = doc.groups[j];
+          if (!ga || !gb) continue;
+          expect(rectOverlaps(layout.groups[ga.id] as Rect, layout.groups[gb.id] as Rect)).toBe(
+            false,
+          );
+        }
+      }
+      for (const g of doc.groups) {
+        const gr = layout.groups[g.id] as Rect;
+        for (const n of doc.nodes) {
+          const nr = layout.nodes[n.id] as Rect;
+          if (n.parentId === g.id) {
+            expect(rectContains(gr, nr)).toBe(true);
+          } else {
+            expect(rectOverlaps(gr, nr)).toBe(false);
+            if (loopNodes.has(n.id) && !n.parentId) {
+              expect(rectOverlaps(gr, { ...nr, y: nr.y - 30, height: nr.height + 30 })).toBe(false);
+            }
+          }
+        }
+      }
+    };
+
+    // <= 1 mode: connected a -> b + pre-existing isolated m, then append z_loop -> z_loop
+    const singleBaseDsl = `node a "A"
+node b "B"
+node m "M"
+step "S" {
+  animate a --> b
+}`;
+    const singleExtDsl = `${singleBaseDsl}
+node z_loop "ZL"
+step "SL" {
+  animate z_loop --> z_loop
+}`;
+    const { layout: singleBase } = layoutOf(singleBaseDsl);
+    const { document: singleExtDoc, layout: singleExt } = layoutOf(singleExtDsl);
+    expect(singleExt.nodes.a).toEqual(singleBase.nodes.a);
+    expect(singleExt.nodes.b).toEqual(singleBase.nodes.b);
+    expect(singleExt.nodes.m).toEqual(singleBase.nodes.m);
+    expect(singleExt.nodes.z_loop?.y).toBe((singleBase.nodes.m?.y ?? 0) + 30);
+    assertNoExternalOverlaps(singleExtDoc, singleExt, new Set(['z_loop']));
+
+    // >= 2 mode: connected z1 -> z2 + pre-existing isolated m
+    const multiBaseDsl = `group z1 "Z1" { node a "A" }
+group z2 "Z2" { node b "B" }
+node m "M"
+step "S" {
+  animate a --> b
+}`;
+    const { layout: multiBase } = layoutOf(multiBaseDsl);
+
+    // Append ungrouped isolated self-loop z_loop -> z_loop
+    const multiLoopDsl = `${multiBaseDsl}
+node z_loop "ZL"
+step "SL" {
+  animate z_loop --> z_loop
+}`;
+    const { document: multiLoopDoc, layout: multiLoop } = layoutOf(multiLoopDsl);
+    expect(multiLoop.nodes.a).toEqual(multiBase.nodes.a);
+    expect(multiLoop.nodes.b).toEqual(multiBase.nodes.b);
+    expect(multiLoop.groups.z1).toEqual(multiBase.groups.z1);
+    expect(multiLoop.groups.z2).toEqual(multiBase.groups.z2);
+    expect(multiLoop.nodes.m).toEqual(multiBase.nodes.m);
+    expect(multiLoop.nodes.z_loop?.y).toBe((multiBase.nodes.m?.y ?? 0) + 30);
+    assertNoExternalOverlaps(multiLoopDoc, multiLoop, new Set(['z_loop']));
+
+    // Append isolated group containing a self-loop z_iso_grp { x -> x }
+    const multiGrpDsl = `${multiBaseDsl}
+group z_iso_grp "ZIG" { node x "X" }
+step "SL" {
+  animate x --> x
+}`;
+    const { document: multiGrpDoc, layout: multiGrp } = layoutOf(multiGrpDsl);
+    expect(multiGrp.nodes.a).toEqual(multiBase.nodes.a);
+    expect(multiGrp.nodes.b).toEqual(multiBase.nodes.b);
+    expect(multiGrp.groups.z1).toEqual(multiBase.groups.z1);
+    expect(multiGrp.groups.z2).toEqual(multiBase.groups.z2);
+    expect(multiGrp.nodes.m).toEqual(multiBase.nodes.m);
+    expect(multiGrp.groups.z_iso_grp?.y).toBe(multiBase.nodes.m?.y);
+    assertNoExternalOverlaps(multiGrpDoc, multiGrp, new Set(['x']));
   });
 });

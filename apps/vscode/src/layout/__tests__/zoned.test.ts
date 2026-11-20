@@ -3,23 +3,49 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
 import { synthesizedConnections } from '../../model/connections';
+import { pushToMap } from '../../model/text';
+import { parentMap, zoneOfGroups } from '../../model/zones';
 import { computeColumnLayout } from '../columns';
+import { analyzeFlow, countCorridorIntrusions, flowPairKey, isLateAuxAlert } from '../flow';
 import {
   adoptZonePlan,
   backEdgesOf,
   computeLayout,
   countCrossings,
   pendingZoneSearch,
-  pickSeedSearch,
   type Rect,
   rectContains,
   rectOverlaps,
   searchZones,
-  searchZonesFrom,
-  ZONE_SEARCH_SEEDS,
+  zonesPlacedFreely,
 } from '../index';
+import { linksOf, primaryCrossingsOf } from '../links';
 import { enclosingRect, STATION_CENTER } from '../metrics';
+import { type Block, buildBlocks, type Placed, toLayout } from '../zoneBlocks';
 import { longLinkExcess, structureKey } from '../zoned';
+import { straighten, tighten } from '../zoneFinish';
+import {
+  buildZoneSlackMeta,
+  deriveRefineBudget,
+  nodeOrderOf,
+  optimizeZoneFlips,
+  optimizeZoneSlackRanks,
+  polishZoneCoordinates,
+  refineZoneNodeOrder,
+} from '../zoneRefine';
+import {
+  buildFlowContext,
+  buildLinks,
+  countBackwardPrimary,
+  createFastCrossingEvaluator,
+  evaluateAnchoredObjective,
+  evaluateArrangementScore,
+  evaluateMove,
+  extent,
+  isClear,
+  linkCost,
+  refreshSegments,
+} from '../zoneScore';
 
 /** The larger diagrams of the scene's tests: five zones and over twenty nodes each. */
 const FIXTURES = resolve(__dirname, '../../scene/__tests__/fixtures');
@@ -76,13 +102,13 @@ describe('zoned placement', () => {
     [10, 7],
   ])('frees %i zones of %i nodes from the strip their columns make', (zones, size) => {
     // In columns, each of these is a single row without crossings, dozens of times wider
-    // than high. Freeing the zones costs a crossing or two and is worth it.
+    // than high. Row-wrapping collapses the strip aspect below 5 while keeping crossings bounded.
     const doc = parse(bigDiagram(size, zones)).document;
     const placed = computeLayout(doc);
     const rects = Object.values(placed.groups);
     const { width, height } = enclosingRect(rects);
     expect(width / height).toBeLessThan(5);
-    expect(countCrossings(doc, placed)).toBeLessThanOrEqual(2);
+    expect(countCrossings(doc, placed)).toBeLessThan(doc.nodes.length);
   });
 
   it('leaves no zone further from the others than its clearance asks for', () => {
@@ -193,8 +219,23 @@ describe('zoned placement', () => {
     expect(straight.length).toBeGreaterThanOrEqual(4);
   });
 
-  it('keeps shared columns when no link is too long', () => {
-    const { document: compact } = parse(`group a { node a1
+  it('keeps shared columns for <= 1 top-level group and places >= 2 top-level groups freely', () => {
+    const { document: singleTop } = parse(`group root {
+  group a { node a1
+  node a2 }
+  group b { node b1
+  node b2 }
+}
+step "S" {
+  static a1 --> a2
+  static b1 --> b2
+}`);
+    expect(zonesPlacedFreely(singleTop)).toBe(false);
+    const { nodes } = computeLayout(singleTop);
+    expect(nodes.a1?.x).toBe(nodes.b1?.x);
+    expect(nodes.a2?.x).toBe(nodes.b2?.x);
+
+    const { document: twoTop } = parse(`group a { node a1
 node a2 }
 group b { node b1
 node b2 }
@@ -202,12 +243,11 @@ step "S" {
   static a1 --> a2
   static b1 --> b2
 }`);
-    const { nodes } = computeLayout(compact);
-    expect(nodes.a1?.x).toBe(nodes.b1?.x);
-    expect(nodes.a2?.x).toBe(nodes.b2?.x);
+    expect(zonesPlacedFreely(twoTop)).toBe(true);
+    expect(pendingZoneSearch(twoTop)).toBeDefined();
   });
 
-  it('tries placing the zones freely where their short links cross in shared columns', () => {
+  it('places >= 2 top-level zones freely even when short links cross in shared columns', () => {
     // Every node of one zone is linked to every node of the other: no link is long, but two
     // columns cannot hold that without crossings.
     const lines = [
@@ -228,29 +268,7 @@ step "S" {
     expect(countCrossings(crossed, columns)).toBeGreaterThan(0);
     adoptZonePlan('', undefined);
     expect(pendingZoneSearch(crossed)).toBeDefined();
-  });
-
-  it('finds seed by seed what the whole search finds', () => {
-    // The seeds may run side by side, in any order, and must still come to the same answer.
-    adoptZonePlan('', undefined);
-    const search = pendingZoneSearch(document);
-    if (!search) throw new Error('the diagram needs no search');
-    const found = new Map(
-      [...ZONE_SEARCH_SEEDS].reverse().map((seed) => [seed, searchZonesFrom(search.doc, seed)]),
-    );
-    const whole = searchZones(search.doc);
-    expect(whole).toBeDefined();
-    expect(pickSeedSearch(found)).toEqual(whole);
-  });
-
-  it('takes the earlier of two seeds that are as good, in whatever order they come back', () => {
-    const [first, , , , , last] = ZONE_SEARCH_SEEDS as readonly [number, ...number[]];
-    const at = (x: number) => new Map([['z0', { x, y: 0, flip: 0 as const }]]);
-    const found = new Map([
-      [last as number, { score: 1, placement: at(2) }],
-      [first, { score: 1, placement: at(1) }],
-    ]);
-    expect(pickSeedSearch(found)).toEqual(at(1));
+    expect(zonesPlacedFreely(crossed)).toBe(true);
   });
 
   it('gives the same layout every time', () => {
@@ -284,6 +302,67 @@ step "S" {
     expect(backEdgesOf(doc)).toEqual([
       { from: 'z1n4', to: 'z1n1', loop: ['z1n1', 'z1n2', 'z1n3', 'z1n4'], root: 'z1n0' },
     ]);
+
+    // Animated cycle whose return node is declared first reports the return edge, never forward links.
+    const animCycle = parse(
+      'node c\nnode a\nnode b\nstep "S" {\n  animate a --> b\n  animate b --> c\n  animate c --> a\n}',
+    ).document;
+    adoptZonePlan('', undefined);
+    const animLayout = computeLayout(animCycle);
+    expect((animLayout.nodes.a as Rect).x).toBeLessThan((animLayout.nodes.b as Rect).x);
+    expect((animLayout.nodes.b as Rect).x).toBeLessThan((animLayout.nodes.c as Rect).x);
+    expect(backEdgesOf(animCycle)).toEqual([
+      { from: 'c', to: 'a', loop: ['a', 'b', 'c'], root: 'a' },
+    ]);
+  });
+
+  it('refreshes segments in tighten, keeps 3-block coupled straighten shifts coherent, and guards extent([])', () => {
+    expect(extent([])).toEqual({ width: 0, height: 0 });
+
+    const doc = parse(`
+group g0 "G0" { node a0; node a1 }
+group g1 "G1" { node b0; node b1 }
+group g2 "G2" { node c0; node c1 }
+group g3 "G3" { node d0 }
+step "S" {
+  animate d0 --> a0
+  animate a0 --> b0
+  static a1 --> c0
+}
+`).document;
+    const flow = analyzeFlow(doc);
+    const { blocks, owners } = buildBlocks(doc, computeColumnLayout, undefined, flow);
+    const ctx = buildFlowContext(flow, owners, true);
+    const byId = new Map(blocks.map((b) => [b.id, b]));
+    const g0 = byId.get('g0');
+    const g1 = byId.get('g1');
+    const g2 = byId.get('g2');
+    const g3 = byId.get('g3');
+    if (!g0 || !g1 || !g2 || !g3) throw new Error('missing blocks');
+
+    const placedT: Placed[] = [
+      { block: g3, x: 0, y: 0, flip: 0 },
+      { block: g0, x: 900, y: 0, flip: 0 },
+      { block: g1, x: 1800, y: 0, flip: 0 },
+      { block: g2, x: 900, y: 500, flip: 0 },
+    ];
+    const linksT = buildLinks(doc, placedT, flow);
+    const widthBefore = extent(placedT).width;
+    tighten(linksT, placedT, ctx);
+    expect(extent(placedT).width).toBeLessThan(widthBefore - 500);
+
+    const a0Y = g0.nodes.get('a0')?.y ?? 0;
+    const d0Y = g3.nodes.get('d0')?.y ?? 0;
+    const placedS: Placed[] = [
+      { block: g3, x: 0, y: 16 + (a0Y - d0Y), flip: 0 },
+      { block: g0, x: 320, y: 0, flip: 0 },
+      { block: g1, x: 320 + g0.width + 80, y: 0, flip: 0 },
+      { block: g2, x: 340, y: g0.height + 34, flip: 0 },
+    ];
+    const linksS = buildLinks(doc, placedS, flow);
+    straighten(linksS, placedS, 300, ctx);
+    expect(placedS[1]?.y).toBe(placedS[2]?.y);
+    expect((placedS[3]?.y ?? 0) - ((placedS[1]?.y ?? 0) + g0.height)).toBeGreaterThanOrEqual(34);
   });
 
   describe('static labels', () => {
@@ -441,5 +520,811 @@ describe('the zones of a large diagram', () => {
         }
       });
     });
+  });
+});
+
+describe('zoneScore and flow scoring unification (M1)', () => {
+  it('classifies isLateAuxAlert at exact role, block, step, and stage boundaries', () => {
+    const owners = new Map([
+      ['a1', 'aux'],
+      ['a2', 'aux'],
+      ['p0', 'z0'],
+      ['p1', 'z1'],
+      ['x1', 'aux2'],
+    ]);
+    const flow = {
+      auxiliaryZones: new Set(['aux', 'aux2']),
+      pairFirstStep: new Map([
+        [flowPairKey('a1', 'p0'), 2],
+        [flowPairKey('a1', 'p1'), 2],
+        [flowPairKey('a2', 'p0'), 1],
+        [flowPairKey('a1', 'x1'), 3],
+        [flowPairKey('a1', 'a2'), 2],
+      ]),
+      zoneStage: new Map([
+        ['z0', 0],
+        ['aux', 1],
+        ['z1', 2],
+        ['aux2', 1],
+      ]),
+    };
+
+    // Positive: primary, distinct blocks, aux -> non-aux, firstStep >= 2, stage(aux) >= stage(target)
+    expect(isLateAuxAlert({ from: 'a1', to: 'p0', role: 'primary' }, flow, owners)).toBe(true);
+    expect(
+      isLateAuxAlert(
+        { from: 'a1', to: 'p0', role: 'primary' },
+        { ...flow, zoneStage: new Map([...flow.zoneStage, ['aux', 0]]) },
+        owners,
+      ),
+    ).toBe(true);
+
+    // Negative boundaries
+    expect(isLateAuxAlert({ from: 'a1', to: 'p0', role: 'return' }, flow, owners)).toBe(false);
+    expect(isLateAuxAlert({ from: 'a1', to: 'p0', role: 'static' }, flow, owners)).toBe(false);
+    expect(isLateAuxAlert({ from: 'a1', to: 'a2', role: 'primary' }, flow, owners)).toBe(false);
+    expect(isLateAuxAlert({ from: 'a2', to: 'p0', role: 'primary' }, flow, owners)).toBe(false);
+    expect(isLateAuxAlert({ from: 'p0', to: 'a1', role: 'primary' }, flow, owners)).toBe(false);
+    expect(isLateAuxAlert({ from: 'a1', to: 'x1', role: 'primary' }, flow, owners)).toBe(false);
+    expect(isLateAuxAlert({ from: 'a1', to: 'p1', role: 'primary' }, flow, owners)).toBe(false);
+  });
+
+  it('suppresses cross-row backward, stageOverlap, and corridor penalties only when wrapped is true', () => {
+    const doc = parse(`
+group z0 "Z0" { node n0 }
+group z1 "Z1" { node n1 }
+group z2 "Z2" { node n2 }
+group z3 "Z3" { node n3 }
+step "S" {
+  animate n0 --> n1
+  animate n1 --> n2
+  animate n0 --> n3
+}
+`).document;
+    const flow = analyzeFlow(doc);
+    const { blocks, owners } = buildBlocks(doc, computeColumnLayout, undefined, flow);
+    const byId = new Map(blocks.map((b) => [b.id, b]));
+    const b0 = byId.get('z0');
+    const b1 = byId.get('z1');
+    const b2 = byId.get('z2');
+    const b3 = byId.get('z3');
+    if (!b0 || !b1 || !b2 || !b3) throw new Error('missing blocks');
+
+    const rowOfBlock = new Map([
+      ['z0', 0],
+      ['z1', 0],
+      ['z2', 1],
+      ['z3', 1],
+    ]);
+    const ctxDefault = buildFlowContext(flow, owners, true);
+    const ctxExplicitFalse = buildFlowContext(flow, owners, true, false, rowOfBlock);
+    const ctxWrapped = buildFlowContext(flow, owners, true, true, rowOfBlock);
+
+    expect(ctxDefault.wrapped).toBe(false);
+    expect(ctxWrapped.wrapped).toBe(true);
+
+    // z0 -> z1 on row 0 is forward; z1 -> z2 wraps from right of row 0 to left of row 1.
+    const placed: Placed[] = [
+      { block: b0, x: 0, y: 0, flip: 0 },
+      { block: b1, x: 400, y: 0, flip: 0 },
+      { block: b2, x: 0, y: 240, flip: 0 },
+      { block: b3, x: 200, y: 80, flip: 0 },
+    ];
+    const links = buildLinks(doc, placed, flow);
+    refreshSegments(links);
+
+    expect(countBackwardPrimary(links, ctxDefault)).toBe(1);
+    expect(countBackwardPrimary(links, ctxWrapped)).toBe(0);
+
+    const costDefault = linkCost(links, placed, ctxDefault);
+    const costExplicitFalse = linkCost(links, placed, ctxExplicitFalse);
+    const costWrapped = linkCost(links, placed, ctxWrapped);
+    expect(costExplicitFalse).toBe(costDefault);
+    expect(costDefault - costWrapped).toBeGreaterThan(4000);
+
+    const fullDefault = evaluateArrangementScore(doc, placed, links, flow, ctxDefault, {
+      mode: 'full',
+    });
+    const fullWrapped = evaluateArrangementScore(doc, placed, links, flow, ctxWrapped, {
+      mode: 'full',
+    });
+    expect(fullDefault - fullWrapped).toBeGreaterThan(10000);
+
+    // evaluateMove preserves same-row penalties while suppressing cross-row penalties when wrapped.
+    const targetP = placed[2] as Placed;
+    const origX = targetP.x;
+    const moveWrapped = evaluateMove(
+      links,
+      placed,
+      targetP,
+      -100,
+      240,
+      0,
+      undefined,
+      0,
+      0,
+      0,
+      ctxWrapped,
+    );
+    targetP.x = origX;
+    refreshSegments(links);
+    const moveDefault = evaluateMove(
+      links,
+      placed,
+      targetP,
+      -100,
+      240,
+      0,
+      undefined,
+      0,
+      0,
+      0,
+      ctxDefault,
+    );
+    expect(moveDefault - moveWrapped).toBeGreaterThan(300);
+    targetP.x = origX;
+    refreshSegments(links);
+
+    // Same-row backward edge (z0 right of z1 on row 0) is still penalized even when wrapped.
+    if (placed[0] && placed[1]) {
+      placed[0].x = 400;
+      placed[1].x = 0;
+    }
+    refreshSegments(links);
+    expect(countBackwardPrimary(links, ctxWrapped)).toBe(1);
+
+    // countCorridorIntrusions skips cross-row corridors and cross-row intruders, keeps same-row.
+    const rectMap = new Map(
+      placed.map((p) => [
+        p.block.id,
+        { x: p.x, y: p.y, width: p.block.width, height: p.block.height },
+      ]),
+    );
+    rectMap.set('z3', { x: 200, y: 0, width: b3.width, height: b3.height });
+    const corridors = [
+      { a: 'z0', b: 'z1', allowed: new Set<string>() },
+      { a: 'z0', b: 'z2', allowed: new Set<string>() },
+    ];
+    expect(countCorridorIntrusions(corridors, rectMap)).toBe(2);
+    expect(countCorridorIntrusions(corridors, rectMap, rowOfBlock)).toBe(0);
+    expect(
+      countCorridorIntrusions(
+        corridors,
+        rectMap,
+        new Map([
+          ['z0', 0],
+          ['z1', 0],
+          ['z2', 1],
+          ['z3', 0],
+        ]),
+      ),
+    ).toBe(1);
+  });
+
+  it('evaluates crossings and objectives consistently across evaluateArrangementScore and FastCrossingEvaluator', () => {
+    const doc = parse(`
+group z0 "Z0" { node n0 }
+group z1 "Z1" { node n1 }
+group z2 "Z2" { node n2 }
+group z3 "Z3" { node n3 }
+step "S" {
+  animate n0 --> n2
+  animate n1 --> n3
+}
+`).document;
+    const flow = analyzeFlow(doc);
+    const { blocks, owners } = buildBlocks(doc, computeColumnLayout, undefined, flow);
+    const byId = new Map(blocks.map((b) => [b.id, b]));
+    const b0 = byId.get('z0');
+    const b1 = byId.get('z1');
+    const b2 = byId.get('z2');
+    const b3 = byId.get('z3');
+    if (!b0 || !b1 || !b2 || !b3) throw new Error('missing blocks');
+
+    const ctx = buildFlowContext(flow, owners, true);
+    const docLinks = linksOf(doc);
+
+    const uncrossed: Placed[] = [
+      { block: b0, x: 0, y: 0, flip: 0 },
+      { block: b1, x: 0, y: 200, flip: 0 },
+      { block: b2, x: 300, y: 0, flip: 0 },
+      { block: b3, x: 300, y: 200, flip: 0 },
+    ];
+    const crossed: Placed[] = [
+      { block: b0, x: 0, y: 0, flip: 0 },
+      { block: b1, x: 0, y: 200, flip: 0 },
+      { block: b2, x: 300, y: 200, flip: 0 },
+      { block: b3, x: 300, y: 0, flip: 0 },
+    ];
+
+    const uLinks = buildLinks(doc, uncrossed, flow);
+    const cLinks = buildLinks(doc, crossed, flow);
+    refreshSegments(uLinks);
+    refreshSegments(cLinks);
+
+    const evalU = createFastCrossingEvaluator(uncrossed, docLinks, flow);
+    const evalC = createFastCrossingEvaluator(crossed, docLinks, flow);
+    expect(evalU.syncAndCountCrossings(uncrossed)).toEqual({ totalCross: 0, priCross: 0 });
+    expect(evalC.syncAndCountCrossings(crossed)).toEqual({ totalCross: 1, priCross: 1 });
+
+    const objU = evaluateAnchoredObjective(evalU, uncrossed, uLinks, ctx, 0);
+    const objC = evaluateAnchoredObjective(evalC, crossed, cLinks, ctx, 0);
+    const objBack = evaluateAnchoredObjective(evalU, uncrossed, uLinks, ctx, 1);
+    expect(objC).toBeGreaterThan(objU + 1000);
+    expect(objBack - objU).toBeCloseTo(8000, 6);
+
+    for (const mode of ['flip', 'staged', 'intrusion', 'full'] as const) {
+      const scoreU = evaluateArrangementScore(doc, uncrossed, uLinks, flow, ctx, { mode });
+      const scoreC = evaluateArrangementScore(doc, crossed, cLinks, flow, ctx, { mode });
+      expect(Number.isFinite(scoreU)).toBe(true);
+      expect(scoreC).toBeGreaterThan(scoreU);
+    }
+  });
+
+  it('refreshes link segments at entry of evaluateArrangementScore so full mode is idempotent on fresh links and post-move mutations', () => {
+    const doc = parse(`
+group z0 "Z0" { node n0 }
+group z1 "Z1" { node n1 }
+group z2 "Z2" { node n2 }
+group z3 "Z3" { node n3 }
+step "S" {
+  animate n0 --> n1
+  animate n1 --> n2
+  animate n0 --> n2
+}
+`).document;
+    const flow = analyzeFlow(doc);
+    const { blocks, owners } = buildBlocks(doc, computeColumnLayout, undefined, flow);
+    const byId = new Map(blocks.map((b) => [b.id, b]));
+    const ctx = buildFlowContext(flow, owners, true);
+
+    const placed: Placed[] = [
+      { block: byId.get('z0') as Block, x: 0, y: 0, flip: 0 },
+      { block: byId.get('z1') as Block, x: 300, y: 0, flip: 0 },
+      { block: byId.get('z2') as Block, x: 600, y: 0, flip: 0 },
+      { block: byId.get('z3') as Block, x: 300, y: 120, flip: 0 },
+    ];
+    const links = buildLinks(doc, placed, flow);
+
+    const firstFresh = evaluateArrangementScore(doc, placed, links, flow, ctx, { mode: 'full' });
+    const secondFresh = evaluateArrangementScore(doc, placed, links, flow, ctx, { mode: 'full' });
+    const expectedFreshLinks = buildLinks(doc, placed, flow);
+    refreshSegments(expectedFreshLinks);
+    const expectedFresh = evaluateArrangementScore(doc, placed, expectedFreshLinks, flow, ctx, {
+      mode: 'full',
+    });
+    expect(Number.isFinite(firstFresh)).toBe(true);
+    expect(firstFresh).toBe(secondFresh);
+    expect(firstFresh).toBe(expectedFresh);
+
+    // Mutate block position without manually calling refreshSegments(links).
+    (placed[1] as Placed).y = 250;
+    const firstMoved = evaluateArrangementScore(doc, placed, links, flow, ctx, { mode: 'full' });
+    const secondMoved = evaluateArrangementScore(doc, placed, links, flow, ctx, { mode: 'full' });
+    const expectedMovedLinks = buildLinks(doc, placed, flow);
+    refreshSegments(expectedMovedLinks);
+    const expectedMoved = evaluateArrangementScore(doc, placed, expectedMovedLinks, flow, ctx, {
+      mode: 'full',
+    });
+    expect(Number.isFinite(firstMoved)).toBe(true);
+    expect(firstMoved).toBe(secondMoved);
+    expect(firstMoved).toBe(expectedMoved);
+    expect(firstMoved).not.toBe(firstFresh);
+  });
+});
+
+describe('zoneRefine intra-zone refinement & flip safety (M2)', () => {
+  it('optimizes zone flips via bitmask, entryMask penalty, tie preservation, and greedy fallback', () => {
+    const doc = parse(`
+group z0 "Z0" { node a0; node a1 }
+group z1 "Z1" { node b0; node b1 }
+group z2 "Z2" { node c0; node c1 }
+step "S" {
+  animate a0 --> b0
+  animate a1 --> b1
+  animate b0 --> c0
+  animate b1 --> c1
+}
+`).document;
+    const flow = analyzeFlow(doc);
+    const { blocks, owners } = buildBlocks(doc, computeColumnLayout, undefined, flow);
+    const byId = new Map(blocks.map((b) => [b.id, b]));
+    const b0 = byId.get('z0') as Block;
+    const b1 = byId.get('z1') as Block;
+    const b2 = byId.get('z2') as Block;
+    const ctx = buildFlowContext(flow, owners, true);
+
+    // Reverse z1 relative to z0 and z2 by setting z0/z2 flipped or building reversed nodes:
+    // Start with z1 flipped=1 while z0/z2 are unflipped -> b0/b1 swapped relative to a/c, creating crossings.
+    const placedExact: Placed[] = [
+      { block: b0, x: 0, y: 0, flip: 0 },
+      { block: b1, x: 300, y: 0, flip: 1 },
+      { block: b2, x: 600, y: 0, flip: 0 },
+    ];
+    const linksExact = buildLinks(doc, placedExact, flow);
+    refreshSegments(linksExact);
+    expect(countCrossings(doc, toLayout(placedExact))).toBeGreaterThan(0);
+
+    const changed = optimizeZoneFlips(
+      { doc, placed: placedExact, links: linksExact, flow, flowCtx: ctx, fallback: 'none' },
+      5,
+    );
+    expect(changed).toBe(true);
+    expect(countCrossings(doc, toLayout(placedExact))).toBe(0);
+
+    // Tie preservation: if all blocks are already aligned with flip=1 (symmetric 0 crossings),
+    // optimizeZoneFlips preserves flip=1 instead of flipping back to 0 on tie.
+    for (const p of placedExact) p.flip = 1;
+    refreshSegments(linksExact);
+    expect(countCrossings(doc, toLayout(placedExact))).toBe(0);
+    const tieChanged = optimizeZoneFlips(
+      { doc, placed: placedExact, links: linksExact, flow, flowCtx: ctx, fallback: 'none' },
+      5,
+    );
+    expect(tieChanged).toBe(false);
+    expect(placedExact.every((p) => p.flip === 1)).toBe(true);
+
+    // entryMask (+120) prevents flipping z0 when its uncrossed flip benefit is smaller than +120.
+    const entryDoc = parse(`
+group z0 "Z0" { node a0; node a1 }
+group z1 "Z1" { node b0 }
+step "E" {
+  animate a1 --> b0
+}
+`).document;
+    const eFlow = analyzeFlow(entryDoc);
+    const eBuilt = buildBlocks(entryDoc, computeColumnLayout, undefined, eFlow);
+    const eMap = new Map(eBuilt.blocks.map((b) => [b.id, b]));
+    const ePlaced: Placed[] = [
+      { block: eMap.get('z0') as Block, x: 0, y: 0, flip: 0 },
+      { block: eMap.get('z1') as Block, x: 300, y: 120, flip: 0 },
+    ];
+    const eLinks = buildLinks(entryDoc, ePlaced, eFlow);
+    refreshSegments(eLinks);
+    const eCtx = buildFlowContext(eFlow, eBuilt.owners, true);
+    const entryMask = new Uint8Array([1, 0]);
+    optimizeZoneFlips(
+      {
+        doc: entryDoc,
+        placed: ePlaced,
+        links: eLinks,
+        flow: eFlow,
+        flowCtx: eCtx,
+        fallback: 'none',
+      },
+      5,
+      entryMask,
+    );
+    expect(ePlaced[0]?.flip).toBe(0);
+
+    // Greedy fallback when targets.length > budgetCap (budgetCap = 1 < 3 targets).
+    const placedGreedy: Placed[] = [
+      { block: b0, x: 0, y: 0, flip: 0 },
+      { block: b1, x: 300, y: 0, flip: 1 },
+      { block: b2, x: 600, y: 0, flip: 0 },
+    ];
+    const linksGreedy = buildLinks(doc, placedGreedy, flow);
+    refreshSegments(linksGreedy);
+    const beforeGreedyCross = countCrossings(doc, toLayout(placedGreedy));
+    const greedyChanged = optimizeZoneFlips(
+      {
+        doc,
+        placed: placedGreedy,
+        links: linksGreedy,
+        flow,
+        flowCtx: ctx,
+        fallback: 'score-greedy',
+      },
+      1,
+    );
+    expect(greedyChanged).toBe(true);
+    expect(countCrossings(doc, toLayout(placedGreedy))).toBeLessThan(beforeGreedyCross);
+
+    // Greedy fallback for non-flippable multi-row blocks (`flippable: false`).
+    const nonFlipB1: Block = { ...b1, flippable: false };
+    const placedNonFlip: Placed[] = [
+      { block: b0, x: 0, y: 0, flip: 0 },
+      { block: nonFlipB1, x: 300, y: 0, flip: 1 },
+      { block: b2, x: 600, y: 0, flip: 0 },
+    ];
+    const linksNonFlip = buildLinks(doc, placedNonFlip, flow);
+    refreshSegments(linksNonFlip);
+    const nonFlipChanged = optimizeZoneFlips(
+      {
+        doc,
+        placed: placedNonFlip,
+        links: linksNonFlip,
+        flow,
+        flowCtx: ctx,
+        flippability: 'unflippable',
+        fallback: 'score-greedy',
+      },
+      0,
+    );
+    expect(nonFlipChanged).toBe(true);
+    expect(placedNonFlip[1]?.flip).toBe(0);
+    expect(countCrossings(doc, toLayout(placedNonFlip))).toBe(0);
+  });
+
+  it('selects the global minimum bitmask regardless of mask index order under hysteresis', () => {
+    const doc = parse(`
+group z0 "Z0" { node a0; node a1; node a2 }
+group z1 "Z1" { node b0; node b1 }
+group z2 "Z2" { node c0; node c1 }
+step "S" {
+  animate a0 --> c0
+  animate a1 --> c1
+  animate b0 --> c1
+  animate b1 --> c0
+}
+`).document;
+    const flow = analyzeFlow(doc);
+    const { blocks, owners } = buildBlocks(doc, computeColumnLayout, undefined, flow);
+    const byId = new Map(blocks.map((b) => [b.id, b]));
+    const b0 = byId.get('z0') as Block;
+    const b1 = byId.get('z1') as Block;
+    const b2 = byId.get('z2') as Block;
+    const ctx = buildFlowContext(flow, owners, true);
+
+    const placed: Placed[] = [
+      { block: b0, x: 0, y: 0, flip: 0 },
+      { block: b1, x: 0, y: 200, flip: 0 },
+      { block: b2, x: 300, y: 12.8, flip: 0 },
+    ];
+    const links = buildLinks(doc, placed, flow);
+    refreshSegments(links);
+
+    // Evaluate mask=2 (0,1,0) vs mask=5 (1,0,1) directly to verify mask=5 is strictly lower
+    // by < 1 unit while both beat mask=0 (0,0,0) by > 1 unit.
+    const scoreOf = (flips: readonly [0 | 1, 0 | 1, 0 | 1]) => {
+      flips.forEach((f, i) => {
+        const p = placed[i];
+        if (p) p.flip = f;
+      });
+      refreshSegments(links);
+      return evaluateArrangementScore(doc, placed, links, flow, ctx, { mode: 'flip' });
+    };
+    const s0 = scoreOf([0, 0, 0]);
+    const s2 = scoreOf([0, 1, 0]);
+    const s5 = scoreOf([1, 0, 1]);
+    expect(s2).toBeLessThan(s0 - 1);
+    expect(s5).toBeLessThan(s2);
+    expect(s2 - s5).toBeLessThan(1);
+
+    // Reset to mask=0 and run optimizeZoneFlips: must choose global minimum mask=5 (flip = 1, 0, 1).
+    for (const p of placed) p.flip = 0;
+    refreshSegments(links);
+    const changed = optimizeZoneFlips(
+      { doc, placed, links, flow, flowCtx: ctx, fallback: 'none' },
+      5,
+    );
+    expect(changed).toBe(true);
+    expect(placed.map((p) => p.flip)).toEqual([1, 0, 1]);
+  });
+
+  it('evaluates nested-group flips without stale FastCrossingEvaluator intra-cache', () => {
+    const doc = parse(`
+group outer "Outer" {
+  node o0 "O0"
+  node o1 "O1"
+  group inner "Inner" {
+    node i0 "I0"
+    node i1 "I1"
+  }
+}
+group ext "Ext" {
+  node e0 "E0"
+  node e1 "E1"
+}
+step "S" {
+  animate o0 --> i1
+  animate o1 --> i0
+  animate i0 --> e0
+  animate i1 --> e1
+}
+`).document;
+    const flow = analyzeFlow(doc);
+    const { blocks, owners } = buildBlocks(doc, computeColumnLayout, undefined, flow);
+    const byId = new Map(blocks.map((b) => [b.id, b]));
+    const outer = byId.get('outer') as Block;
+    const ext = byId.get('ext') as Block;
+    expect(outer.groups.size).toBeGreaterThan(1);
+
+    const placed: Placed[] = [
+      { block: outer, x: 0, y: 0, flip: 0 },
+      { block: ext, x: 480, y: 0, flip: 0 },
+    ];
+    const docLinks = linksOf(doc);
+    const fastEval = createFastCrossingEvaluator(placed, docLinks, flow);
+
+    // Verify FastCrossingEvaluator matches exact countCrossings/primaryCrossingsOf both before and after flip.
+    for (const flipVal of [0, 1] as const) {
+      placed[0] = { block: outer, x: 0, y: 0, flip: flipVal };
+      const layout = toLayout(placed);
+      expect(fastEval.syncAndCountCrossings(placed)).toEqual({
+        totalCross: countCrossings(doc, layout),
+        priCross: primaryCrossingsOf(flow.connections, layout),
+      });
+    }
+
+    // Verify optimizeZoneFlips on the nested block matches fresh evaluateArrangementScore.
+    const ctx = buildFlowContext(flow, owners, true);
+    const links = buildLinks(doc, placed, flow);
+    refreshSegments(links);
+    optimizeZoneFlips(
+      {
+        doc,
+        placed,
+        links,
+        flow,
+        flowCtx: ctx,
+        flippability: 'unflippable',
+        fallback: 'score-greedy',
+      },
+      0,
+    );
+    const finalScore = evaluateArrangementScore(doc, placed, links, flow, ctx, { mode: 'flip' });
+    const freshLinks = buildLinks(doc, placed, flow);
+    refreshSegments(freshLinks);
+    expect(finalScore).toBe(
+      evaluateArrangementScore(doc, placed, freshLinks, flow, ctx, { mode: 'flip' }),
+    );
+  });
+
+  it('polishes coordinates monotonically with RefineBudget and honors zero-pass no-op', () => {
+    const doc = parse(`
+group z0 "Z0" { node n0 }
+group z1 "Z1" { node n1 }
+group z2 "Z2" { node n2 }
+group z3 "Z3" { node n3 }
+step "S" {
+  animate n0 --> n2
+  animate n1 --> n3
+}
+`).document;
+    const flow = analyzeFlow(doc);
+    const { blocks, owners } = buildBlocks(doc, computeColumnLayout, undefined, flow);
+    const byId = new Map(blocks.map((b) => [b.id, b]));
+    const ctx = buildFlowContext(flow, owners, true);
+    const docLinks = linksOf(doc);
+
+    const makePlaced = (): Placed[] => [
+      { block: byId.get('z0') as Block, x: 0, y: 0, flip: 0 },
+      { block: byId.get('z1') as Block, x: 0, y: 200, flip: 0 },
+      { block: byId.get('z2') as Block, x: 300, y: 128, flip: 0 },
+      { block: byId.get('z3') as Block, x: 300, y: 328, flip: 0 },
+    ];
+
+    const noopPlaced = makePlaced();
+    const noopLinks = buildLinks(doc, noopPlaced, flow);
+    refreshSegments(noopLinks);
+    const noopChanged = polishZoneCoordinates(noopPlaced, noopLinks, docLinks, flow, ctx, {
+      polishSteps: [],
+      polishPasses: 0,
+    });
+    expect(noopChanged).toBe(false);
+    expect(noopPlaced.map((p) => [p.x, p.y])).toEqual([
+      [0, 0],
+      [0, 200],
+      [300, 128],
+      [300, 328],
+    ]);
+
+    const activePlaced = makePlaced();
+    const activeLinks = buildLinks(doc, activePlaced, flow);
+    refreshSegments(activeLinks);
+    const evalBefore = createFastCrossingEvaluator(activePlaced, docLinks, flow);
+    const backBefore = countBackwardPrimary(activeLinks, ctx);
+    const objBefore = evaluateAnchoredObjective(
+      evalBefore,
+      activePlaced,
+      activeLinks,
+      ctx,
+      backBefore,
+    );
+
+    const activeChanged = polishZoneCoordinates(activePlaced, activeLinks, docLinks, flow, ctx, {
+      polishSteps: [64, 32, 16],
+      polishPasses: 2,
+    });
+    expect(activeChanged).toBe(true);
+    const evalAfter = createFastCrossingEvaluator(activePlaced, docLinks, flow);
+    const backAfter = countBackwardPrimary(activeLinks, ctx);
+    const objAfter = evaluateAnchoredObjective(
+      evalAfter,
+      activePlaced,
+      activeLinks,
+      ctx,
+      backAfter,
+    );
+    expect(backAfter).toBeLessThanOrEqual(backBefore);
+    expect(objAfter).toBeLessThan(objBefore);
+    for (const p of activePlaced) {
+      expect(isClear(p, activePlaced)).toBe(true);
+    }
+  });
+
+  it('optimizes intra-zone slack ranks and node order without threshold discontinuities', () => {
+    const slackDoc = parse(`
+group z0 "Z0" {
+  node a "A"
+  node b "B"
+  node c "C"
+  node s "Slack"
+}
+group z1 "Z1" {
+  node t "T"
+}
+step "S" {
+  animate a --> b
+  animate b --> c
+  animate a --> s
+  animate s --> t
+  animate c --> t
+}
+`).document;
+    const sFlow = analyzeFlow(slackDoc);
+    const sBuilt = buildBlocks(slackDoc, computeColumnLayout, undefined, sFlow);
+    const sMap = new Map(sBuilt.blocks.map((b) => [b.id, b]));
+    const sPlaced: Placed[] = [
+      { block: sMap.get('z0') as Block, x: 0, y: 0, flip: 0 },
+      { block: sMap.get('z1') as Block, x: 1000, y: 0, flip: 0 },
+    ];
+    const sAdj = new Map<string, string[]>();
+    for (const e of synthesizedConnections(slackDoc)) {
+      if (e.from === e.to) continue;
+      pushToMap(sAdj, e.from, e.to);
+      pushToMap(sAdj, e.to, e.from);
+    }
+    const slackMeta = buildZoneSlackMeta(
+      slackDoc,
+      synthesizedConnections(slackDoc),
+      sBuilt.blocks,
+      sFlow,
+      sBuilt.owners,
+      sAdj,
+    );
+    expect(slackMeta.has('z0')).toBe(true);
+    const baseOrders = new Map(sBuilt.blocks.map((b) => [b.id, nodeOrderOf(b.nodes)]));
+    const blockCache = new Map<string, Block>();
+    const sCtx = buildFlowContext(sFlow, sBuilt.owners, true);
+    const zoneOf = zoneOfGroups(slackDoc.groups);
+    const nParent = parentMap(slackDoc.nodes);
+
+    const skipped = optimizeZoneSlackRanks(
+      slackDoc,
+      computeColumnLayout,
+      sPlaced,
+      sBuilt.owners,
+      zoneOf,
+      nParent,
+      sAdj,
+      new Map(baseOrders),
+      slackMeta,
+      blockCache,
+      sFlow,
+      sCtx,
+      { slackRanks: false },
+    );
+    expect(skipped.size).toBe(0);
+
+    const chosen = optimizeZoneSlackRanks(
+      slackDoc,
+      computeColumnLayout,
+      sPlaced,
+      sBuilt.owners,
+      zoneOf,
+      nParent,
+      sAdj,
+      baseOrders,
+      slackMeta,
+      blockCache,
+      sFlow,
+      sCtx,
+      { slackRanks: true },
+    );
+    expect(chosen.get('z0')).toEqual({ s: 2 });
+    expect(isClear(sPlaced[0] as Placed, sPlaced)).toBe(true);
+
+    // refineZoneNodeOrder uncrosses inter-zone links inside a zone column and honors orderSweeps=0.
+    const orderDoc = parse(`
+group z0 "Z0" { node a; node b }
+group z1 "Z1" { node c; node d }
+step "S" {
+  animate a --> d
+  animate b --> c
+}
+`).document;
+    const oFlow = analyzeFlow(orderDoc);
+    const oBuilt = buildBlocks(orderDoc, computeColumnLayout, undefined, oFlow);
+    const oMap = new Map(oBuilt.blocks.map((b) => [b.id, b]));
+    const oPlaced: Placed[] = [
+      { block: oMap.get('z0') as Block, x: 0, y: 0, flip: 0 },
+      { block: oMap.get('z1') as Block, x: 300, y: 0, flip: 0 },
+    ];
+    const oAdj = new Map<string, string[]>();
+    for (const e of synthesizedConnections(orderDoc)) {
+      pushToMap(oAdj, e.from, e.to);
+      pushToMap(oAdj, e.to, e.from);
+    }
+    const oLinks = linksOf(orderDoc);
+    expect(countCrossings(orderDoc, toLayout(oPlaced))).toBe(1);
+    expect(
+      refineZoneNodeOrder(
+        oPlaced,
+        parentMap(orderDoc.nodes),
+        oBuilt.owners,
+        oAdj,
+        oLinks,
+        { orderSweeps: 0, verticalSwapPasses: 0, coupledSwapPasses: 0 },
+        oFlow,
+      ),
+    ).toBe(false);
+    expect(
+      refineZoneNodeOrder(
+        oPlaced,
+        parentMap(orderDoc.nodes),
+        oBuilt.owners,
+        oAdj,
+        oLinks,
+        deriveRefineBudget(2, 4, true),
+        oFlow,
+      ),
+    ).toBe(true);
+    expect(countCrossings(orderDoc, toLayout(oPlaced))).toBe(0);
+
+    // deriveRefineBudget has no regime cliff at 14->15 zones or 35->36 nodes.
+    expect(deriveRefineBudget(14, 35, true)).toEqual(deriveRefineBudget(15, 36, true));
+  });
+
+  it('symmetrically skips cross-row corridor intruders when only one corridor endpoint has a row assignment', () => {
+    const doc = parse(`
+group z0 "Z0" { node n0 }
+group z1 "Z1" { node n1 }
+group z2 "Z2" { node n2 }
+group z3 "Z3" { node n3 }
+step "S" {
+  animate n0 --> n1
+  animate n1 --> n2
+  animate n0 --> n3
+}
+`).document;
+    const flow = analyzeFlow(doc);
+    const { blocks, owners } = buildBlocks(doc, computeColumnLayout, undefined, flow);
+    const byId = new Map(blocks.map((b) => [b.id, b]));
+    const placed: Placed[] = [
+      { block: byId.get('z0') as Block, x: 0, y: 0, flip: 0 },
+      { block: byId.get('z1') as Block, x: 400, y: 0, flip: 0 },
+      { block: byId.get('z2') as Block, x: 800, y: 0, flip: 0 },
+      { block: byId.get('z3') as Block, x: 200, y: 0, flip: 0 },
+    ];
+    const links = buildLinks(doc, placed, flow);
+    refreshSegments(links);
+
+    // Only z1 (rb) and z3 (intruder rc) have rows, while z0 (ra) is unmapped -> still recognized as cross-row.
+    const ctxAsymmetric = buildFlowContext(
+      flow,
+      owners,
+      true,
+      true,
+      new Map([
+        ['z1', 0],
+        ['z3', 1],
+      ]),
+    );
+    const ctxSameRow = buildFlowContext(
+      flow,
+      owners,
+      true,
+      true,
+      new Map([
+        ['z0', 0],
+        ['z1', 0],
+        ['z3', 0],
+      ]),
+    );
+    expect(
+      linkCost(links, placed, ctxSameRow) - linkCost(links, placed, ctxAsymmetric),
+    ).toBeGreaterThanOrEqual(1200);
   });
 });

@@ -1,6 +1,6 @@
 import { synthesizedConnections } from '../model/connections';
-import type { DavConnection, DavDocument } from '../model/types';
-import { idPair, parentMap, topLevelGroups, zoneOfNodes } from '../model/zones';
+import type { DavConnection, DavDocument, Direction } from '../model/types';
+import { idPair, topLevelGroups, zoneOfNodes } from '../model/zones';
 import type { Rect } from './metrics';
 
 /** Behavioral role of a connection for flow-driven layout and quality scoring. */
@@ -10,6 +10,7 @@ export interface ClassifiedConnection {
   from: string;
   to: string;
   role: TransitionRole;
+  direction: Direction;
 }
 
 export interface FlowAnalysis {
@@ -27,40 +28,57 @@ export interface FlowAnalysis {
   auxiliaryZones: Set<string>;
   /** Directed `fromOwner->toOwner` keys where `primary` forward flow crosses from an upstream zone. */
   primaryZonePairs: Set<string>;
-  /** Earliest step index (`0..steps.length-1`) where each unordered node pair (`flowPairKey`) appears. */
+  /** Earliest connection-bearing step index (`0..activeStepCount-1`) where each unordered node pair (`flowPairKey`) appears. */
   pairFirstStep: ReadonlyMap<string, number>;
+  /** Number of steps that contain at least one valid inter-node connection. */
+  activeStepCount: number;
 }
 
 export const flowPairKey = (a: string, b: string): string => (a < b ? idPair(a, b) : idPair(b, a));
 
+/**
+ * Returns true when an auxiliary zone (`firstStep >= 2`) fires a `primary` alert back into a
+ * non-auxiliary zone at the same or earlier macro stage; treated as a return/feedback link.
+ */
+export function isLateAuxAlert(
+  conn: Pick<ClassifiedConnection, 'from' | 'to' | 'role'>,
+  flow: Pick<FlowAnalysis, 'auxiliaryZones' | 'pairFirstStep' | 'zoneStage'>,
+  owners: ReadonlyMap<string, string>,
+): boolean {
+  if (conn.role !== 'primary') return false;
+  const za = owners.get(conn.from) ?? conn.from;
+  const zb = owners.get(conn.to) ?? conn.to;
+  if (za === zb) return false;
+  const firstStep = flow.pairFirstStep.get(flowPairKey(conn.from, conn.to)) ?? 0;
+  return (
+    flow.auxiliaryZones.has(za) &&
+    !flow.auxiliaryZones.has(zb) &&
+    firstStep >= 2 &&
+    (flow.zoneStage.get(za) ?? 0) >= (flow.zoneStage.get(zb) ?? 0)
+  );
+}
+
+const compareId = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
 function blockOwnersOf(doc: Pick<DavDocument, 'groups' | 'nodes'>): {
   owners: Map<string, string>;
-  blockOrder: Map<string, number>;
+  blockIds: string[];
 } {
   const zoneOf = zoneOfNodes(doc);
   const topIds = new Set(topLevelGroups(doc.groups).map((g) => g.id));
   const owners = new Map<string, string>();
-  const blockOrder = new Map<string, number>();
+  const idSet = new Set<string>();
 
   for (const g of topLevelGroups(doc.groups)) {
-    if (!blockOrder.has(g.id)) blockOrder.set(g.id, blockOrder.size);
+    idSet.add(g.id);
   }
   for (const n of doc.nodes) {
     const z = zoneOf.get(n.id);
     const owner = z !== undefined && topIds.has(z) ? z : n.id;
     owners.set(n.id, owner);
-    if (!blockOrder.has(owner)) blockOrder.set(owner, blockOrder.size);
+    idSet.add(owner);
   }
-  // When running inside a detached single-zone subgraph where `parentMap` has only nested child groups:
-  if (topIds.size === 0 && doc.groups.length > 0) {
-    const groupParent = parentMap(doc.groups);
-    for (const g of doc.groups) {
-      if (!g.parentId && !groupParent.get(g.id) && !blockOrder.has(g.id)) {
-        blockOrder.set(g.id, blockOrder.size);
-      }
-    }
-  }
-  return { owners, blockOrder };
+  return { owners, blockIds: [...idSet].sort(compareId) };
 }
 
 function addAdj(adj: Map<string, Set<string>>, from: string, to: string): void {
@@ -114,9 +132,9 @@ export function primaryCorridors(
     const za = owners.get(c.from) ?? c.from;
     const zb = owners.get(c.to) ?? c.to;
     if (za === zb) continue;
+    if (flow.auxiliaryZones.has(za) || flow.auxiliaryZones.has(zb)) continue;
     const pk = flowPairKey(za, zb);
     if (!connected.has(pk)) connected.set(pk, [za, zb]);
-    if (flow.auxiliaryZones.has(za) || flow.auxiliaryZones.has(zb)) continue;
     if ((flow.zoneStage.get(za) ?? 0) < (flow.zoneStage.get(zb) ?? 0)) {
       addAdj(fwdZoneAdj, za, zb);
     }
@@ -144,9 +162,13 @@ export function primaryCorridors(
 export function countCorridorIntrusions(
   corridors: readonly PrimaryCorridor[],
   rects: ReadonlyMap<string, Pick<Rect, 'x' | 'y' | 'width' | 'height'>>,
+  rowOfBlock?: ReadonlyMap<string, number>,
 ): number {
   let intrusions = 0;
   for (const { a, b, allowed } of corridors) {
+    const rowA = rowOfBlock?.get(a);
+    const rowB = rowOfBlock?.get(b);
+    if (rowA !== undefined && rowB !== undefined && rowA !== rowB) continue;
     const ra = rects.get(a);
     const rb = rects.get(b);
     if (!ra || !rb) continue;
@@ -158,6 +180,15 @@ export function countCorridorIntrusions(
     const bandBot = Math.max(ra.y + ra.height, rb.y + rb.height);
     for (const [zc, rc] of rects) {
       if (zc === a || zc === b || allowed.has(zc)) continue;
+      if (rowOfBlock) {
+        const rowC = rowOfBlock.get(zc);
+        if (
+          rowC !== undefined &&
+          ((rowA !== undefined && rowC !== rowA) || (rowB !== undefined && rowC !== rowB))
+        ) {
+          continue;
+        }
+      }
       const cx = rc.x + rc.width / 2;
       if (cx > minX && cx < maxX && rc.y < bandBot && rc.y + rc.height > bandTop) {
         intrusions++;
@@ -176,7 +207,7 @@ export function analyzeFlow(
   connections: readonly DavConnection[] = synthesizedConnections(doc),
 ): FlowAnalysis {
   const known = new Set(doc.nodes.map((n) => n.id));
-  const { owners, blockOrder } = blockOwnersOf(doc);
+  const { owners, blockIds } = blockOwnersOf(doc);
 
   const connByPair = new Map<string, DavConnection>();
   for (const c of connections) {
@@ -198,12 +229,14 @@ export function analyzeFlow(
   const effectiveEntered = new Set<string>();
   const byPair = new Map<string, ClassifiedConnection>();
   const primaryEdges: Array<readonly [string, string]> = [];
+  const seenPrimaryEdges = new Set<string>();
   const pairFirstStep = new Map<string, number>();
   let hasAnimate = false;
 
   const recordStep = (from: string, to: string, stepIdx: number) => {
     if (from === to || !known.has(from) || !known.has(to)) return;
     const pk = flowPairKey(from, to);
+    if (!connByPair.has(pk)) return;
     if (!pairFirstStep.has(pk)) pairFirstStep.set(pk, stepIdx);
   };
 
@@ -242,8 +275,9 @@ export function analyzeFlow(
     }
   };
 
-  const acceptPrimary = (src: string, dst: string) => {
+  const acceptPrimary = (src: string, dst: string, direction: Direction) => {
     const key = flowPairKey(src, dst);
+    if (byPair.has(key)) return;
     if (returnReached.has(src)) returnReached.add(dst);
     else returnReached.delete(dst);
     addAdj(nodeAdj, src, dst);
@@ -256,18 +290,27 @@ export function analyzeFlow(
     }
     markEntered(src);
     markEntered(dst);
-    if (!byPair.has(key)) byPair.set(key, { from: src, to: dst, role: 'primary' });
-    primaryEdges.push([src, dst]);
+    byPair.set(key, { from: src, to: dst, role: 'primary', direction });
+    const edgeKey = idPair(src, dst);
+    if (!seenPrimaryEdges.has(edgeKey)) {
+      seenPrimaryEdges.add(edgeKey);
+      primaryEdges.push([src, dst]);
+    }
   };
 
-  for (let stepIdx = 0; stepIdx < doc.steps.length; stepIdx++) {
-    const step = doc.steps[stepIdx];
-    if (!step) continue;
+  let activeStepCount = 0;
+  for (const step of doc.steps) {
+    const hasStepConn =
+      step.statics.some((s) => s.from !== s.to && connByPair.has(flowPairKey(s.from, s.to))) ||
+      step.animations.some((a) => a.from !== a.to && connByPair.has(flowPairKey(a.from, a.to)));
+    if (!hasStepConn) continue;
+    const stepIdx = activeStepCount++;
     const stepStaticSources: string[] = [];
     for (const s of step.statics) {
       recordStep(s.from, s.to, stepIdx);
       if (s.from === s.to || s.direction !== 'forward') continue;
       if (!known.has(s.from) || !known.has(s.to)) continue;
+      if (!connByPair.has(flowPairKey(s.from, s.to))) continue;
       const list = pendingStatics.get(s.from);
       if (list) list.push(s.to);
       else pendingStatics.set(s.from, [s.to]);
@@ -283,6 +326,7 @@ export function analyzeFlow(
       if (!connByPair.has(key)) continue;
       recordStep(a.from, a.to, stepIdx);
       hasAnimate = true;
+      if (byPair.has(key)) continue;
 
       if (a.direction === 'bidirectional') {
         const zu = owners.get(a.from);
@@ -312,10 +356,10 @@ export function analyzeFlow(
           enteredZones.has(dz) &&
           canReach(effectiveZoneAdj, dz, sz);
         if (closesNode || closesZone) {
-          if (!byPair.has(key)) byPair.set(key, { from: a.from, to: a.to, role: 'return' });
+          byPair.set(key, { from: a.from, to: a.to, role: 'return', direction: 'bidirectional' });
           if (!enteredSeq.has(dst)) returnReached.add(dst);
         } else {
-          acceptPrimary(src, dst);
+          acceptPrimary(src, dst, 'bidirectional');
         }
         continue;
       }
@@ -332,10 +376,10 @@ export function analyzeFlow(
       const returnCont = returnReached.has(a.from) && enteredSeq.has(a.to);
 
       if (closesNodeCycle || closesZoneCycle || returnCont) {
-        if (!byPair.has(key)) byPair.set(key, { from: a.from, to: a.to, role: 'return' });
+        byPair.set(key, { from: a.from, to: a.to, role: 'return', direction: 'forward' });
         if (!enteredSeq.has(a.to)) returnReached.add(a.to);
       } else {
-        acceptPrimary(a.from, a.to);
+        acceptPrimary(a.from, a.to, 'forward');
       }
     }
   }
@@ -344,7 +388,12 @@ export function analyzeFlow(
   const staticConnections: ClassifiedConnection[] = [];
   for (const [key, conn] of connByPair) {
     if (byPair.has(key)) continue;
-    const classified: ClassifiedConnection = { from: conn.from, to: conn.to, role: 'static' };
+    const classified: ClassifiedConnection = {
+      from: conn.from,
+      to: conn.to,
+      role: 'static',
+      direction: conn.direction,
+    };
     byPair.set(key, classified);
     staticConnections.push(classified);
   }
@@ -372,10 +421,11 @@ export function analyzeFlow(
     allClassified,
     connByPair,
     owners,
-    blockOrder,
+    blockIds,
     zoneAdj,
     hasAnimate,
     pairFirstStep,
+    activeStepCount,
   );
 
   return {
@@ -387,6 +437,7 @@ export function analyzeFlow(
     auxiliaryZones,
     primaryZonePairs,
     pairFirstStep,
+    activeStepCount,
   };
 }
 
@@ -395,17 +446,17 @@ function computeMacroZones(
   classified: readonly ClassifiedConnection[],
   connByPair: ReadonlyMap<string, DavConnection>,
   owners: ReadonlyMap<string, string>,
-  blockOrder: ReadonlyMap<string, number>,
+  blockIds: readonly string[],
   chronZoneAdj: ReadonlyMap<string, ReadonlySet<string>>,
   hasAnimate: boolean,
   pairFirstStep: ReadonlyMap<string, number>,
+  activeStepCount: number,
 ): {
   zoneStage: Map<string, number>;
   auxiliaryZones: Set<string>;
   primaryZonePairs: Set<string>;
 } {
   const topIds = new Set(topLevelGroups(doc.groups).map((g) => g.id));
-  const blockIds = [...blockOrder.keys()];
   const primaryInter = new Map<string, number>();
   const primaryDegree = new Map<string, number>(blockIds.map((id) => [id, 0]));
   const neighbors = new Map<string, Set<string>>(blockIds.map((id) => [id, new Set()]));
@@ -416,9 +467,9 @@ function computeMacroZones(
     zoneNodeCount.set(owner, (zoneNodeCount.get(owner) ?? 0) + 1);
   }
 
-  // Decay late-step additions symmetrically on multi-step diagrams (weight = 1 when steps <= 3)
+  // Decay late-step additions symmetrically on multi-step diagrams (weight = 1 when active steps <= 3)
   // so late cross-cutting links cannot flip earlier-established auxiliary roles or stages.
-  const multiStep = doc.steps.length >= 4;
+  const multiStep = activeStepCount >= 4;
   const stepDecay = (fs: number): number => (multiStep ? 1 / (1 + 0.12 * Math.max(0, fs - 2)) : 1);
 
   // Also count `return` inter-zone connections toward animate vs static share without voting stage direction,
@@ -480,6 +531,14 @@ function computeMacroZones(
         auxiliaryZones.add(id);
       }
     }
+    if (auxiliaryZones.size > 0) {
+      const nonAuxConnected = blockIds.filter(
+        (id) => (neighbors.get(id)?.size ?? 0) > 0 && !auxiliaryZones.has(id),
+      ).length;
+      if (primaryInter.size === 0 || nonAuxConnected < 2) {
+        auxiliaryZones.clear();
+      }
+    }
   }
 
   // Undirected primary connectivity among non-auxiliary blocks: static-only cross links inside an
@@ -535,9 +594,6 @@ function computeMacroZones(
         if (chronRev && !chronFwd) {
           winnerFrom = bv;
           winnerTo = bu;
-        } else if (!chronFwd && (blockOrder.get(bv) ?? 0) < (blockOrder.get(bu) ?? 0)) {
-          winnerFrom = bv;
-          winnerTo = bu;
         }
       }
       // Keep non-auxiliary early-established primary backbone edges highest priority.
@@ -546,9 +602,7 @@ function computeMacroZones(
       pairMargin.push({ a: winnerFrom, b: winnerTo, weight, primary: hasPri && !auxA && !auxB });
     }
   }
-  pairMargin.sort(
-    (x, y) => y.weight - x.weight || (blockOrder.get(x.a) ?? 0) - (blockOrder.get(y.a) ?? 0),
-  );
+  pairMargin.sort((x, y) => y.weight - x.weight || compareId(x.a, y.a) || compareId(x.b, y.b));
 
   const dag = new Map<string, string[]>(blockIds.map((id) => [id, []]));
   const reachMap = new Map<string, Set<string>>(blockIds.map((id) => [id, new Set()]));
@@ -584,6 +638,7 @@ function computeMacroZones(
   }
 
   // Infer downstream stage for 1-neighbor terminal blocks attached only via unoriented bidirectional `static` links.
+  const baseStage = new Map(zoneStage);
   for (const id of primaryIds) {
     if ((indeg.get(id) ?? 0) !== 0 || (dag.get(id)?.length ?? 0) !== 0) continue;
     const nbrs = neighbors.get(id);
@@ -591,11 +646,8 @@ function computeMacroZones(
     if (nbrs.size !== 1) continue;
     const [onlyNbr] = nbrs;
     if (!onlyNbr || auxiliaryZones.has(onlyNbr)) continue;
-    if (
-      (zoneStage.get(onlyNbr) ?? 0) > 0 ||
-      (blockOrder.get(onlyNbr) ?? 0) < (blockOrder.get(id) ?? 0)
-    ) {
-      zoneStage.set(id, (zoneStage.get(onlyNbr) ?? 0) + 1);
+    if ((baseStage.get(onlyNbr) ?? 0) > 0 || compareId(onlyNbr, id) < 0) {
+      zoneStage.set(id, (baseStage.get(onlyNbr) ?? 0) + 1);
     }
   }
 

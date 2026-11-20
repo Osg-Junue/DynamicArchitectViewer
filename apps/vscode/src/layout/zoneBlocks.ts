@@ -45,7 +45,7 @@ export type ZonePlacement = ReadonlyMap<
     x: number;
     y: number;
     flip: 0 | 1;
-    /** The nodes of the zone from top to bottom, where the search changed their order. */
+    /** Node IDs ordered by unflipped local Y (applied per parent and column before flip), when refined from base order. */
     order?: readonly string[];
     /** The columns of the nodes the search moved to a later column than their edges give. */
     ranks?: Readonly<Record<string, number>>;
@@ -59,6 +59,8 @@ export interface Block {
   height: number;
   head: number;
   contentHeight: number;
+  loopRoom: number;
+  nodeLoopRoom: ReadonlyMap<string, number>;
   flippable: boolean;
   nodes: Map<string, Rect>;
   /** The zone's own frame first, then the groups nested in it. */
@@ -94,25 +96,69 @@ export function longLinkExcess(doc: DavDocument, layout: Layout): number {
   return excess;
 }
 
+function flowStructureSnapshot(doc: DavDocument, connections = synthesizedConnections(doc)) {
+  const flow = analyzeFlow(doc, connections);
+  const sortedFirstSteps = [...flow.pairFirstStep.entries()].sort((a, b) =>
+    a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0,
+  );
+  return [
+    connections.filter((c) => c.from !== c.to).map((c) => [c.from, c.to]),
+    flow.connections.map((c) => [c.from, c.to, c.role, c.direction]),
+    flow.forwardEdges,
+    [...flow.zoneStage.entries()],
+    [...flow.auxiliaryZones],
+    [flow.activeStepCount >= 4, ...sortedFirstSteps],
+  ];
+}
+
 /** Everything the placement of the zones depends on, so other edits can reuse the last one. */
 export function structureKey(doc: DavDocument): string {
   const connections = synthesizedConnections(doc);
-  const flow = analyzeFlow(doc, connections);
-  const dirByPair = new Map(connections.map((c) => [pairKey(c.from, c.to), c.direction]));
   const selfLoops = [
     ...new Set(connections.filter((c) => c.from === c.to).map((c) => c.from)),
   ].sort();
+  const connDoc = connectedSubdoc(doc);
   return JSON.stringify([
     doc.nodes.map((n) => [n.id, n.parentId ?? '']),
     doc.groups.map((g) => [g.id, g.parentId ?? '']),
-    flow.connections.map((c) => [
-      c.from,
-      c.to,
-      c.role,
-      c.role === 'static' ? (dirByPair.get(pairKey(c.from, c.to)) ?? 'forward') : '',
-    ]),
     selfLoops,
+    flowStructureSnapshot(doc, connections),
+    ...(connDoc === doc ? [] : [flowStructureSnapshot(connDoc)]),
   ]);
+}
+
+/**
+ * Extracts the connected top-level subgraph when `doc` mixes inter-zone connected blocks with
+ * `deg === 0` isolated blocks, so isolated internal edges never perturb connected flow analysis.
+ */
+export function connectedSubdoc(doc: DavDocument): DavDocument {
+  const owners = ownersOf(doc);
+  const known = new Set(doc.nodes.map((n) => n.id));
+  const connectedIds = new Set<string>();
+  for (const c of synthesizedConnections(doc)) {
+    if (c.from === c.to || !known.has(c.from) || !known.has(c.to)) continue;
+    const bu = owners.get(c.from) ?? c.from;
+    const bv = owners.get(c.to) ?? c.to;
+    if (bu !== bv) {
+      connectedIds.add(bu);
+      connectedIds.add(bv);
+    }
+  }
+  if (connectedIds.size === 0) return doc;
+  const allGroupsConnected = topLevelGroups(doc.groups).every((g) => connectedIds.has(g.id));
+  const allNodesConnected = doc.nodes.every((n) => connectedIds.has(owners.get(n.id) ?? n.id));
+  if (allGroupsConnected && allNodesConnected) return doc;
+
+  const zoneOf = zoneOfGroups(doc.groups);
+  const groups = doc.groups.filter((g) => connectedIds.has(zoneOf.get(g.id) ?? g.id));
+  const nodes = doc.nodes.filter((n) => connectedIds.has(owners.get(n.id) ?? n.id));
+  const keptNodes = new Set(nodes.map((n) => n.id));
+  const steps = doc.steps.map((s) => ({
+    ...s,
+    animations: s.animations.filter((a) => keptNodes.has(a.from) && keptNodes.has(a.to)),
+    statics: s.statics.filter((st) => keptNodes.has(st.from) && keptNodes.has(st.to)),
+  }));
+  return { ...doc, groups, nodes, steps };
 }
 
 /** The same diagram without `static` labels so typing a label cannot invalidate cached placement. */
@@ -296,6 +342,7 @@ export function intraZoneFlow(
     auxiliaryZones: new Set(),
     primaryZonePairs: new Set(),
     pairFirstStep: new Map(),
+    activeStepCount: 0,
   };
 }
 
@@ -321,7 +368,8 @@ export function buildSingleZoneBlock(
     animations: s.animations.filter((a) => ids.has(a.from) && ids.has(a.to)),
     statics: s.statics.filter((st) => ids.has(st.from) && ids.has(st.to)),
   }));
-  const loopRoom = Math.max(0, ...selfLoopRoom({ steps: loopSteps }).values());
+  const nodeLoopRoom = selfLoopRoom({ steps: loopSteps });
+  const loopRoom = Math.max(0, ...nodeLoopRoom.values());
   const head = GROUP_HEADER + pad + loopRoom;
   const frame = (width: number, height: number): [string, Rect] => [
     zoneId,
@@ -340,6 +388,8 @@ export function buildSingleZoneBlock(
       height,
       head,
       contentHeight: EMPTY_GROUP_CONTENT.height,
+      loopRoom,
+      nodeLoopRoom,
       flippable: false,
       nodes: new Map(),
       groups: groupsMap,
@@ -378,6 +428,8 @@ export function buildSingleZoneBlock(
     height,
     head,
     contentHeight,
+    loopRoom,
+    nodeLoopRoom,
     flippable: loopRoom === 0 && nested.length === 0,
     nodes: nodesMap,
     groups: groupsMap,
@@ -394,9 +446,16 @@ export function buildBlocks(
 ): { blocks: Block[]; owners: Map<string, string> } {
   const zoneOf = zoneOfGroups(doc.groups);
   const owners = ownersOf(doc);
+  const docLoops = selfLoopRoom(doc);
+  const connDoc = connectedSubdoc(doc);
+  const connZoneIds =
+    connDoc === doc ? null : new Set(topLevelGroups(connDoc.groups).map((g) => g.id));
+  const connFlow =
+    connDoc === doc ? docFlow : analyzeFlow(connDoc, synthesizedConnections(connDoc));
 
   const blocks: Block[] = [];
   for (const zone of topLevelGroups(doc.groups)) {
+    const zFlow = connZoneIds === null || connZoneIds.has(zone.id) ? connFlow : docFlow;
     blocks.push(
       buildSingleZoneBlock(
         doc,
@@ -405,19 +464,22 @@ export function buildBlocks(
         ranksByZone?.get(zone.id),
         zoneOf,
         owners,
-        docFlow,
+        zFlow,
       ),
     );
   }
   for (const n of doc.nodes) {
     if (owners.get(n.id) !== n.id) continue;
     const { width, height } = NODE_SIZE;
+    const loopRoom = docLoops.get(n.id) ?? 0;
     blocks.push({
       id: n.id,
       width,
       height,
       head: 0,
       contentHeight: height,
+      loopRoom,
+      nodeLoopRoom: loopRoom > 0 ? new Map([[n.id, loopRoom]]) : new Map(),
       flippable: false,
       nodes: new Map([[n.id, { x: 0, y: 0, width, height }]]),
       groups: new Map(),
@@ -466,7 +528,7 @@ export function partitionIsolatedBlocks(
 }
 
 /**
- * Places `deg === 0` isolated blocks deterministically in alphabetical `id` order in a row below
+ * Places `deg === 0` isolated blocks deterministically in alphabetical `id` order in rows below
  * `connectedPlaced`'s final `maxY + ROW_GAP` (starting at `minX` so connected coordinates stay exact).
  */
 export function placeIsolatedBlocks(
@@ -476,7 +538,7 @@ export function placeIsolatedBlocks(
   if (isolated.length === 0) return [];
   const sorted = [...isolated].sort((a, b) => compareBlockId(a.id, b.id));
   let startX = 0;
-  let y = 0;
+  let rowBaseY = 0;
   let rowLimit = 1800;
   if (connectedPlaced.length > 0) {
     let minX = Number.POSITIVE_INFINITY;
@@ -488,24 +550,23 @@ export function placeIsolatedBlocks(
       maxY = Math.max(maxY, p.y + p.block.height);
     }
     startX = minX;
-    y = maxY + ROW_GAP;
+    rowBaseY = maxY + ROW_GAP;
     rowLimit = Math.max(1800, maxX - minX);
   }
   const out: Placed[] = [];
   let x = startX;
-  let rowH = 0;
-  let countInRow = 0;
-  for (const block of sorted) {
-    if (countInRow > 0 && x - startX + block.width > rowLimit) {
-      y += rowH + ROW_GAP;
+  let rowBottom = rowBaseY;
+  for (const b of sorted) {
+    if (x > startX && x + b.width > startX + rowLimit) {
       x = startX;
-      rowH = 0;
-      countInRow = 0;
+      rowBaseY = rowBottom + ROW_GAP;
+      rowBottom = rowBaseY;
     }
-    out.push({ block, x, y, flip: 0 });
-    x += block.width + HORIZONTAL_CLEARANCE;
-    rowH = Math.max(rowH, block.height);
-    countInRow++;
+    const extraTop = b.groups.size === 0 ? b.loopRoom : 0;
+    const blockY = rowBaseY + extraTop;
+    out.push({ block: b, x, y: blockY, flip: 0 });
+    rowBottom = Math.max(rowBottom, blockY + b.height);
+    x += b.width + HORIZONTAL_CLEARANCE;
   }
   return out;
 }
@@ -525,7 +586,9 @@ export function stageColumns(
     (a, b) => a - b,
   );
   const columns = stageNumbers.map((stage) =>
-    primary.filter((b) => (flow.zoneStage.get(b.id) ?? 0) === stage),
+    primary
+      .filter((b) => (flow.zoneStage.get(b.id) ?? 0) === stage)
+      .sort((a, b) => compareBlockId(a.id, b.id)),
   );
   return { primary, auxiliary, columns };
 }
@@ -536,8 +599,15 @@ export function stageColumns(
  */
 export function shouldPreserveFlow(blocks: readonly Block[], flow: FlowAnalysis): boolean {
   if (!flow.hasAnimate) return false;
-  const { connected } = partitionIsolatedBlocks(blocks, flow);
+  const { connected, isolated } = partitionIsolatedBlocks(blocks, flow);
   if (connected.length === 0) return false;
+  if (isolated.length > 0) {
+    const connNodes = new Set(connected.flatMap((b) => [...b.nodes.keys()]));
+    const connHasAnimate = flow.connections.some(
+      (c) => c.role !== 'static' && connNodes.has(c.from) && connNodes.has(c.to),
+    );
+    if (!connHasAnimate) return false;
+  }
   const { auxiliary, columns } = stageColumns(connected, flow);
   if (columns.length === 0) return true;
   const maxWidthOfCols = columns.reduce(
@@ -556,7 +626,206 @@ export function shouldPreserveFlow(blocks: readonly Block[], flow: FlowAnalysis)
       ? Math.max(...auxiliary.map((b) => b.height)) + VERTICAL_CLEARANCE + 24
       : 0;
   const stagedHeight = tallestPrimary + auxExtra;
-  return maxWidthOfCols / Math.max(1, stagedHeight) <= 10;
+  const maxAspect = columns.length <= 3 ? 16 : 10;
+  return maxWidthOfCols / Math.max(1, stagedHeight) <= maxAspect;
+}
+
+const MACRO_TARGET_ASPECT = 1.6;
+
+export interface MacroGrid {
+  rows: Block[][][];
+  wrapped: boolean;
+  auxiliary: Block[];
+  rowOfBlock: Map<string, number>;
+}
+
+export interface AuxiliaryBandEntry {
+  placed: Placed;
+  cx: number;
+  maxRight: number;
+}
+
+export interface AuxiliaryPlacementOptions {
+  auxMode?: 'bands' | 'right-top';
+  cols?: readonly (readonly Block[])[];
+  rowFracOf?: ReadonlyMap<string, number>;
+  sideMode?: 'stationY' | 'rowFrac';
+  clampMaxSource?: boolean;
+  decayStatic?: boolean;
+}
+
+function hasBlockClearance(
+  a: Placed,
+  placed: readonly Placed[],
+  horizontalClearance = HORIZONTAL_CLEARANCE,
+): boolean {
+  for (const b of placed) {
+    if (b === a) continue;
+    if (
+      a.x < b.x + b.block.width + horizontalClearance &&
+      b.x < a.x + a.block.width + horizontalClearance &&
+      a.y < b.y + b.block.height + VERTICAL_CLEARANCE &&
+      b.y < a.y + a.block.height + VERTICAL_CLEARANCE
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function deriveBlockOwners(
+  columns: readonly (readonly Block[])[],
+  owners?: ReadonlyMap<string, string>,
+): ReadonlyMap<string, string> {
+  if (owners) return owners;
+  const derived = new Map<string, string>();
+  for (const col of columns) {
+    for (const b of col) {
+      for (const nodeId of b.nodes.keys()) derived.set(nodeId, b.id);
+    }
+  }
+  return derived;
+}
+
+function splitTallStaticColumns(
+  columns: readonly (readonly Block[])[],
+  flow: FlowAnalysis,
+  owners?: ReadonlyMap<string, string>,
+): Block[][] {
+  if (flow.hasAnimate || !columns.some((col) => col.length >= 4)) {
+    return columns.map((col) => [...col]);
+  }
+  const ownerOf = deriveBlockOwners(columns, owners);
+  const interDegree = new Map<string, number>();
+  for (const c of flow.connections) {
+    const bu = ownerOf.get(c.from) ?? c.from;
+    const bv = ownerOf.get(c.to) ?? c.to;
+    if (bu === bv) continue;
+    interDegree.set(bu, (interDegree.get(bu) ?? 0) + 1);
+    interDegree.set(bv, (interDegree.get(bv) ?? 0) + 1);
+  }
+  const colHeight = (col: readonly Block[]) =>
+    col.reduce((s, b) => s + b.height, 0) + Math.max(0, col.length - 1) * ROW_GAP;
+  const colWidth = (col: readonly Block[]) =>
+    col.length === 0 ? 0 : Math.max(...col.map((b) => b.width));
+  const otherCols = columns.filter((col) => col.length < 4);
+  const baseOtherW = otherCols.reduce((s, col) => s + colWidth(col) + COLUMN_GAP, 0);
+  const baseOtherH = Math.max(0, ...otherCols.map(colHeight));
+
+  const chunkEvenly = (items: readonly Block[], k: number): Block[][] => {
+    const chunks: Block[][] = [];
+    const base = Math.floor(items.length / k);
+    const rem = items.length % k;
+    let offset = 0;
+    for (let i = 0; i < k; i++) {
+      const size = base + (i < rem ? 1 : 0);
+      chunks.push(items.slice(offset, offset + size));
+      offset += size;
+    }
+    return chunks;
+  };
+
+  const expanded: Block[][] = [];
+  for (const col of columns) {
+    if (col.length < 4) {
+      expanded.push([...col]);
+      continue;
+    }
+    const sorted = [...col].sort(
+      (a, b) =>
+        (interDegree.get(b.id) ?? 0) - (interDegree.get(a.id) ?? 0) ||
+        b.nodes.size - a.nodes.size ||
+        compareBlockId(a.id, b.id),
+    );
+    const maxK = Math.min(sorted.length, Math.max(2, Math.ceil(Math.sqrt(sorted.length)) + 1));
+    let bestChunks = chunkEvenly(sorted, 2);
+    let bestAspectErr = Number.POSITIVE_INFINITY;
+    for (let k = 2; k <= maxK; k++) {
+      const chunks = chunkEvenly(sorted, k);
+      const w =
+        baseOtherW +
+        chunks.reduce((s, ch) => s + colWidth(ch), Math.max(0, chunks.length - 1) * COLUMN_GAP);
+      const h = Math.max(baseOtherH, ...chunks.map(colHeight));
+      const err = Math.abs(Math.log(Math.max(0.01, w / Math.max(1, h)) / MACRO_TARGET_ASPECT));
+      if (err < bestAspectErr - 1e-9) {
+        bestAspectErr = err;
+        bestChunks = chunks;
+      }
+    }
+    expanded.push(...bestChunks);
+  }
+  return expanded;
+}
+
+/**
+ * Packs stage columns left-to-right across wrapped horizontal rows, splitting tall static-only
+ * columns (`>= 4` stacked blocks) first so non-flow clusters form balanced grids.
+ */
+export function wrapStageColumns(
+  columns: readonly (readonly Block[])[],
+  flow: FlowAnalysis,
+  owners?: ReadonlyMap<string, string>,
+): Block[][][] {
+  if (columns.length === 0) return [];
+  const packedCols = splitTallStaticColumns(columns, flow, owners);
+  const maxWidthOfCols = packedCols.reduce(
+    (sum, col) => sum + (col.length === 0 ? 0 : Math.max(...col.map((b) => b.width))),
+    Math.max(0, packedCols.length - 1) * COLUMN_GAP,
+  );
+  const colHeights = packedCols.map(
+    (col) => col.reduce((s, b) => s + b.height, 0) + Math.max(0, col.length - 1) * ROW_GAP,
+  );
+  const avgRowH =
+    colHeights.reduce((s, h) => s + h, 0) / Math.max(1, packedCols.length) +
+    VERTICAL_CLEARANCE +
+    24;
+  const rowWidthTarget = Math.max(1600, Math.sqrt(maxWidthOfCols * 3.0 * avgRowH));
+  const rows: Block[][][] = [[]];
+  let curW = 0;
+  for (const col of packedCols) {
+    if (col.length === 0) continue;
+    const colW = Math.max(...col.map((b) => b.width));
+    const curRow = rows[rows.length - 1] as Block[][];
+    if (curRow.length > 0 && curW + COLUMN_GAP + colW > rowWidthTarget) {
+      rows.push([col]);
+      curW = colW;
+    } else {
+      if (curRow.length > 0) curW += COLUMN_GAP;
+      curRow.push(col);
+      curW += colW;
+    }
+  }
+  return rows.filter((r) => r.length > 0);
+}
+
+/**
+ * Prepares the macro row/column grid for connected blocks, preserving single-row stage columns
+ * when `shouldPreserveFlow` holds and wrapping static/ultra-wide chains into `rows` otherwise.
+ */
+export function prepareMacroGrid(
+  connected: readonly Block[],
+  flow: FlowAnalysis,
+  owners?: ReadonlyMap<string, string>,
+): MacroGrid {
+  if (connected.length === 0) {
+    return { rows: [], wrapped: false, auxiliary: [], rowOfBlock: new Map() };
+  }
+  const { auxiliary, columns } = stageColumns(connected, flow);
+  const rowOfBlock = new Map<string, number>();
+  if (shouldPreserveFlow(connected, flow)) {
+    const rows = columns.length > 0 ? [columns] : [];
+    for (const col of columns) {
+      for (const b of col) rowOfBlock.set(b.id, 0);
+    }
+    return { rows, wrapped: false, auxiliary, rowOfBlock };
+  }
+  const rows = wrapStageColumns(columns, flow, owners);
+  rows.forEach((rowCols, rowIdx) => {
+    for (const col of rowCols) {
+      for (const b of col) rowOfBlock.set(b.id, rowIdx);
+    }
+  });
+  return { rows, wrapped: true, auxiliary, rowOfBlock };
 }
 
 /**
@@ -568,7 +837,6 @@ export function initialPositions(
   doc: DavDocument,
   blocks: readonly Block[],
   owners: ReadonlyMap<string, string>,
-  _columnLayout: ColumnLayout,
   flow: FlowAnalysis = analyzeFlow(doc),
 ): Map<string, { x: number; y: number }> {
   const { connected, isolated } = partitionIsolatedBlocks(blocks, flow, owners);
@@ -578,33 +846,15 @@ export function initialPositions(
     return out;
   }
 
+  const connDoc = isolated.length > 0 ? connectedSubdoc(doc) : doc;
+  const connFlow = connDoc === doc ? flow : analyzeFlow(connDoc);
   const blockById = new Map(connected.map((b) => [b.id, b]));
-  const { auxiliary, columns } = stageColumns(connected, flow);
+  const grid = prepareMacroGrid(connected, connFlow, owners);
+  const primaryPlaced: Placed[] = [];
 
-  // Check if primary columns form an ultra-wide synthetic strip; wrap rows only when needed.
-  const maxWidthOfCols = columns.reduce(
-    (sum, col) => sum + Math.max(...col.map((b) => b.width)),
-    Math.max(0, columns.length - 1) * COLUMN_GAP,
-  );
-  if (!shouldPreserveFlow(connected, flow)) {
-    // Wrap long chains cleanly left-to-right across 2..3 horizontal bands.
-    const rowWidthTarget = Math.max(1600, maxWidthOfCols / Math.ceil(columns.length / 4));
-    const rows: Block[][][] = [[]];
-    let curW = 0;
-    for (const col of columns) {
-      const colW = Math.max(...col.map((b) => b.width));
-      const curRow = rows[rows.length - 1] as Block[][];
-      if (curRow.length > 0 && curW + COLUMN_GAP + colW > rowWidthTarget) {
-        rows.push([col]);
-        curW = colW;
-      } else {
-        if (curRow.length > 0) curW += COLUMN_GAP;
-        curRow.push(col);
-        curW += colW;
-      }
-    }
+  if (grid.wrapped) {
     let rowY = 0;
-    for (const rowCols of rows) {
+    for (const rowCols of grid.rows) {
       const colHeights = rowCols.map(
         (col) => col.reduce((s, b) => s + b.height, 0) + Math.max(0, col.length - 1) * ROW_GAP,
       );
@@ -614,17 +864,18 @@ export function initialPositions(
         let y = rowY + (rowH - (colHeights[ci] ?? 0)) / 2;
         for (const b of col) {
           out.set(b.id, { x, y });
+          primaryPlaced.push({ block: b, x, y, flip: 0 });
           y += b.height + ROW_GAP;
         }
         x += Math.max(...col.map((b) => b.width)) + COLUMN_GAP;
       });
       rowY += rowH + VERTICAL_CLEARANCE + 24;
     }
-    placeAuxiliaryBlocks(auxiliary, blockById, owners, flow, out);
   } else {
+    const columns = grid.rows[0] ?? [];
     // Build neighbor lookup to order stacked zones within a stage near their connected neighbors.
     const predOwners = new Map<string, string[]>();
-    for (const c of flow.connections) {
+    for (const c of connFlow.connections) {
       if (c.role === 'return') continue;
       const bu = owners.get(c.from);
       const bv = owners.get(c.to);
@@ -650,17 +901,22 @@ export function initialPositions(
             ? ys.reduce((s, v) => s + v, 0) / ys.length
             : Number.POSITIVE_INFINITY;
         };
-        return meanY(a.id) - meanY(b.id) || blocks.indexOf(a) - blocks.indexOf(b);
+        return meanY(a.id) - meanY(b.id) || compareBlockId(a.id, b.id);
       });
       let y = (tallest - heightOf(column)) / 2;
       for (const b of column) {
         out.set(b.id, { x, y });
+        primaryPlaced.push({ block: b, x, y, flip: 0 });
         y += b.height + ROW_GAP;
       }
       x += Math.max(...column.map((b) => b.width)) + STAGE_GAP;
     }
+  }
 
-    placeAuxiliaryBlocks(auxiliary, blockById, owners, flow, out);
+  if (grid.auxiliary.length > 0) {
+    const auxPlaced: Placed[] = grid.auxiliary.map((block) => ({ block, x: 0, y: 0, flip: 0 }));
+    placeAuxiliaryBlocks(auxPlaced, primaryPlaced, owners, connFlow);
+    for (const p of auxPlaced) out.set(p.block.id, { x: p.x, y: p.y });
   }
 
   if (isolated.length > 0) {
@@ -675,122 +931,280 @@ export function initialPositions(
   return out;
 }
 
-function placeAuxiliaryBlocks(
-  auxiliary: readonly Block[],
-  blockById: ReadonlyMap<string, Block>,
+/** Packs one auxiliary band row-by-row above or below the primary stage extent. */
+export function placeAuxiliaryBand(
+  band: readonly AuxiliaryBandEntry[],
+  isAbove: boolean,
+  startRefX: number,
+  bandMinY: number,
+  bandMaxY: number,
+  rowLimit: number,
+): void {
+  const rows: Array<{ items: Array<{ placed: Placed; x: number }>; height: number }> = [];
+  let end = Number.NEGATIVE_INFINITY;
+  for (const entry of band) {
+    const { placed: p, cx, maxRight } = entry;
+    const rawX = cx - p.block.width / 2;
+    const cur = rows[rows.length - 1];
+    const nextX = Math.max(rawX, end + HORIZONTAL_CLEARANCE);
+    if (
+      !cur ||
+      (cur.items.length > 0 &&
+        (nextX - startRefX + p.block.width > rowLimit || nextX + p.block.width > maxRight + 1))
+    ) {
+      rows.push({ items: [{ placed: p, x: rawX }], height: p.block.height });
+      end = rawX + p.block.width;
+    } else {
+      cur.items.push({ placed: p, x: nextX });
+      cur.height = Math.max(cur.height, p.block.height);
+      end = nextX + p.block.width;
+    }
+  }
+  let edgeY = isAbove ? bandMinY - VERTICAL_CLEARANCE - 24 : bandMaxY + VERTICAL_CLEARANCE + 24;
+  for (const row of rows) {
+    for (const { placed: p, x } of row.items) {
+      p.x = x;
+      p.y = isAbove ? edgeY - p.block.height : edgeY;
+    }
+    edgeY = isAbove ? edgeY - row.height - ROW_GAP : edgeY + row.height + ROW_GAP;
+  }
+}
+
+/**
+ * Places auxiliary zones in upper/lower bands (and optional `'right-top'` pocket/right column)
+ * aligned with their connected primary neighbors. Returns placed auxiliaries sorted by target `cx`.
+ */
+export function placeAuxiliaryBlocks(
+  auxPlaced: readonly Placed[],
+  primaryPlaced: readonly Placed[],
   owners: ReadonlyMap<string, string>,
   flow: FlowAnalysis,
-  out: Map<string, { x: number; y: number }>,
-): void {
-  if (auxiliary.length === 0) return;
-  let minY = Number.POSITIVE_INFINITY;
-  let maxY = Number.NEGATIVE_INFINITY;
+  opts?: AuxiliaryPlacementOptions,
+): Placed[] {
+  if (auxPlaced.length === 0) return [];
+  const auxMode = opts?.auxMode ?? 'bands';
+  const sideMode = opts?.sideMode ?? 'stationY';
+  const clampMaxSource = opts?.clampMaxSource ?? false;
+  const decayStatic = opts?.decayStatic ?? false;
+  const rowFracOf = opts?.rowFracOf;
+  const cols = opts?.cols;
+
   let minX = Number.POSITIVE_INFINITY;
   let maxX = Number.NEGATIVE_INFINITY;
-  for (const [id, pos] of out) {
-    const b = blockById.get(id);
-    if (!b) continue;
-    minX = Math.min(minX, pos.x);
-    maxX = Math.max(maxX, pos.x + b.width);
-    minY = Math.min(minY, pos.y);
-    maxY = Math.max(maxY, pos.y + b.height);
+  let minY = Number.POSITIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  for (const p of primaryPlaced) {
+    minX = Math.min(minX, p.x);
+    maxX = Math.max(maxX, p.x + p.block.width);
+    minY = Math.min(minY, p.y);
+    maxY = Math.max(maxY, p.y + p.block.height);
   }
   const hasPrimary = Number.isFinite(minX);
   const midX = hasPrimary ? (minX + maxX) / 2 : 0;
   const midY = hasPrimary ? (minY + maxY) / 2 : 0;
-  const bandMinY = hasPrimary ? minY : 0;
-  const bandMaxY = hasPrimary ? maxY : 0;
-  const bandMaxX = hasPrimary ? maxX : 1600;
+  let bandMinY = hasPrimary ? minY : 0;
+  let bandMaxY = hasPrimary ? maxY : 0;
+  let rowLimit = Math.max(hasPrimary ? maxX - minX : 1600, 1600) + 400;
+  const startRefX = hasPrimary ? minX : 0;
+
+  const auxById = new Map(auxPlaced.map((p) => [p.block.id, p]));
+  const priById = new Map(primaryPlaced.map((p) => [p.block.id, p]));
 
   const statsFor = (id: string) => {
     let wx = 0;
     let wy = 0;
+    let wFrac = 0;
     let wSum = 0;
     let minTargetCenter = Number.NEGATIVE_INFINITY;
-    const block = blockById.get(id);
+    let maxSourceCenter = Number.POSITIVE_INFINITY;
+    let minOutPriStep = Number.POSITIVE_INFINITY;
+    const ownPlaced = auxById.get(id);
 
     for (const c of flow.connections) {
       const bu = owners.get(c.from) ?? c.from;
       const bv = owners.get(c.to) ?? c.to;
       if (bu === bv || (bu !== id && bv !== id)) continue;
-      const otherBlockId = bu === id ? bv : bu;
+      const otherId = bu === id ? bv : bu;
+      if (flow.auxiliaryZones.has(otherId)) continue;
+      const op = priById.get(otherId);
+      if (!op) continue;
       const otherNodeId = bu === id ? c.to : c.from;
       const selfNodeId = bu === id ? c.from : c.to;
-      if (flow.auxiliaryZones.has(otherBlockId)) continue;
-      const op = out.get(otherBlockId);
-      const ob = blockById.get(otherBlockId);
-      if (!op || !ob) continue;
-      const nr = ob.nodes.get(otherNodeId);
-      const sx = op.x + (nr ? nr.x + nr.width / 2 : ob.width / 2);
-      const sy = op.y + (nr ? nr.y + STATION_CENTER : ob.height / 2);
-      const fs = flow.pairFirstStep?.get(flowPairKey(c.from, c.to)) ?? 0;
-      const baseW = c.role === 'primary' ? 3 : c.role === 'return' ? 1 : 0.5;
-      const w = baseW / (1 + 0.08 * fs);
+      const nr = op.block.nodes.get(otherNodeId);
+      const sx = op.x + (nr ? nr.x + nr.width / 2 : op.block.width / 2);
+      const fs = flow.pairFirstStep.get(flowPairKey(c.from, c.to)) ?? 0;
+      const w =
+        c.role === 'primary'
+          ? 3 / (1 + 0.08 * fs)
+          : c.role === 'return'
+            ? 1 / (1 + 0.08 * fs)
+            : decayStatic
+              ? (flow.hasAnimate ? 0.06 : 0.5) / (1 + 0.35 * fs)
+              : 0.5 / (1 + 0.08 * fs);
       wx += sx * w;
-      wy += sy * w;
+      if (sideMode === 'rowFrac') {
+        const relNodeFrac = nr
+          ? ((op.flip ? flippedY(op.block, nr, otherNodeId) : nr.y) / Math.max(1, op.block.height) -
+              0.5) *
+            0.12
+          : 0;
+        const slotFrac = (rowFracOf?.get(otherId) ?? 0.5) + relNodeFrac;
+        wFrac += slotFrac * w;
+      } else {
+        const sy =
+          op.y +
+          (nr
+            ? (op.flip ? flippedY(op.block, nr, otherNodeId) : nr.y) + STATION_CENTER
+            : op.block.height / 2);
+        wy += sy * w;
+      }
       wSum += w;
 
-      if (c.role === 'primary' && bv === id && block) {
-        const tn = block.nodes.get(selfNodeId);
-        if (tn) {
-          const relTargetX = tn.x + tn.width / 2;
-          minTargetCenter = Math.max(minTargetCenter, sx + 24 - relTargetX + block.width / 2);
+      if (c.role === 'primary' && ownPlaced) {
+        const sn = ownPlaced.block.nodes.get(selfNodeId);
+        if (sn) {
+          const relSelfX = sn.x + sn.width / 2;
+          if (bv === id) {
+            minTargetCenter = Math.max(
+              minTargetCenter,
+              sx + 24 - relSelfX + ownPlaced.block.width / 2,
+            );
+          } else {
+            minOutPriStep = Math.min(minOutPriStep, fs);
+            if (clampMaxSource) {
+              maxSourceCenter = Math.min(
+                maxSourceCenter,
+                sx - 24 - relSelfX + ownPlaced.block.width / 2,
+              );
+            }
+          }
         }
       }
     }
 
     const meanX = wSum > 0 ? wx / wSum : midX;
-    const meanY = wSum > 0 ? wy / wSum : midY;
+    const cx = clampMaxSource
+      ? minTargetCenter <= maxSourceCenter
+        ? Math.min(maxSourceCenter, Math.max(meanX, minTargetCenter))
+        : Math.max(meanX, minTargetCenter)
+      : Math.max(meanX, minTargetCenter);
+    const side: 'above' | 'below' =
+      sideMode === 'rowFrac'
+        ? (wSum > 0 ? wFrac / wSum : 0.5) < 0.42
+          ? 'above'
+          : 'below'
+        : (wSum > 0 ? wy / wSum : midY) < midY - 1e-6
+          ? 'above'
+          : 'below';
     return {
-      cx: Math.max(meanX, minTargetCenter),
-      side: meanY < midY - 1e-6 ? ('above' as const) : ('below' as const),
+      meanX,
+      minOutPriStep,
+      cx,
+      maxRight:
+        clampMaxSource && Number.isFinite(maxSourceCenter)
+          ? maxSourceCenter + (ownPlaced?.block.width ?? 0) / 2
+          : Number.POSITIVE_INFINITY,
+      side,
     };
   };
 
-  const meta = new Map(auxiliary.map((b) => [b.id, statsFor(b.id)]));
-  const ordered = [...auxiliary].sort((a, b) => {
-    const ca = meta.get(a.id)?.cx ?? midX;
-    const cb = meta.get(b.id)?.cx ?? midX;
-    return ca - cb || compareBlockId(a.id, b.id);
+  const meta = new Map(auxPlaced.map((p) => [p.block.id, statsFor(p.block.id)]));
+  const ordered = [...auxPlaced].sort((a, b) => {
+    const ca = meta.get(a.block.id)?.cx ?? midX;
+    const cb = meta.get(b.block.id)?.cx ?? midX;
+    return ca - cb || compareBlockId(a.block.id, b.block.id);
   });
 
-  const aboveBlocks = ordered.filter((b) => meta.get(b.id)?.side === 'above');
-  const belowBlocks = ordered.filter((b) => meta.get(b.id)?.side !== 'above');
+  const rightAux =
+    auxMode === 'right-top' && hasPrimary
+      ? ordered.filter((p) => {
+          const m = meta.get(p.block.id);
+          return m !== undefined && m.minOutPriStep > 1 && m.meanX >= midX;
+        })
+      : [];
+  const rightSet = new Set(rightAux);
+  const bandAux = rightAux.length > 0 ? ordered.filter((p) => !rightSet.has(p)) : ordered;
 
-  const placeBand = (band: readonly Block[], isAbove: boolean) => {
-    const rowLimit = Math.max(bandMaxX, 1600) + 400;
-    const rows: Array<{ items: Array<{ block: Block; x: number }>; height: number }> = [];
-    let end = Number.NEGATIVE_INFINITY;
-    for (const b of band) {
-      const cx = meta.get(b.id)?.cx ?? midX;
-      const rawX = cx - b.width / 2;
-      const cur = rows[rows.length - 1];
-      if (
-        !cur ||
-        (cur.items.length > 0 && Math.max(rawX, end + HORIZONTAL_CLEARANCE) + b.width > rowLimit)
-      ) {
-        const px = rawX;
-        rows.push({ items: [{ block: b, x: px }], height: b.height });
-        end = px + b.width;
-      } else {
-        const px = Math.max(rawX, end + HORIZONTAL_CLEARANCE);
-        cur.items.push({ block: b, x: px });
-        cur.height = Math.max(cur.height, b.height);
-        end = px + b.width;
+  if (rightAux.length > 0 && hasPrimary) {
+    const lastCol = cols?.[cols.length - 1];
+    const lastP = lastCol?.length === 1 && lastCol[0] ? priById.get(lastCol[0].id) : undefined;
+    if (lastP && rightAux.length === 1 && rightAux[0]) {
+      const auxP = rightAux[0];
+      const prevLastX = lastP.x;
+      const prevLastY = lastP.y;
+      const totalStackH = auxP.block.height + ROW_GAP + lastP.block.height;
+      const midPriY = (minY + maxY) / 2;
+      let stackX = lastP.x;
+      for (const p of primaryPlaced) {
+        if (p === lastP) continue;
+        stackX = Math.max(stackX, p.x + p.block.width + STAGE_GAP);
+      }
+      auxP.x = stackX;
+      lastP.x = stackX;
+      auxP.y = midPriY - totalStackH / 2;
+      lastP.y = auxP.y + auxP.block.height + ROW_GAP;
+      const placedWithRight = [...primaryPlaced, auxP];
+      if (!hasBlockClearance(auxP, placedWithRight) || !hasBlockClearance(lastP, placedWithRight)) {
+        lastP.x = prevLastX;
+        lastP.y = prevLastY;
+        auxP.x = maxX + STAGE_GAP;
+        auxP.y = midPriY - auxP.block.height / 2;
+      }
+    } else {
+      const totalAuxH =
+        rightAux.reduce((s, p) => s + p.block.height, 0) +
+        Math.max(0, rightAux.length - 1) * ROW_GAP;
+      let curY = (minY + maxY - totalAuxH) / 2;
+      const rightX = maxX + STAGE_GAP;
+      for (const p of rightAux) {
+        p.x = rightX;
+        p.y = curY;
+        curY += p.block.height + ROW_GAP;
       }
     }
-    let edgeY = isAbove ? bandMinY - VERTICAL_CLEARANCE - 24 : bandMaxY + VERTICAL_CLEARANCE + 24;
-    for (const row of rows) {
-      for (const { block, x } of row.items) {
-        const py = isAbove ? edgeY - block.height : edgeY;
-        out.set(block.id, { x, y: py });
-      }
-      edgeY = isAbove ? edgeY - row.height - ROW_GAP : edgeY + row.height + ROW_GAP;
+    let curMaxX = maxX;
+    for (const p of primaryPlaced) {
+      bandMinY = Math.min(bandMinY, p.y);
+      bandMaxY = Math.max(bandMaxY, p.y + p.block.height);
+      curMaxX = Math.max(curMaxX, p.x + p.block.width);
     }
-  };
+    for (const p of rightAux) {
+      bandMinY = Math.min(bandMinY, p.y);
+      bandMaxY = Math.max(bandMaxY, p.y + p.block.height);
+      curMaxX = Math.max(curMaxX, p.x + p.block.width);
+    }
+    rowLimit = Math.max(curMaxX - minX, 1600) + 400;
+  }
 
-  placeBand(aboveBlocks, true);
-  placeBand(belowBlocks, false);
+  if (bandAux.length > 0) {
+    const toBandEntries = (items: readonly Placed[]): AuxiliaryBandEntry[] =>
+      items.map((p) => {
+        const m = meta.get(p.block.id);
+        return {
+          placed: p,
+          cx: m?.cx ?? midX,
+          maxRight: m?.maxRight ?? Number.POSITIVE_INFINITY,
+        };
+      });
+    placeAuxiliaryBand(
+      toBandEntries(bandAux.filter((p) => meta.get(p.block.id)?.side === 'above')),
+      true,
+      startRefX,
+      bandMinY,
+      bandMaxY,
+      rowLimit,
+    );
+    placeAuxiliaryBand(
+      toBandEntries(bandAux.filter((p) => meta.get(p.block.id)?.side !== 'above')),
+      false,
+      startRefX,
+      bandMinY,
+      bandMaxY,
+      rowLimit,
+    );
+  }
+
+  return ordered;
 }
 
 /** Where the top of node `id` is in a zone that is upside down; `rect` is where it is in the zone as built. */
