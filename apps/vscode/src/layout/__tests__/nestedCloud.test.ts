@@ -912,4 +912,140 @@ step "Serve" {
     expect(azA2.width).toBe(azB2.width);
     expect(azA2.y + azA2.height).toBeLessThanOrEqual(azB2.y);
   });
+
+  it('keeps earlier-entered tiers upstream on equal-count mutual primary links and folds wide dual-entry ribbons', () => {
+    // 1. Equal-count 1-vs-1 mutual primary edges between Storage (Step 1) and ML/Ops (Step 2):
+    // Storage stays left of ML/Ops instead of being pushed right by a Step-3 read query.
+    const mutualTieDsl = `
+title "Mutual Primary Tie-Break"
+group edge "Factory" {
+  node sensor "Sensor" [icon: device]
+}
+group cloud "Cloud" {
+  group ingest "Ingestion" {
+    node broker "Broker" [icon: hub]
+    node fn "Processor" [icon: function]
+  }
+  group storage "Storage" {
+    node tsdb "TSDB" [icon: database]
+    node lake "Lake" [icon: storage]
+    node etl "ETL" [icon: logic]
+  }
+  group ml_ops "ML & Ops" {
+    node dash "Dashboard" [icon: screen]
+    node bus "EventBus" [icon: event]
+    node ml "Model" [icon: ai]
+  }
+}
+node crew "Crew" [icon: users]
+step "Ingest" {
+  animate sensor --> broker : "MQTT"
+  animate broker --> fn : "Batch"
+  animate broker --> lake : "Archive"
+  animate fn --> tsdb : "Metrics"
+}
+step "Detect" {
+  animate fn <-> ml : "Score"
+  animate fn --> bus : "Alert"
+  animate bus --> crew : "Page"
+}
+step "Query" {
+  animate dash --> tsdb : "Read"
+}
+step "Retrain" {
+  animate lake --> etl : "Prep"
+  animate etl ..> ml : "Train"
+}
+`;
+    const { layout: mLayout } = assertContainmentAndDisjointSiblings(mutualTieDsl);
+    const ingest = must(mLayout.groups.ingest, 'ingest');
+    const storage = must(mLayout.groups.storage, 'storage');
+    const mlOps = must(mLayout.groups.ml_ops, 'ml_ops');
+    expect(ingest.x).toBeLessThan(storage.x);
+    expect(storage.x).toBeLessThan(mlOps.x);
+
+    // 2. Wide 4-column nested ribbon where the trailing large VPC is also fed directly by col 0
+    // and connects to external peers: fold the trailing VPC into column 1 beside the streaming tier.
+    const dualEntryRibbonDsl = `
+title "Dual-Entry Wide Ribbon Fold"
+group onprem "On-Prem" {
+  node plant "Plant" [icon: device]
+  node erp "ERP" [icon: server]
+  node cgw "CGW" [icon: router]
+}
+group cloud "Cloud" {
+  group edge "Edge & IoT" {
+    node cdn "CDN" [icon: cdn]
+    node iot "IoT" [icon: hub]
+  }
+  group vpc "Production VPC" {
+    node igw "IGW" [icon: router]
+    node dx "DX" [icon: router]
+    node vpce "VPCE" [icon: nat]
+    node alb "ALB" [icon: lb]
+    group az_a "AZ A" {
+      group app_a "App A" {
+        node api_a "API A" [icon: container]
+      }
+      group db_a "Data A" {
+        node db_pri "DB Pri" [icon: database]
+        node cache_pri "Cache" [icon: cache]
+      }
+    }
+  }
+  group stream "Streaming & ML" {
+    node kin "Kinesis" [icon: stream]
+    node flink "Flink" [icon: logic]
+    node s3 "S3" [icon: storage]
+    node glue "Glue" [icon: warehouse]
+    node ml "ML" [icon: ai]
+  }
+  group ops "Workflows" {
+    node bus "Bus" [icon: event]
+    node wf "Workflow" [icon: logic]
+    node q "Queue" [icon: queue]
+    node sns "SNS" [icon: mail]
+  }
+}
+node tech "Tech" [icon: mobile]
+step "1. Stream" {
+  animate plant --> iot : "MQTT"
+  animate iot --> kin : "Rule"
+  animate kin --> flink : "Window"
+  animate kin --> s3 : "Archive"
+  animate s3 --> glue : "Prep"
+  animate glue --> ml : "Train"
+}
+step "2. Workflow to VPC" {
+  animate flink --> bus : "Alert"
+  animate bus --> wf : "Start"
+  animate wf --> q : "Enqueue"
+  animate wf --> sns : "Notify"
+  animate sns --> tech : "Push"
+  animate q --> vpce : "Poll"
+  animate vpce <-> api_a : "WO"
+  animate api_a --> dx : "Sync"
+  animate dx <-> cgw : "DX"
+  animate cgw <-> erp : "Order"
+}
+step "3. Direct Edge to VPC" {
+  animate cdn --> igw : "API"
+  animate igw --> alb : "TLS"
+  animate alb --> api_a : "Route"
+  animate api_a --> db_pri : "SQL"
+  animate api_a --> cache_pri : "Cache"
+}
+`;
+    const { layout: rLayout } = assertContainmentAndDisjointSiblings(dualEntryRibbonDsl);
+    const edgeG = must(rLayout.groups.edge, 'edge');
+    const vpcG = must(rLayout.groups.vpc, 'vpc');
+    const streamG = must(rLayout.groups.stream, 'stream');
+    const opsG = must(rLayout.groups.ops, 'ops');
+    // VPC folds into column 1 beside Streaming (not stranded in column 3 right of Workflows).
+    expect(edgeG.x).toBeLessThan(vpcG.x);
+    expect(vpcG.x).toBeLessThan(opsG.x);
+    const stackedVertically =
+      vpcG.y + vpcG.height <= streamG.y || streamG.y + streamG.height <= vpcG.y;
+    expect(stackedVertically).toBe(true);
+  });
 });

@@ -818,8 +818,9 @@ function computeMacroZones(
 
       const auxA = auxiliaryZones.has(bu);
       const auxB = auxiliaryZones.has(bv);
-      const hasPri =
-        (primaryInter.get(idPair(bu, bv)) ?? 0) + (primaryInter.get(idPair(bv, bu)) ?? 0) > 0;
+      const priFwd = primaryInter.get(idPair(bu, bv)) ?? 0;
+      const priRev = primaryInter.get(idPair(bv, bu)) ?? 0;
+      const hasPri = priFwd + priRev > 0;
       if (
         hasAnimate &&
         !auxA &&
@@ -834,7 +835,28 @@ function computeMacroZones(
       let winnerFrom = bu;
       let winnerTo = bv;
       let diff = fwd - rev;
-      if (rev > fwd) {
+      const firstBu = blockFirstPriStep.get(bu);
+      const firstBv = blockFirstPriStep.get(bv);
+      if (
+        !auxA &&
+        !auxB &&
+        priFwd > 0 &&
+        priFwd === priRev &&
+        firstBu !== undefined &&
+        firstBv !== undefined &&
+        firstBu !== firstBv
+      ) {
+        // When two non-auxiliary blocks exchange an equal count of primary edges in both directions,
+        // keep the block that entered the pipeline in an earlier step upstream so a later query
+        // edge does not push an early-stage tier past a later-stage tier.
+        if (firstBv < firstBu) {
+          winnerFrom = bv;
+          winnerTo = bu;
+          diff = Math.abs(rev - fwd);
+        } else {
+          diff = Math.abs(fwd - rev);
+        }
+      } else if (rev > fwd) {
         winnerFrom = bv;
         winnerTo = bu;
         diff = rev - fwd;

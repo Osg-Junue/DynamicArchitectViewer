@@ -851,6 +851,69 @@ function placeContainerChildren(
     }
   }
 
+  // Fold a wide rightmost container back into column 1 when a multi-stage nested container would
+  // otherwise stretch into an extreme ribbon (`estW >= 2200`, aspect `>= 2.8`), provided that the
+  // trailing container receives direct primary flow from column 0 AND also connects to external
+  // boundaries (e.g. an Ingress/Edge tier feeding both a Streaming pipeline and a Core VPC that
+  // was pushed to column 3 only by an indirect workflow hop).
+  if (depth >= 1 && columns.length >= 3) {
+    const col0 = columns[0];
+    const col1 = columns[1];
+    const lastCol = columns[columns.length - 1];
+    const tail = lastCol?.length === 1 ? lastCol[0] : undefined;
+    if (
+      col0 &&
+      col1 &&
+      tail &&
+      tail.groups.size >= 1 &&
+      tail.width >= 500 &&
+      (extInCount.get(tail.id) ?? 0) + (extOutCount.get(tail.id) ?? 0) > 0
+    ) {
+      const col0Ids = new Set(col0.map((b) => b.id));
+      const fedByCol0 = scopeFlow.connections.some(
+        (c) =>
+          c.role === 'primary' &&
+          col0Ids.has(childOwners.get(c.from) ?? '') &&
+          childOwners.get(c.to) === tail.id,
+      );
+      if (fedByCol0) {
+        const estW =
+          columns.reduce((s, col) => s + Math.max(0, ...col.map((b) => b.width)), 0) +
+          (columns.length - 1) * spacing.stageGap;
+        const estH = Math.max(
+          1,
+          ...columns.map(
+            (col) =>
+              col.reduce((s, b) => s + b.height, 0) + Math.max(0, col.length - 1) * spacing.rowGap,
+          ),
+        );
+        const col1W = Math.max(tail.width, ...col1.map((b) => b.width));
+        const col1H =
+          col1.reduce((s, b) => s + b.height, 0) + tail.height + col1.length * spacing.rowGap;
+        const newW =
+          columns
+            .slice(0, -1)
+            .reduce(
+              (s, col, idx) => s + (idx === 1 ? col1W : Math.max(0, ...col.map((b) => b.width))),
+              0,
+            ) +
+          (columns.length - 2) * spacing.stageGap;
+        const newH = Math.max(estH, col1H);
+        if (estW >= 2200 && estW / estH >= 2.8 && newW / Math.max(1, newH) >= 1.4) {
+          columns.pop();
+          col1.push(tail);
+          const col1Stage = scopeFlow.zoneStage.get(col1[0]?.id ?? '') ?? 1;
+          scopeFlow.zoneStage.set(tail.id, col1Stage);
+          for (const midCol of columns.slice(2)) {
+            for (const mb of midCol) {
+              scopeFlow.primaryZonePairs.delete(idPair(mb.id, tail.id));
+            }
+          }
+        }
+      }
+    }
+  }
+
   // Equalize outer widths and internal subnet-column grids for structurally similar sibling
   // containers stacked in the same stage column (e.g. AZ-a and AZ-c inside a VPC).
   if (depth >= 1) {

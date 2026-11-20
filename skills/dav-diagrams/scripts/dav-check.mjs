@@ -3463,22 +3463,23 @@ function xn(e, t, n, r, i, a, o, s, c) {
 		k.add(n);
 		let r = m.get(H(e, t)) ?? 0, o = m.get(H(t, e)) ?? 0;
 		if (r === 0 && o === 0) continue;
-		let s = E.has(e), c = E.has(t), l = (u.get(H(e, t)) ?? 0) + (u.get(H(t, e)) ?? 0) > 0;
-		if (a && !s && !c && !l && (d.get(e) ?? 0) > 0 && (d.get(t) ?? 0) > 0 && Y(D, e, t)) continue;
-		let f = e, p = t, _ = r - o;
-		if (o > r) f = t, p = e, _ = o - r;
+		let s = E.has(e), c = E.has(t), l = u.get(H(e, t)) ?? 0, f = u.get(H(t, e)) ?? 0, p = l + f > 0;
+		if (a && !s && !c && !p && (d.get(e) ?? 0) > 0 && (d.get(t) ?? 0) > 0 && Y(D, e, t)) continue;
+		let _ = e, v = t, y = r - o, b = g.get(e), x = g.get(t);
+		if (!s && !c && l > 0 && l === f && b !== void 0 && x !== void 0 && b !== x) x < b ? (_ = t, v = e, y = Math.abs(o - r)) : y = Math.abs(r - o);
+		else if (o > r) _ = t, v = e, y = o - r;
 		else if (r === o) {
 			let n = Y(i, e, t);
-			Y(i, t, e) && !n && (f = t, p = e);
+			Y(i, t, e) && !n && (_ = t, v = e);
 		}
-		let v = f === e ? o : r, y = g.get(f), b = g.get(p);
-		if (a && !s && !c && l && v === 0 && y !== void 0 && b !== void 0 && y > b && Y(i, p, f)) continue;
-		let x = l ? 100 + 10 / (1 + .05 * (h.get(n) ?? 0)) : 0, S = (s || c ? 0 : 1e3) + x + _;
+		let S = _ === e ? o : r, C = g.get(_), w = g.get(v);
+		if (a && !s && !c && p && S === 0 && C !== void 0 && w !== void 0 && C > w && Y(i, v, _)) continue;
+		let T = p ? 100 + 10 / (1 + .05 * (h.get(n) ?? 0)) : 0, A = (s || c ? 0 : 1e3) + T + y;
 		O.push({
-			a: f,
-			b: p,
-			weight: S,
-			primary: l && !s && !c
+			a: _,
+			b: v,
+			weight: A,
+			primary: p && !s && !c
 		});
 	}
 	O.sort((e, t) => t.weight - e.weight || mn(e.a, t.a) || mn(e.b, t.b));
@@ -6694,6 +6695,21 @@ function ba(e, t, n, r, i, a, o, s, c) {
 		if (t && t.groups.size >= 1 && t.nodes.size >= 2 && (u.get(t.id) ?? 0) === 0 && (m.get(t.id) ?? 0) === 0 && (h.get(t.id) ?? 0) === 0 && O.slice(0, -1).some((e) => e.some((e) => (h.get(e.id) ?? 0) > 0))) {
 			let e = O.reduce((e, t) => e + Math.max(0, ...t.map((e) => e.width)), 0) + (O.length - 1) * c.stageGap, n = Math.max(1, ...O.map((e) => e.reduce((e, t) => e + t.height, 0) + Math.max(0, e.length - 1) * c.rowGap));
 			e >= 1e3 && e / n >= 2.4 && (O.pop(), D.push(t), r.auxiliaryZones.add(t.id));
+		}
+	}
+	if (s >= 1 && O.length >= 3) {
+		let e = O[0], t = O[1], i = O[O.length - 1], a = i?.length === 1 ? i[0] : void 0;
+		if (e && t && a && a.groups.size >= 1 && a.width >= 500 && (m.get(a.id) ?? 0) + (h.get(a.id) ?? 0) > 0) {
+			let i = new Set(e.map((e) => e.id));
+			if (r.connections.some((e) => e.role === "primary" && i.has(n.get(e.from) ?? "") && n.get(e.to) === a.id)) {
+				let e = O.reduce((e, t) => e + Math.max(0, ...t.map((e) => e.width)), 0) + (O.length - 1) * c.stageGap, n = Math.max(1, ...O.map((e) => e.reduce((e, t) => e + t.height, 0) + Math.max(0, e.length - 1) * c.rowGap)), i = Math.max(a.width, ...t.map((e) => e.width)), o = t.reduce((e, t) => e + t.height, 0) + a.height + t.length * c.rowGap, s = O.slice(0, -1).reduce((e, t, n) => e + (n === 1 ? i : Math.max(0, ...t.map((e) => e.width))), 0) + (O.length - 2) * c.stageGap, l = Math.max(n, o);
+				if (e >= 2200 && e / n >= 2.8 && s / Math.max(1, l) >= 1.4) {
+					O.pop(), t.push(a);
+					let e = r.zoneStage.get(t[0]?.id ?? "") ?? 1;
+					r.zoneStage.set(a.id, e);
+					for (let e of O.slice(2)) for (let t of e) r.primaryZonePairs.delete(H(t.id, a.id));
+				}
+			}
 		}
 	}
 	if (s >= 1) for (let t of O) ga(e, t);
