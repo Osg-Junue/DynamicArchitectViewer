@@ -4,22 +4,24 @@
 
 ## The short version
 
-- **Edges decide the column.** Things flow from left to right.
-- **Groups decide what stays together.**
+- **Step flows decide the column.** `animate` statements in step order drive the left-to-right backbone; return paths and `static` relations do not invert it.
+- **Groups decide what stays together.** Nested groups (such as Cloud ⊃ Region ⊃ VPC ⊃ AZ ⊃ Subnet) lay out bottom-up inside their own frames.
 - **Declaration order breaks ties**, from top to bottom.
-- **Steps never move anything.** A node stays in the same place for the whole diagram, and writing steps never rearranges it.
+- **Steps never move anything.** A node stays in the same place for the whole diagram, and switching steps never rearranges it.
 
 The same file always produces the same layout.
 
-To keep them short, the examples below leave out the `dav 1` header and most `node` declarations.
+To keep them short, the examples below omit most `node` declarations and show minimal `step` blocks.
 
 ## Columns: follow the arrows
 
-A node sits one column to the right of whatever points at it.
+A node sits one column to the right of whatever points at it in the primary flow.
 
 ```dav
-a --> b
-b --> c
+step "Request" {
+  animate a --> b : "call"
+  animate b --> c : "query"
+}
 ```
 
 ```text
@@ -29,9 +31,11 @@ a ─── b ─── c
 When several paths reach a node, the **longest** one wins:
 
 ```dav
-a --> b
-b --> c
-a --> c
+step "Request" {
+  animate a --> b : "1"
+  animate b --> c : "2"
+  animate a --> c : "shortcut"
+}
 ```
 
 ```text
@@ -41,59 +45,46 @@ a ─── b ─── c
 
 `c` is in the third column, not the second, because the path through `b` is longer.
 
-Nodes that share a column are aligned across the whole diagram, even in different groups. A node with no edges goes in the first column.
+In a flat diagram with at most one top-level group (and no multi-tier nested group branching), nodes that share a column align across the whole diagram. A node with no connections goes in the first column (or in an isolated row below connected components).
 
 ### Which way should an arrow point?
 
-From the caller to what it calls, as the facts give it: `client --> api` says that `client` calls `api`, and puts `client` on the left of `api`. Through a queue, a topic or a stream, it goes the way the messages go: from the producer, and to whatever takes them, pushed or pulled. Do not turn an arrow round to move a node: it would then say that the other node calls. For a call and its answer, use a single two-way edge (`client <-> api`): the first node named goes on the left, which for a request and its response is the caller. [Cycles](#cycles) says what to do with a call that runs back.
+From the caller to what it calls, as the facts give it: `animate client --> api` says that `client` calls `api`, and puts `client` on the left of `api`. Through a queue, a topic, or a stream, point the way messages travel: from the producer to whatever consumes them. Do not turn an arrow round just to move a node. For a request and its reply, use a single two-way arrow (`animate client <-> api`): the first node named goes on the left, which is the caller. [Cycles](#cycles) explains how return calls are handled automatically.
 
 ### Cycles
 
-If edges form a loop, one of them has to point back, and that one does not count. Which one depends on where the layout first reaches the loop: it searches depth first from the nodes in the order they are declared, following edges in the order they are written, and the node where it enters the loop goes on the left.
+When `animate` statements follow a loop—such as a response or callback returning to an already-visited node or upstream zone—the layout classifies the returning transition as a `'return'` path from chronological step order, so it does not invert the forward backbone.
 
-A loop that nothing else leads into is entered at its node declared first:
+When edges still form a cycle within a single zone or a `static`-only diagram, one edge has to point back and is ignored for ranking. Which one depends on where a depth-first search first enters the loop (visiting nodes and edges in declaration order), and the entry node stands on the left:
 
 ```dav
 node a
 node b
-a --> b : "request"
-b --> a : "response"
+step "Ping-pong" {
+  static a --> b : "request"
+  static b --> a : "response"
+}
 ```
 
 ```text
 a ⇄ b
 ```
 
-To swap them, declare `b` first. A self-loop (`a --> a`) never changes the column.
+To swap them in a pure-`static` cycle, declare `b` first. A self-loop (`a --> a`) never changes the column.
 
-A loop is entered at the first of its nodes the search reaches, which can be a node that another node leads into, as here, where `x` is declared first:
+To keep any pair in a predictable order, write a single two-way arrow (`a <-> b` or `a <.> b`). A two-way edge counts only in the direction it is written, so it creates no cycle.
 
-```dav
-node x
-node a
-node b
-x --> b
-a --> b
-b --> a
-```
-
-```text
-x ─── b ⇄ a
-```
-
-`a` is declared before `b` but stands to its right, because the search reaches `b` from `x` first. Most loops of a large diagram are entered like this. A one-way edge that points back without making a loop does the same to its target, unless it runs between zones [placed freely](#placing-zones-freely): `worker --> console` puts `console` to the right of `worker`, wherever `console` is declared.
-
-To keep a pair in the order you want, write it as one two-way edge, `a <-> b`. A two-way edge counts only in the direction it is written, so it makes no loop, and a packet can still run along it either way.
-
-`dav check --detail` names the edges left out like this in notes `back-edge`, one for each pair of nodes and direction: the loop as the search went round it, where the layout came into the loop, and the columns its two ends took. Where that loop has two nodes, it is named only when the node declared later stands on the left. Where the zones of a large diagram are [placed freely](#placing-zones-freely), each zone is laid out on its own, so only a loop inside one zone leaves an edge out: a link between zones sets no column there.
+`dav check --detail` reports edges ignored during ranking as `back-edge` notes. Where top-level zones are [placed freely](#placing-zones-freely), each zone ranks its interior independently, so only cycles inside one zone produce back-edges.
 
 ## Rows: use groups and order
 
-Nodes in the same column stack from top to bottom. A node goes near the nodes it connects to, and declaration order settles anything left over.
+Nodes in the same column stack from top to bottom. A node goes near the nodes it connects to, and declaration order settles ties.
 
 ```dav
-a --> b
-a --> c
+step "Fan out" {
+  animate a --> b : "branch 1"
+  animate a --> c : "branch 2" [parallel: true]
+}
 ```
 
 ```text
@@ -103,12 +94,14 @@ a ─┬─ b
 
 To swap `b` and `c`, swap the order in which they are declared.
 
-A group keeps its members together inside a box. Blocks that use different columns sit side by side, and blocks that share a column stack.
+A `group` keeps its members together inside a frame. Blocks that use different columns sit side by side, and blocks that share a column stack.
 
 ```dav
 group web { node lb }
 group data { node db }
-lb --> db
+step "Read" {
+  animate lb --> db : "SQL"
+}
 ```
 
 ```text
@@ -117,155 +110,160 @@ lb --> db
 └─────┘    └──────┘
 ```
 
+Nested containers (for example Cloud ⊃ Region ⊃ VPC ⊃ Availability Zones ⊃ Subnets) are laid out **recursively bottom-up**: leaf groups lay out first, and each enclosing container arranges its child groups and direct nodes in flow stages while keeping parallel sibling tiers (such as Multi-AZ boxes) aligned in width and column tracks.
+
 ## Recipes
 
 | To get this | Do this |
 | :--- | :--- |
-| Move a node to the right | Add an edge into it from a node further right, or lengthen the path that reaches it |
-| Move a node to the left | Remove an edge that points into it, or make it two-way, naming this node first. A one-way edge turned round does the same, but its arrow then says that the other node calls |
-| Swap two nodes in a column | Swap their declarations |
-| Keep nodes together | Put them in a `group` |
-| Keep zones next to each other | Nest them in one `group`, then compare `--map`: the other zones can move as well |
-| Show a path that appears later | Declare it with `visible: false`, then show it with `state` |
-| Widen the gap between two columns | Use a longer label on an edge between them |
-| Connect nodes without affecting layout | No edge does that: every edge counts. A packet can go between two nodes without an edge, but it then has no line to follow, and `dav check --detail` reports it |
+| Place the main backbone left to right | Write the normal forward `animate` flow in the earliest steps |
+| Keep background / telemetry / replication lines from distorting the backbone | Declare them with `static` (for example `static primary ..> replica` or `static vpc ..> cloudwatch`) |
+| Swap two sibling nodes in a column | Swap their `node` declarations |
+| Keep related components together | Put them in a `group`, nesting groups to mirror real architectural boundaries |
+| Show a gateway or endpoint on a group's border | Declare it inside the group with `[mount: border]`—the layout picks the edge facing its external connections automatically |
+| Distinguish logical/HA boundaries (e.g. AZs) from strong boundaries (e.g. VPCs) | Add `[border: dashed]` on the `group` |
+| Connect an entire group to observability/security without picking an arbitrary inner node | Use the group ID as an endpoint of `static` (for example `static vpc ..> cloudwatch : "Flow Logs"`) |
+| Reveal a node only in a later step without shifting layout | Declare it with `[visible: false]`, then show it via `state` (or use it in that step's `animate` / `static`) |
+| Widen the gap between two columns | Use a longer `static` label on a connection between those adjacent columns |
 
 ## Things that surprise people
 
-**A hidden node still takes up space.** A node with `visible: false` is placed like any other, so nothing moves when a step reveals it.
+**A hidden node still takes up space.** A node with `visible: false` is laid out like any other, so nothing shifts when a step reveals it.
 
-**A hidden edge still counts.** An edge with `visible: false` sets columns and pulls zones like any other, and its rail keeps its course while hidden, so nothing moves when a step reveals it. That also makes it no clean way to pull two zones together: it sets a column as well, and its rail takes room among the others while hidden.
+**Both `animate` and `static` across all steps synthesize the overview graph, with different layout weights.** `animate` statements in early steps establish the primary left-to-right stages; later return paths and cross-cutting `static` links (such as monitoring, secrets, audit logs, and NAT egress return chains) are separated so they do not invert the primary flow.
 
-**The zones of a large diagram are not in the order they are declared.** Where links in columns would run longer than 700 units or cross, the layout [places the top-level zones freely](#placing-zones-freely) wherever that leaves less of both, and their order then follows their links. The search starts from the order of the declarations and counts a link that points left against an arrangement, so moving a declaration or turning an edge can move zones as well, though not into the declared order. Zones nested in one zone stay together inside its frame, so nest the zones that belong together. That changes what the search places, so the other zones can move as well: compare `--map` before and after. Do not nest everything: with one top-level zone there is nothing to place freely, and a large diagram stands in shared columns, which can make it much taller and give it more crossings.
+**Top-level zones in multi-zone diagrams follow flow order, not declaration order.** When a diagram has two or more top-level groups, the layout [places top-level zones freely](#placing-zones-freely) into deterministic left-to-right stages and above/below auxiliary bands (for example, placing monitoring or security zones in a band or corner pocket rather than in the middle of the primary path).
 
-**`animate` adds no connection.** Nodes joined only by `animate` are placed as if unconnected. Add an edge if the position matters.
+**Isolated additions never move connected parts.** Adding a disconnected node or disconnected group places it in a separate row below the connected diagram with `0.0` units of drift on existing elements.
 
-**A self-loop adds room above every row.** Each node gets the room the tallest loop of the diagram needs, so stations stay level from one zone to the next and the rails between them stay straight.
+**A self-loop reserves room above its row.** Enough headroom is reserved above self-loop nodes so rails stay clear of the loop curve and its label.
 
-**A node outside a zone stands lower than the zone's top.** The first row of a group starts as far down as the first row of the deepest group nested in it. A zone's frame pushes its stations down by its header and by the room for loops, and without this a rail from a station outside a zone to one inside it would have to step down.
+**`mount: border` picks its border side and alignment automatically.** You do not specify left/right/top/bottom: the layout faces the mounted node toward its external connections and aligns it with in-band `animate` neighbors along that edge so straight ingress/egress chains stay straight.
 
 **There is no syntax to pin a node.** This is deliberate. See [Design decisions](design-decisions.md).
 
-**Lines run level and upright, and keep clear of nodes.** A rail is made of straight stretches with rounded corners. It never runs through another node or over the name of a zone, and it goes round a zone it has nothing to do with unless the way round is much longer. Rails that share a line run side by side, so several rails can enter a node next to each other. Two stations that are 12 units or less off level are joined by one straight line that meets them a little off their middle.
+**Lines run level and upright, keep clear of nodes, and avoid hugging borders.** A rail is made of straight stretches with rounded corners. It avoids running through unrelated nodes, zone titles, or tightly alongside group borders, and routes group-endpoint `static` lines straight into the group's outer perimeter without entering the interior. Two stations 12 units or less off level are joined by one straight line.
 
 ## Exact rules
 
-This section is for changing the layout code in [`layout/index.ts`](../apps/vscode/src/layout/index.ts). Rail routing is not part of this stage. It lives in `scene/route.ts` and `scene/rails.ts`, and is described under [Routing rails](#routing-rails).
+This section is for changing the layout code in [`layout/`](../apps/vscode/src/layout/index.ts). For the full v2 module and constant reference, see [`docs/v2/layout-algorithm.md`](v2/layout-algorithm.md). Rail routing lives downstream in `scene/route.ts` and `scene/rails.ts`, and is described under [Routing rails](#routing-rails).
 
 ### Inputs and outputs
 
 | | |
 | :--- | :--- |
-| Uses | `node` and `group` declarations and nesting, and edges (including label width and the number of self-loops) |
-| Ignores | `step`, `animate`, `focus`, `state` |
+| Uses | `node` and `group` declarations (including `mount` and nesting), `label` widths for group minimum header widths, and all `animate` / `static` statements across `steps` (chronological step order, arrow directionality, `static` label widths, and self-loops) |
+| Ignores | Pure annotation steps (`desc`, `focus`, `state`), animation descriptions/code blocks, node `sub`/`badge`, and display-only styling (`color`, `border`, `icon`) |
 | Returns | A plain, JSON-serializable rectangle for each node and group (`Layout`) |
-| Exported HTML | Embeds the `Layout` computed at export, so later rule changes do not affect exported files |
+| Exported HTML | Embeds the `Layout` computed at export, so later layout rule changes do not alter already-exported files |
 
 ### Stages
 
-1. Assign each node a column from the edges.
-2. Compute the X coordinate of each column, shared by the whole diagram.
-3. Place everything from top to bottom along the group hierarchy.
-4. Try other vertical orders, and keep a result only if it is better.
-5. Move single nodes a little where that puts one of their links level or upright. This comes after [placing zones freely](#placing-zones-freely) too.
+1. Analyze chronological step flow (`layout/flow.ts`): classify each synthesized connection as `'primary'`, `'return'`, or `'static'`, detect egress return chains (`egressReturnPairs`), and compute acyclic macro `zoneStage` and `auxiliaryZones`.
+2. Choose the macro regime (`layout/index.ts`):
+   - **`<= 1` top-level group:** `computeSingleGroupLayout` (`layout/columns.ts`), delegating to `computeSingleTopRecursiveLayout` (`layout/nestedZone.ts`) when `hasRecursiveNesting(doc)` holds (depth `>= 2` below the top-level group with at least one branching container).
+   - **`>= 2` top-level groups:** deterministic stage+band macro solver (`layout/zonePlace.ts`) with bottom-up recursive blocks (`layout/nestedZone.ts`) for nested containers.
+3. Run intra-zone refinement (`layout/zoneRefine.ts`), geometric finishing (`layout/zoneFinish.ts`), and post-placement single-node straightening (`layout/straightenNodes.ts`).
+4. Apply boundary mounts (`layout/borderMount.ts`) for any node declared with `[mount: border]`.
 
 ### Columns
 
-- Rank is the longest path. Cycles are broken by ignoring back edges of a depth-first search that starts from each unvisited node in declaration order and follows edges in declaration order. A two-way edge is one edge from its first node to its second. Self-loops are ignored.
-- The gap between columns is `max(congestionGap, needed - 132) + 16 * edges`, where `edges` is 1 if some group frame ends at the left column, plus 1 if some frame starts at the right one. Frames nested along one edge share its 16 of padding, so the gap does not depend on the nesting. `congestionGap` starts at 36 and widens by 14 per crossing link beyond 2 (up to 148) when long-span edges or degree ≥ 4 hubs cross that column gap (or ≥ 4 links span it). `needed` is `min(180, label width) + 32` for the widest label between those columns. The 132 is the node width (176) minus the station width (44), since a label can use the space beside the stations.
+- Inside a column layout (`layout/ranks.ts`, `layout/columns.ts`), rank is the longest path over `forwardEdges` (`primary` edges plus non-excluded, non-cycle-closing `static` edges; Rules S1–S3 exclude `static` links that connect already-linked primary backbone nodes or form NAT/egress return chains). Remaining cycles break via iterative DFS in declaration order. A two-way edge counts once from its first endpoint to its second; self-loops are ignored.
+- The gap between columns is `max(congestionGap, needed - 132) + 16 * edges`, where `edges` counts group frame boundaries between adjacent columns. `congestionGap` starts at 36 and widens by 14 per crossing link beyond 2 (up to 148) under long-span or degree `>= 4` hub congestion. `needed` is `min(180, label width) + 32` for the widest `static` label between adjacent columns (`|rf - rt| === 1`).
 - The left and top margins are `40 + depth * 16`.
 
 ### Rows
 
-Each group, and the top level, places two kinds of block: the nodes directly in it, one block per column, and its child groups.
+Each column-laid-out group places column blocks and child groups:
 
-- Blocks with no columns in common go side by side. Overlapping blocks stack with a gap of 28.
-- The initial order is by leftmost column, with column blocks before child groups. Inside a block, the order is declaration order.
-- A node is 176 × 118 whatever its icon, with 14 between rows (widened up to 34 when long-span edges or degree ≥ 5 hubs add cross-corridor traffic). Its station center is always 50 below its top, so nodes at the same Y are joined by a level line.
-- In the first placement, a column is sorted by the average Y of its already placed predecessors. Nodes with no predecessor go last, and ties use declaration order.
-- A node with self-loops needs `30 + (loops - 1) * 18` above it. The largest requirement in a group level applies to all of that level's rows.
-- A group frame wraps its direct nodes and child groups with a padding of 16, plus 18 at the top for its name. An empty group reserves 160 × 40 in column 0.
+- Blocks with no columns in common sit side by side; overlapping blocks stack with `CLUSTER_GAP = 28`.
+- A node is `176 × 118` (`NODE_SIZE`) with `ROW_GAP = 14` between rows (widened up to `34` under cross-corridor hub traffic). Its station center is `50` below its top (`STATION_CENTER`).
+- A node with self-loops reserves `30 + (loops - 1) * 18` above it.
+- A group frame wraps its members with `GROUP_PADDING = 16`, a top header (`groupHeaderHeight`: 18 for 1 line, or 2-line wrapped height when needed), and a minimum frame width (`zoneMinWidth`) so headers fit within two wrapped lines without truncation. An empty group reserves `160 × 40`.
 
 ### Order improvement
 
 | | |
 | :--- | :--- |
-| Iterations | Up to 16, stopping after 4 without improvement |
-| Column order | Odd passes use the average Y of neighbors on the left, even passes on the right. Nodes with no neighbors keep their position. Ties use the previous position, then declaration order |
-| Block order | Average Y of the block's connections outside the block, or of its own nodes if there are none. Groups with no nodes go last |
-| Accepted when | There are fewer crossings, or as many crossings and a shorter total vertical rail length |
-| Skipped when | There are no edges other than self-loops, or more than 500, since it runs on every edit and crossing counts are quadratic in edges |
+| Iterations | Up to 16 alternating left/right barycenter sweeps, stopping after 4 without improvement |
+| Column order | Odd passes average left neighbors' Y; even passes average right neighbors' Y. Ties keep previous position, then declaration order |
+| Block order | Average Y of external connections, or own nodes if none |
+| Accepted when | Fewer crossings, or equal crossings with shorter total vertical rail length |
+| Skipped when | No non-self-loop edges, or more than 500 edges |
 
-Crossings are counted on straight lines between station centers (`countCrossings`), and edges sharing a station do not count. Drawn rails take right-angled routes, so the drawn count can differ.
+Crossings are counted on straight lines between station centers (`countCrossings`); edges sharing a station do not count.
+
+### Recursive nested containers
+
+For groups that contain nested child groups (`layout/nestedZone.ts: buildRecursiveZoneBlock`):
+
+- Leaf groups lay out via `buildSingleZoneBlock` (`computeColumnLayout` + header width guarantee); single-child wrappers wrap their child directly.
+- Composite containers run scoped flow analysis (`analyzeScopeFlow`) over their direct children and lay them out with tighter `NESTED_SPACING` (`stageGap: 48`, `rowGap: 24`, `horizontalClearance: 36`, `verticalClearance: 22`, `auxGap: 32`).
+- **Same-step parallel fan-out merging:** Adjacent single-block trailing stages fed in the same step by a shared upstream distributor (with `static` links between them, such as Multi-AZ boxes) merge into one vertical stage column.
+- **Sibling symmetry & grid alignment:** `detectIsomorphicSiblings` matches parallel same-stage siblings with identical internal signatures (never locking upstream/downstream pipeline stages together) to synchronize flips and equalize widths; `alignStackedSiblingColumns` aligns outer widths and internal subnet-column tracks across structurally similar composite siblings stacked in the same column.
+- **Wide 2-stage stacking & corner-pocket auxiliaries:** Wide two-stage containers with dual external ingress stack vertically; auxiliary child zones inside nested containers try tucking into unused vertical pockets above or below shorter outer primary columns before falling back to a full-width top/bottom band.
 
 ### Placing zones freely
 
-When the column layout leaves a link longer than 700 units or two links that cross, on straight lines between stations, and there are at least two top-level zones, `layout/zoned.ts` tries another arrangement. It is kept if its long links and crossings weigh less than those of the column layout, counting each unit of a link beyond 700 once and a crossing as 700 units. Zones linked across one another can cross in shared columns with every link short: placing them freely can take the crossings out. A chain of zones has no crossings in columns but is a strip dozens of times wider than high; freeing its zones at the price of one crossing is worth it.
+When a diagram has at least `MIN_ZONES = 2` top-level groups (`hasZonesToPlace(doc)`), `layout/zonePlace.ts: searchZonePlacement` runs a **100% deterministic** stage+band macro solver (with no PRNG and no simulated annealing):
 
-1. Each top-level zone is laid out on its own, with the rules above.
-2. The zones start in the columns of a graph that has one node per zone.
-3. Simulated annealing moves zones, swaps them and flips them vertically, scoring link length, crossings, links through or blocked by other zones (including L-path and perimeter-detour barriers), right-to-left links, links that run upright, how far links are from straight, and overall size. Every unit of a link's length counts, and counts again past 700. The size counts as the longer side of a 16:10 canvas the zones fit in, so they fill such a canvas rather than stretch into a strip. A link is off straight by the sideways distance between its two stations, up to 160, counted twice; this applies where no node of either zone stands between them on that side, and a link that cannot be straight counts the full 160. A link runs upright by what it goes up or down beyond what it goes to the right. In an arrangement no wider than high every such unit counts once more, so that an upright link costs twice a level one, and the zones of a flow stand side by side instead of in a stack. That weight falls evenly to nothing at twice as wide as high: a longer flow has to turn back under itself, or it becomes a strip.
-4. Each zone slides towards the zones it is linked to, as far as its clearance allows, so that linked neighbors end up one clearance apart (60 × 34).
-5. Zone edges are aligned where that costs almost nothing, and the zones slide together once more. On diagrams with up to 20 top-level zones, a node with DAG column slack that is linked outside its zone is tried in later columns, picked by how far across it stands from the nodes it links to there and by how full each column is, and kept there where the score drops; and a zone of two or more nodes that the annealing cannot flip, because it holds groups or self-loops, is tried upside down and kept so where its links and crossings score lower. Nodes sharing a parent group and column are then reordered by neighbor barycenters whenever that lowers crossings, or keeps them and shortens the links' vertical spans. On up to 20 top-level zones, the barycenters are clamped to 60 units around the zone and weighted, each link inside the zone that is not level counts as 0.6 of a crossing, and adjacent swaps follow under the same test.
-6. A zone moves up to 120 units to put the two stations of a link level, or one straight above the other, with nothing between them. It takes the move that straightens the most of its links, as long as the rest of the score rises by less than 120 per link. The best of six seeded runs is kept, counting each straight link as 120 in its favor (and each crossing anywhere in the diagram as 180 against). Once a run is scored, its zones are straightened once more with 300 allowed per link: a link a few units off level costs its rail two bends, which the score does not count. Doing this after the score leaves which run is kept as it was.
+1. Isolated top-level blocks (`deg === 0` across top-level zones) are partitioned out so connected solving runs strictly over `connectedSubdoc(doc)`, guaranteeing `0.0`-px drift when isolated blocks change.
+2. Connected zones are built bottom-up (`buildRecursiveZoneBlock` for nested containers, `buildSingleZoneBlock` for flat zones) and classified by `shouldPreserveFlow` into either single-row left-to-right stages or a wrapped 2D `MacroGrid` (`prepareMacroGrid`).
+3. `solveStagedPipeline` places primary stage columns, runs 6 bidirectional `stationY` barycenter sweeps, flips/finishes primary blocks, and places auxiliary zones into bands (`'bands'`) or trailing pockets (`'right-top'`). Tall single-row columns (`len >= 3` with aspect `< 1.35`) also generate a split-column candidate (`buildSplitStageColumns`).
+4. Each candidate runs bounded intra-zone refinement (`layout/zoneRefine.ts`: `optimizeZoneSlackRanks`, `clearCorridorIntrusions`, exact bitmask or greedy `optimizeZoneFlips`, `(parentId, columnX)` `refineZoneNodeOrder`, and multi-scale cardinal `polishZoneCoordinates`) and finishing (`layout/zoneFinish.ts`: `compact`, `alignEdges`, `tighten`, `straighten`, `eliminateShortJogs`, `restoreStageBreathingRoom`), all scored by the unified objective in `layout/zoneScore.ts`.
+5. `applyZonePlacement` runs `keepClear` on connected blocks and packs isolated blocks in rows below (`placeIsolatedBlocks`).
 
-The result is deterministic. Zones no longer share columns, so a column does not line up across the diagram. The search takes under two seconds at 300 nodes, so the last result is reused until the nodes, groups or edges change. Edge labels are left out of the search, so typing one never rearranges the zones. A long label can still widen its zone, and the zones to its right then move aside.
+Results are cached by `structureKey(doc)` (which strips `static` labels via `withoutLabels(doc)` so typing a label does not trigger a zone re-search).
 
 ### Straightening single nodes
 
-Columns, rows and the placing of zones leave some nodes a few units off a node they are linked to, and the rail between them then steps aside with two bends. Last, `layout/straightenNodes.ts` moves such a node:
+After zone placement, `layout/straightenNodes.ts` shifts single nodes up to `60` units (`REACH`) inside their parent frame (up to 4 rounds) to put links level (`<= 12` units) or upright, keeping `14` units from other nodes and `28` from foreign groups while guarding inter-zone `'primary'` links (`dx > 0` preserved).
 
-- up to 60 units, to put the two stations level (12 or less apart, which a rail joins with one straight line) or one straight above the other, with no other node between them;
-- only inside the frame it stands in, keeping 14 from other nodes and the room for their loops, and 28 from groups it is not in. Frames do not change;
-- together with the nodes it stands level with (for a move up or down) or straight above or below (for a move sideways), where moving alone would bend those links: that move is tried as well, under the same rules for each node;
-- by the move that straightens the most links, then by the one that moves fewer nodes, and by none that bends as many links as it straightens or makes them cross more, counted on straight lines between stations.
+### Border-mounted nodes
 
-Nodes are visited in declaration order, for up to four rounds.
+Last, `layout/borderMount.ts: applyBorderMounts` positions nodes declared with `[mount: border]` inside a group (innermost groups first):
+
+1. Picks the border side (`left` / `right` / `top` / `bottom`) facing the average direction of the node's external connections outside its parent group's subtree (falling back to internal degree direction when there are no external connections).
+2. Shrinks the parent group's border edge inward onto the mounted station where interior clearance (`MIN_INNER_CLEAR_X = 56`, `MIN_INNER_CLEAR_Y = 44`) and `zoneMinWidth` permit.
+3. Aligns each mounted node along its edge using its **in-band `animate` (primary) neighbors** inside the mountable edge span `[lo, hi]` first (falling back to all in-band neighbors, then internal neighbors, then original center), so distant out-of-band external nodes or `static` return links do not bend straight primary chains. Multiple nodes on the same side space apart by at least `SIDE_SEP_Y = 130` / `SIDE_SEP_X = 136` while staying clear of the parent group's title header.
 
 ### Routing rails
 
-Rails are routed after layout, by `routeEdges` in `scene/route.ts`, once for an arrangement: a rail keeps its course from step to step. A self-loop is not routed; it stays a curve at its station's upper right.
+Rails are routed after layout by `routeEdges` in `scene/route.ts` once per arrangement: a rail keeps its course from step to step. Self-loops stay curves at the upper right of their station.
 
-1. **The grid** (`scene/routeGrid.ts`). Routes run on the lines through the middle of every station (plus off-center vertical ports when a zone label sits overhead), 8 units beside every node's station area, 12 units beside wider node label blocks, 12 units inside and outside every zone border, on all four sides of every wall, and along interior tracks added across wide gaps (36+ units). Lines nearer to each other than 7 units, the distance rails keep, become one; a line through a station is always kept.
-2. **Shortest reach first with rip-up & reroute** (`scene/routeSearch.ts`, `scene/route.ts`). A route is the cheapest way over the grid from one station to the other (A*), followed by up to two rip-up-and-reroute passes on winding or crossing routes whenever that lowers the total score. What a step pays for:
+1. **The grid** (`scene/routeGrid.ts`). Routes run on lines through station centers (plus off-center vertical ports when a zone label sits overhead), `8` units beside station areas, `12` units beside wider label blocks, `12` units inside and outside every zone border, midpoint tracks centered between nested group borders, all four sides of every wall, and interior tracks across wide gaps (`36+` units). Group-endpoint `static` connections open border doors around all four outer edges of the endpoint group (excluding its title wall) so routes meet the border perpendicularly without entering the group's interior.
+2. **Shortest reach first with rip-up & reroute** (`scene/routeSearch.ts`, `scene/route.ts`). A* finds the cheapest grid path per edge (using an admissible rectangle-distance heuristic for group-border endpoints), followed by up to two rip-up-and-reroute passes on winding or crossing routes:
 
    | Cost | Amount |
-   | --- | --- |
+   | :--- | :--- |
    | Length | 1 per unit |
    | Turns (1st / 2nd / 3rd+) | 40 / 52 / 115 |
-   | Crossing an unrelated route | 160 (at a 90° vertex or at the far end of a shared run) |
-   | Crossing a route that shares one station | 40; nothing for a route between the same two stations |
-   | Length inside a zone that holds neither end | 4 per unit |
-   | Length on a shared stretch | 6–25% per shared-endpoint route; 35–65% per unrelated route, counting one on a line less than 7 units away |
-   | Leaving a node downwards, or reaching one from below | 30 |
-   | Using the top port of a node that has a self-loop | 40 |
-   | Turning within 18 units of either station's outline/labels | 180 |
-   | Meeting a station off its middle | 2 per unit |
+   | Crossing an unrelated route | 160 |
+   | Crossing a route sharing one endpoint | 40; 0 between the same pair |
+   | Length inside a foreign zone | 4 per unit |
+   | Hugging a zone border (`< 5` units clearance) | `2.5` per unit (`ALONG_BORDER`) |
+   | Shared stretch | 6–25% per shared-endpoint route; 35–65% per unrelated route |
+   | Port load balancing (`> 5` rails on one face) | `+80` / `+150` (`PORT_CROWD_COSTS`) |
+   | Leaving downward or reaching from below | 30 |
+   | Top port of a self-loop node | 40 |
+   | Turning within 18 units of endpoint outline/labels | 180 |
+   | Off-center port | 2 per unit |
 
-   Another node's area and wider label block are closed to other routes, and walls (zone names, self-loops plus 10 units round them, and loop labels) are closed with a 4-unit guard on non-station lines. A route leaves its own station in a straight line, and enters a node's area only along a line through that station's middle, or through an off-center port within 12 units when linked almost straight or past an overhead wall.
-3. **Side by side** (`scene/routeSpread.ts`). Routes that share a line are ordered by turn preferences, packed into non-overlapping interval tracks, and set up to 7 units apart within 30 units (28 where they meet a station). More of them than that has room for stand nearer, down to 4 units, one more than the 3 a rail is wide: for that the group grows, up to 40 units at a station, which is 44 across, and 20 beside a loop. Only more rails than fit even so stand nearer still. A group is kept outside the areas of the nodes beside it, for which its rails may stand as near as 3.5. Rails of different lines that this leaves nearer than 7 units where they run beside each other are then moved apart, each as little as that takes. They keep the order they are in, except that a rail that turns off within the length of a rail of the other line goes on the side of it that it turns towards, where the other order would have its turn cross that rail. At the top or right port of a station with a self-loop, shared rails are biased away from the upper-right loop quadrant. Two routes that run together keep their sides round every corner: the one that turns off to the left at the end of their shared run is the left one all along, so they part without crossing. Routes with nothing to tell them apart, such as the two directions between one pair of stations, each keep to the left of their own direction. Two routes whose shared run has them turn off the same way at its two ends cross either way, and the far end chooses; where one of them belongs to a bundle (routes that share a station) and the other does not, the other takes the side of the bundle it is on from the bundle's other routes, so that it crosses the bundle instead of running inside it.
-4. **The ends.** A route stops 2 units outside its station's outline. One that leaves a node downwards starts below the node's labels instead.
+3. **Side by side** (`scene/routeSpread.ts`). Routes sharing a track pack into non-overlapping intervals spaced up to `7` units apart (expanding to `PORT_ARROW_GAP = 9` on faces with crowded arrowheads, and `BOTTOM_PORT_GAP = 10` across `76..96` units on bottom ports), clamped at least `BORDER_KEEP_OUT = 5` units away from parallel zone borders whenever space permits.
+4. **The ends.** A route stops `2` units outside its station outline or target group border. One leaving a node downward starts below the node's labels.
 
-A packet that travels where no edge runs gets a route of its own, found together with the edges. If no route is found at all, the rail is a straight line between the two stations.
-
-**Edge labels** are placed once per arrangement too (`placeLabels` in `scene/rails.ts`), placing shorter (more constrained) rails first. A label goes beside the longest stretch of its rail that is long enough for it (preferring unshared stretches, then shared ones): above or below a level stretch, right or left of an upright one, 7, 13 or 19 units away. It keeps clear of stations, node labels, zone names, other edge labels, other rails and the middle of its own rail, where a step puts numbered stops. A loop's label is always written above the middle of its curve, and the other labels keep clear of it as well. On a rail too short for that, the label goes 20 units above or 28 below the middle. A label with no free place takes the one that covers the least.
-
-Routing takes about 30 ms for 100 nodes with as many edges, about 100 ms for 27 nodes with 53 edges, and under a second at 300 nodes: the time grows with the rails that cross and run together more than with the nodes. The routes are reused until a node's or group's place, a node's label text, an edge, the label of a loop or an `animate` pair changes. Any other edge label only has the labels placed again.
+**Edge labels** (`placeLabels` in `scene/rails.ts`) are placed on the longest clear stretch of each rail (avoiding stations, node labels, zone titles, rails, numbered stop midpoints, and other labels). In the overview, edge labels are hidden by default and rendered only when explicitly requested (for example `dav export --still --labels`).
 
 ### Invariants
 
-Tests are in `layout/__tests__/layout.test.ts`, `scene/__tests__/scene.test.ts` and, for rails, `scene/__tests__/rails.test.ts`.
+Tests live in `layout/__tests__/layout.test.ts`, `layout/__tests__/nestedCloud.test.ts`, `layout/__tests__/zoned.test.ts`, `layout/__tests__/e2eLayout.test.ts`, `layout/__tests__/tier5Hardening.test.ts`, `scene/__tests__/scene.test.ts`, `scene/__tests__/rails.test.ts`, `scene/__tests__/routeBorderAndPorts.test.ts`, `scene/__tests__/quality.test.ts`, and `exporter/__tests__/phase3Features.test.ts`.
 
-| Invariant | Test |
+| Invariant | Verification |
 | :--- | :--- |
-| The same input gives the same layout. No randomness or unordered iteration | `is deterministic` |
-| Nodes never overlap, and unrelated nodes never land inside a group | `auto layout never overlaps nodes or puts foreign nodes inside groups` |
-| A group wraps all of its descendants | `wraps groups around their (nested) members` |
-| Connected rows stay level | `keeps connected rows on one line` |
-| Samples do not gain crossings | `stays within its crossing budget` |
-| Room for self-loops is kept | `self-loop room` |
-| An overview does not get harder to read | `is no harder to read than its budget allows` |
-
-When you add a diagram to the samples or `examples/`, add its limit to `CROSSING_BUDGET`. If a rule change reduces crossings, lower the limit.
-
-`scene/__tests__/quality.test.ts` measures the overview of every example as it is drawn, and of ten larger diagrams in `scene/__tests__/fixtures/`, each with five zones and over twenty nodes: rails that turn three times or more, crossings of the drawn rails, the share of links between zones that point to the right, edge labels written over a rail or another label, and width to height. Its `BUDGET` holds what each diagram measures now. The zones of the larger diagrams are placed by a search that a small change sends another way, so a change to the layout moves their numbers both ways: judge it by all of them together, and move the budget with it.
+| Deterministic pure function `layout = f(doc)` with zero randomness | `layout.test.ts`, `nestedCloud.test.ts`, `tier5Hardening.test.ts` |
+| Zero node overlaps and zero foreign nodes inside groups | `auto layout never overlaps nodes or puts foreign nodes inside groups` |
+| Containment across arbitrary nested hierarchies | `wraps groups around their (nested) members`, `nestedCloud.test.ts` |
+| Zero drift on connected elements when isolated elements change | `tier5Hardening.test.ts`, `nestedCloud.test.ts` |
+| Border mounts snap to group edges and stay aligned with in-band primary flows | `phase3Features.test.ts` |
+| No border hugging, crowded arrowheads, or text cuts | `routeBorderAndPorts.test.ts` |
+| Overview readability budgets across all examples and large fixtures | `scene/__tests__/quality.test.ts` |

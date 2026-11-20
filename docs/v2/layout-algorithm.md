@@ -6,19 +6,21 @@ Per [`architecture.test.ts`](../../apps/vscode/src/__tests__/architecture.test.t
 
 ## Module architecture overview
 
-`apps/vscode/src/layout/` comprises **13** TypeScript modules, paired with **2** editor scheduling modules:
+`apps/vscode/src/layout/` comprises **15** TypeScript modules, paired with **2** editor scheduling modules:
 
 | Module | Responsibility |
 | :--- | :--- |
-| `layout/metrics.ts` | Fixed geometry constants (`NODE_SIZE`, `STATION_CENTER`, `STATION_SIZE`, `WINDOW_SIZE`, `GROUP_PADDING`, `GROUP_HEADER`, `ORIGIN`, `EMPTY_GROUP_CONTENT`, `SELF_LOOP_ROOM`) and rectangle primitives (`stationRect`, `selfLoopRoom`, `rectRecord`, `rectOverlaps`, `rectContains`, `enclosingRect`). |
+| `layout/metrics.ts` | Fixed geometry constants (`NODE_SIZE`, `STATION_CENTER`, `STATION_SIZE`, `WINDOW_SIZE`, `GROUP_PADDING`, `GROUP_HEADER`, `ORIGIN`, `EMPTY_GROUP_CONTENT`, `SELF_LOOP_ROOM`), group header wrapping/minimum width (`groupHeaderHeight`, `zoneMinWidth`, `zoneNeededWidth`), and rectangle primitives (`stationRect`, `selfLoopRoom`, `rectRecord`, `rectOverlaps`, `rectContains`, `enclosingRect`). |
 | `layout/ranks.ts` | `computeRanks(ids, edges)` — iterative DFS cycle breaking (`BackEdge { from, to, loop, root }`) and Kahn longest-path DAG ranks (`RankResult`). |
-| `layout/links.ts` | Straight-line station segment primitives (`linksOf`, `segmentsOf`, `shareStation`, `properlyCross`, `crossingsOf`, `countCrossings`, `primaryCrossingsOf`). |
-| `layout/flow.ts` | Chronological step-order flow analysis (`analyzeFlow`): `TransitionRole` (`'primary'` / `'return'` / `'static'`), `flowPairKey`, canonical `isLateAuxAlert`, `canReach`, `primaryCorridors`, wrap-aware `countCorridorIntrusions`, and macro `zoneStage` / `auxiliaryZones`. |
-| `layout/columns.ts` | Rank-based column/cluster layout strictly for diagrams with `<= 1` top-level group (`computeSingleGroupLayout`) and single-zone interiors (`computeColumnLayout`, `refineOrder`, `buildColumnPlan`, `placeAuto`, `computeGroupRects`). |
-| `layout/zoneBlocks.ts` | Zone block construction (`buildSingleZoneBlock`, `buildBlocks`), `intraZoneFlow`, `structureKey`, `connectedSubdoc`, `withoutLabels`, `partitionIsolatedBlocks`, `placeIsolatedBlocks`, `stageColumns`, `shouldPreserveFlow`, row-wrap input preprocessor (`splitTallStaticColumns`, `wrapStageColumns`, `prepareMacroGrid`), `initialPositions`, `placeAuxiliaryBand`, `placeAuxiliaryBlocks`, `keepClear`, `applyNodeOrder`, `applyZonePlacement`, `toLayout`. |
+| `layout/links.ts` | Straight-line station/group-endpoint segment primitives (`linksOf`, `segmentsOf`, `shareStation`, `properlyCross`, `crossingsOf`, `countCrossings`, `primaryCrossingsOf`). |
+| `layout/flow.ts` | Chronological step-order flow analysis (`analyzeFlow`, `analyzeScopeFlow`): `TransitionRole` (`'primary'` / `'return'` / `'static'`), `egressReturnPairs` / `isStaticRankExcluded` (Rules S1–S3), `flowPairKey`, canonical `isLateAuxAlert`, `canReach`, `primaryCorridors`, wrap-aware `countCorridorIntrusions`, and macro `zoneStage` / `auxiliaryZones`. |
+| `layout/columns.ts` | Rank-based column/cluster layout for diagrams with `<= 1` top-level group (`computeSingleGroupLayout`) and single-zone interiors (`computeColumnLayout`, `refineOrder`, `buildColumnPlan`, `placeAuto`, `computeGroupRects`). |
+| `layout/nestedZone.ts` | Bottom-up recursive container layout (`hasRecursiveNesting`, `buildRecursiveZoneBlock`, `computeSingleTopRecursiveLayout`): scoped stage placement (`NESTED_SPACING`), same-step parallel fan-out column merging, `detectIsomorphicSiblings` (same-stage symmetry), `alignStackedSiblingColumns` (shared outer width and child-column grids), wide-2-stage vertical stacking, and corner-pocket auxiliary placement. |
+| `layout/borderMount.ts` | Post-layout boundary mounting (`applyBorderMounts`) for `[mount: border]` nodes: automatic external-facing border side selection, parent border inward shrink, in-band `animate`-priority coordinate alignment, header clearance, and multi-mount separation. |
+| `layout/zoneBlocks.ts` | Zone block construction (`buildSingleZoneBlock`, `buildBlocks`, `TOP_SPACING`, `NESTED_SPACING`), `intraZoneFlow`, `structureKey`, `connectedSubdoc`, `withoutLabels`, `partitionIsolatedBlocks`, `placeIsolatedBlocks`, `stageColumns`, `shouldPreserveFlow`, row-wrap input preprocessor (`splitTallStaticColumns`, `wrapStageColumns`, `prepareMacroGrid`), `initialPositions`, `placeAuxiliaryBand`, `placeAuxiliaryBlocks`, `keepClear`, `applyNodeOrder`, `applyZonePlacement`, `toLayout`. |
 | `layout/zoneScore.ts` | Single unified objective module: wrap-aware `FlowContext` (`buildFlowContext`), `BlockLink` (`buildLinks`), `linkCost`, `movedCost`, `evaluateMove`, `wallDetourCount`, `blockedPrimaryPorts`, `rightwardShare`, `estimateRoutingDefects`, `diagramCrossingPenalty`, `countBackwardPrimary`, `evaluateArrangementScore` (`'full' \| 'staged' \| 'intrusion' \| 'flip'`), and typed-array `createFastCrossingEvaluator` / `evaluateAnchoredObjective`. |
 | `layout/zoneFinish.ts` | Geometric zone finishing: `alignEdges`, `tighten`, `compact`, `restoreStageBreathingRoom`, `straighten` (with coupled 2-block / 3-block shifts and `corridorReturnBiasY`), and `eliminateShortJogs`. |
-| `layout/zoneRefine.ts` | Intra-zone and bounded coordinate refinement: `RefineBudget`, `deriveRefineBudget`, `optimizeZoneSlackRanks`, `refineZoneNodeOrder`, unified `optimizeZoneFlips` (exact bitmask + `'score-greedy'`), and `polishZoneCoordinates`. |
+| `layout/zoneRefine.ts` | Intra-zone and bounded coordinate refinement: `RefineBudget`, `deriveRefineBudget`, `optimizeZoneSlackRanks`, `refineZoneNodeOrder`, unified `optimizeZoneFlips` (exact bitmask + `'score-greedy'` with optional `symmetryGroups`), and `polishZoneCoordinates`. |
 | `layout/zonePlace.ts` | Single deterministic stage+band macro solver (`searchZonePlacement`): canonical `arrange`, continuous `buildSplitStageColumns`, `solveStagedPipeline`, band guards, `clearCorridorIntrusions`, `{ aside, breathe }` mode grid, and final candidate scoring. |
 | `layout/zoned.ts` | Internal barrel bridging `zoneBlocks.ts` and `zonePlace.ts:searchZonePlacement` to `index.ts`. |
 | `layout/straightenNodes.ts` | Post-placement single-node straightening inside parent frames (`REACH = 60`, `ROUNDS = 4`) while guarding inter-zone `'primary'` links (`dx > 0` preserved). |
@@ -45,8 +47,8 @@ Per [`architecture.test.ts`](../../apps/vscode/src/__tests__/architecture.test.t
 6. **Non-structural edit and label behavior (`structureKey`, `withoutLabels`):**
    `pendingZoneSearch(doc)` computes `structureKey(doc)` before stripping `step.statics` labels via `withoutLabels(doc)`:
    - **Ignored by `structureKey`:** Pure annotation steps containing no inter-node `animate` or `static` statements (`desc`, `focus`, `state`), step/animation `description`s, node/group/edge display labels (`label`, `sub`, `badge`), and later-step repeat animations inside an already-active step on an unordered pair already classified in an earlier step (provided they do not upgrade a `'static'`-only pair to animated, convert an empty step before a later active step into an active step, or push `activeStepCount` from `3` to `4`).
-   - **Invalidates `structureKey`:** Changes to node or group IDs, order, or `parentId`, distinct connection pairs, their first-seen insertion order, roles (`'primary'`, `'return'`, `'static'`), arrow directionality (`forward` vs `bidirectional`), `forwardEdges` order, self-loops, `activeStepCount >= 4`, or `pairFirstStep`.
-   - **Label width effects:** `NODE_SIZE` (`176 × 118`) is fixed, so node labels (`label`, `sub`, `badge`) and `animate` labels never widen a node or zone. Only `step.statics` labels between adjacent internal columns (`|rf - rt| === 1` in `columns.ts`) widen column gaps locally during `applyZonePlacement`, after which `keepClear` pushes overlapping connected zones right without re-running zone search.
+   - **Invalidates `structureKey`:** Changes to node or group IDs, order, `parentId`, or node `mount`, distinct connection pairs (including group-endpoint `static` links), their first-seen insertion order, roles (`'primary'`, `'return'`, `'static'`), arrow directionality (`forward` vs `bidirectional`), `forwardEdges` order, self-loops, `activeStepCount >= 4`, or `pairFirstStep`.
+   - **Label width effects:** `NODE_SIZE` (`176 × 118`) is fixed, so node labels (`label`, `sub`, `badge`) and `animate` labels never widen a node; group labels set a minimum group width (`zoneMinWidth`) so headers fit within two wrapped lines without truncation. `step.statics` labels between adjacent internal columns (`|rf - rt| === 1` in `columns.ts`) widen column gaps locally during `applyZonePlacement`, after which `keepClear` pushes overlapping connected zones right without re-running zone search.
 
 ---
 
@@ -55,19 +57,20 @@ Per [`architecture.test.ts`](../../apps/vscode/src/__tests__/architecture.test.t
 ```mermaid
 flowchart TD
   Doc["DavDocument"] --> HasZones{"hasZonesToPlace(doc)\n(>= 2 top-level groups?)"}
-  HasZones -- "No (<= 1 group)" --> SingleGroup["computeSingleGroupLayout (columns.ts)\nmainComp / multiComps / singletonIds"]
-  SingleGroup --> Out["Layout { nodes, groups }"]
+  HasZones -- "No (<= 1 group)" --> SingleGroup["computeSingleGroupLayout (columns.ts)\n+ computeSingleTopRecursiveLayout\nwhen hasRecursiveNesting(doc)"]
+  SingleGroup --> Mount["applyBorderMounts (borderMount.ts)\nfor [mount: border] nodes"]
+  Mount --> Out["Layout { nodes, groups }"]
 
   HasZones -- "Yes (>= 2 groups)" --> Cache{"structureKey(doc) ===\nzonePlan?.key?"}
   Cache -- "Yes (hit)" --> Apply
   Cache -- "No (miss)" --> Strip["pendingZoneSearch(doc)\nwithoutLabels(doc) + linksBetweenZones"]
   Strip --> Conn["connectedSubdoc(doc)\n& analyzeFlow(connDoc) (flow.ts)"]
-  Conn --> Blocks["buildBlocks + partitionIsolatedBlocks\n(zoneBlocks.ts)"]
+  Conn --> Blocks["buildBlocks + buildRecursiveZoneBlock\n+ partitionIsolatedBlocks (zoneBlocks.ts, nestedZone.ts)"]
   Blocks --> Grid["prepareMacroGrid(connected, flow)\nshouldPreserveFlow vs wrapStageColumns"]
   Grid --> Place["searchZonePlacement (zonePlace.ts)\nsolveStagedPipeline + split aspect (< 1.35)\n+ {aside, breathe} modes + zoneRefine"]
   Place --> Apply["applyZonePlacement (zoneBlocks.ts)\nkeepClear(connected) -> placeIsolatedBlocks below"]
   Apply --> StraightNodes["straightenNodes (straightenNodes.ts)\n<= 60 units, <= 4 rounds"]
-  StraightNodes --> Out
+  StraightNodes --> Mount
 ```
 
 In VS Code (`editor/zonePlanner.ts`), when `pendingZoneSearch(doc)` returns a `ZoneSearch`, `ZonePlanner` dispatches `searchZones` to a single background Web Worker (`editor/zoneSearch.worker.ts`):
@@ -93,19 +96,24 @@ In VS Code (`editor/zonePlanner.ts`), when `pendingZoneSearch(doc)` returns a `Z
     2. `zu !== zv && enteredZones.has(zv) && canReach(effectiveZoneAdj, zv, zu)` (returns into an already-entered upstream zone), or
     3. `returnReached.has(from) && enteredSeq.has(to)` (`returnCont`: continues an intra-zone return chain into a previously visited node).
   - **`'primary'`:** First-visit forward progression; deduplicated via `seenPrimaryEdges` into `primaryEdges` and added to `nodeAdj` / `zoneAdj`.
-  - **`'static'`:** Pairs appearing only in `static` statements. When `hasAnimate` is true, a `static` pair enters `forwardEdges` only if it closes neither a node cycle (`nodeAdj`) nor a zone cycle (`zoneAdj`); when `hasAnimate` is false, all `static` edges enter `forwardEdges` for DFS cycle breaking.
+  - **`'static'` and rank separation (Rules S1–S3):** Pairs appearing only in `static` statements (which may use node or group IDs as endpoints). When `hasAnimate` is true, `isStaticRankExcluded` prevents secondary `static` edges from distorting primary column ranks:
+    - **Rule S1:** Excludes a `static` edge between two nodes that already belong to the primary backbone (`primaryNodes`) unless it stays inside a single leaf group with no primary path connecting them.
+    - **Rule S2 (`egressReturnPairs`):** Detects static return chains (such as `app ..> nat_gw ..> igw`) leaving a downstream primary node through static-only intermediaries back to an upstream primary node, excluding them from forward ranking and stage votes so Public/NAT subnets stay upstream rather than inverting past Data tiers.
+    - **Rule S3:** Pure `static` sinks with no return back to an earlier primary node remain downstream of their feeding primary node; otherwise a `static` pair enters `forwardEdges` only if it closes neither a node cycle (`nodeAdj`) nor a zone cycle (`zoneAdj`). When `hasAnimate` is false, all `static` edges enter `forwardEdges` for DFS cycle breaking.
 
-### 3.2 Late-step decay, `isLateAuxAlert`, and `auxiliaryZones`
+### 3.2 Late-step decay, `isLateAuxAlert`, `auxiliaryZones`, and `analyzeScopeFlow`
 Directional stage votes always weight earliest step appearance via `stepScore(fs) = 1 / (1 + 0.05 * fs)`, while auxiliary/animate degree accumulation decays after active step `2` on multi-step diagrams (`multiStep = activeStepCount >= 4`):
 - `stepDecay(fs) = multiStep ? 1 / (1 + 0.12 * max(0, fs - 2)) : 1`
 - `stepScore(fs) = 1 / (1 + 0.05 * fs)`
 
 Canonical `isLateAuxAlert(conn, flow, owners)` (`flow.ts`) returns `true` when a `'primary'` link leaves an auxiliary zone (`za`) into a non-auxiliary zone (`zb`) with `firstStep >= 2` and `zoneStage(za) >= zoneStage(zb)`, demoting late auxiliary alert callbacks to `'return'` inside `zoneScore.ts:buildLinks` and `zonePlace.ts:solveStagedPipeline`.
 
-When `hasAnimate` is true, a top-level group `id` is added to `auxiliaryZones` if:
+When `hasAnimate` is true, a group `id` is added to `auxiliaryZones` if:
 - `priInter === 0 && distinctNbrs >= 2` (zero inter-zone `'primary'` connections, connected to `>= 2` other blocks), **or**
-- `staticHeavy && distinctNbrs >= 3`, where `isSharedBag = zoneNodeCount >= 2 && intraTotal === 0` uses `staticHeavy = (stat > anim)`, while single-node zones and zones with internal connections require `staticHeavy = (stat > anim * 2)`.
+- `staticHeavy && distinctNbrs >= 3`, where `isSharedBag = zoneNodeCount >= 2 && intraTotal === 0` uses `staticHeavy = (stat > anim)`, while single-node zones and zones with internal connections count decayed internal `'primary'` links (`intraPri`) and require `staticHeavy = (stat > (anim + intraPri) * 2)` so multi-tier workload AZs with heavy static replication/endpoint edges are not misclassified as auxiliary.
 - **All-auxiliary collapse guard:** If `auxiliaryZones` would leave zero inter-zone `'primary'` edges (`primaryInter.size === 0`) or fewer than `2` connected non-auxiliary blocks (`nonAuxConnected < 2`), `auxiliaryZones.clear()` runs so inter-zone `static` stages are preserved.
+
+`analyzeScopeFlow(groupBlockIds, blockIds, owners, fullFlow)` applies the same macro stage and auxiliary classification recursively to the direct children of any composite container in `nestedZone.ts`.
 
 ### 3.3 Acyclic `zoneStage`, `primaryCorridors`, and unified `backEdgesOf`
 1. **Directed votes & `primaryComponentAdj`:** Inter-zone `'primary'` edges vote `3 * stepScore(fs)`; unidirectional `'static'` edges vote `0.1 * stepScore(fs)`. If two non-auxiliary blocks with `primaryDegree > 0` are already connected in `primaryComponentAdj` and share no direct `'primary'` edge, `'static'`-only links between them are ignored when building the stage DAG.
@@ -130,6 +138,16 @@ When `hasAnimate` is true, a top-level group `id` is added to `auxiliaryZones` i
 - Top-level blocks with zero inter-block connections in `flow.connections` are partitioned into `isolated`.
 - `placeIsolatedBlocks` sorts `isolated` lexicographically by `id` (`compareBlockId`) and places them in rows starting at `(minX, maxY + ROW_GAP)` (`ROW_GAP = 44`), wrapping at `max(1800, maxX - minX)` with `HORIZONTAL_CLEARANCE = 60`. Each ungrouped isolated node reserves its own per-block headroom `extraTop = b.groups.size === 0 ? b.loopRoom : 0`, tracked via per-row `rowBottom`.
 - `applyZonePlacement` runs `keepClear` strictly on `connected` blocks first, then appends `placeIsolatedBlocks(isolated, placed)` before `toLayout` shifts `(minX, minY)` to `ORIGIN` (`40, 40`).
+
+### 4.3 Bottom-up recursive container layout (`nestedZone.ts`)
+Both multi-top-level diagrams (`buildBlocks` passing `buildRecursiveZoneBlock`) and single-top-level deeply nested diagrams (`hasRecursiveNesting(doc)` -> `computeSingleTopRecursiveLayout`) lay out nested group hierarchies bottom-up rather than forcing global shared columns across independent subtrees:
+- **Leaf groups & single-child wrappers:** Leaf groups lay out via `buildSingleZoneBlock` with `zoneMinWidth` / `groupHeaderHeight` (2-line header wrapping). Single-child wrappers (`directGroups.length === 1 && directNodes.length === 0`) wrap their child directly.
+- **Composite containers (`placeContainerChildren`):** Runs `analyzeScopeFlow` over direct children using `NESTED_SPACING` (`stageGap: 48`, `rowGap: 24`, `horizontalClearance: 36`, `verticalClearance: 22`, `auxGap: 32`):
+  1. **Same-step parallel fan-out column merging:** Adjacent single-block trailing stages fed in the same step by a shared upstream distributor with `static` links between them (e.g. Multi-AZ containers linked by replication) merge into one vertical stage column.
+  2. **Isomorphic sibling symmetry (`detectIsomorphicSiblings`):** Computes structural signatures including `scopeFlow.zoneStage`, `auxiliaryZones` membership, child counts, and per-child degree profiles so parallel same-stage siblings (never upstream/downstream pipeline stages) synchronize flips in `optimizeZoneFlips` and equalize minor width differences (`<= 80` px via `widenBlock`).
+  3. **Stacked sibling grid alignment (`alignStackedSiblingColumns`):** For composite sibling containers stacked in the same stage column (`depth >= 1`) with matching direct child-group counts and child-column counts (width ratio `<= 1.5`), equalizes outer widths and internal child-column tracks (`x` and `width`) while centering each child group's descendants horizontally and preserving vertical flip metadata unchanged.
+  4. **Wide 2-stage stacking:** Two wide multi-column child groups (`width >= 500`, combined horizontal width `> 1400`, aspect `> 2.2`) that both receive external primary ingress stack vertically.
+  5. **Corner-pocket auxiliary packing:** Inside nested containers (`depth >= 1`, `columns.length >= 2`), auxiliary child zones score candidate vertical pockets above or below shorter outer primary columns (`colIdx ∈ {0, last}`) that fit within `priH + 24`, minimizing weighted Manhattan distance to connected primary peers before falling back to a full-width top/bottom band.
 
 ---
 
@@ -231,6 +249,12 @@ All diagram sizes share the same macro placement skeleton; diagram dimensions sc
   - `tighten` runs up to `10` rounds over `TIGHTEN_STEPS = [128, 64, 32, 16, 8, 4]`; `compact` runs `COMPACT_ROUNDS = 4` (`COMPACT_MIN_SHIFT = 8`); `alignEdges` snaps borders/centers within `ALIGN_REACH = 140` (`ALIGN_TOLERANCE = 30`); `straighten` uses `STRAIGHTEN_REACH = 120` with coupled 2-block (`<= 36`) and 3-block (`<= 28`) vertical shifts and `corridorReturnBiasY`.
   - Finally, `applyZonePlacement` places isolated blocks below connected blocks, and `computeLayout` (`index.ts`) runs `straightenNodes(doc, placed)` (`REACH = 60`, `NEAR_LEVEL = 12`, `NODE_GAP = 14`, `GROUP_GAP = 28`, `ROUNDS = 4`), guarding inter-zone `'primary'` links so `dx > 0` never collapses to `<= 0`.
 
+### 7.4 Post-layout boundary mounting (`borderMount.ts`)
+At the end of `computeLayout` (across both `<= 1` and `>= 2` top-level group modes), `applyBorderMounts(doc, layout)` positions every grouped node declared with `[mount: border]`, processing innermost mounted parent groups first:
+1. **Side selection:** Computes the normalized vector from the parent's interior center to the average position of external connections (outside the parent group's subtree) to pick `left` / `right` / `top` / `bottom` (falling back to internal out/in degree direction when no external edges exist).
+2. **Border shrink:** Shrinks each mounted border edge of the parent group inward toward the mounted stations where interior clearance (`MIN_INNER_CLEAR_X = 56`, `MIN_INNER_CLEAR_Y = 44`, inset `>= 20` / `24`) and `zoneMinWidth` permit.
+3. **In-band primary alignment & spacing:** For each side's legal span `[lo, hi]` (respecting parent header clearance `hdrH + 36` on left/right and `labelClearX` on top), picks each node's target coordinate from its **in-band `animate` neighbors** first, falling back to all in-band neighbors, then internal neighbors, then all neighbors / original center (`mCenter`). `spaceAlongSide` spreads multiple nodes on the same side by at least `SIDE_SEP_Y = NODE_SIZE.height + 12` (`130`) or `SIDE_SEP_X = 136`, and snaps each station center directly onto the parent group's border line.
+
 ---
 
 ## 8. Key constants reference
@@ -248,6 +272,9 @@ All diagram sizes share the same macro placement skeleton; diagram dimensions sc
 | `MIN_ZONES` | `2` | `layout/zoneBlocks.ts` | Top-level group threshold for free-zone placement |
 | `LONG_LINK` | `700` | `layout/zoneBlocks.ts` | Link distance threshold for `'primary'` length surcharge |
 | `HORIZONTAL` / `VERTICAL_CLEARANCE` | `60` / `34` | `layout/zoneBlocks.ts` | Minimum X / Y clearance between placed top-level zones |
+| `NESTED_SPACING` | `48 / 24 / 36 / 22 / 32` | `layout/zoneBlocks.ts` | Nested `stageGap / rowGap / hClear / vClear / auxGap` for `nestedZone.ts` |
+| `MIN_INNER_CLEAR_X` / `_Y` | `56` / `44` | `layout/borderMount.ts` | Interior clearance kept when shrinking a mounted parent border inward |
+| `SIDE_SEP_X` / `SIDE_SEP_Y` | `136` / `130` | `layout/borderMount.ts` | Minimum center-to-center spacing for multiple `[mount: border]` nodes on one edge |
 | `COLUMN_GAP` (wrap) / `STAGE_GAP` / `ROW_GAP` | `150` / `80` / `44` | `layout/zoneBlocks.ts` | Wrapped column gap, initial stage gap, and intra-stage / isolated Y gap |
 | `MACRO_TARGET_ASPECT` | `1.6` | `layout/zoneBlocks.ts` | Target aspect ratio for `splitTallStaticColumns` |
 | `STAGE_GAP` / `ROW_GAP` / `ROW_BAND_GAP` | `80` / `44` / `58` | `layout/zonePlace.ts` | Macro solver stage, intra-column, and wrapped-row gaps (`34 + 24`) |
