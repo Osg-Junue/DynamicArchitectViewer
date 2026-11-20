@@ -1,6 +1,6 @@
 import { pushToMap } from '../model/text';
 import type { DavDocument } from '../model/types';
-import { parentMap, topLevelGroups, zoneOfGroups } from '../model/zones';
+import { idPair, parentMap, topLevelGroups, zoneOfGroups } from '../model/zones';
 import { analyzeFlow, analyzeScopeFlow, type FlowAnalysis, flowPairKey } from './flow';
 import {
   EMPTY_GROUP_CONTENT,
@@ -613,12 +613,12 @@ function placeContainerChildren(
   const { auxiliary, columns } = stageColumns(active, scopeFlow);
   const effectiveSymmetryGroups = new Map(symmetryGroups);
 
-  // Merge same-step parallel fan-out peer sibling containers (e.g. Multi-AZ boxes fed in the same
-  // step by a shared load balancer/distributor, where cross-AZ replication/peer calls or a later
-  // fan-in mediator pushed AZ-b into a later stage column) into a single vertical stage column so
-  // peer zones stay vertically symmetric instead of stretching into a wide ribbon.
+  // Merge parallel fan-out peer sibling containers into a single vertical stage column so peer
+  // zones (e.g. Active/Active or Active/Standby Multi-AZ boxes) stay vertically symmetric instead
+  // of stretching into a wide ribbon or drifting into an auxiliary top/bottom band.
   if (depth >= 1 && columns.length >= 2) {
     const firstStepByDirPair = new Map<string, number>();
+    const anyDirPair = new Set<string>();
     const hasStaticBetween = new Set<string>();
     const hasBidirBetween = new Set<string>();
     for (const c of scopeFlow.connections) {
@@ -626,6 +626,7 @@ function placeContainerChildren(
       const bv = childOwners.get(c.to);
       if (!bu || !bv || bu === bv) continue;
       const pk = flowPairKey(bu, bv);
+      anyDirPair.add(`${bu}\0${bv}`);
       if (c.role === 'primary') {
         const fs = fullFlow.pairFirstStep.get(flowPairKey(c.from, c.to)) ?? 0;
         const dk = `${bu}\0${bv}`;
@@ -638,6 +639,57 @@ function placeContainerChildren(
     }
     const directChildGroupCount = (gid: string): number =>
       doc.groups.filter((g) => g.parentId === gid).length;
+    let nextSymId = Math.max(0, ...effectiveSymmetryGroups.values()) + 1;
+
+    // Pull a standby peer container (e.g. Standby AZ linked only via static failover + replication)
+    // back out of `auxiliary` into its active peer's column when both share an upstream distributor.
+    if (auxiliary.length > 0) {
+      for (let ai = auxiliary.length - 1; ai >= 0; ai--) {
+        const aux = auxiliary[ai];
+        if (!aux || aux.groups.size < 1 || aux.nodes.size < 2) continue;
+        const auxSub = directChildGroupCount(aux.id);
+        let merged = false;
+        for (let ci = 1; ci < columns.length && !merged; ci++) {
+          const colA = columns[ci];
+          if (!colA) continue;
+          for (const a of colA) {
+            if (a.groups.size < 1 || a.nodes.size < 2) continue;
+            if (directChildGroupCount(a.id) !== auxSub) continue;
+            const minN = Math.min(a.nodes.size, aux.nodes.size);
+            if (Math.abs(a.nodes.size - aux.nodes.size) > Math.max(1, Math.floor(minN / 2))) {
+              continue;
+            }
+            const pk = flowPairKey(a.id, aux.id);
+            if (!hasStaticBetween.has(pk) && !hasBidirBetween.has(pk)) continue;
+            let upstreamId: string | undefined;
+            for (const prevCol of columns.slice(0, ci)) {
+              const found = prevCol.find(
+                (p) =>
+                  firstStepByDirPair.has(`${p.id}\0${a.id}`) &&
+                  anyDirPair.has(`${p.id}\0${aux.id}`),
+              );
+              if (found) {
+                upstreamId = found.id;
+                break;
+              }
+            }
+            if (upstreamId === undefined) continue;
+            colA.push(aux);
+            auxiliary.splice(ai, 1);
+            scopeFlow.auxiliaryZones.delete(aux.id);
+            scopeFlow.zoneStage.set(aux.id, scopeFlow.zoneStage.get(a.id) ?? ci);
+            scopeFlow.primaryZonePairs.add(idPair(upstreamId, aux.id));
+            if (a.nodes.size === aux.nodes.size) {
+              const sym = effectiveSymmetryGroups.get(a.id) ?? nextSymId++;
+              effectiveSymmetryGroups.set(a.id, sym);
+              effectiveSymmetryGroups.set(aux.id, sym);
+            }
+            merged = true;
+            break;
+          }
+        }
+      }
+    }
     const subOwnerCache = new Map<string, Map<string, string>>();
     const subOwnersOf = (gid: string): Map<string, string> => {
       let m = subOwnerCache.get(gid);
@@ -683,7 +735,6 @@ function placeContainerChildren(
         );
       });
     };
-    let nextSymId = Math.max(0, ...effectiveSymmetryGroups.values()) + 1;
 
     for (let ci = 0; ci < columns.length; ci++) {
       const colA = columns[ci];
@@ -862,6 +913,65 @@ function placeContainerChildren(
       (blockFirstPriStep.get(b.id) ?? Number.POSITIVE_INFINITY) ||
     (declOrder.get(a.id) ?? 0) - (declOrder.get(b.id) ?? 0) ||
     compareId(a.id, b.id);
+  // Keep parallel peer groups stacked in the same column (e.g. AZ-a / AZ-b linked by static
+  // replication or synchronized symmetry) in their declared top-to-bottom order so incidental
+  // step ordering or asymmetric neighbor pulls never invert AZ-b above AZ-a.
+  const peerEdgePairs = new Set<string>();
+  if (depth >= 1) {
+    for (const c of scopeFlow.connections) {
+      const bu = childOwners.get(c.from);
+      const bv = childOwners.get(c.to);
+      if (!bu || !bv || bu === bv) continue;
+      if (c.role === 'static' || c.direction === 'bidirectional') {
+        peerEdgePairs.add(flowPairKey(bu, bv));
+      }
+    }
+  }
+  const childGrpCount = (gid: string): number =>
+    doc.groups.filter((g) => g.parentId === gid).length;
+  const areColumnPeers = (a: Block, b: Block): boolean => {
+    if (depth < 1 || a.groups.size < 1 || b.groups.size < 1) return false;
+    if (a.nodes.size < 2 || b.nodes.size < 2) return false;
+    const symA = effectiveSymmetryGroups.get(a.id);
+    if (symA !== undefined && symA === effectiveSymmetryGroups.get(b.id)) return true;
+    const minN = Math.min(a.nodes.size, b.nodes.size);
+    if (Math.abs(a.nodes.size - b.nodes.size) > Math.max(1, Math.floor(minN / 2))) return false;
+    if (Math.abs(childGrpCount(a.id) - childGrpCount(b.id)) > 1) return false;
+    return peerEdgePairs.has(flowPairKey(a.id, b.id));
+  };
+  const preservePeerDeclOrder = (col: Block[]): void => {
+    if (depth < 1 || col.length < 2) return;
+    const visited = new Set<number>();
+    for (let i = 0; i < col.length; i++) {
+      if (visited.has(i)) continue;
+      const compIdx: number[] = [i];
+      visited.add(i);
+      for (let head = 0; head < compIdx.length; head++) {
+        const cur = col[compIdx[head] as number];
+        if (!cur) continue;
+        for (let j = 0; j < col.length; j++) {
+          if (visited.has(j)) continue;
+          const other = col[j];
+          if (other && areColumnPeers(cur, other)) {
+            visited.add(j);
+            compIdx.push(j);
+          }
+        }
+      }
+      if (compIdx.length < 2) continue;
+      compIdx.sort((x, y) => x - y);
+      const sortedBlocks = compIdx
+        .map((idx) => col[idx] as Block)
+        .sort(
+          (a, b) =>
+            (declOrder.get(a.id) ?? 0) - (declOrder.get(b.id) ?? 0) || compareId(a.id, b.id),
+        );
+      compIdx.forEach((idx, k) => {
+        col[idx] = sortedBlocks[k] as Block;
+      });
+    }
+  };
+
   for (const col of colsCopy) {
     if (col.length < 2) continue;
     col.sort(
@@ -870,6 +980,7 @@ function placeContainerChildren(
         (primaryOutDeg.get(a.id) ?? 0) - (primaryOutDeg.get(b.id) ?? 0) ||
         compareColumnTie(a, b),
     );
+    preservePeerDeclOrder(col);
   }
 
   const layoutColumns = () => {
@@ -941,6 +1052,7 @@ function placeContainerChildren(
         if (Math.abs(ta - tb) > 1e-6) return ta - tb;
         return topoColRank(a.id) - topoColRank(b.id) || compareColumnTie(a, b);
       });
+      preservePeerDeclOrder(col);
       layoutColumns();
     }
   }

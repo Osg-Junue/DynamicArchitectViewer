@@ -552,4 +552,34 @@ describe('routing border clearance, port spacing, framing, and dimmed callout av
       }
     }
   });
+
+  it('lifts edge labels above endpoint stations on tight border-mounted spans', () => {
+    const dsl = `
+      title "Tight Border-Mounted Span Label"
+      group onprem "On-Premises" {
+        node erp "On-Prem MES/ERP" [icon: server]
+        node cgw "Customer GW" [icon: router, mount: border]
+      }
+      group cloud "AWS Cloud" {
+        node dxgw "Direct Connect" [icon: router]
+      }
+      step "Sync" {
+        animate dxgw <-> cgw : "Direct Connect"
+        animate cgw <-> erp : "Work Order ERP"
+      }
+    `;
+    const doc = parse(dsl).document;
+    const layout = computeLayout(doc);
+    const view = resolveView(doc, layout, null, { showLabels: true });
+    const wo = must(
+      view.edges.find((e) => e.label === 'Work Order ERP'),
+      'Work Order ERP edge',
+    );
+    const box = edgeLabelArea(wo.label as string, must(wo.labelAt, 'labelAt'));
+    for (const n of view.nodes) {
+      for (const body of nodeBody(n)) {
+        expect(rectOverlaps(box, body), `label must not overlap ${n.id}`).toBe(false);
+      }
+    }
+  });
 });

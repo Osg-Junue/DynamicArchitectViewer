@@ -283,6 +283,11 @@ export function edgeLabelArea(label: string, spot: EdgeLabelSpot): Rect {
 /** Gap between a label and the stretch of rail it is written beside. */
 const LABEL_GAP = 7;
 /**
+ * Vertical lift above a tight horizontal rail that clears adjacent station circles (`r=22` + `4`
+ * clearance = `26`), used only as a fallback when standard gaps collide with an endpoint station.
+ */
+const LABEL_CLEAR_STATION = 30;
+/**
  * A step numbers its packets at the middle of their rails. A label is not written there; on a
  * rail too short to avoid it, the label goes further above or below, clear of the number.
  */
@@ -463,10 +468,15 @@ function placeLabels(
       for (const st of stopRects) if (rectOverlaps(box, st)) cost += 60;
       for (const s of strokes) {
         const own = s.rail === edge.rail;
-        if (segmentIntersectsRect(s.a, s.b, own ? box : foreignBox)) {
-          cost += own ? 15 : 120;
+        if (own) {
+          if (segmentIntersectsRect(s.a, s.b, box)) cost += 15;
+          continue;
         }
-        if (own) continue;
+        if (segmentIntersectsRect(s.a, s.b, box)) {
+          cost += 120;
+        } else if (segmentIntersectsRect(s.a, s.b, foreignBox)) {
+          cost += 30;
+        }
         // Prevent a label from jumping over a parallel foreign rail or sitting nearer to one
         // than to its own rail, which causes visual misattribution in parallel corridors.
         if (
@@ -534,13 +544,21 @@ function placeLabels(
           seen.add(key);
           candidates.push({ x: cx, y: spanY, extraCost: 0.5, isMid: false });
         };
+        const crossXs: number[] = [];
         for (const s of strokes) {
           if (s.rail === edge.rail || Math.abs(s.a.x - s.b.x) >= 0.5) continue;
           const sx = s.a.x;
           if (sx <= xMin || sx >= xMax) continue;
           if (Math.max(s.a.y, s.b.y) < spanY - 36 || Math.min(s.a.y, s.b.y) > spanY + 36) continue;
+          crossXs.push(sx);
           addX(sx - CROSSING_SLIDE_GAP - halfW);
           addX(sx + CROSSING_SLIDE_GAP + halfW);
+        }
+        if (crossXs.length > 0) {
+          const cuts = [xMin, ...crossXs.sort((a, b) => a - b), xMax];
+          for (let i = 0; i + 1 < cuts.length; i++) {
+            addX(((cuts[i] as number) + (cuts[i + 1] as number)) / 2);
+          }
         }
         addX(xMin + halfW + CROSSING_SLIDE_GAP);
         addX(xMax - halfW - CROSSING_SLIDE_GAP);
@@ -557,6 +575,7 @@ function placeLabels(
           seen.add(key);
           candidates.push({ x: spanX, y: cy, extraCost: 0.5, isMid: false });
         };
+        const crossYs: number[] = [];
         for (const s of strokes) {
           if (s.rail === edge.rail || Math.abs(s.a.y - s.b.y) >= 0.5) continue;
           const sy = s.a.y;
@@ -567,8 +586,15 @@ function placeLabels(
           ) {
             continue;
           }
+          crossYs.push(sy);
           addY(sy - CROSSING_SLIDE_GAP - halfH);
           addY(sy + CROSSING_SLIDE_GAP + halfH);
+        }
+        if (crossYs.length > 0) {
+          const cuts = [yMin, ...crossYs.sort((a, b) => a - b), yMax];
+          for (let i = 0; i + 1 < cuts.length; i++) {
+            addY(((cuts[i] as number) + (cuts[i + 1] as number)) / 2);
+          }
         }
         addY(yMin + halfH + CROSSING_SLIDE_GAP);
         addY(yMax - halfH - CROSSING_SLIDE_GAP);
@@ -614,6 +640,16 @@ function placeLabels(
               isVertical,
             );
           }
+        }
+        if (level) {
+          consider(
+            { x, y: y - LABEL_CLEAR_STATION, anchor: 'middle' },
+            x - width / 2,
+            span.fitCost + extraCost + 8,
+            span,
+            isHorizontal,
+            isVertical,
+          );
         }
         if (level && isMid && stopRects.length > 0) {
           const stopCost = Math.max(span.fitCost, 2);

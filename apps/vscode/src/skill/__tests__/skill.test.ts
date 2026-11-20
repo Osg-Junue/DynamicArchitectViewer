@@ -564,6 +564,14 @@ describe('dav-check', () => {
         );
       });
 
+      it('does not fabricate a false 2-node back-edge loop for cross-zone return cycles', () => {
+        const { status, stdout } = lines(
+          `title "Cross-Zone Cycle"\ngroup region "Region" {\n  node igw "IGW"\n  node api "API"\n  node b2b "B2B"\n}\ngroup ext "External" {\n  node partner "Partner"\n}\nstep "Flow" {\n  desc "d"\n  animate igw --> api : "in" [desc: "d"] {\n    code text "x"\n  }\n  animate api --> partner : "out" [desc: "d"]\n  animate partner --> b2b : "cb" [desc: "d"]\n  animate b2b --> igw : "route" [desc: "d"]\n}\n`,
+        );
+        expect(status).toBe(0);
+        expect(stdout).not.toContain('it closes the loop igw → b2b.');
+      });
+
       it('is left out while the file does not compile, and without --detail', () => {
         expect(lines('node a\nstep "S" {\n  animate a --> missing\n}\n').stdout).not.toContain(
           'layout:',

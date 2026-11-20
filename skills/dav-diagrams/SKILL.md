@@ -148,6 +148,7 @@ What to notice:
 - Steps are self-contained: `state` applies to its own step only, so the `503` badge from step 2 disappears automatically in step 3 without cleanup boilerplate.
 - `api <.> backup` uses a dashed round-trip arrow directly in `animate` for the failover call and its response.
 - `static api --> db : "Pending order"` shows a non-moving relationship relevant to step 2 without sending a packet along it.
+- `visible: false` hides `backup` (and its edges) in the overview (`--still`) and in steps that do not set `state backup [visible: true]`; omit `visible: false` when standby/DR nodes should always appear in a static overview.
 
 ## Language specification
 

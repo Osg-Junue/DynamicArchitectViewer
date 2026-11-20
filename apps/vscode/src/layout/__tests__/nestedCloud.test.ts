@@ -830,4 +830,86 @@ step "4. ML Feedback" {
     expect(edge.x).toBeLessThan(core.x);
     expect(core.x).toBeLessThanOrEqual(ml.x);
   });
+
+  it('preserves declared top-to-bottom order of stacked Multi-AZ peers and keeps standby AZ out of auxiliary', () => {
+    // Case 1: Active/Active where Step 1 visits AZ-B before Step 2 visits AZ-A.
+    const stepBFirstDsl = `
+title "AZ-B First Active-Active"
+node client "Client" [icon: users]
+group cloud "Cloud" {
+  group vpc "VPC" {
+    node alb "ALB" [icon: lb]
+    group az_a "Availability Zone A" [border: dashed] {
+      group priv_a "Private A" {
+        node app_a "App A" [icon: container]
+        node db_a "DB Pri" [icon: database]
+      }
+    }
+    group az_b "Availability Zone B" [border: dashed] {
+      group priv_b "Private B" {
+        node app_b "App B" [icon: container]
+        node db_b "DB Sby" [icon: database]
+      }
+    }
+  }
+}
+step "Read via AZ-B" {
+  static db_a ..> db_b : "Sync"
+  animate client --> alb : "HTTPS"
+  animate alb --> app_b : "Read"
+  animate app_b --> db_b : "Select"
+}
+step "Write via AZ-A" {
+  animate alb --> app_a : "Write"
+  animate app_a --> db_a : "Insert"
+}
+`;
+    const { layout: l1 } = assertContainmentAndDisjointSiblings(stepBFirstDsl);
+    const azA1 = must(l1.groups.az_a, 'az_a');
+    const azB1 = must(l1.groups.az_b, 'az_b');
+    expect(azA1.y + azA1.height).toBeLessThanOrEqual(azB1.y);
+
+    // Case 2: Active/Standby where AZ-B connects only via static standby route + replication.
+    const standbyDsl = `
+title "Active-Standby Multi-AZ"
+node client "Client" [icon: users]
+group cloud "Cloud" {
+  group vpc "VPC" {
+    node alb "ALB" [icon: lb]
+    group az_a "Availability Zone A" [border: dashed] {
+      group app_sub_a "App A" {
+        node app_a "API A" [icon: container]
+      }
+      group db_sub_a "Data A" {
+        node db_a "DB Pri" [icon: database]
+        node cache_a "Cache" [icon: cache]
+      }
+    }
+    group az_b "Availability Zone B" [border: dashed] {
+      group app_sub_b "App B" {
+        node app_b "API B" [icon: container]
+      }
+      group db_sub_b "Data B" {
+        node db_b "DB Sby" [icon: database]
+      }
+    }
+  }
+}
+step "Serve" {
+  static alb ..> app_b : "Standby"
+  static db_a ..> db_b : "Replicate"
+  animate client --> alb : "HTTPS"
+  animate alb --> app_a : "Active"
+  animate app_a --> db_a : "SQL"
+  animate app_a --> cache_a : "Cache"
+  animate app_b --> db_b : "Read"
+}
+`;
+    const { layout: l2 } = assertContainmentAndDisjointSiblings(standbyDsl);
+    const azA2 = must(l2.groups.az_a, 'az_a');
+    const azB2 = must(l2.groups.az_b, 'az_b');
+    expect(azA2.x).toBe(azB2.x);
+    expect(azA2.width).toBe(azB2.width);
+    expect(azA2.y + azA2.height).toBeLessThanOrEqual(azB2.y);
+  });
 });

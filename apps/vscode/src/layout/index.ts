@@ -115,6 +115,7 @@ function scopeBackEdges(
   }>,
   rankOverrides?: Readonly<Record<string, number>>,
   rawForwardDirs?: ReadonlyArray<readonly [string, string]>,
+  globalForwardEdges?: ReadonlyArray<readonly [string, string]>,
 ): BackEdge[] {
   const base = computeRanks(scopeIds, forwardEdges);
   const known = new Set(scopeIds);
@@ -161,6 +162,20 @@ function scopeBackEdges(
     return rootOf.get(target) ?? target;
   };
 
+  let globalAdj: Map<string, string[]> | undefined;
+  const getGlobalAdj = (): Map<string, string[]> => {
+    if (!globalAdj) {
+      globalAdj = new Map<string, string[]>();
+      for (const [u, v] of globalForwardEdges ?? []) {
+        if (u === v) continue;
+        const list = globalAdj.get(u);
+        if (list) list.push(v);
+        else globalAdj.set(u, [v]);
+      }
+    }
+    return globalAdj;
+  };
+
   const out: BackEdge[] = [...base.back];
   const seenPairs = new Set(baseBackPairs);
   const seenDirs = new Set(baseBackDir);
@@ -175,9 +190,16 @@ function scopeBackEdges(
       seenDirs.add(`${from}\0${to}`);
       out.push({ from, to, loop: path, root: getRoot(to) });
     } else if ((c.role !== 'static' || fwdByPair.has(pk)) && effRank(from) >= effRank(to)) {
-      seenPairs.add(pk);
-      seenDirs.add(`${from}\0${to}`);
-      out.push({ from, to, loop: [to, from], root: getRoot(to) });
+      // When a zone-local edge was classified `'return'` due to a cross-zone cycle, trace the
+      // actual cycle path through the full diagram instead of fabricating a false 2-node loop.
+      const globalPath = globalForwardEdges
+        ? findDirectedPath(getGlobalAdj(), to, from)
+        : undefined;
+      if (globalPath && globalPath.length >= 2) {
+        seenPairs.add(pk);
+        seenDirs.add(`${from}\0${to}`);
+        out.push({ from, to, loop: globalPath, root: getRoot(to) });
+      }
     }
   }
   if (rawForwardDirs) {
@@ -244,6 +266,7 @@ export function backEdgesOf(doc: DavDocument): BackEdge[] {
       localFlow.connections,
       placement?.get(zone.id)?.ranks,
       zRawDirs,
+      zDocFlow.forwardEdges,
     );
   });
 }

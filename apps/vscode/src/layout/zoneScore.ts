@@ -138,6 +138,23 @@ export function buildFlowContext(
       }
     }
   }
+  // Honor explicit stage-ordering pairs promoted into `flow.primaryZonePairs` (e.g. a standby
+  // peer pulled out of `auxiliary` into its active peer's column) so compaction keeps it aligned
+  // to the right of its shared upstream distributor.
+  for (const key of flow.primaryZonePairs) {
+    const sep = key.indexOf('\0');
+    if (sep < 0) continue;
+    const za = key.slice(0, sep);
+    const zb = key.slice(sep + 1);
+    if (flow.auxiliaryZones.has(za) || flow.auxiliaryZones.has(zb)) continue;
+    if ((flow.zoneStage.get(za) ?? 0) < (flow.zoneStage.get(zb) ?? 0)) {
+      const dirKey = `${za}\0${zb}`;
+      if (!seenStagePairs.has(dirKey)) {
+        seenStagePairs.add(dirKey);
+        rawStagePairs.push([za, zb]);
+      }
+    }
+  }
 
   // Keep pendant local feedback loops (single neighbor `za`, returns to `za`, no further primary
   // targets while `za` advances elsewhere) free to stack above/below `za` without sliding left of `za`.
