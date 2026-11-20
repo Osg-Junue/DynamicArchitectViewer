@@ -27,6 +27,7 @@ export interface ControlActions {
   fit(): void;
   toggleFollow(): void;
   toggleMinimap(): void;
+  toggleLabels(): void;
 }
 
 export interface Controls {
@@ -44,6 +45,7 @@ export interface Controls {
   zoomLabel: HTMLElement;
   followBtn: HTMLButtonElement;
   minimapBtn: HTMLButtonElement;
+  labelsBtn: HTMLButtonElement;
   closeMenus(): void;
 }
 
@@ -219,6 +221,11 @@ export function createControls(s: ViewerStrings, speed: number, on: ControlActio
     { ...labelled(s.minimap, 'btn-minimap'), 'aria-pressed': 'false' },
     on.toggleMinimap,
   );
+  const labelsBtn = iconButton(
+    CONTROL_ICONS.labels,
+    { ...labelled(s.edgeLabels, 'btn-labels'), 'aria-pressed': 'false' },
+    on.toggleLabels,
+  );
   const zoomGroup = html(
     'div',
     {
@@ -236,6 +243,7 @@ export function createControls(s: ViewerStrings, speed: number, on: ControlActio
     iconButton(CONTROL_ICONS.fit, labelled(s.fit, 'btn-zoom-fit'), on.fit),
     followBtn,
     minimapBtn,
+    labelsBtn,
   );
 
   return {
@@ -251,6 +259,7 @@ export function createControls(s: ViewerStrings, speed: number, on: ControlActio
     zoomLabel,
     followBtn,
     minimapBtn,
+    labelsBtn,
     closeMenus: () => {
       for (const menu of [stepMenu, split.menu, speedMenu]) menu.close(false);
     },

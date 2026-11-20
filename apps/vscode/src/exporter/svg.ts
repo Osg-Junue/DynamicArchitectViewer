@@ -6,6 +6,7 @@ import sceneStyles from '../runtime/scene.css?raw';
 import {
   buildDefs,
   buildScene,
+  fitText,
   h,
   type Pose,
   resolveView,
@@ -169,13 +170,46 @@ const headerDivider = (top: number): VElement =>
 const stepDescLine = (index: number, title: string | undefined): string =>
   title ? `${index + 1}. ${title}` : `${index + 1}`;
 
+const STILL_TITLE_SIZE = 20;
+const STILL_TITLE_BAND = 40;
+const STILL_TITLE_PAD_X = 24;
+
 function stillSvg(doc: DavDocument, layout: Layout, labels = false): string {
   const view = resolveView(doc, layout, null, labels ? { showLabels: true } : undefined);
   const icons = collectUsedIcons(doc);
   const { rect } = wholeDiagramFrame(layout, view);
-  return svgDocument(rect, viewBoxOf(rect), doc.title, undefined, [
-    h('rect', { ...roundRect(rect), fill: THEME_COLOR.bg }),
+  const titleText = doc.title.trim();
+  const hasTitle = titleText.length > 0;
+  const frame: Rect = hasTitle
+    ? {
+        x: rect.x,
+        y: rect.y - STILL_TITLE_BAND,
+        width: rect.width,
+        height: rect.height + STILL_TITLE_BAND,
+      }
+    : rect;
+  const titleEl = hasTitle
+    ? h(
+        'text',
+        {
+          x: num(frame.x + STILL_TITLE_PAD_X),
+          y: num(frame.y + 30),
+          class: 'dav-still-title',
+          'font-size': STILL_TITLE_SIZE,
+          fill: THEME_COLOR.fg,
+        },
+        fitText(
+          titleText,
+          STILL_TITLE_SIZE,
+          Math.max(120, frame.width - STILL_TITLE_PAD_X * 2),
+          'bold',
+        ),
+      )
+    : null;
+  return svgDocument(frame, viewBoxOf(frame), doc.title, undefined, [
+    h('rect', { ...roundRect(frame), fill: THEME_COLOR.bg }),
     buildDefs(),
+    ...(titleEl ? [titleEl] : []),
     buildScene(view, icons),
   ]);
 }

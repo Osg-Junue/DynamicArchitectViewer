@@ -36,9 +36,14 @@ import { buildFlowContext, buildLinks, refreshSegments } from './zoneScore';
 
 const compareId = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
+const ROOT_TARGET_ASPECT = 2.0;
+const MIN_TARGET_ASPECT = 0.75;
+const ROW_WRAP_GAP = 36;
+
 interface ParentScopeHint {
   parentOwners: ReadonlyMap<string, string>;
   parentScopeFlow: FlowAnalysis;
+  targetAspect: number;
 }
 
 /**
@@ -477,6 +482,171 @@ function wrapPlacedChildren(doc: DavDocument, zoneId: string, placed: readonly P
   };
 }
 
+interface WrappedRowPlan {
+  rows: Block[][][];
+}
+
+/**
+ * Evaluates ordered contiguous row partitions of `columns` inside a nested composite container
+ * so wide multi-stage pipelines, asymmetric height pairs, and parallel-ingress sibling groups
+ * pack into a balanced 2D footprint instead of stretching into extreme horizontal ribbons.
+ */
+function planContainerRowWrap(
+  columns: readonly Block[][],
+  depth: number,
+  targetAspect: number,
+  spacing: ZoneSpacing,
+  scopeFlow: FlowAnalysis,
+  childOwners: ReadonlyMap<string, string>,
+  extInCount: ReadonlyMap<string, number>,
+  extPriInCount: ReadonlyMap<string, number>,
+): WrappedRowPlan | undefined {
+  const k = columns.length;
+  if (depth < 1 || k < 2) return undefined;
+
+  const colW = columns.map((c) => Math.max(0, ...c.map((b) => b.width)));
+  const colH = columns.map(
+    (c) =>
+      c.reduce((s, b) => s + b.height + (b.groups.size === 0 ? b.loopRoom : 0), 0) +
+      Math.max(0, c.length - 1) * spacing.rowGap,
+  );
+  const colHasGroup = columns.map((c) => c.some((b) => b.groups.size > 0));
+  const W1 = colW.reduce((s, w) => s + w, 0) + (k - 1) * spacing.stageGap;
+  const H1 = Math.max(1, ...colH);
+  const A1 = W1 * H1;
+  const R1 = W1 / H1;
+
+  // Quick exit: compact single-row containers stay strictly left-to-right.
+  if (W1 < 800 || R1 < 1.8) return undefined;
+
+  const rowGap = Math.max(spacing.auxGap, ROW_WRAP_GAP);
+  const candidates: number[][] = [];
+  if (k <= 10) {
+    // 2-row partitions: 1 cut index c1 in [1 .. k-1].
+    for (let c1 = 1; c1 < k; c1++) candidates.push([c1]);
+    // 3-row partitions for 4+ stage containers.
+    if (k >= 4) {
+      for (let c1 = 1; c1 < k - 1; c1++) {
+        for (let c2 = c1 + 1; c2 < k; c2++) candidates.push([c1, c2]);
+      }
+    }
+  } else {
+    // Deterministic greedy target-width wrap for very long (> 10 stage) chains.
+    const avgRowH = colH.reduce((s, h) => s + h, 0) / k + rowGap;
+    const rowTargetW = Math.max(900, Math.sqrt(W1 * avgRowH * Math.max(1.0, targetAspect)));
+    const cuts: number[] = [];
+    let curW = 0;
+    for (let i = 0; i < k; i++) {
+      const addW = (curW > 0 ? spacing.stageGap : 0) + (colW[i] ?? 0);
+      if (curW > 0 && curW + addW > rowTargetW) {
+        cuts.push(i);
+        curW = colW[i] ?? 0;
+      } else {
+        curW += addW;
+      }
+    }
+    if (cuts.length > 0) candidates.push(cuts);
+  }
+
+  // Pre-index inter-column primary connection counts so wrapping favors low-cut boundaries.
+  const colIdxByBlock = new Map<string, number>();
+  columns.forEach((col, ci) => {
+    for (const b of col) colIdxByBlock.set(b.id, ci);
+  });
+  const interColPri: Array<readonly [number, number]> = [];
+  for (const c of scopeFlow.connections) {
+    if (c.role !== 'primary') continue;
+    const cu = colIdxByBlock.get(childOwners.get(c.from) ?? '');
+    const cv = colIdxByBlock.get(childOwners.get(c.to) ?? '');
+    if (cu !== undefined && cv !== undefined && cu !== cv) interColPri.push([cu, cv]);
+  }
+
+  const inMultiStageParent = targetAspect < 1.5;
+  let best: { rows: Block[][][]; score: number } | undefined;
+
+  for (const cuts of candidates) {
+    const bounds = [0, ...cuts, k];
+    const rowCount = bounds.length - 1;
+    let valid = true;
+    let maxRowW = 0;
+    let sumRowH = 0;
+    const rowOfCol = new Array<number>(k).fill(0);
+
+    for (let r = 0; r < rowCount; r++) {
+      const start = bounds[r] as number;
+      const end = bounds[r + 1] as number;
+      let hasGroup = false;
+      let rw = 0;
+      let rh = 0;
+      for (let i = start; i < end; i++) {
+        rowOfCol[i] = r;
+        if (colHasGroup[i]) hasGroup = true;
+        rw += (i > start ? spacing.stageGap : 0) + (colW[i] ?? 0);
+        rh = Math.max(rh, colH[i] ?? 0);
+      }
+      // Never isolate a bare single-node column (e.g. a gateway or hub) onto its own wrapped row.
+      if (!hasGroup) {
+        valid = false;
+        break;
+      }
+      maxRowW = Math.max(maxRowW, rw);
+      sumRowH += rh;
+    }
+    if (!valid) continue;
+
+    const W = maxRowW;
+    const H = sumRowH + (rowCount - 1) * rowGap;
+    if (W >= W1 * 0.85) continue; // Require meaningful horizontal width reduction.
+    const A = W * H;
+    const R = W / Math.max(1, H);
+
+    // Check the three general geometric/topological criteria:
+    // 1) Asymmetric height packing that eliminates significant dead-space area (>= 15% area reduction).
+    const qualifiesByArea = W1 >= 1400 && A <= A1 * 0.85 && R >= 0.8;
+
+    // 2) Extreme ribbon wrapping, scaled by whether ancestors already pack multiple horizontal stages.
+    const qualifiesByRibbon = inMultiStageParent
+      ? ((W1 >= 1200 && R1 >= 4.2) || (W1 >= 1800 && R1 >= 2.8)) && R >= 1.0 && A <= A1 * 1.15
+      : ((W1 >= 2400 && R1 >= 4.5) || (W1 >= 3200 && R1 >= 3.2)) && R >= 1.2 && A <= A1 * 1.15;
+
+    // 3) Parallel external ingress: two sibling groups that both receive external ingress stack so
+    //    both entry points sit cleanly on the left boundary instead of leaping over the first group.
+    let qualifiesByParallelIngress = false;
+    if (rowCount === 2 && k === 2) {
+      const c0 = columns[0];
+      const c1 = columns[1];
+      const b0 = c0?.length === 1 ? c0[0] : undefined;
+      const b1 = c1?.length === 1 ? c1[0] : undefined;
+      if (b0 && b1 && b0.groups.size > 0 && b1.groups.size > 0) {
+        const bothExtIn = (extInCount.get(b0.id) ?? 0) > 0 && (extInCount.get(b1.id) ?? 0) > 0;
+        const b1HasPriIn = (extPriInCount.get(b1.id) ?? 0) > 0;
+        if (bothExtIn && (!scopeFlow.hasAnimate || b1HasPriIn)) {
+          qualifiesByParallelIngress =
+            (inMultiStageParent && W1 >= 800 && R1 >= 2.2) || (W1 > 1400 && R1 > 2.2 && b1HasPriIn);
+        }
+      }
+    }
+
+    if (!qualifiesByArea && !qualifiesByRibbon && !qualifiesByParallelIngress) continue;
+
+    let crossRowPri = 0;
+    for (const [cu, cv] of interColPri) {
+      if (rowOfCol[cu] !== rowOfCol[cv]) crossRowPri++;
+    }
+    const aspectErr = Math.abs(Math.log(Math.max(0.1, R) / Math.max(0.5, targetAspect)));
+    const score = aspectErr * 2.0 + (A / A1) * 1.5 + crossRowPri * 0.15 + (rowCount - 2) * 0.25;
+    if (!best || score < best.score - 1e-9) {
+      const rows: Block[][][] = [];
+      for (let r = 0; r < rowCount; r++) {
+        rows.push(columns.slice(bounds[r] as number, bounds[r + 1] as number).map((c) => [...c]));
+      }
+      best = { rows, score };
+    }
+  }
+
+  return best ? { rows: best.rows } : undefined;
+}
+
 /**
  * Places child blocks of a composite container using deterministic stage+band layout,
  * isomorphic sibling symmetry, auxiliary band separation, and bounded local refinement.
@@ -491,6 +661,7 @@ function placeContainerChildren(
   isAuxiliary: boolean,
   depth: number,
   spacing: ZoneSpacing,
+  targetAspect = ROOT_TARGET_ASPECT,
 ): Placed[] {
   if (blocks.length === 0) return [];
   if (blocks.length === 1 && blocks[0]) {
@@ -612,6 +783,120 @@ function placeContainerChildren(
 
   const { auxiliary, columns } = stageColumns(active, scopeFlow);
   const effectiveSymmetryGroups = new Map(symmetryGroups);
+
+  // Prevent early external-entry sink nodes (e.g. an auth/IdP or shared registry entered directly
+  // from outside the container before or alongside a downstream composite group, with zero
+  // outgoing primary flow inside this container) from being pushed past that composite group by a
+  // later verification/lookup reference (e.g. `alb ..> cognito`). Keep them on the entry side
+  // between the external boundary and the referencing group, and treat those inward-to-entry
+  // lookups as return edges inside this scope.
+  if (depth >= 1 && columns.length >= 2) {
+    const colOfBlockId = new Map<string, number>();
+    columns.forEach((col, ci) => {
+      for (const b of col) colOfBlockId.set(b.id, ci);
+    });
+    const blockById = new Map(active.map((b) => [b.id, b]));
+    const relocatedTo = new Map<string, { targetCol: number; minRefCol: number }>();
+
+    for (let ci = 1; ci < columns.length; ci++) {
+      const col = columns[ci];
+      if (!col) continue;
+      for (const b of col) {
+        if (b.groups.size > 0 || (primaryOutDeg.get(b.id) ?? 0) > 0) continue;
+        const extStep = extPriInFirstStep.get(b.id);
+        if (extStep === undefined || (extPriInCount.get(b.id) ?? 0) === 0) continue;
+
+        let minRefGroupCol = Number.POSITIVE_INFINITY;
+        let maxUpstreamNonGroupCol = -1;
+        let hasValidRefGroup = false;
+        let hasLaterNonGroupRef = false;
+
+        for (const c of scopeFlow.connections) {
+          if (c.role !== 'primary') continue;
+          const bu = childOwners.get(c.from);
+          const bv = childOwners.get(c.to);
+          if (!bu || !bv || bu === bv || bv !== b.id) continue;
+          const srcCol = colOfBlockId.get(bu);
+          const srcBlock = blockById.get(bu);
+          if (srcCol === undefined || !srcBlock) continue;
+          if (srcBlock.groups.size >= 1 && srcBlock.nodes.size >= 2) {
+            const srcStep = blockFirstPriStep.get(bu) ?? Number.POSITIVE_INFINITY;
+            if (srcCol < ci && extStep <= srcStep) {
+              hasValidRefGroup = true;
+              if (srcCol < minRefGroupCol) minRefGroupCol = srcCol;
+            }
+          } else if (srcCol < ci) {
+            if (srcCol > maxUpstreamNonGroupCol) maxUpstreamNonGroupCol = srcCol;
+            hasLaterNonGroupRef = true;
+          }
+        }
+
+        if (!hasValidRefGroup || !Number.isFinite(minRefGroupCol)) continue;
+        let targetCol = Math.max(0, minRefGroupCol - 1);
+        if (hasLaterNonGroupRef && maxUpstreamNonGroupCol + 1 < minRefGroupCol) {
+          targetCol = Math.max(targetCol, maxUpstreamNonGroupCol + 1);
+        }
+        if (targetCol < ci) {
+          relocatedTo.set(b.id, { targetCol, minRefCol: minRefGroupCol });
+        }
+      }
+    }
+
+    if (relocatedTo.size > 0) {
+      const movedBlocks: Array<{ block: Block; targetCol: number }> = [];
+      for (let ci = columns.length - 1; ci >= 0; ci--) {
+        const col = columns[ci];
+        if (!col) continue;
+        for (let bi = col.length - 1; bi >= 0; bi--) {
+          const b = col[bi];
+          if (!b) continue;
+          const info = relocatedTo.get(b.id);
+          if (!info) continue;
+          col.splice(bi, 1);
+          movedBlocks.push({ block: b, targetCol: info.targetCol });
+        }
+      }
+      for (const { block, targetCol } of movedBlocks) {
+        const destCol = columns[targetCol];
+        if (!destCol) continue;
+        destCol.push(block);
+        const destStage =
+          destCol.find((x) => x.id !== block.id) !== undefined
+            ? (scopeFlow.zoneStage.get(destCol[0]?.id ?? '') ?? targetCol)
+            : targetCol;
+        scopeFlow.zoneStage.set(block.id, destStage);
+      }
+      for (let ci = columns.length - 1; ci >= 0; ci--) {
+        if (columns[ci]?.length === 0) columns.splice(ci, 1);
+      }
+
+      // Demote downstream-group -> relocated-entry-sink primary references to `'return'` inside
+      // this container scope so downstream refinement keeps the node on the entry side.
+      const demotedPairs = new Set<string>();
+      for (const [bId, { minRefCol }] of relocatedTo) {
+        for (const [srcId, srcCol] of colOfBlockId) {
+          if (srcCol >= minRefCol && srcId !== bId) {
+            scopeFlow.primaryZonePairs.delete(idPair(srcId, bId));
+            demotedPairs.add(`${srcId}\0${bId}`);
+          }
+        }
+      }
+      if (demotedPairs.size > 0) {
+        scopeFlow = {
+          ...scopeFlow,
+          connections: scopeFlow.connections.map((c) => {
+            if (c.role !== 'primary') return c;
+            const bu = childOwners.get(c.from);
+            const bv = childOwners.get(c.to);
+            if (bu && bv && demotedPairs.has(`${bu}\0${bv}`)) {
+              return { ...c, role: 'return' as const };
+            }
+            return c;
+          }),
+        };
+      }
+    }
+  }
 
   // Merge parallel fan-out peer sibling containers into a single vertical stage column so peer
   // zones (e.g. Active/Active or Active/Standby Multi-AZ boxes) stay vertically symmetric instead
@@ -921,35 +1206,6 @@ function placeContainerChildren(
     for (const col of columns) alignStackedSiblingColumns(doc, col);
   }
 
-  // Nested wide-2-stage parallel-ingress stacking: when two wide multi-column sub-groups inside
-  // a nested account/container BOTH receive external primary ingress (e.g. Workload VPC + Partner API,
-  // or Analytics VPC + Lakehouse), stack them vertically to eliminate ribbon sprawl while keeping
-  // both entry points on the left boundary.
-  const canStackWideTwoStage = (() => {
-    if (depth < 1 || auxiliary.length > 0 || columns.length !== 2) return false;
-    const c0 = columns[0];
-    const c1 = columns[1];
-    if (!c0 || !c1 || c0.length !== 1 || c1.length !== 1) return false;
-    const b0 = c0[0];
-    const b1 = c1[0];
-    if (!b0 || !b1 || b0.groups.size === 0 || b1.groups.size === 0) return false;
-    if (b0.width < 500 || b1.width < 500) return false;
-    const horizW = b0.width + spacing.stageGap + b1.width;
-    const horizH = Math.max(b0.height, b1.height);
-    if (horizW <= 1400 || horizW / Math.max(1, horizH) <= 2.2) return false;
-    return (extPriInCount.get(b1.id) ?? 0) > 0;
-  })();
-
-  if (canStackWideTwoStage && columns[0]?.[0] && columns[1]?.[0]) {
-    const b0 = columns[0][0];
-    const b1 = columns[1][0];
-    const stacked: Placed[] = [
-      { block: b0, x: 0, y: 0, flip: 0 },
-      { block: b1, x: 0, y: b0.height + spacing.rowGap, flip: 0 },
-    ];
-    return [...stacked, ...placeIsolatedBlocks(trulyIsolated, stacked, spacing)];
-  }
-
   // Deterministic stage-column layout + barycenter ordering.
   const pm = new Map<string, Placed>();
   const primaryPlaced: Placed[] = [];
@@ -1047,6 +1303,133 @@ function placeContainerChildren(
     preservePeerDeclOrder(col);
   }
 
+  const preserveFlow = scopeFlow.hasAnimate;
+  const hClear = spacing.horizontalClearance;
+  const vClear = spacing.verticalClearance;
+
+  // Check if wrapping wide multi-stage / asymmetric / parallel-ingress sibling columns into
+  // multiple rows produces a substantially better 2D aspect ratio or eliminates dead space.
+  const wrappedPlan = planContainerRowWrap(
+    colsCopy,
+    depth,
+    targetAspect,
+    spacing,
+    scopeFlow,
+    childOwners,
+    extInCount,
+    extPriInCount,
+  );
+  if (wrappedPlan) {
+    const wrappedRows = wrappedPlan.rows;
+    // Equalize minor width differences (<= 80 px) when every wrapped row is a single group box.
+    const allSingleGroupRows = wrappedRows.every(
+      (row) => row.length === 1 && row[0]?.length === 1 && (row[0][0]?.groups.size ?? 0) > 0,
+    );
+    if (allSingleGroupRows) {
+      const widths = wrappedRows.map((row) => row[0]?.[0]?.width ?? 0);
+      const maxW = Math.max(...widths);
+      const minW = Math.min(...widths);
+      if (maxW - minW > 0 && maxW - minW <= 80) {
+        for (const row of wrappedRows) {
+          const b = row[0]?.[0];
+          if (b && row[0]) {
+            const widened = widenBlock(b, maxW);
+            row[0][0] = widened;
+            const p = pm.get(b.id);
+            if (p) p.block = widened;
+          }
+        }
+      }
+    }
+
+    const rowBandGap = Math.max(spacing.auxGap, ROW_WRAP_GAP);
+    const rowOfBlock = new Map<string, number>();
+    let rowY = 0;
+    wrappedRows.forEach((rowCols, rowIdx) => {
+      const colHeights = rowCols.map(
+        (c) =>
+          c.reduce((s, b) => s + b.height + (b.groups.size === 0 ? b.loopRoom : 0), 0) +
+          Math.max(0, c.length - 1) * spacing.rowGap,
+      );
+      const rowH = Math.max(0, ...colHeights);
+      let x = 0;
+      rowCols.forEach((c, ci) => {
+        const colW = Math.max(0, ...c.map((b) => b.width));
+        let y = rowY + (rowH - (colHeights[ci] ?? 0)) / 2;
+        for (const b of c) {
+          rowOfBlock.set(b.id, rowIdx);
+          const extraTop = b.groups.size === 0 ? b.loopRoom : 0;
+          const p = pm.get(b.id);
+          if (p) {
+            p.x = x + (colW - b.width) / 2;
+            p.y = y + extraTop;
+          }
+          y += extraTop + b.height + spacing.rowGap;
+        }
+        x += colW + spacing.stageGap;
+      });
+      rowY += rowH + rowBandGap;
+    });
+
+    const wrappedFlowCtx = buildFlowContext(
+      scopeFlow,
+      childOwners,
+      preserveFlow,
+      true,
+      rowOfBlock,
+      hClear,
+    );
+    if (primaryPlaced.length >= 2) {
+      const priLinks = buildLinks(doc, primaryPlaced, scopeFlow);
+      refreshSegments(priLinks);
+      optimizeZoneFlips(
+        {
+          doc,
+          placed: primaryPlaced,
+          links: priLinks,
+          flow: scopeFlow,
+          flowCtx: wrappedFlowCtx,
+          rowFilter: 'any',
+          fallback: 'score-greedy',
+          symmetryGroups: effectiveSymmetryGroups,
+        },
+        5,
+      );
+    }
+
+    const allWrappedPlaced: Placed[] = [...primaryPlaced];
+    if (auxiliary.length > 0) {
+      const auxPlaced: Placed[] = auxiliary.map((block) => ({ block, x: 0, y: 0, flip: 0 }));
+      const orderedAux = placeAuxiliaryBlocks(auxPlaced, primaryPlaced, childOwners, scopeFlow, {
+        auxMode: 'bands',
+        cols: colsCopy,
+        sideMode: 'stationY',
+        clampMaxSource: true,
+        decayStatic: true,
+        spacing,
+      });
+      allWrappedPlaced.push(...auxPlaced);
+      const allLinks = buildLinks(doc, allWrappedPlaced, scopeFlow);
+      refreshSegments(allLinks);
+      optimizeZoneFlips(
+        {
+          doc,
+          placed: allWrappedPlaced,
+          links: allLinks,
+          flow: scopeFlow,
+          flowCtx: wrappedFlowCtx,
+          preserveFlowOverride: true,
+          rowFilter: 'multi-node',
+          fallback: 'score-greedy',
+          fallbackTargets: orderedAux,
+          symmetryGroups: effectiveSymmetryGroups,
+        },
+        0,
+      );
+    }
+    return [...allWrappedPlaced, ...placeIsolatedBlocks(trulyIsolated, allWrappedPlaced, spacing)];
+  }
+
   const layoutColumns = () => {
     const colHeights = colsCopy.map(
       (c) =>
@@ -1122,9 +1505,6 @@ function placeContainerChildren(
   }
 
   // Local refinement of primary children with tighter nested spacing and synchronized sibling flips.
-  const preserveFlow = scopeFlow.hasAnimate;
-  const hClear = spacing.horizontalClearance;
-  const vClear = spacing.verticalClearance;
   const flowCtx = buildFlowContext(scopeFlow, childOwners, preserveFlow, false, undefined, hClear);
 
   if (primaryPlaced.length >= 2) {
@@ -1295,6 +1675,55 @@ function placeContainerChildren(
   return [...allActivePlaced, ...placeIsolatedBlocks(trulyIsolated, allActivePlaced, spacing)];
 }
 
+/** Counts descendant nodes under each group ID in `doc`. */
+function groupDescendantNodeCount(doc: DavDocument): Map<string, number> {
+  const gp = parentMap(doc.groups);
+  const counts = new Map<string, number>(doc.groups.map((g) => [g.id, 0]));
+  for (const n of doc.nodes) {
+    let cur = n.parentId;
+    while (cur !== undefined) {
+      counts.set(cur, (counts.get(cur) ?? 0) + 1);
+      cur = gp.get(cur);
+    }
+  }
+  return counts;
+}
+
+/**
+ * Splits a parent container's target aspect ratio among its horizontal non-auxiliary group
+ * stages proportionally to each stage's descendant node count (`W_s / H = R_parent * N_s / N_all`),
+ * so a small peer container (e.g. a 3-node on-prem DC) never starves a dominant 40-node cloud
+ * container of horizontal budget, while balanced multi-stage siblings each receive compact budgets.
+ */
+function childStageTargetAspect(
+  parentAspect: number,
+  groups: ReadonlyArray<{ id: string }>,
+  stageOf: ReadonlyMap<string, number>,
+  auxiliaryZones: ReadonlySet<string>,
+  descCount: ReadonlyMap<string, number>,
+  targetGroupId: string,
+): number {
+  const stageWeights = new Map<number, number>();
+  let totalWeight = 0;
+  for (const g of groups) {
+    if (auxiliaryZones.has(g.id)) continue;
+    const st = stageOf.get(g.id) ?? 0;
+    const w = Math.max(1, descCount.get(g.id) ?? 0);
+    stageWeights.set(st, (stageWeights.get(st) ?? 0) + w);
+    totalWeight += w;
+  }
+  if (stageWeights.size <= 1 || totalWeight <= 0) return parentAspect;
+  if (auxiliaryZones.has(targetGroupId)) {
+    return Math.max(MIN_TARGET_ASPECT, parentAspect / stageWeights.size);
+  }
+  const myStage = stageOf.get(targetGroupId) ?? 0;
+  const myWeight = stageWeights.get(myStage) ?? 1;
+  return Math.max(
+    MIN_TARGET_ASPECT,
+    Math.min(parentAspect, parentAspect * (myWeight / totalWeight)),
+  );
+}
+
 /**
  * Recursively lays out `zoneId` bottom-up: leaf groups use `columnLayout` with header width
  * guarantees, single-child wrappers wrap their child block directly, and composite containers
@@ -1427,7 +1856,18 @@ export function buildRecursiveZoneBlock(
   const symmetryGroups = detectIsomorphicSiblings(doc, directGroups, fullFlow, scopeFlow);
   const docLoops = selfLoopRoom(doc);
 
-  const hint: ParentScopeHint = { parentOwners: childOwners, parentScopeFlow: scopeFlow };
+  const descCounts = groupDescendantNodeCount(doc);
+  const currentTargetAspect =
+    parentHint?.targetAspect ??
+    childStageTargetAspect(
+      ROOT_TARGET_ASPECT,
+      topLevelGroups(doc.groups),
+      fullFlow.zoneStage,
+      fullFlow.auxiliaryZones,
+      descCounts,
+      zoneId,
+    );
+
   const rawBlocks: Block[] = [
     ...directGroups.map((cg) =>
       buildRecursiveZoneBlock(
@@ -1437,7 +1877,18 @@ export function buildRecursiveZoneBlock(
         fullFlow,
         scopeFlow.auxiliaryZones.has(cg.id),
         depth + 1,
-        hint,
+        {
+          parentOwners: childOwners,
+          parentScopeFlow: scopeFlow,
+          targetAspect: childStageTargetAspect(
+            currentTargetAspect,
+            directGroups,
+            scopeFlow.zoneStage,
+            scopeFlow.auxiliaryZones,
+            descCounts,
+            cg.id,
+          ),
+        },
       ),
     ),
     ...directNodes.map((dn) => makeNodeBlock(dn.id, docLoops)),
@@ -1470,6 +1921,7 @@ export function buildRecursiveZoneBlock(
     isAuxiliary,
     depth + 1,
     NESTED_SPACING,
+    currentTargetAspect,
   );
   return wrapPlacedChildren(doc, zoneId, placedChildren);
 }

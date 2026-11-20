@@ -39,6 +39,10 @@ export const CONTROL_ICONS = {
     ['rect', { x: 3, y: 4, width: 18, height: 16, rx: 2 }],
     ['rect', { x: 11, y: 11, width: 7, height: 6, rx: 1 }],
   ),
+  labels: line(
+    ['path', { d: 'M3 7a2 2 0 0 1 2-2h6.5L21 14.5 14.5 21 5 11.5V7z' }],
+    ['circle', { cx: 8.5, cy: 9.5, r: 1.25 }],
+  ),
   zoomOut: line(['path', { d: 'M5 12h14' }]),
   zoomIn: line(['path', { d: 'M5 12h14' }], ['path', { d: 'M12 5v14' }]),
   pause: solid(

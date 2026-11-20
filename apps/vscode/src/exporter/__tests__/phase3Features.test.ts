@@ -364,5 +364,13 @@ step "Settle" {
     expect(labeledStep).toContain('HTTPS');
     expect(labeledStep).toContain('OrderCreated');
     expect(labeledStep).toContain('VPC Flow Logs');
+
+    // Still SVG renders a visible title heading when the diagram declares a non-empty title.
+    expect(defaultStill).toContain('class="dav-still-title"');
+    expect(defaultStill).toContain('AWS Cloud Phase 3 Showcase');
+    const untitledStill = exportSvg('node a\nnode b\nstep "S" {\n  animate a --> b\n}\n', {
+      animate: false,
+    });
+    expect(untitledStill).not.toContain('class="dav-still-title"');
   });
 });

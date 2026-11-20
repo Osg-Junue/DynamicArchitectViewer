@@ -83,7 +83,7 @@ Every diagram needs at least one `step` (otherwise export stops with `missing-st
 | `--locale ja` | Japanese for the texts around the diagram. The default is `en`. Use the language of the diagram's own texts |
 | `--check` | Writes nothing. See [Keeping exports up to date](#keeping-exports-up-to-date) |
 
-`--camera`, `--still`, `--labels` and `--step` apply to an SVG, not to HTML.
+`--camera`, `--still` and `--step` apply to an SVG, not to HTML. Passing `--labels` with `--format html` starts the exported player with edge labels visible (readers can also toggle them from the canvas controls).
 
 ```bash
 npx dynamic-architect-viewer-cli@1.5.4 export docs/*.dav                            # every diagram in docs

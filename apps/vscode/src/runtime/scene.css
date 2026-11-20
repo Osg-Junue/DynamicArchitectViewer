@@ -95,7 +95,8 @@
   font-weight: 500;
 }
 .dav-node-label,
-.dav-packet-label {
+.dav-packet-label,
+.dav-still-title {
   font-weight: 700;
 }
 .dav-layer-packets,

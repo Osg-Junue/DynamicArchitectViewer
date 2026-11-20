@@ -275,6 +275,20 @@ describe('dav export', () => {
     expect(read('page.html').startsWith('<!DOCTYPE html>')).toBe(true);
   });
 
+  it('embeds showLabels when --labels is passed with HTML export', async () => {
+    const { status } = await dav(
+      'export',
+      '--format',
+      'html',
+      '--labels',
+      '-o',
+      join(dir, 'labeled.html'),
+      fileWith(DIAGRAM),
+    );
+    expect(status).toBe(0);
+    expect(read('labeled.html')).toContain('"showLabels":true');
+  });
+
   it('exports nothing from a diagram with an error, and says where the error is', async () => {
     const file = fileWith(WITH_ERROR);
     const { status, stderr } = await dav('export', file);

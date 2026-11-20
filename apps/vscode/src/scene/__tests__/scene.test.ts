@@ -96,6 +96,33 @@ describe('resolveView', () => {
     expect(edge(2, 'db->client')).toBeUndefined();
   });
 
+  it('preserves unanimous explicit edge colors in overview while keeping mixed step colors neutral', () => {
+    const colorDsl = `
+node a
+node b
+node c
+node d
+step "Normal" {
+  animate a --> b : "Main"
+  animate a ..> c : "Auth" [color: purple]
+  static b ..> d : "Repl" [color: blue]
+}
+step "Failure" {
+  animate a --> b : "503" [color: red]
+  animate a ..> c : "Verify" [color: purple]
+  static b ..> d : "Repl" [color: blue]
+}
+`;
+    const colorDoc = parse(colorDsl).document;
+    const overview = resolveView(colorDoc, computeLayout(colorDoc), null);
+    const byId = new Map(overview.edges.map((e) => [e.id, e]));
+    // Mixed default + red across steps stays neutral in overview.
+    expect(byId.get('a->b')?.color).toBe('var(--dav-edge)');
+    // Unanimous explicit colors across every occurrence are preserved in overview.
+    expect(byId.get('a->c')?.color).toBe('purple');
+    expect(byId.get('b->d')?.color).toBe('blue');
+  });
+
   it('does not carry focus or animations to later steps', () => {
     expect(node(1, 'client')).toMatchObject({ focused: false, dimmed: true });
     expect(view(2).phases).toEqual([]);

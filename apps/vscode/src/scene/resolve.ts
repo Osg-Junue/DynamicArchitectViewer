@@ -1,5 +1,6 @@
 import type { Layout, Rect } from '../layout';
 import {
+  connectionColors,
   connectionIdMap,
   connectionLabels,
   stepConnections,
@@ -342,6 +343,7 @@ function resolveEdges(
     return undefined;
   };
   const overviewLabels = showLabels && !ctx.step ? connectionLabels(ctx.doc) : undefined;
+  const overviewColors = !ctx.step ? connectionColors(ctx.doc) : undefined;
 
   if (ctx.step) {
     for (const sc of stepConnections(ctx.step, canonicalIds)) {
@@ -380,7 +382,7 @@ function resolveEdges(
       to: conn.to,
       style: conn.style,
       direction: conn.direction,
-      color: DEFAULT_EDGE_COLOR,
+      color: overviewColors?.get(pk) ?? DEFAULT_EDGE_COLOR,
       path: rails.railOf(from.endpoint, to.endpoint),
       active: false,
     };

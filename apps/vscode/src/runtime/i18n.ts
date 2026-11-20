@@ -20,6 +20,7 @@ export interface ViewerStrings {
   fit: string;
   followAnim: string;
   minimap: string;
+  edgeLabels: string;
   steps: string;
   step: string;
   selectStep: string;
@@ -47,6 +48,7 @@ export const VIEWER_STRINGS: Record<ViewerLocale, ViewerStrings> = {
     fit: '全体を表示',
     followAnim: 'アニメーションに追従',
     minimap: 'ミニマップ',
+    edgeLabels: '接続ラベルを表示',
     steps: 'ステップ一覧',
     step: 'ステップ',
     selectStep: 'ステップを選択',
@@ -72,6 +74,7 @@ export const VIEWER_STRINGS: Record<ViewerLocale, ViewerStrings> = {
     fit: 'Fit',
     followAnim: 'Focus on active animation',
     minimap: 'Minimap',
+    edgeLabels: 'Show edge labels',
     steps: 'Steps',
     step: 'Step',
     selectStep: 'Select step',

@@ -10,10 +10,15 @@ import './styles.css';
 function boot(): void {
   const source = document.getElementById(EXPORT_DATA_ELEMENT_ID);
   if (!source?.textContent) return;
-  const payload = JSON.parse(source.textContent) as PlayerData & { locale?: ViewerLocale };
-  const options = payload.locale
-    ? { locale: payload.locale, globalKeyboard: true }
-    : { globalKeyboard: true };
+  const payload = JSON.parse(source.textContent) as PlayerData & {
+    locale?: ViewerLocale;
+    showLabels?: boolean;
+  };
+  const options = {
+    globalKeyboard: true,
+    ...(payload.locale ? { locale: payload.locale } : {}),
+    ...(payload.showLabels ? { showLabels: true } : {}),
+  };
   const player = new Player(document.body, payload, options);
   // Expose for debugging and automated tests.
   (window as unknown as { davPlayer?: Player }).davPlayer = player;

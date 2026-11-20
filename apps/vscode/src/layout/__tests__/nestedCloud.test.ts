@@ -1048,4 +1048,200 @@ step "3. Direct Edge to VPC" {
       vpcG.y + vpcG.height <= streamG.y || streamG.y + streamG.height <= vpcG.y;
     expect(stackedVertically).toBe(true);
   });
+
+  it('wraps wide multi-stage, asymmetric, and parallel-ingress nested sub-containers into balanced 2D footprints', () => {
+    const platformDsl = `
+title "Multi-Domain Nested Platform"
+node client "Client" [icon: users]
+group platform "Platform" {
+  group entry_dom "Entry Domain" {
+    group dmz "DMZ" {
+      node gw "Gateway" [icon: router]
+    }
+    group filter "Inspection" {
+      node fw "Firewall" [icon: firewall]
+    }
+  }
+  group core_dom "Core Domain" {
+    group core_mesh "Core Mesh" {
+      node lb "LB" [icon: lb]
+      group zone_a "Zone A" {
+        group svc_a "Services A" {
+          node s1a "Svc 1A" [icon: container]
+          node s2a "Svc 2A" [icon: container]
+        }
+        group store_a "Store A" {
+          node c_a "Cache A" [icon: cache]
+          node d_a "DB A" [icon: database]
+        }
+      }
+      group zone_b "Zone B" {
+        group svc_b "Services B" {
+          node s1b "Svc 1B" [icon: container]
+          node s2b "Svc 2B" [icon: container]
+        }
+        group store_b "Store B" {
+          node c_b "Cache B" [icon: cache]
+          node d_b "DB B" [icon: database]
+        }
+      }
+    }
+    group async_chain "Async Workers" {
+      node q1 "Topic" [icon: event]
+      node q2 "Queue" [icon: queue]
+      node q3 "Orchestrator" [icon: logic]
+      node q4 "Worker" [icon: function]
+      node q5 "Ledger" [icon: database]
+    }
+  }
+  group pipe_dom "Pipeline Domain" {
+    group ingest "Ingestion" {
+      node p1 "Collector" [icon: stream]
+      node p2 "Router" [icon: stream]
+      node p3 "Raw Lake" [icon: storage]
+    }
+    group serve "Serving" {
+      node p4 "Transform" [icon: logic]
+      node p5 "Warehouse" [icon: warehouse]
+      node p6 "Dashboard" [icon: screen]
+    }
+  }
+  group ops_dom "Ops Domain" {
+    group obs "Observability" {
+      node o1 "Metrics" [icon: monitor]
+      node o2 "Audit" [icon: audit]
+      node o3 "Archive" [icon: storage]
+    }
+    group sec "Security" {
+      node k1 "Vault" [icon: vault]
+      node k2 "KMS" [icon: key]
+      node k3 "IDS" [icon: shield]
+    }
+  }
+}
+step "1. Sync Core" {
+  animate client --> gw : "HTTPS"
+  animate gw --> fw : "Inspect"
+  animate fw --> lb : "Forward"
+  animate lb --> s1a : "A"
+  animate lb --> s1b : "B" [parallel: true]
+  animate s1a --> s2a : "RPC"
+  animate s1b --> s2b : "RPC" [parallel: true]
+  animate s1a <-> c_a : "Cache"
+  animate s2a <-> d_a : "Write"
+  animate s1b --> c_b : "Cache" [parallel: true]
+  animate s2b --> d_b : "Read" [parallel: true]
+  static c_a ..> c_b : "Repl"
+  static d_a ..> d_b : "Repl"
+}
+step "2. Async & Pipeline" {
+  animate s2b --> q1 : "Emit"
+  animate q1 --> q2 : "Buffer"
+  animate q2 --> q3 : "Run"
+  animate q3 --> q4 : "Exec"
+  animate q4 --> q5 : "Commit"
+  animate q5 --> p1 : "CDC"
+  animate p1 --> p2 : "Deliver"
+  animate p2 --> p3 : "Land"
+  animate p3 --> p4 : "ETL"
+  animate p4 --> p5 : "Load"
+  animate p5 --> p6 : "View"
+}
+step "3. Governance" {
+  static s2b --> o1 : "Logs"
+  static s2b --> k1 : "Secrets"
+  static o2 ..> o3 : "Store"
+  static o2 ..> k3 : "Analyze"
+  static k2 ..> k1 : "Encrypt"
+}
+`;
+    const { doc, layout } = assertContainmentAndDisjointSiblings(platformDsl);
+
+    // 1. Asymmetric height pair (`core_mesh` tall + `async_chain` wide/short) stacks vertically.
+    const coreMesh = must(layout.groups.core_mesh, 'core_mesh');
+    const asyncChain = must(layout.groups.async_chain, 'async_chain');
+    expect(coreMesh.y + coreMesh.height).toBeLessThanOrEqual(asyncChain.y);
+
+    // 2. Wide 2-stage sequential ribbon (`ingest` + `serve`) wraps into 2 rows.
+    const ingest = must(layout.groups.ingest, 'ingest');
+    const serve = must(layout.groups.serve, 'serve');
+    expect(ingest.y + ingest.height).toBeLessThanOrEqual(serve.y);
+
+    // 3. Static parallel-ingress pair (`obs` + `sec`) stacks vertically so both entries face left.
+    const obs = must(layout.groups.obs, 'obs');
+    const sec = must(layout.groups.sec, 'sec');
+    expect(obs.y + obs.height).toBeLessThanOrEqual(sec.y);
+
+    // 4. Overall diagram stays well within a readable 2D landscape aspect ratio (< 3.5:1).
+    const allRects = [...Object.values(layout.nodes), ...Object.values(layout.groups)];
+    const w =
+      Math.max(...allRects.map((r) => r.x + r.width)) - Math.min(...allRects.map((r) => r.x));
+    const h =
+      Math.max(...allRects.map((r) => r.y + r.height)) - Math.min(...allRects.map((r) => r.y));
+    expect(w / h).toBeGreaterThan(1.3);
+    expect(w / h).toBeLessThan(3.5);
+
+    // Deterministic.
+    expect(computeLayout(doc)).toEqual(layout);
+  });
+
+  it('keeps early external-entry shared sink nodes on the entry side while leaving internal downstream sinks rightward', () => {
+    const sharedAuthDsl = `
+title "Shared Entry Auth vs Downstream Storage"
+node users "Users" [icon: users]
+group cloud "Cloud" {
+  node idp "Identity Provider" [icon: auth]
+  node waf "WAF" [icon: shield]
+  node cdn "CDN" [icon: cdn]
+  group vpc "App VPC" {
+    node gw "Gateway" [icon: router]
+    node alb "ALB" [icon: lb]
+    group az_a "AZ A" {
+      node app_a "App A" [icon: container]
+      node db_a "DB A" [icon: database]
+    }
+    group az_b "AZ B" {
+      node app_b "App B" [icon: container]
+      node db_b "DB B" [icon: database]
+    }
+    node vpce "VPC Endpoint" [icon: hub]
+  }
+  node assets "Object Storage" [icon: storage]
+  node secrets "Secrets Vault" [icon: vault]
+}
+step "1. Edge & Auth" {
+  animate users ..> idp : "OIDC Login" [color: purple]
+  animate users --> waf : "HTTPS"
+  animate waf --> cdn : "Forward"
+  animate cdn --> assets : "Static"
+}
+step "2. API & Verify" {
+  animate cdn --> gw : "Dynamic"
+  animate gw --> alb : "Ingress"
+  animate alb ..> idp : "Verify JWT" [color: purple]
+  animate alb --> app_a : "A"
+  animate alb --> app_b : "B" [parallel: true]
+  animate app_a --> db_a : "Write"
+  animate app_b --> db_b : "Read" [parallel: true]
+  static db_a ..> db_b : "Sync" [color: blue]
+}
+step "3. Private Storage" {
+  animate app_b --> vpce : "Private"
+  animate vpce --> assets : "Upload"
+  animate vpce --> secrets : "Creds"
+}
+`;
+    const { doc, layout } = assertContainmentAndDisjointSiblings(sharedAuthDsl);
+    const idp = must(layout.nodes.idp, 'idp');
+    const vpc = must(layout.groups.vpc, 'vpc');
+    const assets = must(layout.nodes.assets, 'assets');
+    const secrets = must(layout.nodes.secrets, 'secrets');
+
+    // Early external-entry `idp` stays on the entry side (left of `vpc`), not stranded past `vpc`.
+    expect(idp.x + idp.width).toBeLessThanOrEqual(vpc.x);
+    // Internal downstream sinks (`assets` fed by `cdn` + `vpce`, `secrets` fed by `vpce`) stay right of `vpc`.
+    expect(assets.x).toBeGreaterThanOrEqual(vpc.x + vpc.width);
+    expect(secrets.x).toBeGreaterThanOrEqual(vpc.x + vpc.width);
+    expect(computeLayout(doc)).toEqual(layout);
+  });
 });

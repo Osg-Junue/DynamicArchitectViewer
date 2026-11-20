@@ -63,7 +63,7 @@ Exports each diagram with the exporters of the editor. The file is written next 
 | `--out-dir <dir>` | The directory to write to, instead of next to each diagram. Each file keeps the name of its diagram |
 | `--camera follow`, `--camera whole` | SVG: `follow`, the default, moves the camera with the flow as the preview does. `whole` keeps the whole diagram in view, and only the flows move |
 | `--still` | SVG: a still picture instead of an animation |
-| `--labels` | SVG (`--still`): draw edge labels on the still image. On an overview still, each endpoint pair takes its first non-empty label across steps (checking `animate` before `static` within each step); with `--step <n>`, `static` labels show as usual and pairs without one take that step's first `animate` label |
+| `--labels` | Draw edge labels on a still SVG (`--still`), or start an exported HTML player with edge labels shown. On an overview, each endpoint pair takes its first non-empty label across steps (checking `animate` before `static` within each step); on a single step, `static` labels show as usual and pairs without one take that step's first `animate` label |
 | `--step <n>` | SVG: only step `n`, numbered from 1 as in the preview. The file is `checkout-step2.svg` |
 | `--locale en`, `--locale ja` | The language of the texts around the diagram. The default is `en` |
 | `--check` | Writes nothing, and fails when a file is missing or out of date. See [below](#keeping-a-readme-up-to-date-in-ci) |
@@ -102,7 +102,7 @@ What stops an export:
 | The diagram has an error | It is not exported. The errors are printed with their line and column, and the command exits with `1`. The other diagrams are still exported |
 | The diagram has only warnings | They are printed, and the diagram is exported |
 | `--step` names a step the diagram does not have | That diagram is not exported, and the command exits with `1` |
-| `--camera`, `--still`, `--labels` or `--step` with HTML | Exit code `2`: they apply to an SVG |
+| `--camera`, `--still` or `--step` with HTML | Exit code `2`: they apply to an SVG |
 | `--out` with several diagrams, or with `--out-dir` | Exit code `2` |
 | Two diagrams of one name sent to one directory | Exit code `2`, and nothing is written: one file would replace the other |
 

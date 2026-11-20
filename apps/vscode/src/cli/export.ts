@@ -28,7 +28,7 @@ Options:
   --out-dir <dir>          The directory to write to, instead of next to each diagram
   --camera <follow|whole>  SVG: follow the flow (default), or keep the whole diagram in view
   --still                  SVG: a still picture instead of an animation
-  --labels                 SVG (--still): draw edge labels on the still image
+  --labels                 Draw edge labels on a still SVG or by default in HTML
   --step <n>               SVG: only step n, numbered from 1 as in the preview
   --locale <en|ja>         Language of the texts around the diagram (default: en)
   --check                  Write nothing, and fail when a file is missing or out of date
@@ -62,9 +62,9 @@ function planOf(values: {
   const format = oneOf('format', values.format, ['svg', 'html'], inferred);
   if (
     format === 'html' &&
-    (values.camera !== undefined || values.still || values.labels || values.step !== undefined)
+    (values.camera !== undefined || values.still || values.step !== undefined)
   ) {
-    throw new UsageError('--camera, --still, --labels and --step apply to an SVG, not to HTML');
+    throw new UsageError('--camera, --still and --step apply to an SVG, not to HTML');
   }
   let step: number | null = null;
   if (values.step !== undefined) {
@@ -112,7 +112,12 @@ function rejectSharedTargets(files: readonly string[], plan: ExportPlan): void {
 }
 
 function render(text: string, document: DavDocument, plan: ExportPlan): Promise<string> | string {
-  if (plan.format === 'html') return exportHtml(text, { locale: plan.locale });
+  if (plan.format === 'html') {
+    return exportHtml(text, {
+      locale: plan.locale,
+      ...(plan.labels ? { labels: true } : {}),
+    });
+  }
   return exportSvg(document, {
     locale: plan.locale,
     animate: !plan.still,

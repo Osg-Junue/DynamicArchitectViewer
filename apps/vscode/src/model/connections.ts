@@ -1,4 +1,10 @@
-import { type DavConnection, type DavDocument, type DavStep, implicitEdgeId } from './types';
+import {
+  type ColorName,
+  type DavConnection,
+  type DavDocument,
+  type DavStep,
+  implicitEdgeId,
+} from './types';
 import { idPair } from './zones';
 
 /** Order-independent map key for a node pair (or self-loop when `a === b`). */
@@ -120,6 +126,37 @@ export function connectionLabels(doc: Pick<DavDocument, 'steps'>): Map<string, s
     }
   }
   return labels;
+}
+
+/**
+ * Maps each unordered pair key to its semantic color for overview / still rendering,
+ * keeping a color only when EVERY occurrence of that pair across all steps agrees on the
+ * same explicit color. Pairs that mix default and step-specific colors (e.g. a normal flow
+ * that turns red only in a failure step) stay neutral in the overview.
+ */
+export function connectionColors(doc: Pick<DavDocument, 'steps'>): Map<string, ColorName> {
+  const seen = new Map<string, ColorName | null>();
+  const record = (from: string, to: string, color: ColorName | undefined) => {
+    const key = unorderedPairKey(from, to);
+    const cur = seen.get(key);
+    if (cur === null) return;
+    if (color === undefined) {
+      seen.set(key, null);
+    } else if (cur === undefined) {
+      seen.set(key, color);
+    } else if (cur !== color) {
+      seen.set(key, null);
+    }
+  };
+  for (const step of doc.steps) {
+    for (const a of step.animations) record(a.from, a.to, a.color);
+    for (const s of step.statics) record(s.from, s.to, s.color);
+  }
+  const out = new Map<string, ColorName>();
+  for (const [key, color] of seen) {
+    if (color !== null) out.set(key, color);
+  }
+  return out;
 }
 
 export interface StepConnection extends DavConnection {

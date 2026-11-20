@@ -23,6 +23,8 @@ export interface ExportPayload {
   layout: Layout;
   /** Artwork of the icons this document uses; the runtime bundles none. */
   icons: IconShapes;
+  /** Start with representative edge labels visible on overview and steps. */
+  showLabels?: boolean;
 }
 
 // Vite leaves a build marker comment at the end of the extracted CSS.
@@ -31,6 +33,8 @@ const PAGE_STYLES = `html,body{margin:0;height:100%;background:var(--dav-bg);ove
 
 export interface ExportOptions {
   locale?: DavLocale;
+  /** Start the player with edge labels shown on overview and steps. */
+  labels?: boolean;
 }
 
 /**
@@ -49,6 +53,7 @@ export async function exportHtml(dsl: string, options: ExportOptions = {}): Prom
     document,
     layout: computeLayout(document),
     icons: collectUsedIcons(document),
+    ...(options.labels ? { showLabels: true } : {}),
   };
 
   assertSafeInline(runtimeScript, 'runtime script');

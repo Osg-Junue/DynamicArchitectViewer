@@ -75,6 +75,8 @@ export interface PlayerOptions {
   onPhaseChange?: (view: ResolvedView, phase: number) => void;
   /** Always frame the whole diagram instead of each step's focus. */
   fixedFrame?: boolean;
+  /** Draw representative edge labels on the overview (and active animate labels on steps). */
+  showLabels?: boolean;
 }
 
 function phasesWhere(phases: readonly Packet[][], pred: (p: Packet) => boolean): number[] {
@@ -110,6 +112,7 @@ export class Player {
   readonly #camera: Camera;
   #userMoved = false;
   #followAnim = false;
+  #showLabels: boolean;
   /** The reader asked for the whole diagram; the camera stays until the next step. */
   #holdFrame = false;
   /** The phases were timed before the canvas had a size, at zoom 1. */
@@ -147,7 +150,13 @@ export class Player {
           : null;
     // In a browser the callouts are sized by the text as it is drawn, not by an estimate.
     measureCalloutsWith(browserTextMeasure());
-    this.#view = resolveView(data.document, data.layout, initialStep);
+    this.#showLabels = options.showLabels ?? false;
+    this.#view = resolveView(
+      data.document,
+      data.layout,
+      initialStep,
+      this.#showLabels ? { showLabels: true } : undefined,
+    );
     this.#stepIndex = this.#view.stepIndex;
     this.#playMode =
       !hasSteps || !options.autoplay || this.#reducedMotion
@@ -189,6 +198,7 @@ export class Player {
       fit: () => this.#showWholeDiagram(),
       toggleFollow: () => this.toggleFollowAnim(),
       toggleMinimap: () => this.toggleMinimap(),
+      toggleLabels: () => this.toggleLabels(),
     });
     const { playbackBar, zoomGroup } = this.#controls;
     this.#controls.stepHead.append(this.#dock.info);
@@ -257,6 +267,7 @@ export class Player {
     this.#syncZones();
     this.#renderChrome();
     this.#updateMotionButton();
+    setButtonPressed(this.#controls.labelsBtn, this.#showLabels);
     this.#applyView(this.#view);
     this.#frameStep(false);
   }
@@ -457,6 +468,12 @@ export class Player {
     this.#updateCameraOverlays();
   }
 
+  toggleLabels(): void {
+    this.#showLabels = !this.#showLabels;
+    setButtonPressed(this.#controls.labelsBtn, this.#showLabels);
+    this.#showStep(this.#stepIndex, { keepPhase: true });
+  }
+
   toggleFollowAnim(): void {
     this.#followAnim = !this.#followAnim;
     setButtonPressed(this.#controls.followBtn, this.#followAnim);
@@ -505,7 +522,15 @@ export class Player {
   }
 
   #showStep(index: number | null, opts: { keepPhase?: boolean } = {}): void {
-    this.#applyView(resolveView(this.#data.document, this.#data.layout, index), opts);
+    this.#applyView(
+      resolveView(
+        this.#data.document,
+        this.#data.layout,
+        index,
+        this.#showLabels ? { showLabels: true } : undefined,
+      ),
+      opts,
+    );
   }
 
   #applyView(view: ResolvedView, opts: { keepPhase?: boolean } = {}): void {
