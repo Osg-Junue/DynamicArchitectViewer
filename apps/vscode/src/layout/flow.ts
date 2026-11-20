@@ -30,6 +30,8 @@ export interface FlowAnalysis {
   primaryZonePairs: Set<string>;
   /** Earliest connection-bearing step index (`0..activeStepCount-1`) where each unordered node pair (`flowPairKey`) appears. */
   pairFirstStep: ReadonlyMap<string, number>;
+  /** Monotonic chronological order index of first appearance for each unordered node pair (`flowPairKey`). */
+  pairFirstOrder?: ReadonlyMap<string, number>;
   /** Number of steps that contain at least one valid inter-node connection. */
   activeStepCount: number;
   /** Unordered `flowPairKey`s of `static` edges belonging to an egress/return chain back to an upstream primary ancestor. */
@@ -240,13 +242,18 @@ export function analyzeFlow(
   const primaryEdges: Array<readonly [string, string]> = [];
   const seenPrimaryEdges = new Set<string>();
   const pairFirstStep = new Map<string, number>();
+  const pairFirstOrder = new Map<string, number>();
+  let orderSeq = 0;
   let hasAnimate = false;
 
   const recordStep = (from: string, to: string, stepIdx: number) => {
     if (from === to || !known.has(from) || !known.has(to)) return;
     const pk = flowPairKey(from, to);
     if (!connByPair.has(pk)) return;
-    if (!pairFirstStep.has(pk)) pairFirstStep.set(pk, stepIdx);
+    if (!pairFirstStep.has(pk)) {
+      pairFirstStep.set(pk, stepIdx);
+      pairFirstOrder.set(pk, orderSeq++);
+    }
   };
 
   const activateStaticEdge = (from: string, to: string, seen: Set<string>): void => {
@@ -468,6 +475,7 @@ export function analyzeFlow(
     auxiliaryZones,
     primaryZonePairs,
     pairFirstStep,
+    pairFirstOrder,
     activeStepCount,
     egressReturnPairs,
     egressAnchors,
@@ -604,13 +612,17 @@ export function analyzeScopeFlow(
     (c) => c.role !== 'static' && owners.get(c.from) !== owners.get(c.to),
   );
 
-  // Build chronological inter-child primary adjacency from earliest-step order.
+  // Build chronological inter-child primary adjacency from earliest playback order.
   const orderedPri = localConns
     .filter((c) => c.role === 'primary')
     .sort((a, b) => {
-      const sa = fullFlow.pairFirstStep.get(flowPairKey(a.from, a.to)) ?? 0;
-      const sb = fullFlow.pairFirstStep.get(flowPairKey(b.from, b.to)) ?? 0;
-      return sa - sb || compareId(a.from, b.from) || compareId(a.to, b.to);
+      const ka = flowPairKey(a.from, a.to);
+      const kb = flowPairKey(b.from, b.to);
+      const sa = fullFlow.pairFirstStep.get(ka) ?? 0;
+      const sb = fullFlow.pairFirstStep.get(kb) ?? 0;
+      const oa = fullFlow.pairFirstOrder?.get(ka) ?? 0;
+      const ob = fullFlow.pairFirstOrder?.get(kb) ?? 0;
+      return sa - sb || oa - ob || compareId(a.from, b.from) || compareId(a.to, b.to);
     });
   const chronZoneAdj = new Map<string, Set<string>>();
   for (const c of orderedPri) {
@@ -643,6 +655,7 @@ export function analyzeScopeFlow(
     auxiliaryZones,
     primaryZonePairs,
     pairFirstStep: fullFlow.pairFirstStep,
+    ...(fullFlow.pairFirstOrder ? { pairFirstOrder: fullFlow.pairFirstOrder } : {}),
     activeStepCount: fullFlow.activeStepCount,
     egressReturnPairs,
     ...(fullFlow.egressAnchors ? { egressAnchors: fullFlow.egressAnchors } : {}),
@@ -672,6 +685,11 @@ function computeMacroZones(
   const auxNeighbors = new Map<string, Set<string>>(blockIds.map((id) => [id, new Set()]));
   const directedVotes = new Map<string, number>();
   const pairMinPriStep = new Map<string, number>();
+  const blockFirstPriStep = new Map<string, number>();
+  const recordBlockFirstPri = (id: string, fs: number) => {
+    const prev = blockFirstPriStep.get(id);
+    if (prev === undefined || fs < prev) blockFirstPriStep.set(id, fs);
+  };
   const nonEgressPair = new Set<string>();
   const zoneNodeCount = new Map<string, number>(blockIds.map((id) => [id, 0]));
   for (const owner of owners.values()) {
@@ -699,6 +717,7 @@ function computeMacroZones(
       if (c.role === 'primary') {
         const fs = pairFirstStep.get(flowPairKey(c.from, c.to)) ?? 0;
         intraPrimary.set(bu, (intraPrimary.get(bu) ?? 0) + stepDecay(fs));
+        recordBlockFirstPri(bu, fs);
       }
       continue;
     }
@@ -718,6 +737,8 @@ function computeMacroZones(
       directedVotes.set(dirKey, (directedVotes.get(dirKey) ?? 0) + 3 * stepScore);
       const zonePairKey = flowPairKey(bu, bv);
       pairMinPriStep.set(zonePairKey, Math.min(pairMinPriStep.get(zonePairKey) ?? fs, fs));
+      recordBlockFirstPri(bu, fs);
+      recordBlockFirstPri(bv, fs);
       primaryDegree.set(bu, (primaryDegree.get(bu) ?? 0) + 1);
       primaryDegree.set(bv, (primaryDegree.get(bv) ?? 0) + 1);
       animateTouch.set(bu, (animateTouch.get(bu) ?? 0) + w);
@@ -824,6 +845,25 @@ function computeMacroZones(
           winnerFrom = bv;
           winnerTo = bu;
         }
+      }
+      // Drop late-step feedback edges that close a chronological cycle back into an earlier-entered
+      // primary block (e.g. a downstream analytics/ML zone calling back into an earlier core VPC),
+      // mirroring top-level `closesZoneCycle` return detection inside nested container scopes.
+      const loserVotes = winnerFrom === bu ? rev : fwd;
+      const fromFirst = blockFirstPriStep.get(winnerFrom);
+      const toFirst = blockFirstPriStep.get(winnerTo);
+      if (
+        hasAnimate &&
+        !auxA &&
+        !auxB &&
+        hasPri &&
+        loserVotes === 0 &&
+        fromFirst !== undefined &&
+        toFirst !== undefined &&
+        fromFirst > toFirst &&
+        canReach(chronZoneAdj, winnerTo, winnerFrom)
+      ) {
+        continue;
       }
       // Keep non-auxiliary early-established primary backbone edges highest priority.
       const priBonus = hasPri ? 100 + 10 / (1 + 0.05 * (pairMinPriStep.get(pk) ?? 0)) : 0;

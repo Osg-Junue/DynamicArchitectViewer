@@ -679,4 +679,155 @@ step "Main" {
     const rApp = must(shifted.nodes.app, 'app');
     expect(rApp.x - rVpc.x).toBeLessThanOrEqual(24);
   });
+
+  it('stacks composite Multi-AZ peers vertically when the shared distributor sits inside AZ-A, without folding sequential pipelines', () => {
+    const internalAlbDsl = `
+title "Internal ALB Multi-AZ Peer Stacking"
+node client "Client" [icon: users]
+group cloud "AWS Cloud" {
+  group vpc "Core VPC" {
+    node igw "IGW" [icon: router]
+    node vpce "VPC Endpoint" [icon: shield]
+    group az_a "Availability Zone A" [border: dashed] {
+      group pub_a "Public Subnet A" {
+        node alb "ALB" [icon: lb]
+      }
+      group app_a "App Subnet A" {
+        node app1 "App A1" [icon: container]
+        node app2 "App A2" [icon: container]
+      }
+      group db_a "DB Subnet A" {
+        node db_pri "Primary DB" [icon: database]
+      }
+    }
+    group az_b "Availability Zone B" [border: dashed] {
+      group app_b "App Subnet B" {
+        node app_b1 "App B1" [icon: container]
+        node app_b2 "App B2" [icon: container]
+      }
+      group db_b "DB Subnet B" {
+        node db_sby "Standby DB" [icon: database]
+      }
+    }
+  }
+  group backup "Backup" {
+    node s3 "S3" [icon: storage]
+  }
+}
+step "Normal" {
+  static db_pri ..> db_sby : "Replicate"
+  animate client --> igw : "HTTPS"
+  animate igw --> alb : "Ingress"
+  animate alb --> app1 : "Route A"
+  animate app1 --> app2 : "Order"
+  animate app1 <-> db_pri : "CRUD"
+  animate app2 <-> db_pri : "Commit"
+  animate app1 --> vpce : "Upload"
+  animate vpce --> s3 : "Store"
+}
+step "Failover" {
+  animate alb --> app_b1 : "Failover B"
+  animate app_b1 --> app_b2 : "Order B"
+  animate app_b1 ..> db_sby : "Read B"
+  animate app_b2 ..> db_sby : "Write B"
+}
+`;
+    const { layout } = assertContainmentAndDisjointSiblings(internalAlbDsl);
+    const azA = must(layout.groups.az_a, 'az_a');
+    const azB = must(layout.groups.az_b, 'az_b');
+    const vpce = must(layout.nodes.vpce, 'vpce');
+    // AZ-B stacks vertically beneath AZ-A instead of sliding right beside vpce.
+    expect(azB.y).toBeGreaterThanOrEqual(azA.y + azA.height);
+    expect(azB.x).toBeLessThan(vpce.x);
+
+    // Negative check: sequential composite stages (exit node -> next tier, NOT an entry fan-out)
+    // must remain side-by-side even when a static link also connects them.
+    const sequentialDsl = `
+title "Sequential Composite Tiers"
+node client "Client" [icon: users]
+group cloud "Cloud" {
+  group vpc "VPC" {
+    group frontend "Frontend Tier" {
+      group fe_in "FE Ingress" {
+        node fe_web "Web" [icon: server]
+      }
+      group fe_out "FE BFF" {
+        node fe_bff "BFF" [icon: api]
+      }
+    }
+    group backend "Backend Tier" {
+      group be_svc "BE Service" {
+        node be_api "API" [icon: container]
+      }
+      group be_db "BE Data" {
+        node be_store "Store" [icon: database]
+      }
+    }
+  }
+}
+step "Main" {
+  static fe_web ..> be_store : "Audit"
+  animate client --> fe_web : "HTTP"
+  animate fe_web --> fe_bff : "Proxy"
+  animate fe_bff --> be_api : "RPC"
+  animate be_api --> be_store : "Write"
+}
+`;
+    const { layout: seqLayout } = assertContainmentAndDisjointSiblings(sequentialDsl);
+    const fe = must(seqLayout.groups.frontend, 'frontend');
+    const be = must(seqLayout.groups.backend, 'backend');
+    expect(fe.x + fe.width).toBeLessThanOrEqual(be.x);
+  });
+
+  it('prevents a late-step nested feedback edge from pushing an earlier core stage rightward', () => {
+    const feedbackDsl = `
+title "Nested Feedback Cycle"
+node user "User" [icon: users]
+group cloud "Cloud" {
+  group edge "Edge" {
+    node cdn "CDN" [icon: cdn]
+    node waf "WAF" [icon: firewall]
+  }
+  group core "Core VPC" {
+    group core_a "AZ A" {
+      node api "API" [icon: container]
+      node db "DB" [icon: database]
+    }
+  }
+  group events "Events" {
+    node queue "Queue" [icon: queue]
+    node stream "Stream" [icon: stream]
+  }
+  group ml "Lakehouse & ML" {
+    node lake "Lake" [icon: storage]
+    node model "Model" [icon: ai]
+  }
+}
+step "1. Core" {
+  animate user --> cdn : "HTTP"
+  animate cdn --> waf : "Filter"
+  animate waf --> api : "Route"
+  animate api <-> db : "Commit"
+}
+step "2. Queue" {
+  animate api --> queue : "Publish"
+  animate queue --> api : "Consume"
+}
+step "3. Stream to Lake" {
+  animate queue --> stream : "Emit"
+  animate stream --> lake : "Land"
+}
+step "4. ML Feedback" {
+  animate lake --> model : "Train"
+  animate model ..> api : "Forecast"
+}
+`;
+    const { layout } = assertContainmentAndDisjointSiblings(feedbackDsl);
+    const edge = must(layout.groups.edge, 'edge');
+    const core = must(layout.groups.core, 'core');
+    const ml = must(layout.groups.ml, 'ml');
+    // Core stays directly to the right of Edge, and Lakehouse/ML stays downstream (not wedged between Edge and Core).
+    expect(edge.x).toBeLessThan(core.x);
+    expect(core.x).toBeLessThanOrEqual(ml.x);
+  });
 });

@@ -3237,34 +3237,34 @@ function _n(e, t, n) {
 function X(e, t = U(e)) {
 	let n = /* @__PURE__ */ new Set([...e.nodes.map((e) => e.id), ...e.groups.map((e) => e.id)]), { owners: r, blockIds: i } = hn(e), a = /* @__PURE__ */ new Map();
 	for (let e of t) e.from !== e.to && n.has(e.from) && n.has(e.to) && a.set(q(e.from, e.to), e);
-	let o = /* @__PURE__ */ new Map(), s = /* @__PURE__ */ new Set(), c = /* @__PURE__ */ new Set(), l = 0, u = /* @__PURE__ */ new Map(), d = /* @__PURE__ */ new Map(), f = /* @__PURE__ */ new Map(), p = /* @__PURE__ */ new Map(), m = /* @__PURE__ */ new Map(), h = /* @__PURE__ */ new Set(), g = /* @__PURE__ */ new Map(), _ = [], v = /* @__PURE__ */ new Set(), y = /* @__PURE__ */ new Map(), b = !1, x = (e, t, r) => {
+	let o = /* @__PURE__ */ new Map(), s = /* @__PURE__ */ new Set(), c = /* @__PURE__ */ new Set(), l = 0, u = /* @__PURE__ */ new Map(), d = /* @__PURE__ */ new Map(), f = /* @__PURE__ */ new Map(), p = /* @__PURE__ */ new Map(), m = /* @__PURE__ */ new Map(), h = /* @__PURE__ */ new Set(), g = /* @__PURE__ */ new Map(), _ = [], v = /* @__PURE__ */ new Set(), y = /* @__PURE__ */ new Map(), b = /* @__PURE__ */ new Map(), x = 0, S = !1, C = (e, t, r) => {
 		if (e === t || !n.has(e) || !n.has(t)) return;
 		let i = q(e, t);
-		a.has(i) && (y.has(i) || y.set(i, r));
-	}, S = (e, t, n) => {
+		a.has(i) && (y.has(i) || (y.set(i, r), b.set(i, x++)));
+	}, w = (e, t, n) => {
 		Y(f, t, e) || J(f, e, t), h.add(t);
 		let i = r.get(e), a = r.get(t);
 		if (i !== void 0 && a !== void 0 && i !== a && !Y(p, a, i) && J(p, i, a), !n.has(t)) {
 			n.add(t);
-			for (let e of m.get(t) ?? []) S(t, e, n);
+			for (let e of m.get(t) ?? []) w(t, e, n);
 		}
-	}, C = (e) => {
+	}, T = (e) => {
 		let t = m.get(e);
 		if (!t || t.length === 0) return;
 		let n = /* @__PURE__ */ new Set([e]);
-		for (let r of t) S(e, r, n);
-	}, w = (e) => {
+		for (let r of t) w(e, r, n);
+	}, E = (e) => {
 		if (!o.has(e)) {
 			o.set(e, l++), h.add(e);
 			let t = r.get(e);
-			t !== void 0 && s.add(t), C(e);
+			t !== void 0 && s.add(t), T(e);
 		}
-	}, T = (e, t, n) => {
+	}, D = (e, t, n) => {
 		let i = q(e, t);
 		if (g.has(i)) return;
 		c.has(e) ? c.add(t) : c.delete(t), J(u, e, t), J(f, e, t);
 		let a = r.get(e), o = r.get(t);
-		a !== void 0 && o !== void 0 && a !== o && (Y(d, o, a) || J(d, a, o), Y(p, o, a) || J(p, a, o)), w(e), w(t), g.set(i, {
+		a !== void 0 && o !== void 0 && a !== o && (Y(d, o, a) || J(d, a, o), Y(p, o, a) || J(p, a, o)), E(e), E(t), g.set(i, {
 			from: e,
 			to: t,
 			role: "primary",
@@ -3272,20 +3272,20 @@ function X(e, t = U(e)) {
 		});
 		let s = H(e, t);
 		v.has(s) || (v.add(s), _.push([e, t]));
-	}, E = 0;
+	}, O = 0;
 	for (let t of e.steps) {
 		if (!(t.statics.some((e) => e.from !== e.to && a.has(q(e.from, e.to))) || t.animations.some((e) => e.from !== e.to && a.has(q(e.from, e.to))))) continue;
-		let e = E++, i = [];
+		let e = O++, i = [];
 		for (let r of t.statics) {
-			if (x(r.from, r.to, e), r.from === r.to || r.direction !== "forward" || !n.has(r.from) || !n.has(r.to) || !a.has(q(r.from, r.to))) continue;
+			if (C(r.from, r.to, e), r.from === r.to || r.direction !== "forward" || !n.has(r.from) || !n.has(r.to) || !a.has(q(r.from, r.to))) continue;
 			let t = m.get(r.from);
 			t ? t.push(r.to) : m.set(r.from, [r.to]), i.push(r.from);
 		}
-		for (let e of i) h.has(e) && C(e);
+		for (let e of i) h.has(e) && T(e);
 		for (let n of t.animations) {
 			if (n.from === n.to) continue;
 			let t = q(n.from, n.to);
-			if (!a.has(t) || (x(n.from, n.to, e), b = !0, g.has(t))) continue;
+			if (!a.has(t) || (C(n.from, n.to, e), S = !0, g.has(t))) continue;
 			if (n.direction === "bidirectional") {
 				let e = r.get(n.from), i = r.get(n.to), a = n.from, l = n.to;
 				(Y(f, n.to, n.from) && !Y(f, n.from, n.to) || e !== void 0 && i !== void 0 && e !== i && Y(p, i, e) && !Y(p, e, i)) && (a = n.to, l = n.from);
@@ -3295,7 +3295,7 @@ function X(e, t = U(e)) {
 					to: n.to,
 					role: "return",
 					direction: "bidirectional"
-				}), o.has(l) || c.add(l)) : T(a, l, "bidirectional");
+				}), o.has(l) || c.add(l)) : D(a, l, "bidirectional");
 				continue;
 			}
 			let i = Y(f, n.to, n.from), l = r.get(n.from), u = r.get(n.to), d = l !== void 0 && u !== void 0 && l !== u && s.has(u) && Y(p, u, l), m = c.has(n.from) && o.has(n.to);
@@ -3304,10 +3304,10 @@ function X(e, t = U(e)) {
 				to: n.to,
 				role: "return",
 				direction: "forward"
-			}), o.has(n.to) || c.add(n.to)) : T(n.from, n.to, "forward");
+			}), o.has(n.to) || c.add(n.to)) : D(n.from, n.to, "forward");
 		}
 	}
-	let D = [];
+	let k = [];
 	for (let [e, t] of a) {
 		if (g.has(e)) continue;
 		let n = {
@@ -3316,33 +3316,34 @@ function X(e, t = U(e)) {
 			role: "static",
 			direction: t.direction
 		};
-		g.set(e, n), D.push(n);
+		g.set(e, n), k.push(n);
 	}
-	let { egressReturnPairs: O, egressAnchors: k, primaryBackboneAdj: A } = b ? yn(_, D) : {
+	let { egressReturnPairs: A, egressAnchors: j, primaryBackboneAdj: M } = S ? yn(_, k) : {
 		egressReturnPairs: /* @__PURE__ */ new Set(),
 		egressAnchors: /* @__PURE__ */ new Map(),
 		primaryBackboneAdj: /* @__PURE__ */ new Map()
-	}, j = [..._];
-	if (b) for (let e of D) {
-		if (A.has(e.from) && A.has(e.to) && Y(A, e.from, e.to) || O.has(q(e.from, e.to)) || Y(u, e.to, e.from)) continue;
+	}, N = [..._];
+	if (S) for (let e of k) {
+		if (M.has(e.from) && M.has(e.to) && Y(M, e.from, e.to) || A.has(q(e.from, e.to)) || Y(u, e.to, e.from)) continue;
 		let t = r.get(e.from), n = r.get(e.to);
-		t !== void 0 && n !== void 0 && t !== n && Y(d, n, t) || (J(u, e.from, e.to), j.push([e.from, e.to]));
+		t !== void 0 && n !== void 0 && t !== n && Y(d, n, t) || (J(u, e.from, e.to), N.push([e.from, e.to]));
 	}
-	else for (let e of D) j.push([e.from, e.to]);
-	let M = [...g.values()], { zoneStage: N, auxiliaryZones: P, primaryZonePairs: F } = xn(new Set(V(e.groups).map((e) => e.id)), M, r, i, d, b, y, E, O);
+	else for (let e of k) N.push([e.from, e.to]);
+	let P = [...g.values()], { zoneStage: F, auxiliaryZones: ee, primaryZonePairs: I } = xn(new Set(V(e.groups).map((e) => e.id)), P, r, i, d, S, y, O, A);
 	return {
-		connections: M,
+		connections: P,
 		byPair: g,
-		forwardEdges: j,
-		hasAnimate: b,
-		zoneStage: N,
-		auxiliaryZones: P,
-		primaryZonePairs: F,
+		forwardEdges: N,
+		hasAnimate: S,
+		zoneStage: F,
+		auxiliaryZones: ee,
+		primaryZonePairs: I,
 		pairFirstStep: y,
-		activeStepCount: E,
-		egressReturnPairs: O,
-		egressAnchors: k,
-		primaryBackboneAdj: A
+		pairFirstOrder: b,
+		activeStepCount: O,
+		egressReturnPairs: A,
+		egressAnchors: j,
+		primaryBackboneAdj: M
 	};
 }
 function vn(e, t, n) {
@@ -3387,7 +3388,10 @@ function yn(e, t) {
 function bn(e, t, n, r) {
 	let i = r.connections.filter((e) => n.has(e.from) && n.has(e.to)), a = /* @__PURE__ */ new Map();
 	for (let e of i) a.set(q(e.from, e.to), e);
-	let o = i.some((e) => e.role !== "static" && n.get(e.from) !== n.get(e.to)), s = i.filter((e) => e.role === "primary").sort((e, t) => (r.pairFirstStep.get(q(e.from, e.to)) ?? 0) - (r.pairFirstStep.get(q(t.from, t.to)) ?? 0) || mn(e.from, t.from) || mn(e.to, t.to)), c = /* @__PURE__ */ new Map();
+	let o = i.some((e) => e.role !== "static" && n.get(e.from) !== n.get(e.to)), s = i.filter((e) => e.role === "primary").sort((e, t) => {
+		let n = q(e.from, e.to), i = q(t.from, t.to), a = r.pairFirstStep.get(n) ?? 0, o = r.pairFirstStep.get(i) ?? 0, s = r.pairFirstOrder?.get(n) ?? 0, c = r.pairFirstOrder?.get(i) ?? 0;
+		return a - o || s - c || mn(e.from, t.from) || mn(e.to, t.to);
+	}), c = /* @__PURE__ */ new Map();
 	for (let e of s) {
 		let t = n.get(e.from), r = n.get(e.to);
 		t && r && t !== r && !Y(c, r, t) && J(c, t, r);
@@ -3402,6 +3406,7 @@ function bn(e, t, n, r) {
 		auxiliaryZones: d,
 		primaryZonePairs: f,
 		pairFirstStep: r.pairFirstStep,
+		...r.pairFirstOrder ? { pairFirstOrder: r.pairFirstOrder } : {},
 		activeStepCount: r.activeStepCount,
 		egressReturnPairs: l,
 		...r.egressAnchors ? { egressAnchors: r.egressAnchors } : {},
@@ -3409,127 +3414,132 @@ function bn(e, t, n, r) {
 	};
 }
 function xn(e, t, n, r, i, a, o, s, c) {
-	let l = e, u = /* @__PURE__ */ new Map(), d = new Map(r.map((e) => [e, 0])), f = new Map(r.map((e) => [e, /* @__PURE__ */ new Set()])), p = new Map(r.map((e) => [e, /* @__PURE__ */ new Set()])), m = /* @__PURE__ */ new Map(), h = /* @__PURE__ */ new Map(), g = /* @__PURE__ */ new Set(), _ = new Map(r.map((e) => [e, 0]));
-	for (let e of n.values()) _.set(e, (_.get(e) ?? 0) + 1);
-	let v = s >= 4, y = (e) => v ? 1 / (1 + .12 * Math.max(0, e - 2)) : 1, b = new Map(r.map((e) => [e, 0])), x = new Map(r.map((e) => [e, 0])), S = new Map(r.map((e) => [e, 0])), C = new Map(r.map((e) => [e, 0]));
+	let l = e, u = /* @__PURE__ */ new Map(), d = new Map(r.map((e) => [e, 0])), f = new Map(r.map((e) => [e, /* @__PURE__ */ new Set()])), p = new Map(r.map((e) => [e, /* @__PURE__ */ new Set()])), m = /* @__PURE__ */ new Map(), h = /* @__PURE__ */ new Map(), g = /* @__PURE__ */ new Map(), _ = (e, t) => {
+		let n = g.get(e);
+		(n === void 0 || t < n) && g.set(e, t);
+	}, v = /* @__PURE__ */ new Set(), y = new Map(r.map((e) => [e, 0]));
+	for (let e of n.values()) y.set(e, (y.get(e) ?? 0) + 1);
+	let b = s >= 4, x = (e) => b ? 1 / (1 + .12 * Math.max(0, e - 2)) : 1, S = new Map(r.map((e) => [e, 0])), C = new Map(r.map((e) => [e, 0])), w = new Map(r.map((e) => [e, 0])), T = new Map(r.map((e) => [e, 0]));
 	for (let e of t) {
 		let t = n.get(e.from), r = n.get(e.to);
 		if (!t || !r) continue;
 		if (t === r) {
-			if (S.set(t, (S.get(t) ?? 0) + 1), e.role === "primary") {
+			if (w.set(t, (w.get(t) ?? 0) + 1), e.role === "primary") {
 				let n = o.get(q(e.from, e.to)) ?? 0;
-				C.set(t, (C.get(t) ?? 0) + y(n));
+				T.set(t, (T.get(t) ?? 0) + x(n)), _(t, n);
 			}
 			continue;
 		}
 		f.get(t)?.add(r), f.get(r)?.add(t);
-		let i = q(e.from, e.to), a = o.get(i) ?? 0, s = 1 / (1 + .05 * a), l = y(a), _ = H(t, r);
+		let i = q(e.from, e.to), a = o.get(i) ?? 0, s = 1 / (1 + .05 * a), l = x(a), g = H(t, r);
 		if (e.role === "primary") {
-			g.add(q(t, r)), p.get(t)?.add(r), p.get(r)?.add(t), u.set(_, (u.get(_) ?? 0) + 1), m.set(_, (m.get(_) ?? 0) + 3 * s);
+			v.add(q(t, r)), p.get(t)?.add(r), p.get(r)?.add(t), u.set(g, (u.get(g) ?? 0) + 1), m.set(g, (m.get(g) ?? 0) + 3 * s);
 			let e = q(t, r);
-			h.set(e, Math.min(h.get(e) ?? a, a)), d.set(t, (d.get(t) ?? 0) + 1), d.set(r, (d.get(r) ?? 0) + 1), b.set(t, (b.get(t) ?? 0) + l), b.set(r, (b.get(r) ?? 0) + l);
-		} else e.role === "return" ? (g.add(q(t, r)), p.get(t)?.add(r), p.get(r)?.add(t), b.set(t, (b.get(t) ?? 0) + l), b.set(r, (b.get(r) ?? 0) + l)) : c.has(i) || (g.add(q(t, r)), p.get(t)?.add(r), p.get(r)?.add(t), e.direction !== "bidirectional" && m.set(_, (m.get(_) ?? 0) + .1 * s), x.set(t, (x.get(t) ?? 0) + l), x.set(r, (x.get(r) ?? 0) + l));
+			h.set(e, Math.min(h.get(e) ?? a, a)), _(t, a), _(r, a), d.set(t, (d.get(t) ?? 0) + 1), d.set(r, (d.get(r) ?? 0) + 1), S.set(t, (S.get(t) ?? 0) + l), S.set(r, (S.get(r) ?? 0) + l);
+		} else e.role === "return" ? (v.add(q(t, r)), p.get(t)?.add(r), p.get(r)?.add(t), S.set(t, (S.get(t) ?? 0) + l), S.set(r, (S.get(r) ?? 0) + l)) : c.has(i) || (v.add(q(t, r)), p.get(t)?.add(r), p.get(r)?.add(t), e.direction !== "bidirectional" && m.set(g, (m.get(g) ?? 0) + .1 * s), C.set(t, (C.get(t) ?? 0) + l), C.set(r, (C.get(r) ?? 0) + l));
 	}
-	let w = /* @__PURE__ */ new Set();
+	let E = /* @__PURE__ */ new Set();
 	if (a) {
 		for (let e of l) {
-			let t = d.get(e) ?? 0, n = C.get(e) ?? 0, r = b.get(e) ?? 0, i = x.get(e) ?? 0, a = p.get(e)?.size ?? 0, o = (_.get(e) ?? 0) >= 2 && (S.get(e) ?? 0) === 0 ? i > r : i > (r + n) * 2;
-			(t === 0 && a >= 2 || o && a >= 3) && w.add(e);
+			let t = d.get(e) ?? 0, n = T.get(e) ?? 0, r = S.get(e) ?? 0, i = C.get(e) ?? 0, a = p.get(e)?.size ?? 0, o = (y.get(e) ?? 0) >= 2 && (w.get(e) ?? 0) === 0 ? i > r : i > (r + n) * 2;
+			(t === 0 && a >= 2 || o && a >= 3) && E.add(e);
 		}
-		if (w.size > 0) {
-			let e = r.filter((e) => (f.get(e)?.size ?? 0) > 0 && !w.has(e)).length;
-			(u.size === 0 || e < 2) && w.clear();
+		if (E.size > 0) {
+			let e = r.filter((e) => (f.get(e)?.size ?? 0) > 0 && !E.has(e)).length;
+			(u.size === 0 || e < 2) && E.clear();
 		}
 	}
-	let T = new Map(r.map((e) => [e, /* @__PURE__ */ new Set()]));
+	let D = new Map(r.map((e) => [e, /* @__PURE__ */ new Set()]));
 	for (let e of t) {
 		if (e.role !== "primary") continue;
 		let t = n.get(e.from), r = n.get(e.to);
-		t && r && t !== r && !w.has(t) && !w.has(r) && (J(T, t, r), J(T, r, t));
+		t && r && t !== r && !E.has(t) && !E.has(r) && (J(D, t, r), J(D, r, t));
 	}
-	let E = [], D = /* @__PURE__ */ new Set();
+	let O = [], k = /* @__PURE__ */ new Set();
 	for (let e of r) for (let t of r) {
 		if (e >= t) continue;
 		let n = q(e, t);
-		if (D.has(n)) continue;
-		D.add(n);
+		if (k.has(n)) continue;
+		k.add(n);
 		let r = m.get(H(e, t)) ?? 0, o = m.get(H(t, e)) ?? 0;
 		if (r === 0 && o === 0) continue;
-		let s = w.has(e), c = w.has(t), l = (u.get(H(e, t)) ?? 0) + (u.get(H(t, e)) ?? 0) > 0;
-		if (a && !s && !c && !l && (d.get(e) ?? 0) > 0 && (d.get(t) ?? 0) > 0 && Y(T, e, t)) continue;
-		let f = e, p = t, g = r - o;
-		if (o > r) f = t, p = e, g = o - r;
+		let s = E.has(e), c = E.has(t), l = (u.get(H(e, t)) ?? 0) + (u.get(H(t, e)) ?? 0) > 0;
+		if (a && !s && !c && !l && (d.get(e) ?? 0) > 0 && (d.get(t) ?? 0) > 0 && Y(D, e, t)) continue;
+		let f = e, p = t, _ = r - o;
+		if (o > r) f = t, p = e, _ = o - r;
 		else if (r === o) {
 			let n = Y(i, e, t);
 			Y(i, t, e) && !n && (f = t, p = e);
 		}
-		let _ = l ? 100 + 10 / (1 + .05 * (h.get(n) ?? 0)) : 0, v = (s || c ? 0 : 1e3) + _ + g;
-		E.push({
+		let v = f === e ? o : r, y = g.get(f), b = g.get(p);
+		if (a && !s && !c && l && v === 0 && y !== void 0 && b !== void 0 && y > b && Y(i, p, f)) continue;
+		let x = l ? 100 + 10 / (1 + .05 * (h.get(n) ?? 0)) : 0, S = (s || c ? 0 : 1e3) + x + _;
+		O.push({
 			a: f,
 			b: p,
-			weight: v,
+			weight: S,
 			primary: l && !s && !c
 		});
 	}
-	E.sort((e, t) => t.weight - e.weight || mn(e.a, t.a) || mn(e.b, t.b));
-	let O = new Map(r.map((e) => [e, []])), k = new Map(r.map((e) => [e, /* @__PURE__ */ new Set()])), A = /* @__PURE__ */ new Set();
-	for (let e of E) Y(k, e.b, e.a) || (O.get(e.a)?.push(e.b), J(k, e.a, e.b), e.primary && A.add(H(e.a, e.b)));
-	let j = r.filter((e) => !w.has(e)), M = new Map(r.map((e) => [e, 0]));
-	for (let e of j) for (let t of O.get(e) ?? []) w.has(t) || M.set(t, (M.get(t) ?? 0) + 1);
-	let N = new Map(r.map((e) => [e, 0])), P = j.filter((e) => (M.get(e) ?? 0) === 0);
-	for (let e = 0; e < P.length; e++) {
-		let t = P[e];
-		if (t !== void 0) for (let e of O.get(t) ?? []) {
-			if (w.has(e)) continue;
-			N.set(e, Math.max(N.get(e) ?? 0, (N.get(t) ?? 0) + 1));
-			let n = (M.get(e) ?? 0) - 1;
-			M.set(e, n), n === 0 && P.push(e);
+	O.sort((e, t) => t.weight - e.weight || mn(e.a, t.a) || mn(e.b, t.b));
+	let A = new Map(r.map((e) => [e, []])), j = new Map(r.map((e) => [e, /* @__PURE__ */ new Set()])), M = /* @__PURE__ */ new Set();
+	for (let e of O) Y(j, e.b, e.a) || (A.get(e.a)?.push(e.b), J(j, e.a, e.b), e.primary && M.add(H(e.a, e.b)));
+	let N = r.filter((e) => !E.has(e)), P = new Map(r.map((e) => [e, 0]));
+	for (let e of N) for (let t of A.get(e) ?? []) E.has(t) || P.set(t, (P.get(t) ?? 0) + 1);
+	let F = new Map(r.map((e) => [e, 0])), ee = N.filter((e) => (P.get(e) ?? 0) === 0);
+	for (let e = 0; e < ee.length; e++) {
+		let t = ee[e];
+		if (t !== void 0) for (let e of A.get(t) ?? []) {
+			if (E.has(e)) continue;
+			F.set(e, Math.max(F.get(e) ?? 0, (F.get(t) ?? 0) + 1));
+			let n = (P.get(e) ?? 0) - 1;
+			P.set(e, n), n === 0 && ee.push(e);
 		}
 	}
-	let F = new Map(N);
-	for (let e of j) {
-		if ((M.get(e) ?? 0) !== 0 || (O.get(e)?.length ?? 0) !== 0) continue;
+	let I = new Map(F);
+	for (let e of N) {
+		if ((P.get(e) ?? 0) !== 0 || (A.get(e)?.length ?? 0) !== 0) continue;
 		let t = f.get(e);
 		if (!t || t.size !== 1) continue;
 		let [n] = t;
-		n && !w.has(n) && g.has(q(e, n)) && ((F.get(n) ?? 0) > 0 || mn(n, e) < 0) && N.set(e, (F.get(n) ?? 0) + 1);
+		n && !E.has(n) && v.has(q(e, n)) && ((I.get(n) ?? 0) > 0 || mn(n, e) < 0) && F.set(e, (I.get(n) ?? 0) + 1);
 	}
-	let ee = /* @__PURE__ */ new Map();
+	let te = /* @__PURE__ */ new Map();
 	for (let e of t) {
 		let t = n.get(e.from), r = n.get(e.to);
 		if (!t || !r || t === r) continue;
 		let i = o.get(q(e.from, e.to)) ?? 0;
 		for (let [e, n] of [[t, r], [r, t]]) {
-			if (!w.has(e) || w.has(n)) continue;
-			let t = ee.get(e);
-			t || (t = /* @__PURE__ */ new Map(), ee.set(e, t));
-			let r = y(i);
+			if (!E.has(e) || E.has(n)) continue;
+			let t = te.get(e);
+			t || (t = /* @__PURE__ */ new Map(), te.set(e, t));
+			let r = x(i);
 			r > (t.get(n) ?? 0) && t.set(n, r);
 		}
 	}
-	for (let e of w) {
-		let t = ee.get(e);
+	for (let e of E) {
+		let t = te.get(e);
 		if (!t || t.size === 0) continue;
 		let n = 0, r = 0;
-		for (let [e, i] of t) r += (N.get(e) ?? 0) * i, n += i;
-		n > 0 && N.set(e, Math.round(r / n));
+		for (let [e, i] of t) r += (F.get(e) ?? 0) * i, n += i;
+		n > 0 && F.set(e, Math.round(r / n));
 	}
-	for (let e of j) {
-		if ((M.get(e) ?? 0) !== 0 || (O.get(e)?.length ?? 0) !== 0) continue;
+	for (let e of N) {
+		if ((P.get(e) ?? 0) !== 0 || (A.get(e)?.length ?? 0) !== 0) continue;
 		let t = f.get(e);
-		if (!t || t.size === 0 || [...t].some((e) => !w.has(e))) continue;
+		if (!t || t.size === 0 || [...t].some((e) => !E.has(e))) continue;
 		let n = [...t].filter((t) => (u.get(H(t, e)) ?? 0) > 0), r = [...t].filter((t) => (u.get(H(e, t)) ?? 0) > 0);
-		if (n.length > 0) N.set(e, Math.max(...n.map((e) => (N.get(e) ?? 0) + 1)));
-		else if (r.length > 0) N.set(e, Math.max(0, Math.min(...r.map((e) => (N.get(e) ?? 0) - 1))));
+		if (n.length > 0) F.set(e, Math.max(...n.map((e) => (F.get(e) ?? 0) + 1)));
+		else if (r.length > 0) F.set(e, Math.max(0, Math.min(...r.map((e) => (F.get(e) ?? 0) - 1))));
 		else {
-			let n = [...t].map((e) => N.get(e) ?? 0);
-			N.set(e, Math.round(n.reduce((e, t) => e + t, 0) / n.length));
+			let n = [...t].map((e) => F.get(e) ?? 0);
+			F.set(e, Math.round(n.reduce((e, t) => e + t, 0) / n.length));
 		}
 	}
 	return {
-		zoneStage: N,
-		auxiliaryZones: w,
-		primaryZonePairs: A
+		zoneStage: F,
+		auxiliaryZones: E,
+		primaryZonePairs: M
 	};
 }
 // src/layout/links.ts
@@ -6592,28 +6602,43 @@ function ba(e, t, n, r, i, a, o, s, c) {
 				(l === void 0 || n < l) && t.set(a, n), e.direction === "bidirectional" && o.add(c);
 			} else e.role === "static" && a.add(c);
 		}
-		let s = (t) => e.groups.filter((e) => e.parentId === t).length, c = Math.max(0, ...k.values()) + 1;
+		let s = (t) => e.groups.filter((e) => e.parentId === t).length, c = /* @__PURE__ */ new Map(), l = (t) => {
+			let n = c.get(t);
+			return n || (n = pa(e, t), c.set(t, n)), n;
+		}, u = (e, t) => {
+			let a = s(e.id), o = s(t.id);
+			if (a < 2 || o < 2 || Math.abs(a - o) > 1) return !1;
+			let c = r.connections.filter((r) => r.role === "primary" && r.direction !== "bidirectional" && n.get(r.from) === e.id && n.get(r.to) === t.id);
+			if (c.length === 0 || r.connections.some((r) => r.role === "primary" && r.direction !== "bidirectional" && n.get(r.from) === t.id && n.get(r.to) === e.id)) return !1;
+			let u = l(e.id);
+			return c.every((e) => {
+				let t = u.get(e.from);
+				return t !== void 0 && i.connections.some((n) => n.role === "primary" && n.from === e.from && u.has(n.to) && u.get(n.to) !== t);
+			});
+		}, d = Math.max(0, ...k.values()) + 1;
 		for (let e = 0; e < O.length; e++) {
 			let n = O[e];
 			if (n && n.length !== 0) {
-				for (let i of [...n]) if (!(i.groups.size < 1 || i.nodes.size < 2)) for (let l = e + 1; l < O.length; l++) {
-					let u = O[l];
-					if (u) {
-						for (let l = u.length - 1; l >= 0; l--) {
-							let d = u[l];
-							if (!d || d.groups.size < 1 || d.nodes.size < 2 || s(i.id) !== s(d.id)) continue;
-							let f = Math.min(i.nodes.size, d.nodes.size);
-							if (Math.abs(i.nodes.size - d.nodes.size) > Math.max(1, Math.floor(f / 2))) continue;
-							let p = q(i.id, d.id);
-							if ((a.has(p) || o.has(p)) && O.slice(0, e).some((e) => e.some((e) => {
-								let n = t.get(`${e.id}\0${i.id}`), r = t.get(`${e.id}\0${d.id}`);
+				for (let i of [...n]) if (!(i.groups.size < 1 || i.nodes.size < 2)) for (let c = e + 1; c < O.length; c++) {
+					let l = O[c];
+					if (l) {
+						for (let c = l.length - 1; c >= 0; c--) {
+							let f = l[c];
+							if (!f || f.groups.size < 1 || f.nodes.size < 2) continue;
+							let p = Math.min(i.nodes.size, f.nodes.size);
+							if (Math.abs(i.nodes.size - f.nodes.size) > Math.max(1, Math.floor(p / 2))) continue;
+							let m = q(i.id, f.id);
+							if (!a.has(m) && !o.has(m)) continue;
+							let h = s(i.id) === s(f.id);
+							if ((h && O.slice(0, e).some((e) => e.some((e) => {
+								let n = t.get(`${e.id}\0${i.id}`), r = t.get(`${e.id}\0${f.id}`);
 								return n !== void 0 && r !== void 0 && n === r;
-							})) && (n.push(d), u.splice(l, 1), r.zoneStage.set(d.id, r.zoneStage.get(i.id) ?? e), i.nodes.size === d.nodes.size)) {
-								let e = k.get(i.id) ?? c++;
-								k.set(i.id, e), k.set(d.id, e);
+							})) || u(i, f)) && (n.push(f), l.splice(c, 1), r.zoneStage.set(f.id, r.zoneStage.get(i.id) ?? e), h && i.nodes.size === f.nodes.size)) {
+								let e = k.get(i.id) ?? d++;
+								k.set(i.id, e), k.set(f.id, e);
 							}
 						}
-						u.length === 0 && (O.splice(l, 1), l--);
+						l.length === 0 && (O.splice(c, 1), c--);
 					}
 				}
 			}

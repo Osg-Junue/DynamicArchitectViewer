@@ -638,6 +638,51 @@ function placeContainerChildren(
     }
     const directChildGroupCount = (gid: string): number =>
       doc.groups.filter((g) => g.parentId === gid).length;
+    const subOwnerCache = new Map<string, Map<string, string>>();
+    const subOwnersOf = (gid: string): Map<string, string> => {
+      let m = subOwnerCache.get(gid);
+      if (!m) {
+        m = mapDescendantOwners(doc, gid);
+        subOwnerCache.set(gid, m);
+      }
+      return m;
+    };
+    const isInternalFanoutPeer = (a: Block, b: Block): boolean => {
+      const subA = directChildGroupCount(a.id);
+      const subB = directChildGroupCount(b.id);
+      if (subA < 2 || subB < 2 || Math.abs(subA - subB) > 1) return false;
+      const aToB = scopeFlow.connections.filter(
+        (c) =>
+          c.role === 'primary' &&
+          c.direction !== 'bidirectional' &&
+          childOwners.get(c.from) === a.id &&
+          childOwners.get(c.to) === b.id,
+      );
+      if (aToB.length === 0) return false;
+      const hasReversePrimary = scopeFlow.connections.some(
+        (c) =>
+          c.role === 'primary' &&
+          c.direction !== 'bidirectional' &&
+          childOwners.get(c.from) === b.id &&
+          childOwners.get(c.to) === a.id,
+      );
+      if (hasReversePrimary) return false;
+      // Every forward primary edge from `a` into `b` must originate from an internal fan-out hub
+      // inside `a` that also sends primary flow to another child sub-group of `a` (e.g. an ALB in
+      // AZ-A's Public Subnet fanning out to both AZ-A App Subnet and AZ-B App Subnet).
+      const aSubOwners = subOwnersOf(a.id);
+      return aToB.every((edge) => {
+        const srcSub = aSubOwners.get(edge.from);
+        if (srcSub === undefined) return false;
+        return fullFlow.connections.some(
+          (ic) =>
+            ic.role === 'primary' &&
+            ic.from === edge.from &&
+            aSubOwners.has(ic.to) &&
+            aSubOwners.get(ic.to) !== srcSub,
+        );
+      });
+    };
     let nextSymId = Math.max(0, ...effectiveSymmetryGroups.values()) + 1;
 
     for (let ci = 0; ci < columns.length; ci++) {
@@ -651,27 +696,31 @@ function placeContainerChildren(
           for (let bi = colB.length - 1; bi >= 0; bi--) {
             const b = colB[bi];
             if (!b || b.groups.size < 1 || b.nodes.size < 2) continue;
-            if (directChildGroupCount(a.id) !== directChildGroupCount(b.id)) continue;
             const minN = Math.min(a.nodes.size, b.nodes.size);
             if (Math.abs(a.nodes.size - b.nodes.size) > Math.max(1, Math.floor(minN / 2))) {
               continue;
             }
             const pk = flowPairKey(a.id, b.id);
             if (!hasStaticBetween.has(pk) && !hasBidirBetween.has(pk)) continue;
-            // Require a shared upstream distributor `p` feeding BOTH `a` and `b` in the same step.
-            const sharedParallelParent = columns.slice(0, ci).some((prevCol) =>
-              prevCol.some((p) => {
-                const sa = firstStepByDirPair.get(`${p.id}\0${a.id}`);
-                const sb = firstStepByDirPair.get(`${p.id}\0${b.id}`);
-                return sa !== undefined && sb !== undefined && sa === sb;
-              }),
-            );
-            if (!sharedParallelParent) continue;
+            // Match either (1) a shared external upstream distributor feeding both `a` and `b` in
+            // the same step, or (2) a composite peer whose internal entry hub fans out to both
+            // its own sub-groups and `b`.
+            const sameSubCount = directChildGroupCount(a.id) === directChildGroupCount(b.id);
+            const sharedParallelParent =
+              sameSubCount &&
+              columns.slice(0, ci).some((prevCol) =>
+                prevCol.some((p) => {
+                  const sa = firstStepByDirPair.get(`${p.id}\0${a.id}`);
+                  const sb = firstStepByDirPair.get(`${p.id}\0${b.id}`);
+                  return sa !== undefined && sb !== undefined && sa === sb;
+                }),
+              );
+            if (!sharedParallelParent && !isInternalFanoutPeer(a, b)) continue;
             colA.push(b);
             colB.splice(bi, 1);
             scopeFlow.zoneStage.set(b.id, scopeFlow.zoneStage.get(a.id) ?? ci);
             // Synchronize flip polarity for merged peer groups with identical structure.
-            if (a.nodes.size === b.nodes.size) {
+            if (sameSubCount && a.nodes.size === b.nodes.size) {
               const sym = effectiveSymmetryGroups.get(a.id) ?? nextSymId++;
               effectiveSymmetryGroups.set(a.id, sym);
               effectiveSymmetryGroups.set(b.id, sym);

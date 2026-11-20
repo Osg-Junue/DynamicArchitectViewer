@@ -123,10 +123,12 @@ function groupElement(g: ResolvedGroup): VElement {
       rx: 14,
       fill: g.color ? paint(g.color) : THEME_COLOR.fg,
       'fill-opacity': fillOpacity,
-      // A hairline in the zone's own color: the tint alone barely differs from the background.
+      // A hairline in the zone's own color: boost stroke contrast slightly at depth >= 2 where
+      // fill opacity is heavily attenuated so deep nested boundaries (e.g. AZ/Subnet) stay crisp.
       stroke: g.color ? paint(g.color) : THEME_COLOR.fg,
-      'stroke-opacity': g.color ? 0.55 : 0.28,
-      'stroke-width': g.border === 'dashed' ? 1.25 : 0.75,
+      'stroke-opacity': g.color ? (g.depth >= 2 ? 0.72 : 0.55) : g.depth >= 2 ? 0.42 : 0.28,
+      'stroke-width':
+        g.border === 'dashed' ? (g.depth >= 2 ? 1.5 : 1.25) : g.depth >= 2 ? 1.15 : 0.75,
       'stroke-dasharray': g.border === 'dashed' ? '7 5' : undefined,
       'vector-effect': 'non-scaling-stroke',
     }),
