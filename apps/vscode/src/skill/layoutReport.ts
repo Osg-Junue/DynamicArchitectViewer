@@ -1,11 +1,4 @@
-import {
-  type BackEdge,
-  backEdgesOf,
-  computeLayout,
-  type Layout,
-  type Rect,
-  zonesPlacedFreely,
-} from '../layout';
+import { type BackEdge, backEdgesOf, computeLayout, type Rect, zonesPlacedFreely } from '../layout';
 import { linksOf, properlyCross, type Segment, segmentsOf, shareStation } from '../layout/links';
 import { enclosingRect } from '../layout/metrics';
 import { synthesizedConnections } from '../model/connections';
@@ -32,15 +25,7 @@ const TALL_FROM = 1.5;
 /** How many crossings are named; the count says how many there are. */
 const CROSSINGS_NAMED = 3;
 /** Every code a note is given with, in the order that the checker's reference lists them. */
-export const NOTE_CODES = [
-  'tall-diagram',
-  'stacked-zone',
-  'back-edge',
-  'left-links',
-  'crossings',
-] as const;
-/** How many connections that point left are named; the count says how many there are. */
-const LEFT_LINKS_NAMED = 5;
+export const NOTE_CODES = ['tall-diagram', 'stacked-zone', 'back-edge', 'crossings'] as const;
 /** How many pairs of kinds of connections are given with their crossings; the rest are summed. */
 const KINDS_NAMED = 10;
 
@@ -101,38 +86,6 @@ export function crossingsByZone(
   }
   // Ties stay in the order they were first met, which follows the edges as written.
   return [...tally.values()].sort((a, b) => b.count - a.count);
-}
-
-/**
- * The connections between two zones whose second node stands to the left of their first, as
- * `--map` would say `left` of them, named as written with the zones they leave and enter. A
- * node outside every zone stands for itself.
- */
-export function leftLinks(doc: DavDocument, layout: Pick<Layout, 'nodes'>): string[] {
-  const zoneOf = zoneOfNodes(doc);
-  const called = new Map(doc.groups.map((g) => [g.id, `"${g.label || g.id}"`]));
-  const zoneName = (node: string): string | undefined => {
-    const zone = zoneOf.get(node);
-    return zone === undefined ? undefined : called.get(zone);
-  };
-  return synthesizedConnections(doc).flatMap((e) => {
-    if (e.from === e.to || (zoneOf.get(e.from) ?? e.from) === (zoneOf.get(e.to) ?? e.to)) {
-      return [];
-    }
-    const [segment] = segmentsOf([[e.from, e.to]], layout);
-    // As the map counts it: a node less than a unit aside stands straight above or below.
-    if (!segment || Math.round(segment.bx - segment.ax) > -1) return [];
-    const [from, to] = [zoneName(e.from), zoneName(e.to)];
-    const across =
-      from && to
-        ? `, from ${from} into ${to}`
-        : to
-          ? `, into ${to}`
-          : from
-            ? `, out of ${from}`
-            : '';
-    return [`${e.from} ${arrowOf(e)} ${e.to}${across}`];
-  });
 }
 
 /**
@@ -226,7 +179,7 @@ export function layoutReport(doc: DavDocument): LayoutReport {
   if (height > width * TALL_FROM) {
     notes.push({
       code: 'tall-diagram',
-      message: `The diagram is ${(height / width).toFixed(1)} times as tall as it is wide. Nodes that no edge puts in order are stacked in one column: where one of them really feeds another, declare that edge, and it moves to the right.`,
+      message: `The diagram is ${(height / width).toFixed(1)} times as tall as it is wide. Nodes that no connection puts in order are stacked in one column: where one of them really feeds another, write that connection in the step where it happens, and it moves to the right.`,
     });
   }
   for (const g of doc.groups) {
@@ -234,7 +187,7 @@ export function layoutReport(doc: DavDocument): LayoutReport {
     if (own.length >= STACK_FROM && columns(own) === 1) {
       notes.push({
         code: 'stacked-zone',
-        message: `Zone "${g.label || g.id}" stacks its ${own.length} nodes in one column, because no edge runs between them. That is right for peers, such as replicas, separate stores, outside services or people, and the note can then be left. If one of them feeds another, declare that edge, and they spread to the right.`,
+        message: `Zone "${g.label || g.id}" stacks its ${own.length} nodes in one column, because no connection runs between them. That is right for peers, such as replicas, separate stores, outside services or people, and the note can then be left. If one of them feeds another, write that connection in the step where it happens, and they spread to the right.`,
       });
     }
   }
@@ -250,15 +203,6 @@ export function layoutReport(doc: DavDocument): LayoutReport {
     if (told.has(pair) || !surprising(edge, declared)) continue;
     told.add(pair);
     notes.push({ code: 'back-edge', message: backEdgeNote(connections, edge, columnOf) });
-  }
-  // In columns, only an edge left out of a loop points left, and `back-edge` names it.
-  const leftward = free ? leftLinks(doc, layout) : [];
-  if (leftward.length > 0) {
-    const count = leftward.length;
-    notes.push({
-      code: 'left-links',
-      message: `${count === 1 ? 'One connection between zones points' : `${count} connections between zones point`} left, against the reading direction: ${leftward.slice(0, LEFT_LINKS_NAMED).join('; ')}${count > LEFT_LINKS_NAMED ? '; and more' : ''}. The zones are placed freely, and a link between zones sets no column, whichever way it is written. Leave a link whose edge is written as you mean: pointing left is the price of shorter links that cross less. Change only an edge written other than you mean, such as a call back written one way, which becomes one two-way edge that names the node on the left first. Nesting two zones in one zone that is a real boundary makes the links between them point right, since edges set the columns inside a zone, though crossings can rise.`,
-    });
   }
   if (crossings > 0) {
     notes.push({

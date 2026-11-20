@@ -62,7 +62,7 @@ The type checker catches a missing step 2 or 3, and tests catch steps 4 and 6. C
 3. Read it in `src/dsl/analyze.ts`, and add it to the model.
 4. Update `docs/specification.md`, the in-app docs in `src/editor/docs/`, the prompt in `src/prompt/index.ts`, and `skills/dav-diagrams/SKILL.md`.
 
-Only make [compatible changes](docs/specification.md#compatibility) to `dav 1`.
+Within a major version, only make [compatible changes](docs/specification.md#compatibility) to the language: every `2.x` release reads `.dav` v2 as it is.
 
 **Change the language, specification or layout guide**
 

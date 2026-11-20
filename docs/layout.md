@@ -7,7 +7,7 @@
 - **Step flows decide the column.** `animate` statements in step order drive the left-to-right backbone; return paths and `static` relations do not invert it.
 - **Groups decide what stays together.** Nested groups (such as Cloud ⊃ Region ⊃ VPC ⊃ AZ ⊃ Subnet) lay out bottom-up inside their own frames.
 - **Declaration order breaks ties**, from top to bottom.
-- **Steps never move anything.** A node stays in the same place for the whole diagram, and switching steps never rearranges it.
+- **Switching steps never moves anything.** A node stays in the same place for the whole diagram: the steps decide where it stands once, for all of them.
 
 The same file always produces the same layout.
 
@@ -72,7 +72,7 @@ a ⇄ b
 
 To swap them in a pure-`static` cycle, declare `b` first. A self-loop (`a --> a`) never changes the column.
 
-To keep any pair in a predictable order, write a single two-way arrow (`a <-> b` or `a <.> b`). A two-way edge counts only in the direction it is written, so it creates no cycle.
+A two-way arrow (`a <-> b` or `a <.> b`) counts in the direction it is written, unless earlier steps already lead from `b` to `a`: then it counts as the way back. Either way it creates no cycle. Write it as the facts give it, not to put a pair in order.
 
 `dav check --detail` reports edges ignored during ranking as `back-edge` notes. Where top-level zones are [placed freely](#placing-zones-freely), each zone ranks its interior independently, so only cycles inside one zone produce back-edges.
 

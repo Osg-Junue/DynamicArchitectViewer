@@ -55,9 +55,67 @@ interface ParsedConnection<O extends 'animate' | 'static'> {
 
 const DEFAULT_ARROW = { style: 'solid', direction: 'forward' } as const;
 
+/** The header every `.dav` v1 file began with. */
+const V1_HEADER = /^\s*dav\s+\d+(?:\.\d+)?\s*(?:\/\/.*)?$/;
+/** A connection as v1 wrote it outside a step, two names and an arrow with no keyword before. */
+const V1_EDGE = /^\s*[A-Za-z_][A-Za-z0-9_]*\s*(?:-->|\.\.>|<->|<\.>)\s*[A-Za-z_][A-Za-z0-9_]*/;
+
+/**
+ * The lines written as `.dav` v1 has them, the `dav 1` header or a connection without `animate` or
+ * `static`, each with the error that says how v2 writes it. Only a line the parser rejected
+ * counts, so a line in a code fence that looks like one is left alone.
+ */
+function versionOneLines(text: string, diagnostics: readonly Diagnostic[]) {
+  const found: Array<{ start: number; end: number; error: Diagnostic }> = [];
+  let start = 0;
+  for (const raw of text.split('\n')) {
+    const end = start + raw.length;
+    const line = raw.replace(/\r$/, '');
+    const header = V1_HEADER.test(line);
+    const edge = header ? null : V1_EDGE.exec(line);
+    const rejected = diagnostics.some(
+      (d) => d.code === 'syntax-error' && d.from >= start && d.from <= end,
+    );
+    if ((header || edge) && rejected) {
+      const token = /^\S+/.exec(line.trimStart())?.[0] ?? '';
+      const title = edge?.[0]?.trim().replace(/\s+/g, ' ') ?? '';
+      found.push({
+        start,
+        end,
+        error: {
+          code: 'syntax-error',
+          severity: 'error',
+          from: start + (line.length - line.trimStart().length),
+          to: start + line.trimEnd().length,
+          args: header ? { token, hint: 'v1-header' } : { token, hint: 'v1-edge', title },
+        },
+      });
+    }
+    start = end + 1;
+  }
+  return found;
+}
+
 /** Parses and validates DSL v2 text. Never throws. */
 export function parse(text: string): ParseResult {
-  return new Analyzer(text).run();
+  let result = new Analyzer(text).run();
+  // The parser's recovery from a v1 line can run on into the next ones. Read the file again
+  // without such lines, at the same offsets, so the rest gets only the errors of its own.
+  let rest = text;
+  const errors: Diagnostic[] = [];
+  for (let pass = 0; pass < 3; pass++) {
+    const old = versionOneLines(rest, result.diagnostics);
+    if (old.length === 0) break;
+    for (const { start, end, error } of old) {
+      rest = rest.slice(0, start) + rest.slice(start, end).replace(/[^\r]/g, ' ') + rest.slice(end);
+      errors.push(error);
+    }
+    result = new Analyzer(rest).run();
+  }
+  if (errors.length === 0) return result;
+  result.diagnostics.push(...errors);
+  result.diagnostics.sort((a, b) => a.from - b.from || a.to - b.to);
+  return result;
 }
 
 /**

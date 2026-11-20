@@ -57,8 +57,8 @@ export const LANGUAGE_PAGES: readonly DocPage[] = [
             [
               t('ヘッダ', 'Header'),
               t(
-                '先頭の文は必ず `dav 1`。コメントはその前に書けます。',
-                'The first statement must be `dav 1`. Comments may precede it.',
+                'ありません。`title`・`group`・`node`・`step` から書き始めます。v1 の `dav 1` はエラーになり、v2 の書き方が案内されます。',
+                'There is none: a file starts with `title`, `group`, `node` or `step`. The `dav 1` of v1 is an error that says how v2 writes it.',
               ),
             ],
             [
@@ -75,8 +75,8 @@ export const LANGUAGE_PAGES: readonly DocPage[] = [
             [
               'ID',
               t(
-                '`[A-Za-z_][A-Za-z0-9_]*`。ノード・グループ・明示エッジIDで共有の名前空間です。',
-                '`[A-Za-z_][A-Za-z0-9_]*`, shared by nodes, groups and explicit edge IDs.',
+                '`[A-Za-z_][A-Za-z0-9_]*`。ノードとグループで共有の名前空間です。',
+                '`[A-Za-z_][A-Za-z0-9_]*`, shared by nodes and groups.',
               ),
             ],
             [
@@ -97,8 +97,8 @@ export const LANGUAGE_PAGES: readonly DocPage[] = [
             [
               t('文の順序', 'Order'),
               t(
-                'ヘッダ以外は自由です。後で宣言するIDも参照できます。文は改行で区切る必要もありません。',
-                'Free after the header. IDs may be used before their declaration, and line breaks are not significant.',
+                '自由です。後で宣言するIDも参照できます。文は改行で区切る必要もありません。`step` は1つ以上必要です（`missing-step`）。',
+                'Free. IDs may be used before their declaration, and line breaks are not significant. At least one `step` is required (`missing-step`).',
               ),
             ],
           ],
@@ -127,16 +127,26 @@ export const LANGUAGE_PAGES: readonly DocPage[] = [
       return [
         live(ctx, GROUPS_DSL),
         syntax('group <id> "label"? [attributes]? { (group | node)* }'),
-        attrTable(t, [['`color`', attrValues(t).color, t('ゾーンの背景色', 'Zone background')]]),
+        attrTable(t, [
+          ['`color`', attrValues(t).color, t('ゾーンの背景色', 'Zone background')],
+          [
+            '`border`',
+            '`solid` / `dashed`',
+            t(
+              '枠線の線種（既定 `solid`）。AZ などに',
+              'Frame line (default `solid`), e.g. for an AZ',
+            ),
+          ],
+        ]),
         list([
           t(
-            '中に書けるのは `group` と `node` だけです。エッジと `step` はトップレベルに書きます。',
-            'Only `group` and `node` may appear inside. Edges and `step` stay at the top level.',
+            '中に書けるのは `group` と `node` だけです。`step` はトップレベルに書きます。',
+            'Only `group` and `node` may appear inside. `step` stays at the top level.',
           ),
           t('ラベルを省略するとIDが表示されます。', 'Without a label, the ID is shown.'),
           t(
-            'エッジや `animate` の端点にグループは指定できません（`reference-kind-mismatch`）。',
-            'A group cannot be an edge or `animate` endpoint (`reference-kind-mismatch`).',
+            'グループは `static` の端点になれます（ゾーン全体のログなど）。`animate` の端点にはなれません（`reference-kind-mismatch`）。',
+            'A group can be an end of a `static`, such as the logs of a whole zone, but not of an `animate` (`reference-kind-mismatch`).',
           ),
         ]),
       ];
@@ -189,7 +199,19 @@ export const LANGUAGE_PAGES: readonly DocPage[] = [
               '`visible`',
               attrValues(t).bool,
               '`true`',
-              t('初期表示。`state` で切り替えます。', 'Initial visibility, toggled by `state`.'),
+              t(
+                '概観での表示。ステップでは `state` か、そのステップの接続で表示されます。',
+                'Shown in the overview. A step shows it with `state`, or when one of its connections uses it.',
+              ),
+            ],
+            [
+              '`mount`',
+              '`border`',
+              t('なし', 'none'),
+              t(
+                'ゾーンの枠の上、接続が出ていく側に置きます。グループの中のノードだけ。',
+                'On the frame of its zone, on the side its connections leave by. Only inside a group.',
+              ),
             ],
           ],
         ),
@@ -199,10 +221,10 @@ export const LANGUAGE_PAGES: readonly DocPage[] = [
   {
     id: 'edges',
     group: 'language',
-    title: ['エッジ', 'Edges'],
+    title: ['接続', 'Connections'],
     lead: [
-      '2つのノードを結ぶ線です。矢印の形が線種と向きを決めます。',
-      'A rail between two nodes. The arrow sets its style and direction.',
+      '接続はステップの中に書きます。パケットが通るものは `animate`、通らないものは `static` です。',
+      'Connections are written inside steps: `animate` for one a packet travels, `static` for one none does.',
     ],
     render(ctx) {
       const { t } = ctx;
@@ -210,33 +232,27 @@ export const LANGUAGE_PAGES: readonly DocPage[] = [
         syntax('static <from> <arrow> <to> (: "label")? [attributes]?'),
         gallery(EDGE_PRELUDE, EDGE_GALLERY, EDGE_SUFFIX),
         attrTable(t, [
-          ['`id`', 'ID', t('`state` から参照するための名前', 'Name used by `state`')],
-          ['`color`', attrValues(t).color, t('線の色', 'Rail color')],
           [
-            '`visible`',
-            attrValues(t).bool,
-            t('初期表示（既定 `true`）', 'Initial visibility (default `true`)'),
+            '`color`',
+            attrValues(t).color,
+            t('このステップでの線の色', 'Color of the line in this step'),
           ],
         ]),
-        note(
-          t(
-            '`state` でエッジを指定するには `[id: e_name]` が必須です。暗黙のID `a->b` はIDの文字規則に合わないため、ステップ内には書けません。',
-            'To target an edge from `state`, give it `[id: e_name]`. The implicit `a->b` name is not a valid identifier, so it cannot be written in a step.',
-          ),
-        ),
         list([
-          t('両端はノードのみです。', 'Both ends must be nodes.'),
           t(
-            '同じ向きの同じペアを2本引くには、2本目以降に `id` が必要です（`duplicate-edge`）。',
-            'A second edge with the same direction and endpoints needs an `id` (`duplicate-edge`).',
+            '`static` の端点はノードかグループです。`animate` の端点はノードだけです。',
+            'The ends of a `static` are nodes or groups; those of an `animate` are nodes.',
           ),
-          t('ラベルの前の `:` は必須です。', 'The `:` before a label is required.'),
+          t(
+            'ラベルの前の `:` は必須です。ラベルはそのステップでだけ描かれ、概観には出ません。',
+            'The `:` before a label is required. The label is drawn in its step only, not in the overview.',
+          ),
         ]),
-        h2(t('ステップで見るエッジ', 'Edges across steps')),
+        h2(t('概観の線とステップの線', 'Rails in the overview and in a step')),
         p(
           t(
-            '逆向きのエッジは平行な2本の線に分かれます。`id` を付けたエッジは、`state` で表示や色を切り替えられます。',
-            'Opposite edges split into two parallel tracks. An edge with an `id` can be shown, hidden or recolored with `state`.',
+            '同じ2つのノードの接続は、向きやステップが違っても概観では1本の線になります。両方向があれば両端に矢印が付き、実線が1つでもあれば実線です。ステップでは、そのステップの接続を書いたとおりの線種で描きます。',
+            'In the overview, the connections between two nodes become one rail, whatever their direction or step: with both directions it has arrowheads at both ends, and it is solid if any of them is. A step draws its own connections as it writes them.',
           ),
         ),
         live(ctx, EDGE_STEPS_DSL, { matrix: true }),
@@ -254,8 +270,8 @@ export const LANGUAGE_PAGES: readonly DocPage[] = [
             'The bidirectional arrows `<->` and `<.>` cannot form a self-loop (`invalid-self-arrow`).',
           ),
           t(
-            '同じノードに2本目の自己ループを引くには `id` が必要で、外側に描かれます。',
-            'A second self-loop on the same node needs an `id` and is drawn outside the first.',
+            '1つのノードの自己ループは、ラベルが違っても1本のループにまとまります。',
+            'The self-loops of a node share one loop, whatever their labels.',
           ),
         ]),
       ];
@@ -266,8 +282,8 @@ export const LANGUAGE_PAGES: readonly DocPage[] = [
     group: 'language',
     title: ['ステップ', 'Steps'],
     lead: [
-      '`step` は記述順に並ぶシナリオの1場面です。文ごとに効果の続く範囲が異なります。',
-      'Each `step` is one scene, in declaration order. Statements differ in how long their effect lasts.',
+      '`step` は記述順に並ぶシナリオの1場面です。中の文は、すべてそのステップだけに効きます。',
+      'Each `step` is one scene, in declaration order. Every statement in it applies to that step only.',
     ],
     render(ctx) {
       const { t } = ctx;
@@ -294,7 +310,7 @@ export const LANGUAGE_PAGES: readonly DocPage[] = [
             [
               '`state`',
               '`state a [...]`',
-              scopeChip(t, 'carry'),
+              scopeChip(t, 'local'),
               pageLink(ctx, 'state', t('見た目を変更', 'Changes appearance')),
             ],
             [
@@ -302,6 +318,12 @@ export const LANGUAGE_PAGES: readonly DocPage[] = [
               '`animate a --> b`',
               scopeChip(t, 'local'),
               pageLink(ctx, 'animate', t('パケットを走らせる', 'Runs packets')),
+            ],
+            [
+              '`static`',
+              '`static a ..> b`',
+              scopeChip(t, 'local'),
+              pageLink(ctx, 'edges', t('パケットの通らない接続', 'A connection no packet travels')),
             ],
           ],
         ),
@@ -327,37 +349,30 @@ export const LANGUAGE_PAGES: readonly DocPage[] = [
     group: 'language',
     title: ['focus', 'focus'],
     lead: [
-      '注目させたい要素を指定し、それ以外を減光します。エッジは、注目しているノードどうしを結ぶものだけが描かれます。そのステップ限りで、次のステップには残りません。',
-      'Highlights elements by dimming everything else. Only the edges between highlighted nodes are drawn. It applies to one step only.',
+      '注目させたい要素を指定し、それ以外を減光します。ステップ自身の接続のほかは、注目しているノードどうしを結ぶ接続だけが描かれます。そのステップ限りです。',
+      'Highlights elements by dimming everything else. Besides the step’s own connections, only those between highlighted nodes are drawn. It applies to one step only.',
     ],
     render(ctx) {
       const { t } = ctx;
       return [
         live(ctx, FOCUS_DSL),
         list([
-          t(
-            '対象はノードとグループです。エッジは指定できません（`reference-kind-mismatch`）。',
-            'Targets are nodes and groups. Edges cannot be targeted (`reference-kind-mismatch`).',
-          ),
+          t('対象はノードとグループです。', 'Targets are nodes and groups.'),
           t(
             'グループを指定すると配下すべてが対象になります。',
             'A group includes everything inside it.',
           ),
           t(
-            '`state` の対象と `animate` の両端は、書かなくても自動で対象になります。',
-            '`state` targets and `animate` endpoints are focused automatically.',
+            '`state` の対象と、`animate` と `static` の両端は、書かなくても自動で対象になります。',
+            '`state` targets and the ends of `animate` and `static` are focused automatically.',
           ),
           t(
-            'ただし `visible: false` にする `state` は対象に数えません。エッジを指定した `state` は両端のノードも対象にします。',
-            'A `state` with `visible: false` does not count. A `state` on an edge also focuses both of its nodes.',
+            'ただし `visible: false` にする `state` は対象に数えません。',
+            'A `state` with `visible: false` does not count.',
           ),
           t(
-            '両端のノードが対象のエッジも減光されません。',
-            'An edge between two focused nodes stays lit.',
-          ),
-          t(
-            '`focus` も `state` も `animate` もないステップでは、何も減光されません。',
-            'A step with no `focus`, `state` or `animate` dims nothing.',
+            '`focus`・`state`・`animate`・`static` のどれもないステップでは、何も減光されません。',
+            'A step with no `focus`, `state`, `animate` or `static` dims nothing.',
           ),
         ]),
       ];
@@ -368,14 +383,14 @@ export const LANGUAGE_PAGES: readonly DocPage[] = [
     group: 'language',
     title: ['state', 'state'],
     lead: [
-      '要素の見た目を変更します。変更は後のステップへ累積します。',
-      'Changes how an element looks. Changes accumulate over later steps.',
+      'ノードやゾーンの見た目を、そのステップだけ変えます。次のステップでは宣言どおりに戻ります。',
+      'Changes how a node or a zone looks, in its step only. The next step shows it as declared again.',
     ],
     render(ctx) {
       const { t } = ctx;
       const targets = ['node', 'group'] as const;
       const reverts: ReadonlyArray<readonly [string, string]> = [
-        ['badge', t('`badge: ""` で消去', '`badge: ""` removes it')],
+        ['badge', t('`badge: ""` で消す', '`badge: ""` removes it')],
         ['color', `\`color: ${COLOR_RESET}\``],
         ['visible', t('逆の値を指定', 'Set the opposite value')],
       ];
@@ -388,7 +403,12 @@ export const LANGUAGE_PAGES: readonly DocPage[] = [
           ),
         }),
         table(
-          [t('属性', 'Attribute'), 'node', 'group', t('元に戻す', 'To revert')],
+          [
+            t('属性', 'Attribute'),
+            'node',
+            'group',
+            t('宣言の値を消す', 'To clear the declared value'),
+          ],
           reverts.map(([attr, revert]) => [
             `\`${attr}\``,
             ...targets.map((kind) =>
@@ -405,8 +425,8 @@ export const LANGUAGE_PAGES: readonly DocPage[] = [
             'Other combinations warn and are ignored (`attribute-not-applicable`).',
           ),
           t(
-            `\`color: ${COLOR_RESET}\` は \`state\` で付けた色を取り消し、宣言時の色（宣言がなければ既定の色）に戻します。`,
-            `\`color: ${COLOR_RESET}\` removes a color set by \`state\` and returns to the declared color, or the default if none was declared.`,
+            `\`color: ${COLOR_RESET}\` は宣言した色を、そのステップだけ消して既定の色にします。`,
+            `\`color: ${COLOR_RESET}\` clears the declared color for its step, which then shows the default.`,
           ),
           t(
             '`state a []` のような空指定は警告になります（`empty-state`）。',
@@ -517,18 +537,18 @@ export const LANGUAGE_PAGES: readonly DocPage[] = [
           ),
         ),
         live(ctx, CODE_DSL, { phases: true }),
-        h2(t('エッジがなくても動く', 'Edges are optional')),
+        h2(t('animate が接続になる', 'An animate is a connection')),
         p(
           t(
-            'エッジの宣言がなくても再生できます。非表示のノードやエッジも、再生するステップでだけ表示されます。',
-            'A packet does not need a declared edge. Hidden nodes and edges appear only in the step that animates them.',
+            '`animate` は、それ自体が接続です。概観の線もここから作られます。非表示のノードは、それを使うステップでだけ表示されます。破線の矢印 `..>` と `<.>` も使えます。',
+            'An `animate` is a connection of its own, and the overview draws its rail from it. A hidden node appears only in the step that uses it. The dashed arrows `..>` and `<.>` work too.',
           ),
         ),
         live(ctx, NO_EDGE_DSL, { phases: true }),
         note(
           t(
-            '端点はノードのみです。エッジの線種はパケットの動きに影響しません。',
-            'Endpoints must be nodes. The edge style does not affect packet motion.',
+            '端点はノードのみです。線種はパケットの動きに影響しません。',
+            'Endpoints must be nodes. The line style does not affect packet motion.',
           ),
         ),
       ];

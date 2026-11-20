@@ -108,10 +108,16 @@ const HINTS: Record<Locale, Record<string, string>> = {
   ja: {
     'code-title':
       '。1行形式の code にはタイトルを付けられません。{title} がタイトルなら消すか、タイトルを残すならコードを ``` の行で囲んでください',
+    'v1-header': '。.dav v2 にヘッダはありません。この行を消してください',
+    'v1-edge':
+      '。v2 では接続を step の中に書きます。パケットが通るなら animate {title}、通らないなら static {title}',
   },
   en: {
     'code-title':
       '. A one-line code takes no title: if {title} is one, remove it, or put the code between lines of ``` to keep it',
+    'v1-header': '. A .dav v2 file has no header: remove this line',
+    'v1-edge':
+      '. In v2 a connection is written inside a step: animate {title} when a packet travels it, static {title} when none does',
   },
 };
 
@@ -127,7 +133,7 @@ export function formatDiagnostic(diagnostic: Diagnostic, locale: Locale = 'en'):
     }
     if (key === 'hint') {
       // A function, so that a `$` in the title is not read as a pattern of the replacement.
-      return (HINTS[locale][raw] ?? '').replace('{title}', () => diagnostic.args.title ?? '');
+      return (HINTS[locale][raw] ?? '').replaceAll('{title}', () => diagnostic.args.title ?? '');
     }
     if (KIND_ARGS.has(key)) {
       return raw

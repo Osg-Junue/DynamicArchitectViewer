@@ -7,7 +7,7 @@ How a release is published: the extension in `apps/vscode` to the Visual Studio 
 - The extension follows [Semantic Versioning](https://semver.org/). Fixes bump the patch version, and new features bump the minor version.
 - `0.x` was a preview, marked with `"preview": true` in `package.json`.
 - Since `1.0.0` the extension is stable, and `"preview"` is gone.
-- The language version follows the major version: every `1.x.x` release is `dav 1`. A change that cannot stay compatible with `dav 1` needs a major release `n.0.0`, which introduces `dav n`. See [Compatibility](specification.md#compatibility).
+- The language version follows the major version: every `1.x.x` release reads `.dav` v1, whose files begin with `dav 1`, and every `2.x.x` release reads `.dav` v2, which has no header. A change that cannot stay compatible needs the next major release. See [Compatibility](specification.md#compatibility).
 - The npm package `dynamic-architect-viewer-cli` is released with the extension, under the same version.
 
 ## Branches
@@ -123,7 +123,7 @@ gh release edit v<version> --notes-file notes.md --draft=false
 
 The notes follow the release before:
 
-- A sentence on what the release brings, where to install the extension and the command line, and whether the language stays `dav 1`.
+- A sentence on what the release brings, where to install the extension and the command line, and whether the language stays the same version.
 - Under "New since \<previous version\>", the changes that matter to a reader, grouped by subject. The changelog has the full list.
 - Links that point at the tag (`blob/v<version>/...`), so that they keep showing this release.
 

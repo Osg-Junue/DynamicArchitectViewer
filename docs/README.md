@@ -16,6 +16,7 @@ The preview also has an interactive guide. Open it with the documentation button
 **Working on the code**
 
 - [Architecture](architecture.md): the pipeline, modules, exported HTML and SVG, and tests
-- [Design decisions](design-decisions.md): why some features are deliberately absent
+- [Design decisions](design-decisions.md): why some features are deliberately absent, and [those of v2](v2/design-decisions.md): why the language changed
+- [Readability and layout](v2/readability-and-layout.md): what makes a diagram readable, in the order the layout weighs it, and the [layout algorithm](v2/layout-algorithm.md) that follows from it
 - [Contributing](../CONTRIBUTING.md): setup, commands and common changes
 - [Releasing](releasing.md): publishing to the Marketplace, Open VSX and npm

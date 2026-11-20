@@ -53,7 +53,7 @@ export const START_PAGES: readonly DocPage[] = [
               '`a --> b` draws a rail. The arrow chooses its style.',
             ),
             'edges',
-            t('エッジの書き方', 'Edges'),
+            t('接続の書き方', 'Connections'),
           ),
           card(
             '3',
@@ -106,7 +106,11 @@ export const START_PAGES: readonly DocPage[] = [
               t('ゾーンの背景（14% の淡色）', 'Zone background (14% tint)'),
               t('無彩色の淡い背景', 'Neutral tint'),
             ],
-            [t('エッジ', 'edge'), t('線と矢印', 'Rail and arrowhead'), t('無彩色', 'Neutral')],
+            [
+              '`static`',
+              t('そのステップの線と矢印', 'Its line and arrowhead in its step'),
+              t('無彩色', 'Neutral'),
+            ],
             [
               '`animate`',
               t('パケットの輪・再生中の線・線ラベル', 'Packet ring, running rail and its label'),
@@ -114,7 +118,7 @@ export const START_PAGES: readonly DocPage[] = [
             ],
             [
               '`state`',
-              t('対象の色を置き換え（以降へ累積）', 'Replaces the target color (carries over)'),
+              t('そのステップの間、対象の色を置き換え', 'Replaces the target color for its step'),
               t('変更なし', 'No change'),
             ],
           ],
@@ -133,8 +137,8 @@ export const START_PAGES: readonly DocPage[] = [
         h2(t(`色の解除: color: ${COLOR_RESET}`, `Clearing a color: color: ${COLOR_RESET}`)),
         p(
           t(
-            `\`state\` の \`color: ${COLOR_RESET}\` は、それまでのステップで \`state\` が付けた色を取り消し、宣言時の状態に戻します。透明にする指定ではありません。`,
-            `In a \`state\`, \`color: ${COLOR_RESET}\` removes the color set by earlier \`state\` statements and returns to the declared one. It does not make anything transparent.`,
+            `\`state\` の \`color: ${COLOR_RESET}\` は、宣言した色をそのステップだけ消し、既定の色で描きます。透明にする指定ではありません。`,
+            `In a \`state\`, \`color: ${COLOR_RESET}\` clears the declared color for its step, which draws the default color. It does not make anything transparent.`,
           ),
         ),
         colorNoneComparison(t),
@@ -147,30 +151,23 @@ export const START_PAGES: readonly DocPage[] = [
           [
             [
               t('色を指定している（`[color: blue]`）', 'With a color (`[color: blue]`)'),
-              t('宣言した色に戻る', 'Returns to that color'),
+              t('そのステップだけ既定の色になる', 'The default color, for that step'),
             ],
             [
               t('色を指定していない', 'Without a color'),
-              t('既定の色に戻る', 'Returns to the default color'),
+              t('既定の色のまま', 'The default color, as before'),
             ],
           ],
         ),
         list([
+          t('対象はノードとグループです。', 'Targets are nodes and groups.'),
           t(
-            '対象はノード・グループ・`id` 付きエッジです。',
-            'Targets are nodes, groups and edges with an `id`.',
+            `使えるのは \`state\` の中だけです。\`node\` や \`group\` の宣言、\`animate\` や \`static\` に書くとエラーになります（\`invalid-color\`）。`,
+            `It is only valid in \`state\`. In a \`node\` or \`group\` declaration, or in \`animate\` or \`static\`, it is an error (\`invalid-color\`).`,
           ),
           t(
-            `使えるのは \`state\` の中だけです。\`node\` / \`group\` / エッジの宣言や \`animate\` に書くとエラーになります（\`invalid-color\`）。`,
-            `It is only valid in \`state\`. In a \`node\`, \`group\` or edge declaration, or in \`animate\`, it is an error (\`invalid-color\`).`,
-          ),
-          t(
-            '他の `state` と同じく、解除した状態が以降のステップへ累積します。',
-            'Like any `state`, the cleared color carries over to later steps.',
-          ),
-          t(
-            '`state` で色を付けていない要素に指定しても、見た目は変わりません。',
-            'On an element with no `state` color, it changes nothing.',
+            '他の `state` と同じく、そのステップだけに効きます。次のステップでは宣言どおりの色に戻ります。',
+            'Like any `state`, it applies to its step only: the next step shows the declared color again.',
           ),
         ]),
       ];

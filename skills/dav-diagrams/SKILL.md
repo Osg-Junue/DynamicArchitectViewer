@@ -404,7 +404,7 @@ A diagnostic does not stop the rest of the file from being read, and the table s
 | `invalid-self-arrow` | Error | An `animate` or `static` from a node to itself uses `<->` or `<.>` |
 | `invalid-escape` | Error | A string contains an escape other than `\"`, `\\`, `\n` and `\t` |
 | `unexpected-eof` | Error | The file ends before a statement or a `{ }` or `[ ]` block is complete, outside a string and a code fence, and no `syntax-error` came before |
-| `syntax-error` | Error | Anything else the grammar does not allow, such as a `dav` header, top-level edge syntax, a string or a code fence that the file ends inside. For a `code` string given a title on the same line, the message says that only a code fence takes one |
+| `syntax-error` | Error | Anything else the grammar does not allow, such as a `dav` header, top-level edge syntax, a string or a code fence that the file ends inside. For a `code` string given a title on the same line, the message says that only a code fence takes one. A line that `.dav` v1 wrote, the `dav 1` header or a connection without `animate` or `static`, gets one error that says how v2 writes it, and the rest of the file is read as if the line were not there |
 
 <!-- End of the language specification. -->
 

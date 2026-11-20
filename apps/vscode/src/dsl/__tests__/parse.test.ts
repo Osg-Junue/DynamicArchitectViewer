@@ -163,12 +163,8 @@ describe('hasFatalError', () => {
 describe('parse: diagnostics', () => {
   const cases: Array<[string, string, DiagnosticCode[]]> = [
     ['missing step', 'node a', ['missing-step']],
-    [
-      'top-level edge syntax rejected',
-      'node a\nnode b\na --> b\nstep "s" {}',
-      ['syntax-error', 'syntax-error', 'syntax-error'],
-    ],
-    ['legacy dav header rejected', 'dav 1\nnode a\nstep "s" {}', ['syntax-error', 'syntax-error']],
+    ['top-level edge syntax rejected', 'node a\nnode b\na --> b\nstep "s" {}', ['syntax-error']],
+    ['legacy dav header rejected', 'dav 1\nnode a\nstep "s" {}', ['syntax-error']],
     ['duplicate title', 'title "a"\ntitle "b"\nstep "s" {}', ['duplicate-title']],
     ['duplicate node id', 'node a\nnode a\nstep "s" {}', ['duplicate-id']],
     ['id shared across kinds', 'node a\ngroup a {}\nstep "s" {}', ['duplicate-id']],
@@ -266,6 +262,46 @@ describe('parse: diagnostics', () => {
     expect(own && formatDiagnostic(own, 'en')).not.toContain('takes no title');
     const [other] = parse('node a ]\nstep "s" {}').diagnostics;
     expect(other && formatDiagnostic(other, 'en')).toBe('Syntax error: unexpected "]"');
+  });
+
+  it('says how v2 writes a line of v1, with one error for it and none after it', () => {
+    const text = [
+      'dav 1',
+      'node web "Web"',
+      'node api "API"',
+      'web <-> api : "HTTP"',
+      'api ..> late [id: e_late]',
+      'node late "Late"',
+      'step "s" {',
+      '  animate web --> api',
+      '  api --> late',
+      '}',
+      '',
+    ].join('\n');
+    const { document, diagnostics } = parse(text);
+    expect(diagnostics.map((d) => [d.code, text.slice(d.from, d.to)])).toEqual([
+      ['syntax-error', 'dav 1'],
+      ['syntax-error', 'web <-> api : "HTTP"'],
+      ['syntax-error', 'api ..> late [id: e_late]'],
+      ['syntax-error', 'api --> late'],
+    ]);
+    const [header, edge] = diagnostics;
+    expect(header && formatDiagnostic(header, 'en')).toBe(
+      'Syntax error: unexpected "dav". A .dav v2 file has no header: remove this line',
+    );
+    expect(edge && formatDiagnostic(edge, 'en')).toBe(
+      'Syntax error: unexpected "web". In v2 a connection is written inside a step: animate web <-> api when a packet travels it, static web <-> api when none does',
+    );
+    expect(edge && formatDiagnostic(edge, 'ja')).toContain('static web <-> api');
+    // What the v1 lines leave is read as v2: every node, and the step with its packet.
+    expect(document.nodes.map((n) => n.id)).toEqual(['web', 'api', 'late']);
+    expect(document.steps[0]?.animations.map((a) => `${a.from}>${a.to}`)).toEqual(['web>api']);
+
+    // A line inside a code fence that looks like one is code, and an edge written well is not v1.
+    const fenced =
+      'node a\nnode b\nstep "s" {\n  animate a --> b {\n    code ```\n      a --> b\n      dav 1\n    ```\n  }\n}\n';
+    expect(parse(fenced).diagnostics).toEqual([]);
+    expect(parse('node a\nnode b\nstep "s" {\n  static a --> b\n}\n').diagnostics).toEqual([]);
   });
 
   it('suggests the closest icon', () => {

@@ -17,7 +17,6 @@ Write architecture and screen-flow diagrams as text, then play them step by step
 A static diagram struggles to show what happens over time. Requests, failovers and retries end up as a tangle of numbered arrows, or in a separate sequence diagram. Here, one diagram plays out in steps, while the structure stays in place.
 
 ```dav
-dav 1
 title "Checkout"
 
 node browser "Browser" [icon: browser]
@@ -26,10 +25,6 @@ group backend "Backend" {
   node db "Orders DB" [icon: database]
 }
 node psp "Payment provider" [icon: external]
-
-browser --> api : "HTTPS"
-api --> db : "SQL"
-api --> psp : "Charge"
 
 step "Place an order" {
   animate browser --> api : "POST /orders" [icon: file]

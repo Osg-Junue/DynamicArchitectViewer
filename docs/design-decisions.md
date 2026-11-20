@@ -1,10 +1,10 @@
 # Design decisions
 
-Why some obvious features are not here. Please read this before proposing one of them.
+Why some obvious features are not here. Please read this before proposing one of them. Why `.dav` v2 dropped the header, the top-level edges and the `state` that carried over is in [Design decisions of v2](v2/design-decisions.md).
 
 ## No manual positions
 
-There is no syntax to place or pin a node. Hand-placed coordinates make every addition a manual layout job and bury the real change in the diff. To influence the result, use edges, groups and declaration order, as described in [How diagrams are laid out](layout.md).
+There is no syntax to place or pin a node. Hand-placed coordinates make every addition a manual layout job and bury the real change in the diff. The layout follows the groups and the order of the steps, as described in [How diagrams are laid out](layout.md), so writing them as the facts are is what shapes it.
 
 ## No branching scenarios
 
