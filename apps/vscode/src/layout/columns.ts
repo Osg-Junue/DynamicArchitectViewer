@@ -325,6 +325,32 @@ export function computeColumnLayout(
     doc.nodes.map((n) => n.id),
     flow.forwardEdges,
   );
+  // Pull grouped static-only source nodes (in-degree 0) right to sit beside their earliest
+  // downstream target so auxiliary accessories (e.g. KMS -> SQS) do not stretch their group's
+  // frame into column 0 and displace external primary callers above the group.
+  if (!rankOverrides && flow.hasAnimate && doc.groups.length > 0) {
+    const hasIn = new Set(flow.forwardEdges.map(([, v]) => v));
+    const hasNonStatic = new Set<string>();
+    for (const c of flow.connections) {
+      if (c.role !== 'static') {
+        hasNonStatic.add(c.from);
+        hasNonStatic.add(c.to);
+      }
+    }
+    for (const n of doc.nodes) {
+      if (n.parentId === undefined || hasIn.has(n.id) || hasNonStatic.has(n.id)) continue;
+      let minTarget = Number.POSITIVE_INFINITY;
+      for (const [u, v] of flow.forwardEdges) {
+        if (u === n.id) {
+          const r = ranks.rank.get(v);
+          if (r !== undefined && r < minTarget) minTarget = r;
+        }
+      }
+      if (Number.isFinite(minTarget) && minTarget >= 2) {
+        ranks.rank.set(n.id, minTarget - 1);
+      }
+    }
+  }
   if (rankOverrides) {
     for (const [id, r] of rankOverrides) {
       if (ranks.rank.has(id)) ranks.rank.set(id, r);

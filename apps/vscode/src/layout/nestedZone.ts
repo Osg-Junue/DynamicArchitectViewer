@@ -523,18 +523,36 @@ function placeContainerChildren(
   const extInCount = new Map<string, number>(blocks.map((b) => [b.id, 0]));
   const extOutCount = new Map<string, number>(blocks.map((b) => [b.id, 0]));
   const extPriInCount = new Map<string, number>(blocks.map((b) => [b.id, 0]));
+  const extPriInFirstStep = new Map<string, number>();
+  const blockFirstPriStep = new Map<string, number>();
+  const recordMinStep = (map: Map<string, number>, id: string, step: number) => {
+    const prev = map.get(id);
+    if (prev === undefined || step < prev) map.set(id, step);
+  };
   for (const c of fullFlow.connections) {
     const inFrom = childOwners.get(c.from);
     const inTo = childOwners.get(c.to);
+    const fs = fullFlow.pairFirstStep.get(flowPairKey(c.from, c.to)) ?? 0;
+    if (c.role === 'primary') {
+      if (inFrom !== undefined) recordMinStep(blockFirstPriStep, inFrom, fs);
+      if (inTo !== undefined) recordMinStep(blockFirstPriStep, inTo, fs);
+    }
     if ((inFrom !== undefined) === (inTo !== undefined)) continue;
     if (inTo !== undefined) {
       extInCount.set(inTo, (extInCount.get(inTo) ?? 0) + 1);
-      if (c.role === 'primary') extPriInCount.set(inTo, (extPriInCount.get(inTo) ?? 0) + 1);
+      if (c.role === 'primary') {
+        extPriInCount.set(inTo, (extPriInCount.get(inTo) ?? 0) + 1);
+        recordMinStep(extPriInFirstStep, inTo, fs);
+      }
     }
     if (inFrom !== undefined) {
       extOutCount.set(inFrom, (extOutCount.get(inFrom) ?? 0) + 1);
     }
   }
+  const declOrder = new Map<string, number>();
+  let declIdx = 0;
+  for (const g of doc.groups) declOrder.set(g.id, declIdx++);
+  for (const n of doc.nodes) declOrder.set(n.id, declIdx++);
 
   const internalConnected: Block[] = [];
   const externalOnly: Block[] = [];
@@ -657,6 +675,32 @@ function placeContainerChildren(
     }
   }
 
+  // Stack a wide later-step secondary feeder pipeline (col 0) vertically beneath an earlier-step
+  // primary ingress container (col 1) so the Step-1 main ingress from outside stays unobstructed.
+  if (depth >= 1 && columns.length >= 2) {
+    const c0 = columns[0];
+    const c1 = columns[1];
+    const b0 = c0?.length === 1 ? c0[0] : undefined;
+    const b1 = c1?.length === 1 ? c1[0] : undefined;
+    const b0Step = b0 ? blockFirstPriStep.get(b0.id) : undefined;
+    const b1ExtStep = b1 ? extPriInFirstStep.get(b1.id) : undefined;
+    if (
+      b0 &&
+      b1 &&
+      b0.groups.size >= 1 &&
+      b1.groups.size >= 1 &&
+      b0.width >= 500 &&
+      b1.width >= 500 &&
+      b0Step !== undefined &&
+      b1ExtStep !== undefined &&
+      b0Step > b1ExtStep
+    ) {
+      c1.push(b0);
+      columns.splice(0, 1);
+      scopeFlow.zoneStage.set(b0.id, scopeFlow.zoneStage.get(b1.id) ?? 0);
+    }
+  }
+
   // Equalize outer widths and internal subnet-column grids for structurally similar sibling
   // containers stacked in the same stage column (e.g. AZ-a and AZ-c inside a VPC).
   if (depth >= 1) {
@@ -714,13 +758,18 @@ function placeContainerChildren(
     if (!hasPri) return 1;
     return 2;
   };
+  const compareColumnTie = (a: Block, b: Block): number =>
+    (blockFirstPriStep.get(a.id) ?? Number.POSITIVE_INFINITY) -
+      (blockFirstPriStep.get(b.id) ?? Number.POSITIVE_INFINITY) ||
+    (declOrder.get(a.id) ?? 0) - (declOrder.get(b.id) ?? 0) ||
+    compareId(a.id, b.id);
   for (const col of colsCopy) {
     if (col.length < 2) continue;
     col.sort(
       (a, b) =>
         topoColRank(a.id) - topoColRank(b.id) ||
         (primaryOutDeg.get(a.id) ?? 0) - (primaryOutDeg.get(b.id) ?? 0) ||
-        compareId(a.id, b.id),
+        compareColumnTie(a, b),
     );
   }
 
@@ -791,7 +840,7 @@ function placeContainerChildren(
         const ta = targetY(a.id);
         const tb = targetY(b.id);
         if (Math.abs(ta - tb) > 1e-6) return ta - tb;
-        return topoColRank(a.id) - topoColRank(b.id) || compareId(a.id, b.id);
+        return topoColRank(a.id) - topoColRank(b.id) || compareColumnTie(a, b);
       });
       layoutColumns();
     }
@@ -990,6 +1039,72 @@ export function buildRecursiveZoneBlock(
 
   // Case 0 & 1: Leaf group (no nested child groups).
   if (directGroups.length === 0) {
+    // Edge-less auxiliary peer bags with >= 4 nodes lay out as a compact 2D grid instead of a
+    // tall 1xN vertical pole so horizontal auxiliary bands stay compact and balanced.
+    if (isAuxiliary && directNodes.length >= 4) {
+      const idSet = new Set(directNodes.map((n) => n.id));
+      const hasIntraEdge = fullFlow.connections.some(
+        (c) => c.from !== c.to && idSet.has(c.from) && idSet.has(c.to),
+      );
+      if (!hasIntraEdge) {
+        const pad = GROUP_PADDING;
+        const hGap = 36;
+        const vGap = 14;
+        const groupLabel = doc.groups.find((g) => g.id === zoneId)?.label ?? '';
+        const nodeLoopRoom = selfLoopRoom({
+          steps: doc.steps.map((s) => ({
+            ...s,
+            animations: s.animations.filter((a) => idSet.has(a.from) && idSet.has(a.to)),
+            statics: s.statics.filter((st) => idSet.has(st.from) && idSet.has(st.to)),
+          })),
+        });
+        const loopRoom = Math.max(0, ...nodeLoopRoom.values());
+        const cols = Math.min(4, Math.ceil(directNodes.length / 2));
+        const rows = Math.ceil(directNodes.length / cols);
+        const contentW = cols * NODE_SIZE.width + Math.max(0, cols - 1) * hGap;
+        const contentH = rows * NODE_SIZE.height + Math.max(0, rows - 1) * (vGap + loopRoom);
+        const rawWidth = contentW + pad * 2;
+        const width = Math.max(rawWidth, zoneMinWidth(groupLabel));
+        const padLeft = pad + Math.round((width - rawWidth) / 2);
+        const head = groupHeaderHeight(groupLabel, width) + pad + loopRoom;
+        const height = head + contentH + pad;
+        const nodesMap = new Map<string, Rect>();
+        directNodes.forEach((n, idx) => {
+          const row = Math.floor(idx / cols);
+          const col = idx % cols;
+          nodesMap.set(n.id, {
+            x: padLeft + col * (NODE_SIZE.width + hGap),
+            y: head + row * (NODE_SIZE.height + vGap + loopRoom),
+            width: NODE_SIZE.width,
+            height: NODE_SIZE.height,
+          });
+        });
+        const groupsMap = new Map<string, Rect>([[zoneId, { x: 0, y: 0, width, height }]]);
+        const detached = directNodes.map(({ parentId: _p, ...rest }) => rest);
+        const { groupsFlipped, reflectConst } = computeFlipMetadata(
+          zoneId,
+          detached,
+          [],
+          loopRoom,
+          nodesMap,
+          groupsMap,
+        );
+        return {
+          id: zoneId,
+          width,
+          height,
+          head,
+          contentHeight: contentH,
+          loopRoom,
+          nodeLoopRoom,
+          flippable: loopRoom === 0,
+          nodes: nodesMap,
+          groups: groupsMap,
+          groupsFlipped,
+          reflectConst,
+        };
+      }
+    }
     const leafOwners = parentHint?.parentOwners ?? ownersOf(doc);
     const leafFlow: FlowAnalysis = parentHint
       ? {

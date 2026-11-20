@@ -442,4 +442,109 @@ step "Traffic" {
     expect(dataA.x).toBe(dataC.x);
     expect(dataA.width).toBe(dataC.width);
   });
+
+  it('orders same-column sibling regions by first active step and declaration order instead of ID', () => {
+    const dsl = `
+title "Multi-Region Step Order"
+node users "Users" [icon: users]
+group cloud "AWS Cloud" {
+  node cdn "CloudFront" [icon: cdn]
+  group primary_region "Primary Region" {
+    group pri_vpc "Primary VPC" {
+      node pri_api "Primary API" [icon: container]
+      node pri_db "Primary DB" [icon: database]
+    }
+  }
+  group dr_region "DR Region" {
+    group dr_vpc "DR VPC" {
+      node dr_api "DR API" [icon: container]
+      node dr_db "DR DB" [icon: database]
+    }
+  }
+}
+step "Active primary" {
+  animate users --> cdn : "HTTPS"
+  animate cdn --> pri_api : "Active"
+  animate pri_api --> pri_db : "R/W"
+  static pri_db ..> dr_db : "Replication"
+}
+step "Failover to DR" {
+  animate cdn ..> dr_api : "Failover"
+  animate dr_api --> dr_db : "Promoted"
+}
+`;
+    const { layout } = assertContainmentAndDisjointSiblings(dsl);
+    const primary = must(layout.groups.primary_region, 'primary_region');
+    const dr = must(layout.groups.dr_region, 'dr_region');
+    // Step-1 / first-declared `primary_region` sits above `dr_region` even though 'dr_region' < 'primary_region'.
+    expect(primary.y).toBeLessThan(dr.y);
+  });
+
+  it('packs edge-less auxiliary peer bags into a compact 2D grid and keeps static leaf sources from displacing external callers', () => {
+    const bagDsl = `
+title "Compact Auxiliary Peer Grid"
+node user "User" [icon: users]
+group cloud "Cloud" {
+  group region "Region" {
+    group app_acct "App Account" {
+      group vpc_a "VPC A" {
+        node svc_a "Service A" [icon: container]
+      }
+    }
+    group data_acct "Data Account" {
+      group vpc_b "VPC B" {
+        node svc_b "Service B" [icon: database]
+      }
+    }
+    group gov_acct "Governance Account" {
+      node g1 "GuardDuty" [icon: shield]
+      node g2 "KMS" [icon: key]
+      node g3 "Secrets" [icon: vault]
+      node g4 "CloudWatch" [icon: monitor]
+      node g5 "CloudTrail" [icon: audit]
+    }
+  }
+}
+step "Main" {
+  animate user --> svc_a : "HTTPS"
+  animate svc_a --> svc_b : "Write"
+  static vpc_a ..> g4 : "Logs"
+  static vpc_b ..> g4 : "Logs"
+  static vpc_b ..> g5 : "Audit"
+  static g2 ..> vpc_a : "CMK"
+  static g3 ..> vpc_b : "Secret"
+  static g1 ..> vpc_b : "Detect"
+}
+`;
+    const { layout: bagLayout } = assertContainmentAndDisjointSiblings(bagDsl);
+    const gov = must(bagLayout.groups.gov_acct, 'gov_acct');
+    // 5 peer nodes pack into a 3x2 grid (wider than tall) rather than a tall 1x5 vertical pole.
+    expect(gov.width).toBeGreaterThan(gov.height);
+
+    const staticSourceDsl = `
+title "Static Leaf Source Slack"
+node partner "Partner" [icon: external]
+node billing "Billing" [icon: webhook]
+group cloud "Cloud" {
+  node api "API GW" [icon: api]
+  node sqs "SQS" [icon: queue]
+  node kms "KMS" [icon: key]
+  node worker "Worker" [icon: function]
+}
+step "Flow" {
+  animate partner --> api : "HTTPS"
+  animate api --> sqs : "Enqueue"
+  static kms ..> sqs : "Encrypt"
+  animate sqs --> worker : "Consume"
+  animate worker --> billing : "Callback"
+}
+`;
+    const { layout: colLayout } = assertContainmentAndDisjointSiblings(staticSourceDsl);
+    const partner = must(colLayout.nodes.partner, 'partner');
+    const cloud = must(colLayout.groups.cloud, 'cloud');
+    const billing = must(colLayout.nodes.billing, 'billing');
+    // `kms` pulls right beside `sqs` so `partner` stays cleanly to the left of `cloud` and `billing` to its right.
+    expect(partner.x + partner.width).toBeLessThanOrEqual(cloud.x);
+    expect(billing.x).toBeGreaterThanOrEqual(cloud.x + cloud.width);
+  });
 });
