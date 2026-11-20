@@ -1,4 +1,3 @@
-dav 1
 title "Order payment sequence: rate limiting, retries and async delivery"
 
 node client "Web Client" [icon: browser, sub: "Customer"]
@@ -20,24 +19,6 @@ group async "Async processing" [color: purple] {
   node dlq "Dead Letter Queue" [icon: storage, sub: "Needs review", visible: false]
 }
 
-client --> gw : "POST /orders"
-gw --> client : "Response"
-gw --> gw : "Rate check"
-gw --> order : "CreateOrder"
-order --> gw : "Result"
-order --> order : "Transition"
-order --> stock : "Reserve"
-stock --> order : "Reserved"
-order --> payment : "Charge"
-payment --> order : "Charged"
-payment --> payment : "Backoff"
-payment --> psp : "Authorize"
-psp --> payment : "Result"
-order ..> queue : "OrderConfirmed"
-queue --> worker : "Deliver"
-worker --> worker : "Retry"
-worker ..> dlq : "Quarantine" [id: e_dlq, visible: false, color: red]
-
 step "Accepting the order and limiting the rate" {
   desc "The gateway checks its rate limit counter, then forwards the order to the Order Service."
   state gw [badge: "98 req/s"]
@@ -56,7 +37,6 @@ step "Accepting the order and limiting the rate" {
 
 step "Creating the order and reserving stock" {
   desc "The Order Service moves the order to PENDING and reserves stock."
-  state gw [badge: ""]
   state order [badge: "PENDING", color: yellow]
   animate order --> order : "→ PENDING" [color: yellow, desc: "The saga starts and the order becomes PENDING"]
   animate order --> stock : "Reserve" [icon: database, desc: "Stock is reserved for each item"]
@@ -75,6 +55,7 @@ step "A temporary payment failure" {
 step "Backoff and first retry" {
   desc "After one second, the request is sent again with the same idempotency key. The outage continues."
   state payment [badge: "RETRY 1", color: orange]
+  state psp [badge: "503", color: red]
   animate payment --> payment : "Wait 1s" [color: orange, desc: "Waits before the first retry"]
   animate payment --> psp : "Retry #1" [icon: payment, desc: "Sent again with the same idempotency key"]
   animate psp --> payment : "503" [color: red, desc: "The outage continues"]
@@ -82,7 +63,7 @@ step "Backoff and first retry" {
 
 step "Backoff and second retry" {
   desc "The wait doubles to two seconds, and this time the payment succeeds."
-  state payment [badge: "RETRY 2"]
+  state payment [badge: "RETRY 2", color: orange]
   state psp [badge: "200", color: green]
   animate payment --> payment : "Wait 2s" [color: orange, desc: "Doubles the wait before retrying"]
   animate payment --> psp : "Retry #2" [icon: payment, desc: "Sent again with the same idempotency key"]
@@ -91,7 +72,6 @@ step "Backoff and second retry" {
 
 step "Confirming the order and responding" {
   desc "The order is confirmed. The customer's response and the event are sent at the same time."
-  state psp [badge: "", color: none]
   state payment [badge: "PAID", color: green]
   state order [badge: "CONFIRMED", color: green]
   animate payment --> order : "Charged" [color: green, desc: "Reports that payment is complete"]
@@ -101,7 +81,7 @@ step "Confirming the order and responding" {
       { "orderId": "ord_01JCK9X7", "status": "CONFIRMED" }
     ```
   }
-  animate order --> queue : "OrderConfirmed" [icon: mail, parallel: true, color: purple, desc: "Publishes an event for fulfillment"] {
+  animate order ..> queue : "OrderConfirmed" [icon: mail, parallel: true, color: purple, desc: "Publishes an event for fulfillment"] {
     code json "OrderConfirmed" ```
       {
         "event": "order.confirmed",
@@ -122,9 +102,7 @@ step "Asynchronous fulfillment" {
 
 step "Giving up and quarantining" {
   desc "An event that fails all three attempts goes to the dead letter queue, so it does not block the queue."
-  state queue [badge: ""]
   state worker [badge: "FAILED", color: red]
   state dlq [visible: true, badge: "1 msg", color: red]
-  state e_dlq [visible: true]
-  animate worker --> dlq : "Quarantine" [icon: mail, color: red, desc: "The failed event is set aside for review"]
+  animate worker ..> dlq : "Quarantine" [icon: mail, color: red, desc: "The failed event is set aside for review"]
 }

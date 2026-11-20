@@ -173,11 +173,7 @@ describe('parse: diagnostics', () => {
     ['duplicate node id', 'node a\nnode a\nstep "s" {}', ['duplicate-id']],
     ['id shared across kinds', 'node a\ngroup a {}\nstep "s" {}', ['duplicate-id']],
     ['undefined static endpoint', 'node a\nstep "s" { static a --> b }', ['undefined-reference']],
-    [
-      'static to group',
-      'node a\ngroup g {}\nstep "s" { static a --> g }',
-      ['reference-kind-mismatch'],
-    ],
+    ['static to group allowed', 'node a\ngroup g {}\nstep "s" { static a --> g }', []],
     ['undefined focus', 'step "s" { focus x }', ['undefined-reference']],
     [
       'self-loop in animate and static',
@@ -281,7 +277,7 @@ describe('parse: diagnostics', () => {
   });
 
   it('localizes kind names', () => {
-    const [d] = parse('node a\ngroup g {}\nstep "s" { static a --> g }').diagnostics;
+    const [d] = parse('node a\ngroup g {}\nstep "s" { animate a --> g }').diagnostics;
     expect(d && formatDiagnostic(d, 'ja')).toBe('"g" はグループです（ノードを指定してください）');
   });
 

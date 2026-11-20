@@ -1,5 +1,5 @@
 import type { Point } from './geometry';
-import type { RoutedRail, RouteEdge, RouteNode } from './route';
+import type { RoutedRail, RouteEdge, RouteGroup, RouteNode } from './route';
 import {
   type Grid,
   headingOf,
@@ -12,6 +12,10 @@ import {
 
 /** Distance between two routes on one line, and the most a group of them may take up. */
 const GAP = RAIL_GAP;
+/** Preferred distance between crowded arrowheads on a 2–3 rail station face. */
+const PORT_ARROW_GAP = 9;
+/** Preferred distance between rails meeting the wider bottom label edge of a node. */
+const BOTTOM_PORT_GAP = 10;
 const PORT_WIDTH = 28;
 const BUNDLE_WIDTH = 30;
 /**
@@ -24,11 +28,16 @@ const MIN_GAP = RAIL_WIDTH + 1;
  * out a rail would miss the station, which is 44 across.
  */
 const PORT_WIDTH_AT_MOST = 40;
+/** Wider port room available below a node's label block (where rails cut flat across `area`). */
+const BOTTOM_PORT_WIDTH = 76;
+const BOTTOM_PORT_WIDTH_AT_MOST = 96;
 /** The same beside a loop, where the rails keep to one half of the station. */
 const LOOP_SIDE_WIDTH = 18;
 const LOOP_SIDE_WIDTH_AT_MOST = 20;
 /** The least rails are set apart to keep them out of the nodes beside their line: half a unit clear. */
 const TIGHT_GAP = RAIL_WIDTH + 0.5;
+/** Minimum clearance kept between spread parallel rails and nearby zone borders. */
+const BORDER_KEEP_OUT = 5;
 
 /** A route as the search found it: on the lines of the grid, before any is moved aside. */
 export interface Found {
@@ -145,6 +154,10 @@ interface Stretch {
   leaves: readonly [number | undefined, number | undefined];
   /** Ends at a station. */
   port: boolean;
+  /** Starts at the edge's source station. */
+  atStart: boolean;
+  /** Ends at the edge's target station. */
+  atEnd: boolean;
   /** How far the stretch is moved off its line. */
   offset: number;
   shared: boolean;
@@ -180,6 +193,8 @@ function stretchesOf(found: ReadonlyMap<string, Found>): {
         lean: lean(points[i - 1]) + lean(points[i + 2]),
         leaves: aFirst ? [fromA, fromB] : [fromB, fromA],
         port: i === 0 || i + 2 === points.length,
+        atStart: i === 0,
+        atEnd: i + 2 === points.length,
         offset: 0,
         shared: false,
       };
@@ -194,6 +209,58 @@ function stretchesOf(found: ReadonlyMap<string, Found>): {
   return { byRoute, byLine };
 }
 
+/** Whether at least two stretches in a port group place arrowheads onto the same station face. */
+function hasCrowdedArrowheads(
+  group: readonly Stretch[],
+  byId: ReadonlyMap<string, RouteEdge>,
+): boolean {
+  const counts = new Map<number, number>();
+  for (const s of group) {
+    const edge = byId.get(s.id);
+    if (!edge) continue;
+    if (s.atEnd) {
+      const next = (counts.get(edge.to) ?? 0) + 1;
+      if (next >= 2) return true;
+      counts.set(edge.to, next);
+    }
+    if (s.atStart && edge.bothWays) {
+      const next = (counts.get(edge.from) ?? 0) + 1;
+      if (next >= 2) return true;
+      counts.set(edge.from, next);
+    }
+  }
+  return false;
+}
+
+/**
+ * Available horizontal room below a node's label block when a vertical port group meets the
+ * bottom of a station (and does not also touch the narrow top face of any station).
+ */
+function bottomPortSpan(
+  group: readonly Stretch[],
+  upright: boolean,
+  fixed: number,
+  nodes: readonly RouteNode[],
+): number | undefined {
+  if (!upright) return undefined;
+  let touchesBottom = false;
+  let maxSpan = Number.POSITIVE_INFINITY;
+  for (const n of nodes) {
+    if (n.groupBorder) continue;
+    const c = stationCenter(n);
+    if (Math.abs(fixed - c.x) > n.station.width / 2) continue;
+    for (const s of group) {
+      if (!s.port) continue;
+      if (Math.abs(s.hi - c.y) < 1 && s.lo < c.y - 0.5) return undefined;
+      if (Math.abs(fixed - c.x) < 1 && Math.abs(s.lo - c.y) < 1 && s.hi > c.y + 0.5) {
+        touchesBottom = true;
+        maxSpan = Math.min(maxSpan, n.area.width);
+      }
+    }
+  }
+  return touchesBottom && maxSpan > PORT_WIDTH_AT_MOST ? maxSpan : undefined;
+}
+
 /** Whether a spread group touches the top-right quadrant of a node that carries a self-loop. */
 function loopBias(
   group: readonly Stretch[],
@@ -202,7 +269,7 @@ function loopBias(
   nodes: readonly RouteNode[],
 ): 'negative' | 'positive' | undefined {
   for (const n of nodes) {
-    if (!n.hasLoop) continue;
+    if (!n.hasLoop || n.groupBorder) continue;
     const c = stationCenter(n);
     if (
       upright &&
@@ -272,6 +339,8 @@ function spread(
   side: ReadonlyMap<string, number>,
   nodes: readonly RouteNode[],
   ends: ReadonlyMap<string, readonly [number, number]>,
+  byId: ReadonlyMap<string, RouteEdge>,
+  groups: readonly RouteGroup[],
 ): void {
   /** The sign of where `s` belongs relative to `t`; 0 when they do not run side by side. */
   const beside = (s: Stretch, t: Stretch): number => {
@@ -355,15 +424,30 @@ function spread(
     if (maxTrack === 0) return;
     const bias = loopBias(group, line.upright, line.fixed, nodes);
     const port = group.some((s) => s.port);
+    const bottomSpan =
+      port && !bias ? bottomPortSpan(group, line.upright, line.fixed, nodes) : undefined;
     // Rails that meet a station stay inside its outline, however many they are: nearer to
-    // each other than `MIN_GAP` rather than beside the station. Elsewhere a group takes the
-    // room `MIN_GAP` needs.
-    const room = bias
-      ? Math.min(LOOP_SIDE_WIDTH_AT_MOST, Math.max(LOOP_SIDE_WIDTH, maxTrack * MIN_GAP))
-      : port
-        ? Math.min(PORT_WIDTH_AT_MOST, Math.max(PORT_WIDTH, maxTrack * MIN_GAP))
-        : Math.max(BUNDLE_WIDTH, maxTrack * MIN_GAP);
-    let gap = Math.min(GAP, room / maxTrack);
+    // each other than `MIN_GAP` rather than beside the station. Below a node, rails cut across
+    // the wider label block, so fan-out groups have more room to separate arrowheads.
+    let room: number;
+    if (bias) {
+      room = Math.min(LOOP_SIDE_WIDTH_AT_MOST, Math.max(LOOP_SIDE_WIDTH, maxTrack * MIN_GAP));
+    } else if (bottomSpan !== undefined) {
+      const maxRoom = Math.min(BOTTOM_PORT_WIDTH_AT_MOST, bottomSpan);
+      const prefRoom = Math.min(BOTTOM_PORT_WIDTH, maxRoom);
+      room = Math.min(maxRoom, Math.max(prefRoom, maxTrack * MIN_GAP));
+    } else if (port) {
+      room = Math.min(PORT_WIDTH_AT_MOST, Math.max(PORT_WIDTH, maxTrack * MIN_GAP));
+    } else {
+      room = Math.max(BUNDLE_WIDTH, maxTrack * MIN_GAP);
+    }
+    const preferredGap =
+      bottomSpan !== undefined
+        ? BOTTOM_PORT_GAP
+        : port && !bias && maxTrack <= 2 && hasCrowdedArrowheads(group, byId)
+          ? PORT_ARROW_GAP
+          : GAP;
+    let gap = Math.min(preferredGap, room / maxTrack);
     let shift = 0;
     if (!bias) {
       let minOff = -room;
@@ -371,7 +455,8 @@ function spread(
       const gLo = Math.min(...group.map((s) => s.lo)) + 1;
       const gHi = Math.max(...group.map((s) => s.hi)) - 1;
       // No rail is moved into the area of a node beside the line.
-      for (const { area } of nodes) {
+      for (const { area, groupBorder } of nodes) {
+        if (groupBorder) continue;
         const { x, y, width, height } = area;
         if (line.upright) {
           if (gHi <= y || gLo >= y + height) continue;
@@ -381,6 +466,22 @@ function spread(
           if (gHi <= x || gLo >= x + width) continue;
           if (y + height <= line.fixed) minOff = Math.max(minOff, y + height + 1.5 - line.fixed);
           else if (y >= line.fixed) maxOff = Math.min(maxOff, y - 1.5 - line.fixed);
+        }
+      }
+      // Keep spread bundles clear of parallel zone borders.
+      for (const { rect } of groups) {
+        if (line.upright) {
+          if (gHi <= rect.y || gLo >= rect.y + rect.height) continue;
+          for (const bx of [rect.x, rect.x + rect.width]) {
+            if (bx < line.fixed) minOff = Math.max(minOff, bx + BORDER_KEEP_OUT - line.fixed);
+            else if (bx > line.fixed) maxOff = Math.min(maxOff, bx - BORDER_KEEP_OUT - line.fixed);
+          }
+        } else {
+          if (gHi <= rect.x || gLo >= rect.x + rect.width) continue;
+          for (const by of [rect.y, rect.y + rect.height]) {
+            if (by < line.fixed) minOff = Math.max(minOff, by + BORDER_KEEP_OUT - line.fixed);
+            else if (by > line.fixed) maxOff = Math.min(maxOff, by - BORDER_KEEP_OUT - line.fixed);
+          }
         }
       }
       if (maxOff - minOff >= maxTrack * (TIGHT_GAP + 0.05)) {
@@ -557,9 +658,12 @@ function separate(
 
 /** Where a route that ends at `end`, coming from `towards`, stops: at the edge of the station; below a node, under its labels. */
 function cutAtStation(end: Point, towards: Point, node: RouteNode): Point {
-  const center = stationCenter(node);
   const upright = end.x === towards.x;
   const way = Math.sign(upright ? towards.y - end.y : towards.x - end.x);
+  if (node.groupBorder) {
+    return upright ? { x: end.x, y: end.y + way * 2 } : { x: end.x + way * 2, y: end.y };
+  }
+  const center = stationCenter(node);
   if (upright && way > 0) return { x: end.x, y: node.area.y + node.area.height + 2 };
   const off = upright ? end.x - center.x : end.y - center.y;
   const round = node.station.width === node.station.height;
@@ -574,13 +678,14 @@ export function apart(
   side: ReadonlyMap<string, number>,
   edges: readonly RouteEdge[],
   nodes: readonly RouteNode[],
+  groups: readonly RouteGroup[] = [],
 ): Map<string, RoutedRail> {
   const { byRoute, byLine } = stretchesOf(found);
   const ends = new Map(edges.map((e) => [e.id, [e.from, e.to] as const]));
-  for (const line of byLine.values()) spread(line, side, nodes, ends);
+  const byId = new Map(edges.map((e) => [e.id, e]));
+  for (const line of byLine.values()) spread(line, side, nodes, ends, byId, groups);
   separate(byLine.values());
 
-  const byId = new Map(edges.map((e) => [e.id, e]));
   const routes = new Map<string, RoutedRail>();
   for (const [id, { corners: points }] of found) {
     const own = byRoute.get(id) ?? [];

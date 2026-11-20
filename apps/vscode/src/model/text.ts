@@ -2,6 +2,15 @@
 export const EDGE_LABEL_FONT_SIZE = 11.5;
 export const EDGE_LABEL_MAX_WIDTH = 188;
 
+/** Zone header label metrics, shared by layout header sizing and SVG rendering. */
+export const ZONE_LABEL_FONT_SIZE = 16;
+export const ZONE_LABEL_INSET = 14;
+export const ZONE_LABEL_BASELINE = 24;
+export const ZONE_LABEL_END_GAP = 4;
+export const ZONE_LABEL_LINE_HEIGHT = 20;
+/** Maximum width a narrow zone expands to so its header fits on a single line without truncation. */
+export const ZONE_HEADER_MAX_EXPAND = 350;
+
 /** How a text is set: at its regular weight, bold, or in the monospaced font of code. */
 export type TextStyle = 'normal' | 'bold' | 'mono';
 

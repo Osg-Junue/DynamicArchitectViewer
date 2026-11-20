@@ -82,6 +82,42 @@ export const ICON_META: Record<IconName, IconMeta> = {
     category: 'infra',
     description: ['鍵 / シークレット管理 / トークン / 証明書', 'Key, secret, token or certificate'],
   },
+  dns: {
+    category: 'infra',
+    description: ['DNS / 名前解決', 'DNS or domain resolution'],
+  },
+  shield: {
+    category: 'infra',
+    description: ['DDoS 防御 / 脅威保護', 'DDoS protection or threat shield'],
+  },
+  stream: {
+    category: 'infra',
+    description: ['データストリーム / 連続配信', 'Data or event stream'],
+  },
+  event: {
+    category: 'infra',
+    description: ['イベントバス / Pub-Sub ルーター', 'Event bus or pub/sub broker'],
+  },
+  nat: {
+    category: 'infra',
+    description: ['NAT / アドレス変換ゲートウェイ', 'NAT or address translation gateway'],
+  },
+  registry: {
+    category: 'infra',
+    description: ['コンテナ / パッケージレジストリ', 'Container or artifact registry'],
+  },
+  warehouse: {
+    category: 'infra',
+    description: ['データウェアハウス / OLAP', 'Data warehouse or OLAP store'],
+  },
+  vault: {
+    category: 'infra',
+    description: ['シークレット保管庫 / KMS / Vault', 'Secrets vault or key management'],
+  },
+  audit: {
+    category: 'infra',
+    description: ['監査ログ / コンプライアンス', 'Audit log, compliance or governance'],
+  },
   screen: { category: 'screen', description: ['画面（ウィンドウ形）', 'Screen (window shape)'] },
   modal: {
     category: 'screen',

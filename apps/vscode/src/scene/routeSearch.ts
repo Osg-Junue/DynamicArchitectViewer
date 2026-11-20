@@ -1,12 +1,26 @@
 import type { RouteEdge, RouteNode } from './route';
-import { crossesAt, type Grid, type Lane, PORT_REACH, RAIL_GAP, stationCenter } from './routeGrid';
+import {
+  crossesAt,
+  type Grid,
+  headingOf,
+  type Lane,
+  PORT_REACH,
+  RAIL_GAP,
+  stationCenter,
+} from './routeGrid';
 
 /** What the 1st, 2nd, and 3rd+ turns cost, as a length. */
 const BEND_COSTS = [40, 52, 115] as const;
 /** A length inside a zone the link has nothing to do with counts this many times. */
 const THROUGH = 4;
+/** A length running parallel to and within clearance of a zone border counts this many times. */
+const ALONG_BORDER = 2.5;
 /** A level length through the room of a node's badge counts this many times. */
 const UNDER_BADGE = 1.25;
+/** Progressive cost for crowding multiple rails onto the same side of a node. */
+const PORT_CROWD_COSTS = [0, 0, 0, 0, 0, 80, 150] as const;
+/** Mild cost for mixing incoming and outgoing rails on an already busy side of a node. */
+const PORT_MIX_COST = 6;
 /** What crossing another unrelated route costs, as a length. */
 const CROSS = 160;
 /**
@@ -148,6 +162,10 @@ export class RouteSearch {
   /** 1 for a row (column) of crossings whose next row (column) is nearer than `RAIL_GAP`. */
   readonly #nearRow: Uint8Array;
   readonly #nearColumn: Uint8Array;
+  /** Per-node per-side (`node * 4 + side`) port load and direction counts for fan-out balancing. */
+  readonly #sideUse: Uint8Array;
+  readonly #sideInUse: Uint8Array;
+  readonly #sideOutUse: Uint8Array;
 
   constructor(
     grid: Grid,
@@ -169,6 +187,9 @@ export class RouteSearch {
     this.#nearColumn = Uint8Array.from(grid.xs, (x, i) =>
       i + 1 < grid.xs.length && (grid.xs[i + 1] as number) - x < RAIL_GAP ? 1 : 0,
     );
+    this.#sideUse = new Uint8Array(nodes.length * 4);
+    this.#sideInUse = new Uint8Array(nodes.length * 4);
+    this.#sideOutUse = new Uint8Array(nodes.length * 4);
     this.#crowd = [new Float64Array(size), new Float64Array(size)];
     this.#crowdRun = [new Uint32Array(size), new Uint32Array(size)];
     this.#goalRun = new Uint32Array(size);
@@ -183,7 +204,9 @@ export class RouteSearch {
   /** Notes the crossings round node `k` where a turn may be too near it: the others need no asking. */
   #markEnd(k: number): void {
     const { xs, ys, W } = this.#grid;
-    const { station, area } = this.#nodes[k] as RouteNode;
+    const node = this.#nodes[k] as RouteNode;
+    if (node.groupBorder) return;
+    const { station, area } = node;
     const reach = ARROW_ROOM + 2;
     const bottom = area.y + area.height + reach;
     for (let iy = lowerBound(ys, station.y - reach); iy < ys.length; iy++) {
@@ -195,14 +218,91 @@ export class RouteSearch {
     }
   }
 
+  /** Tracks which node sides `path` uses so subsequent searches balance crowded fan-out ports. */
+  recordPorts(edge: RouteEdge, path: readonly number[]): void {
+    if (path.length < 2) return;
+    const W = this.#grid.W;
+    const startSide = headingOf(path[0] as number, path[1] as number, W);
+    const endSide =
+      (headingOf(path[path.length - 2] as number, path[path.length - 1] as number, W) + 2) & 3;
+    const fromSlot = edge.from * 4 + startSide;
+    const toSlot = edge.to * 4 + endSide;
+    this.#sideUse[fromSlot] = Math.min(255, (this.#sideUse[fromSlot] ?? 0) + 1);
+    this.#sideOutUse[fromSlot] = Math.min(255, (this.#sideOutUse[fromSlot] ?? 0) + 1);
+    this.#sideUse[toSlot] = Math.min(255, (this.#sideUse[toSlot] ?? 0) + 1);
+    this.#sideInUse[toSlot] = Math.min(255, (this.#sideInUse[toSlot] ?? 0) + 1);
+  }
+
+  /** Reverses `recordPorts` before re-routing an edge. */
+  removePorts(edge: RouteEdge, path: readonly number[]): void {
+    if (path.length < 2) return;
+    const W = this.#grid.W;
+    const startSide = headingOf(path[0] as number, path[1] as number, W);
+    const endSide =
+      (headingOf(path[path.length - 2] as number, path[path.length - 1] as number, W) + 2) & 3;
+    const fromSlot = edge.from * 4 + startSide;
+    const toSlot = edge.to * 4 + endSide;
+    if ((this.#sideUse[fromSlot] ?? 0) > 0)
+      this.#sideUse[fromSlot] = (this.#sideUse[fromSlot] ?? 1) - 1;
+    if ((this.#sideOutUse[fromSlot] ?? 0) > 0) {
+      this.#sideOutUse[fromSlot] = (this.#sideOutUse[fromSlot] ?? 1) - 1;
+    }
+    if ((this.#sideUse[toSlot] ?? 0) > 0) this.#sideUse[toSlot] = (this.#sideUse[toSlot] ?? 1) - 1;
+    if ((this.#sideInUse[toSlot] ?? 0) > 0) {
+      this.#sideInUse[toSlot] = (this.#sideInUse[toSlot] ?? 1) - 1;
+    }
+  }
+
   /**
    * Where a node's links may start or end, with the directions they may run there and what
    * each costs: anywhere from the middle of the station, and level or upright from a point a
    * little off it.
    */
   #doors(k: number, incoming: boolean): Doors {
-    const { ports, xIndex, yIndex, W } = this.#grid;
+    const { ports, xIndex, yIndex, xs, ys, W, H, level, upright } = this.#grid;
     const node = this.#nodes[k] as RouteNode;
+    if (node.groupBorder) {
+      const r = node.groupBorder;
+      const right = r.x + r.width;
+      const bottom = r.y + r.height;
+      const cx = r.x + r.width / 2;
+      const cy = r.y + r.height / 2;
+      const result: Doors = new Map();
+      const addBorderDoor = (ix: number, iy: number, outwardDir: number, distFromMid: number) => {
+        const nx = ix + (DX[outwardDir] as number);
+        const ny = iy + (DY[outwardDir] as number);
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) return;
+        const isLevel = outwardDir % 2 === 0;
+        const lane = isLevel ? level : upright;
+        const stretch = isLevel ? iy * W + Math.min(ix, nx) : Math.min(iy, ny) * W + ix;
+        if ((lane.block[stretch] as number) === -2) return;
+        const way = incoming ? (outwardDir + 2) & 3 : outwardDir;
+        const p = iy * W + ix;
+        const costs = result.get(p) ?? new Float64Array(4).fill(Number.POSITIVE_INFINITY);
+        const slot = k * 4 + outwardDir;
+        const used = this.#sideUse[slot] ?? 0;
+        const crowd = PORT_CROWD_COSTS[Math.min(PORT_CROWD_COSTS.length - 1, used)] ?? 0;
+        costs[way] = Math.min(costs[way] as number, distFromMid * 0.02 + crowd);
+        result.set(p, costs);
+      };
+      const ixL = xIndex.get(r.x);
+      const ixR = xIndex.get(right);
+      const iyT = yIndex.get(r.y);
+      const iyB = yIndex.get(bottom);
+      for (let iy = 0; iy < H; iy++) {
+        const y = ys[iy] as number;
+        if (y < r.y + 18 || y > bottom - 12) continue;
+        if (ixL !== undefined) addBorderDoor(ixL, iy, LEFT, Math.abs(y - cy));
+        if (ixR !== undefined) addBorderDoor(ixR, iy, RIGHT, Math.abs(y - cy));
+      }
+      for (let ix = 0; ix < W; ix++) {
+        const x = xs[ix] as number;
+        if (x < r.x + 14 || x > right - 14) continue;
+        if (iyT !== undefined) addBorderDoor(ix, iyT, UP, Math.abs(x - cx));
+        if (iyB !== undefined) addBorderDoor(ix, iyB, DOWN, Math.abs(x - cx));
+      }
+      return result;
+    }
     const c = stationCenter(node);
     const result: Doors = new Map();
     const door = (x: number, y: number, ways: readonly number[]) => {
@@ -213,8 +313,14 @@ export class RouteSearch {
       for (const way of ways) {
         let extra = 0;
         if (node.hasLoop && ((incoming && way === DOWN) || (!incoming && way === UP))) {
-          extra = LOOP_TOP_PORT_COST;
+          extra += LOOP_TOP_PORT_COST;
         }
+        const side = incoming ? (way + 2) & 3 : way;
+        const slot = k * 4 + side;
+        const used = this.#sideUse[slot] ?? 0;
+        extra += PORT_CROWD_COSTS[Math.min(PORT_CROWD_COSTS.length - 1, used)] ?? 0;
+        const oppUsed = incoming ? (this.#sideOutUse[slot] ?? 0) : (this.#sideInUse[slot] ?? 0);
+        if (oppUsed > 0 && used >= 3) extra += PORT_MIX_COST;
         costs[way] = (Math.abs(x - c.x) + Math.abs(y - c.y)) * PORT_COST + extra;
       }
       result.set(iy * W + ix, costs);
@@ -337,18 +443,32 @@ export class RouteSearch {
     const cameFrom = this.#cameFrom;
     const stamp = this.#stamp;
     const heap = this.#heap;
-    const goal = stationCenter(this.#nodes[edge.to] as RouteNode);
+    const startNode = this.#nodes[edge.from] as RouteNode;
+    const goalNode = this.#nodes[edge.to] as RouteNode;
+    const startCenter = stationCenter(startNode);
+    const goal = stationCenter(goalNode);
+    const startX = startNode.groupBorder ? -1 : (this.#grid.xIndex.get(startCenter.x) ?? -1);
+    const startY = startNode.groupBorder ? -1 : (this.#grid.yIndex.get(startCenter.y) ?? -1);
     const starts = this.#doors(edge.from, false);
     const goals = this.#doors(edge.to, true);
-    // What is left at least from crossing `p`. A door may be nearer than the middle of the
-    // station by its reach.
-    const rest = (p: number) =>
-      Math.max(
-        0,
-        Math.abs((xs[p % W] as number) - goal.x) +
-          Math.abs((ys[(p / W) | 0] as number) - goal.y) -
-          PORT_REACH,
-      );
+    // What is left at least from crossing `p`. For a group endpoint, distance to the nearest
+    // point on its border rectangle keeps the A* heuristic strictly admissible.
+    const goalBorder = goalNode.groupBorder;
+    const rest = goalBorder
+      ? (p: number) => {
+          const px = xs[p % W] as number;
+          const py = ys[(p / W) | 0] as number;
+          const dx = Math.max(0, goalBorder.x - px, px - (goalBorder.x + goalBorder.width));
+          const dy = Math.max(0, goalBorder.y - py, py - (goalBorder.y + goalBorder.height));
+          return dx + dy;
+        }
+      : (p: number) =>
+          Math.max(
+            0,
+            Math.abs((xs[p % W] as number) - goal.x) +
+              Math.abs((ys[(p / W) | 0] as number) - goal.y) -
+              PORT_REACH,
+          );
     const run = ++this.#run;
     const friend = this.#friend;
     this.#edgeEnds.forEach((ends, idx) => {
@@ -392,9 +512,10 @@ export class RouteSearch {
         maxUpright = Math.max(maxUpright, qx);
       }
     }
-    const goalX = this.#grid.xIndex.get(goal.x) ?? 0;
-    const goalY = this.#grid.yIndex.get(goal.y) ?? 0;
+    const goalX = goalBorder ? -1 : (this.#grid.xIndex.get(goal.x) ?? 0);
+    const goalY = goalBorder ? -1 : (this.#grid.yIndex.get(goal.y) ?? 0);
     const turnsLeft = (p: number, d: number): number => {
+      if (goalBorder) return 0;
       const ix = p % W;
       const iy = (p / W) | 0;
       if (d === RIGHT) {
@@ -479,10 +600,17 @@ export class RouteSearch {
           : Math.abs((ys[ny] as number) - (ys[iy] as number));
         const zone = lane.zone[stretch] as number;
         const foreign = zone >= 0 && homeRun[zone] !== run;
+        // Keep endpoint station centerlines free of border-hugging detours so straight
+        // approaches do not sprout unnecessary 3-turn jogs right before a station.
+        const onEndpointCenterline = level
+          ? iy === startY || iy === goalY
+          : ix === startX || ix === goalX;
+        const alongBorder = lane.border[stretch] === 1 && !onEndpointCenterline;
         let step =
           length *
           (foreign ? THROUGH : 1) *
           (lane.badge[stretch] === 1 ? UNDER_BADGE : 1) *
+          (alongBorder ? ALONG_BORDER : 1) *
           (1 + this.#crowding(lane, level ? 0 : 1, stretch));
         let nextTurns = turns;
         if (nd !== d) {
@@ -504,8 +632,10 @@ export class RouteSearch {
         if (!leaving && vertexUse[p] !== 0) {
           step += CROSS * this.#crossingsAt(state, p, d, nd);
         }
-        if (Number.isFinite(arrival)) step += arrival + (nd === UP ? OWN_LABELS : 0);
-        if (leaving && nd === DOWN) step += OWN_LABELS;
+        if (Number.isFinite(arrival)) {
+          step += arrival + (!goalBorder && nd === UP ? OWN_LABELS : 0);
+        }
+        if (leaving && !startNode.groupBorder && nd === DOWN) step += OWN_LABELS;
         const next = (q * 4 + nd) * 4 + nextTurns;
         const total = cost + step;
         if (stamp[next] === run && (best[next] as number) <= total) continue;

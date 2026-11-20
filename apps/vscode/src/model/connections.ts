@@ -16,6 +16,7 @@ interface PairAcc {
   animated: boolean;
   staticColor?: DavStep['statics'][number]['color'];
   staticLabel?: string;
+  animateLabel?: string;
 }
 
 function accumulateStatement(
@@ -55,6 +56,9 @@ function accumulateStatement(
   if (style === 'solid') entry.seenSolid = true;
   if (kind === 'animate') {
     entry.animated = true;
+    if (label !== undefined && label.trim().length > 0 && entry.animateLabel === undefined) {
+      entry.animateLabel = label;
+    }
   } else {
     if (color !== undefined) entry.staticColor = color;
     if (label !== undefined) entry.staticLabel = label;
@@ -98,9 +102,30 @@ export function connectionIdMap(connections: readonly DavConnection[]): Map<stri
   return new Map(connections.map((c) => [unorderedPairKey(c.from, c.to), c.id]));
 }
 
+/** Maps each unordered pair key to its first non-empty label across all steps (for `--still --labels`). */
+export function connectionLabels(doc: Pick<DavDocument, 'steps'>): Map<string, string> {
+  const labels = new Map<string, string>();
+  for (const step of doc.steps) {
+    for (const a of step.animations) {
+      if (a.label && a.label.trim().length > 0) {
+        const key = unorderedPairKey(a.from, a.to);
+        if (!labels.has(key)) labels.set(key, a.label);
+      }
+    }
+    for (const s of step.statics) {
+      if (s.label && s.label.trim().length > 0) {
+        const key = unorderedPairKey(s.from, s.to);
+        if (!labels.has(key)) labels.set(key, s.label);
+      }
+    }
+  }
+  return labels;
+}
+
 export interface StepConnection extends DavConnection {
   staticColor?: DavStep['statics'][number]['color'];
   staticLabel?: string;
+  animateLabel?: string;
 }
 
 /**
@@ -113,7 +138,7 @@ export function stepConnections(
 ): StepConnection[] {
   const acc = new Map<string, PairAcc>();
   for (const a of step.animations) {
-    accumulateStatement(acc, a.from, a.to, a.style, a.direction, 'animate');
+    accumulateStatement(acc, a.from, a.to, a.style, a.direction, 'animate', a.label);
   }
   for (const s of step.statics) {
     accumulateStatement(acc, s.from, s.to, s.style, s.direction, 'static', s.label, s.color);
@@ -126,6 +151,7 @@ export function stepConnections(
     const result: StepConnection = { ...base };
     if (entry.staticColor !== undefined) result.staticColor = entry.staticColor;
     if (entry.staticLabel !== undefined) result.staticLabel = entry.staticLabel;
+    if (entry.animateLabel !== undefined) result.animateLabel = entry.animateLabel;
     return result;
   });
 }

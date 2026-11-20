@@ -205,3 +205,31 @@ export function wrapText(
   }
   return lines;
 }
+
+/**
+ * Returns true when `text` cannot fit within `maxLines` lines of `maxWidth` without ellipsis
+ * truncation (ignoring a literal trailing ellipsis authored in `text`).
+ */
+export function textTruncated(
+  text: string,
+  fontSize: number,
+  maxWidth: number,
+  maxLines: number,
+  style: TextStyle = 'normal',
+  measure: TextMeasure = textWidth,
+): boolean {
+  const clean = text
+    .trim()
+    .replace(/\s*\n\s*/g, '\n')
+    .replace(/[^\S\n]+/g, ' ');
+  if (!clean) return false;
+  if (maxLines <= 1 && !clean.includes('\n')) {
+    return fitText(clean, fontSize, maxWidth, style, measure) !== clean;
+  }
+  if (!clean.includes('\n') && measure(clean, fontSize, style) <= maxWidth) return false;
+  const lines = wrapText(clean, fontSize, maxWidth, maxLines, style, measure);
+  const joined = lines.join('');
+  const cleanNoSpace = clean.replace(/\s+/g, '');
+  const joinedNoSpace = joined.replace(/\s+/g, '');
+  return joinedNoSpace !== cleanNoSpace;
+}

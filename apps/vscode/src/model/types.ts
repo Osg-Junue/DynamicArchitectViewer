@@ -32,6 +32,15 @@ export const ICON_NAMES = [
   'webhook',
   'payment',
   'key',
+  'dns',
+  'shield',
+  'stream',
+  'event',
+  'nat',
+  'registry',
+  'warehouse',
+  'vault',
+  'audit',
   'screen',
   'modal',
   'browser',
@@ -89,7 +98,18 @@ export const KEYWORD_NAMES = [
   'false',
 ] as const;
 
-export type LineStyle = 'solid' | 'dashed';
+export const BORDER_STYLES = ['solid', 'dashed'] as const;
+export type LineStyle = (typeof BORDER_STYLES)[number];
+export function isLineStyle(v: string): v is LineStyle {
+  return (BORDER_STYLES as readonly string[]).includes(v);
+}
+
+export const MOUNT_MODES = ['border'] as const;
+export type NodeMount = (typeof MOUNT_MODES)[number];
+export function isNodeMount(v: string): v is NodeMount {
+  return (MOUNT_MODES as readonly string[]).includes(v);
+}
+
 export type Direction = 'forward' | 'bidirectional';
 export type DavLocale = 'ja' | 'en';
 
@@ -102,6 +122,8 @@ export interface DavGroup {
   id: string;
   label: string;
   color?: ColorName;
+  /** Border stroke style (`solid` by default). */
+  border?: LineStyle;
   /** Enclosing group ID (nested groups). */
   parentId?: string;
 }
@@ -114,6 +136,8 @@ export interface DavNode {
   badge?: string;
   visible: boolean;
   color?: ColorName;
+  /** Mounts the node onto its parent group's boundary (`border`). */
+  mount?: NodeMount;
   /** Enclosing group ID. */
   parentId?: string;
 }

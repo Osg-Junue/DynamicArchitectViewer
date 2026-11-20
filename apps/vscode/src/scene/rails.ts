@@ -1,7 +1,7 @@
 import { type Layout, type Rect, rectOverlaps, stationRect } from '../layout';
 import { selfLoopNodeIds, synthesizedConnections, unorderedPairKey } from '../model/connections';
 import { EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH } from '../model/text';
-import type { DavDocument } from '../model/types';
+import type { DavDocument, IconName } from '../model/types';
 import { ancestorIds, parentMap } from '../model/zones';
 import {
   type Point,
@@ -21,6 +21,7 @@ import {
   NODE_LABEL_SIZE,
   NODE_SUB_SIZE,
   textWidth,
+  wrapText,
 } from './text';
 import { ZONE_LABEL, zoneLabelRoom } from './zones';
 
@@ -110,14 +111,12 @@ interface Routed {
 function nodeLabelRect(node: ResolvedNode, area = stationArea(node)): Rect {
   const station = stationRect(node.rect, node.icon);
   const bottom = station.y + station.height;
-  // A long name or sub-label is wider than the area a rail keeps clear of.
+  // A long name wraps up to 2 lines; measure the widest wrapped line rather than unwrapped length.
+  const labelLines = wrapText(node.label, NODE_LABEL_SIZE, node.rect.width, 2, 'bold');
+  const labelW = Math.max(0, ...labelLines.map((line) => textWidth(line, NODE_LABEL_SIZE, 'bold')));
   const text = Math.min(
     node.rect.width,
-    Math.max(
-      area.width,
-      textWidth(node.label, NODE_LABEL_SIZE, 'bold') + 8,
-      node.sub ? textWidth(node.sub, NODE_SUB_SIZE) + 8 : 0,
-    ),
+    Math.max(area.width, labelW + 8, node.sub ? textWidth(node.sub, NODE_SUB_SIZE) + 8 : 0),
   );
   return {
     x: station.x + station.width / 2 - text / 2,
@@ -139,28 +138,53 @@ export function nodeBody(node: ResolvedNode): Rect[] {
   ];
 }
 
-/** Straight from one station's outline to the other's, for the rare rail no route is found for. */
-function direct(from: ResolvedNode, to: ResolvedNode): Route {
-  const a = stationRect(from.rect, from.icon);
-  const b = stationRect(to.rect, to.icon);
+export interface RailEndpoint {
+  id: string;
+  rect: Rect;
+  icon?: IconName;
+}
+
+/** Straight from one station or group outline to the other's, for the rare rail no route is found for. */
+function direct(from: RailEndpoint, to: RailEndpoint): Route {
+  const a = from.icon ? stationRect(from.rect, from.icon) : from.rect;
+  const b = to.icon ? stationRect(to.rect, to.icon) : to.rect;
   const start = { x: a.x + a.width / 2, y: a.y + a.height / 2 };
   const end = { x: b.x + b.width / 2, y: b.y + b.height / 2 };
-  const length = Math.hypot(end.x - start.x, end.y - start.y) || 1;
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.hypot(dx, dy) || 1;
+  const clipDist = (box: Rect, isGroup: boolean): number => {
+    if (!isGroup) return box.width / 2 + 2;
+    const tx =
+      Math.abs(dx) > 1e-6 ? box.width / 2 / Math.abs(dx / length) : Number.POSITIVE_INFINITY;
+    const ty =
+      Math.abs(dy) > 1e-6 ? box.height / 2 / Math.abs(dy / length) : Number.POSITIVE_INFINITY;
+    return Math.min(tx, ty) + 2;
+  };
   const along = (p: Point, by: number): Point => ({
-    x: p.x + ((end.x - start.x) / length) * by,
-    y: p.y + ((end.y - start.y) / length) * by,
+    x: p.x + (dx / length) * by,
+    y: p.y + (dy / length) * by,
   });
-  return { points: [along(start, a.width / 2 + 2), along(end, -(b.width / 2 + 2))] };
+  return {
+    points: [along(start, clipDist(a, !from.icon)), along(end, -clipDist(b, !to.icon))],
+  };
 }
 
 /** The room a zone's name takes up, which no rail, label or callout is drawn over. */
 export function zoneNameArea(label: string, zone: Rect): Rect {
-  const width = Math.min(textWidth(label, ZONE_LABEL.size), zoneLabelRoom(zone.width));
+  const room = zoneLabelRoom(zone.width);
+  const lines = wrapText(label, ZONE_LABEL.size, room, 2);
+  const lineCount = Math.max(1, lines.length);
+  const maxLineW =
+    lines.length > 0
+      ? Math.max(...lines.map((line) => textWidth(line, ZONE_LABEL.size)))
+      : Math.min(textWidth(label, ZONE_LABEL.size), room);
+  const width = Math.min(maxLineW, room);
   return {
     x: zone.x + ZONE_LABEL.inset - 4,
     y: zone.y + ZONE_LABEL.baseline - ZONE_LABEL.size - 2,
     width: width + 8,
-    height: ZONE_LABEL.size + 10,
+    height: ZONE_LABEL.size + 10 + (lineCount - 1) * ZONE_LABEL.lineHeight,
   };
 }
 
@@ -372,24 +396,43 @@ function routesFor(...args: Parameters<typeof routeEdges>): Map<string, RoutedRa
 }
 
 function routeDiagram(doc: DavDocument, layout: Layout, nodes: readonly ResolvedNode[]): Routed {
-  const nodeIndex = new Map(nodes.map((n, i) => [n.id, i]));
+  const endpointIndex = new Map(nodes.map((n, i) => [n.id, i]));
   const groups = doc.groups.flatMap((g) => {
     const rect = layout.groups[g.id];
     return rect ? [{ id: g.id, rect }] : [];
   });
   const groupIndex = new Map(groups.map((g, i) => [g.id, i]));
+  const groupRectById = new Map(groups.map((g) => [g.id, g.rect]));
   const groupParent = parentMap(doc.groups);
   const nodeParent = parentMap(doc.nodes);
-  const zonesAround = (nodeId: string): number[] =>
-    ancestorIds(groupParent, nodeParent.get(nodeId)).flatMap((g) => groupIndex.get(g) ?? []);
-
   const connections = synthesizedConnections(doc);
+
+  // Append synthetic border-endpoint RouteNodes for any groups referenced as `static` endpoints.
+  const endpointGroups: Array<{ id: string; rect: Rect }> = [];
+  for (const conn of connections) {
+    for (const id of [conn.from, conn.to]) {
+      if (endpointIndex.has(id)) continue;
+      const gr = groupRectById.get(id);
+      if (!gr) continue;
+      endpointIndex.set(id, nodes.length + endpointGroups.length);
+      endpointGroups.push({ id, rect: gr });
+    }
+  }
+
+  const zonesAround = (id: string): number[] => {
+    if (groupRectById.has(id)) {
+      // A group endpoint stays outside its own interior, inheriting only strict ancestors.
+      return ancestorIds(groupParent, groupParent.get(id)).flatMap((g) => groupIndex.get(g) ?? []);
+    }
+    return ancestorIds(groupParent, nodeParent.get(id)).flatMap((g) => groupIndex.get(g) ?? []);
+  };
+
   const wanted: RouteEdge[] = [];
   const entries = new Map<string, { conn: (typeof connections)[number]; id: string }>();
   connections.forEach((conn, i) => {
     if (conn.from === conn.to) return;
-    const a = nodeIndex.get(conn.from);
-    const b = nodeIndex.get(conn.to);
+    const a = endpointIndex.get(conn.from);
+    const b = endpointIndex.get(conn.to);
     if (a === undefined || b === undefined) return;
     const id = `c${i}`;
     wanted.push({
@@ -405,11 +448,11 @@ function routeDiagram(doc: DavDocument, layout: Layout, nodes: readonly Resolved
   const names = zoneNameAreas(doc, layout);
   const areas = nodes.map(stationArea);
   const loopNodes = selfLoopNodeIds(doc);
-  const loopRoom = loopAreas(loopNodes, nodes, nodeIndex);
+  const loopRoom = loopAreas(loopNodes, nodes, endpointIndex);
   // Reserve space above self-loops when any step attaches a static label to that loop.
   const loopLabels: Rect[] = [];
   for (const id of loopNodes) {
-    const node = nodes[nodeIndex.get(id) ?? -1];
+    const node = nodes[endpointIndex.get(id) ?? -1];
     if (!node) continue;
     let longest: string | undefined;
     for (const step of doc.steps) {
@@ -424,8 +467,8 @@ function routeDiagram(doc: DavDocument, layout: Layout, nodes: readonly Resolved
     }
   }
 
-  const found = routesFor(
-    nodes.map((n, i) => {
+  const routeNodes = [
+    ...nodes.map((n, i) => {
       const area = areas[i] as Rect;
       return {
         station: stationRect(n.rect, n.icon),
@@ -435,6 +478,16 @@ function routeDiagram(doc: DavDocument, layout: Layout, nodes: readonly Resolved
         badge: badgeRoom(n, area),
       };
     }),
+    ...endpointGroups.map((g) => ({
+      station: g.rect,
+      area: g.rect,
+      badge: g.rect,
+      groupBorder: g.rect,
+    })),
+  ];
+
+  const found = routesFor(
+    routeNodes,
     groups.map((g) => ({
       rect: g.rect,
       depth: ancestorIds(groupParent, groupParent.get(g.id)).length,
@@ -443,6 +496,11 @@ function routeDiagram(doc: DavDocument, layout: Layout, nodes: readonly Resolved
     [...names, ...loopRoom, ...loopLabels],
     wanted,
   );
+
+  const endpointById = new Map<string, RailEndpoint>([
+    ...nodes.map((n): [string, RailEndpoint] => [n.id, n]),
+    ...endpointGroups.map((g): [string, RailEndpoint] => [g.id, { id: g.id, rect: g.rect }]),
+  ]);
 
   const rails = new Map<string, StoredRail>();
   for (const [key, { conn, id }] of entries) {
@@ -455,8 +513,8 @@ function routeDiagram(doc: DavDocument, layout: Layout, nodes: readonly Resolved
         shared: routed.shared,
       });
     } else {
-      const a = nodes[nodeIndex.get(conn.from) ?? -1];
-      const b = nodes[nodeIndex.get(conn.to) ?? -1];
+      const a = endpointById.get(conn.from);
+      const b = endpointById.get(conn.to);
       if (a && b) {
         rails.set(key, {
           canonFrom: conn.from,
@@ -513,8 +571,10 @@ export class RailRouter {
   }
 
   /** The routed rail from `from` to `to`, oriented in the caller's direction. */
-  railOf(from: ResolvedNode, to: ResolvedNode): Rail {
-    if (from.id === to.id) return selfLoop(stationRect(from.rect, from.icon), 0);
+  railOf(from: RailEndpoint, to: RailEndpoint): Rail {
+    if (from.id === to.id) {
+      return selfLoop(from.icon ? stationRect(from.rect, from.icon) : from.rect, 0);
+    }
     const stored = this.#routed.rails.get(unorderedPairKey(from.id, to.id));
     if (!stored) return direct(from, to);
     return stored.canonFrom === from.id ? stored.route : reverse(stored.route);

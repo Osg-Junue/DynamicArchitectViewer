@@ -33,6 +33,8 @@ export interface RouteNode {
   hasLoop?: boolean;
   /** The room above the station that its badge is written in, whenever a step gives it one. */
   badge: Rect;
+  /** When present, this endpoint is a group's outer boundary rather than a station node. */
+  groupBorder?: Rect;
 }
 export interface RouteGroup {
   rect: Rect;
@@ -163,6 +165,7 @@ export function routeEdges(
     const path = search.find(edge);
     if (!path) continue;
     occupy(grid, path, edgeIndex.get(edge.id) ?? -1);
+    search.recordPorts(edge, path);
     paths.set(edge.id, path);
   }
 
@@ -191,8 +194,10 @@ export function routeEdges(
       const oldPath = paths.get(edge.id);
       if (!oldPath || searchedAt[idx] === changes) continue;
       unoccupy(grid, oldPath, idx);
+      search.removePorts(edge, oldPath);
       const nextPath = search.find(edge) ?? oldPath;
       occupy(grid, nextPath, idx);
+      search.recordPorts(edge, nextPath);
       paths.set(edge.id, nextPath);
       if (nextPath.length !== oldPath.length || nextPath.some((p, k) => p !== oldPath[k])) {
         changes++;
@@ -208,5 +213,5 @@ export function routeEdges(
     }
   }
 
-  return apart(cornersOf(paths, grid), sides(paths, grid.W), edges, nodes);
+  return apart(cornersOf(paths, grid), sides(paths, grid.W), edges, nodes, groups);
 }

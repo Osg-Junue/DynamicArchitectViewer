@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { type Diagnostic, format, formatDiagnostic, parse } from '../dsl';
+import { synthesizedConnections } from '../model/connections';
 import { lineAtOffset } from '../model/text';
 import { layoutMap } from './layoutMap';
 import { layoutReport } from './layoutReport';
@@ -64,8 +65,9 @@ function checkFile(file: string, write: boolean, detail: boolean, map: boolean):
   }
 
   if (diagnostics.length === 0 && hints.length === 0) {
-    const { nodes, edges, steps } = document;
-    say(`${file}: ok (${nodes.length} nodes, ${edges.length} edges, ${steps.length} steps)`);
+    const { nodes, steps } = document;
+    const connections = synthesizedConnections(document);
+    say(`${file}: ok (${nodes.length} nodes, ${connections.length} edges, ${steps.length} steps)`);
   }
   return diagnostics.length === 0 && hints.length === 0;
 }

@@ -1,4 +1,3 @@
-dav 1
 title "AWS multi-AZ web architecture & database failover"
 
 group edge_net "Edge & Security" {
@@ -16,15 +15,6 @@ group vpc "Production VPC (us-east-1)" {
 
 node client "Web Browser" [icon: browser, sub: "End user"]
 
-client --> cdn : "HTTPS"
-cdn --> waf : "Origin Fetch"
-waf --> alb : "Verified"
-alb --> api : "HTTP/2"
-api --> redis : "Cache Lookup"
-api --> db_pri : "Read / Write"
-db_pri ..> db_sby : "Sync Replication"
-api ..> db_sby : "Failover Route" [id: e_failover, visible: false, color: yellow]
-
 step "Edge inspection and routing to the load balancer" {
   desc "CloudFront receives the request, and WAF inspects it before it is forwarded to the load balancer in the VPC."
   focus client, cdn, waf, alb
@@ -37,6 +27,7 @@ step "Fast response from the cache" {
   desc "The Order API checks Redis. On a cache hit, it responds without touching the database."
   focus alb, api, redis
   state redis [color: green, badge: "CACHE HIT"]
+  static db_pri ..> db_sby : "Sync Replication"
   animate alb --> api : "Forward" [desc: "The load balancer picks an ECS Fargate task from the target group"]
   animate api --> redis : "GET product:101" [desc: "Product data comes from memory in ElastiCache"]
 }
@@ -44,7 +35,6 @@ step "Fast response from the cache" {
 step "Writing the order and replicating it" {
   desc "The order is written to the primary database and replicated to the standby."
   focus api, db_pri, db_sby
-  state redis [color: none, badge: ""]
   state db_pri [color: green, badge: "COMMIT"]
   animate api --> db_pri : "INSERT INTO orders" [desc: "The order transaction commits on the primary in AZ-a"] {
     code sql "Write Transaction" ```
@@ -60,8 +50,7 @@ step "Primary failure and automatic failover" {
   focus api, db_pri, db_sby
   state db_pri [color: red, badge: "DOWN"]
   state db_sby [color: green, badge: "PROMOTED"]
-  state e_failover [visible: true]
-  animate api --> db_sby : "Reconnect Writer" [color: yellow, desc: "The cluster endpoint now resolves to the promoted standby"] {
+  animate api ..> db_sby : "Reconnect Writer" [color: yellow, desc: "The cluster endpoint now resolves to the promoted standby"] {
     code json "Cluster Endpoint" ```
       {
         "writer": "aurora-az-c.cluster.internal",

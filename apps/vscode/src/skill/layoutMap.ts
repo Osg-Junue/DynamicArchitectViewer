@@ -1,5 +1,6 @@
 import { computeLayout, type Rect } from '../layout';
 import { segmentsOf } from '../layout/links';
+import { synthesizedConnections } from '../model/connections';
 import type { DavDocument, DavGroup, DavNode } from '../model/types';
 import { ancestorIds, parentMap, topLevelGroups, zoneOfNodes } from '../model/zones';
 import { arrowOf } from './outline';
@@ -294,7 +295,7 @@ export function layoutMap(doc: DavDocument): string[] {
     const zone = doc.groups.find((g) => g.id === zoneOf.get(node));
     return zone ? called(zone) : undefined;
   };
-  for (const edge of doc.edges) {
+  for (const edge of synthesizedConnections(doc)) {
     const [segment] = segmentsOf([[edge.from, edge.to]], layout);
     if (edge.from === edge.to || !segment) continue;
     const across = Math.round(segment.bx - segment.ax);

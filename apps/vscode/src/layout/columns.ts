@@ -45,7 +45,10 @@ const ISOLATED_ROW_GAP = 44;
  * and `deg === 0` singletons (including self-loops) so isolated additions cause exact 0.0-unit
  * drift on connected nodes and frames.
  */
-export function computeSingleGroupLayout(doc: DavDocument): Layout {
+export function computeSingleGroupLayout(
+  doc: DavDocument,
+  layoutMain: (subDoc: DavDocument) => Layout = computeColumnLayout,
+): Layout {
   if (doc.nodes.length === 0 && doc.groups.length === 0) {
     return { nodes: rectRecord(), groups: rectRecord() };
   }
@@ -143,7 +146,7 @@ export function computeSingleGroupLayout(doc: DavDocument): Layout {
     multiComps.length === 0 &&
     (singletonIds.length === 0 || (mainComp === undefined && singletonIds.length <= 1))
   ) {
-    return straightenNodes(doc, computeColumnLayout(doc));
+    return straightenNodes(doc, layoutMain(doc));
   }
 
   const subdoc = (nodeIds: ReadonlySet<string>, includeGroups: boolean): DavDocument => ({
@@ -175,7 +178,7 @@ export function computeSingleGroupLayout(doc: DavDocument): Layout {
       if (mainBlockSet.has(owners.get(n.id) ?? n.id)) mainNodes.add(n.id);
     }
     const mDoc = subdoc(mainNodes, isolatedGroupId === undefined && topGroupId !== undefined);
-    const mainLayout = straightenNodes(mDoc, computeColumnLayout(mDoc));
+    const mainLayout = straightenNodes(mDoc, layoutMain(mDoc));
     for (const [id, r] of Object.entries(mainLayout.nodes)) {
       nodes[id] = r;
       trackRect(r);
@@ -212,7 +215,7 @@ export function computeSingleGroupLayout(doc: DavDocument): Layout {
       if (owners.get(n.id) === isolatedGroupId) gNodes.add(n.id);
     }
     const gDoc = subdoc(gNodes, true);
-    const gLayout = straightenNodes(gDoc, computeColumnLayout(gDoc));
+    const gLayout = straightenNodes(gDoc, layoutMain(gDoc));
     const nodeEntries = Object.entries(gLayout.nodes);
     const groupEntries = Object.entries(gLayout.groups);
     if (nodeEntries.length > 0 || groupEntries.length > 0) {

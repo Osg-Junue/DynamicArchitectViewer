@@ -28,6 +28,7 @@ Options:
   --out-dir <dir>          The directory to write to, instead of next to each diagram
   --camera <follow|whole>  SVG: follow the flow (default), or keep the whole diagram in view
   --still                  SVG: a still picture instead of an animation
+  --labels                 SVG (--still): draw edge labels on the still image
   --step <n>               SVG: only step n, numbered from 1 as in the preview
   --locale <en|ja>         Language of the texts around the diagram (default: en)
   --check                  Write nothing, and fail when a file is missing or out of date
@@ -37,6 +38,7 @@ interface ExportPlan {
   format: 'svg' | 'html';
   camera: 'follow' | 'whole';
   still: boolean;
+  labels: boolean;
   /** 0-based, or `null` for every step. */
   step: number | null;
   locale: DavLocale;
@@ -51,6 +53,7 @@ function planOf(values: {
   'out-dir'?: string;
   camera?: string;
   still?: boolean;
+  labels?: boolean;
   step?: string;
   locale?: string;
   check?: boolean;
@@ -59,9 +62,9 @@ function planOf(values: {
   const format = oneOf('format', values.format, ['svg', 'html'], inferred);
   if (
     format === 'html' &&
-    (values.camera !== undefined || values.still || values.step !== undefined)
+    (values.camera !== undefined || values.still || values.labels || values.step !== undefined)
   ) {
-    throw new UsageError('--camera, --still and --step apply to an SVG, not to HTML');
+    throw new UsageError('--camera, --still, --labels and --step apply to an SVG, not to HTML');
   }
   let step: number | null = null;
   if (values.step !== undefined) {
@@ -78,6 +81,7 @@ function planOf(values: {
     format,
     camera: oneOf('camera', values.camera, ['follow', 'whole'], 'follow'),
     still: values.still ?? false,
+    labels: values.labels ?? false,
     step,
     locale: oneOf('locale', values.locale, ['en', 'ja'], 'en'),
     check: values.check ?? false,
@@ -113,6 +117,7 @@ function render(text: string, document: DavDocument, plan: ExportPlan): Promise<
     locale: plan.locale,
     animate: !plan.still,
     camera: plan.camera,
+    ...(plan.labels ? { labels: true } : {}),
     ...(plan.step === null ? {} : { step: plan.step }),
   });
 }
@@ -177,6 +182,7 @@ export async function runExport(args: readonly string[]): Promise<number> {
       'out-dir': { type: 'string' },
       camera: { type: 'string' },
       still: { type: 'boolean' },
+      labels: { type: 'boolean' },
       step: { type: 'string' },
       locale: { type: 'string' },
       check: { type: 'boolean' },

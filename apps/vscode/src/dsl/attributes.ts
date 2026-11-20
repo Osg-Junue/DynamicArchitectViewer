@@ -1,5 +1,6 @@
 import type { SyntaxNode } from '@lezer/common';
 import {
+  BORDER_STYLES,
   COLOR_NAMES,
   COLOR_RESET,
   type ColorName,
@@ -7,6 +8,9 @@ import {
   type IconName,
   isColorName,
   isIconName,
+  isLineStyle,
+  isNodeMount,
+  MOUNT_MODES,
 } from '../model/types';
 import type { DiagnosticCode, Severity } from './diagnostics';
 import {
@@ -44,6 +48,8 @@ const EXPECTED_BY_TYPE: Record<AttrType, string> = {
   color: COLOR_NAMES.join(' | '),
   stateColor: [...COLOR_NAMES, COLOR_RESET].join(' | '),
   icon: ICON_NAMES.join(' | '),
+  border: BORDER_STYLES.join(' | '),
+  mount: MOUNT_MODES.join(' | '),
 };
 
 /** Decodes a `"..."` syntax node and reports any invalid escape sequences. */
@@ -134,6 +140,16 @@ function convertValue(
     case 'icon':
       if (node.name !== 'Identifier') return invalid();
       return coerceIcon(raw, node, report);
+    case 'border': {
+      if (node.name !== 'Identifier') return invalid();
+      const lower = raw.toLowerCase();
+      return isLineStyle(lower) ? lower : invalid();
+    }
+    case 'mount': {
+      if (node.name !== 'Identifier') return invalid();
+      const lower = raw.toLowerCase();
+      return isNodeMount(lower) ? lower : invalid();
+    }
   }
 }
 

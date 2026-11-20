@@ -1,4 +1,11 @@
 import type { Layout, Rect } from '../layout';
+import {
+  ZONE_LABEL_BASELINE,
+  ZONE_LABEL_END_GAP,
+  ZONE_LABEL_FONT_SIZE,
+  ZONE_LABEL_INSET,
+  ZONE_LABEL_LINE_HEIGHT,
+} from '../model/text';
 import type { DavDocument } from '../model/types';
 import { idPair, topLevelGroups } from '../model/zones';
 import { boundsOf } from './bounds';
@@ -7,11 +14,12 @@ import type { Packet, ResolvedGroup, ResolvedView } from './resolve';
 
 /** Where a zone's name sits inside its zone; a part of the diagram, so it zooms with it. */
 export const ZONE_LABEL = {
-  size: 16,
-  inset: 14,
-  baseline: 24,
+  size: ZONE_LABEL_FONT_SIZE,
+  inset: ZONE_LABEL_INSET,
+  baseline: ZONE_LABEL_BASELINE,
   /** Gap kept between the end of the name and the zone's right edge. */
-  endGap: 4,
+  endGap: ZONE_LABEL_END_GAP,
+  lineHeight: ZONE_LABEL_LINE_HEIGHT,
 } as const;
 
 /** How wide a zone's name may be: up to just before the zone's right edge. */

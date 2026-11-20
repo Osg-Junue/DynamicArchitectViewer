@@ -1,4 +1,4 @@
-import { NODE_SIZE } from '../layout';
+import { type Layout, NODE_SIZE } from '../layout';
 import { EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH } from '../model/text';
 import type { DavDocument } from '../model/types';
 import { calloutCuts } from './calloutMeasure';
@@ -9,7 +9,9 @@ import {
   NODE_LABEL_SIZE,
   NODE_SUB_SIZE,
   type TextStyle,
+  textTruncated,
 } from './text';
+import { ZONE_LABEL, zoneLabelRoom } from './zones';
 
 /**
  * A text of a diagram that does not fit where it is drawn, and is shown cut off with an
@@ -17,6 +19,7 @@ import {
  */
 export type TextCut =
   | { kind: 'node-label' | 'node-sub' | 'node-badge'; node: string; text: string }
+  | { kind: 'zone-label'; group: string; text: string }
   | { kind: 'static-label'; step: number; from: string; to: string; text: string }
   | { kind: 'state-badge'; step: number; target: string; text: string }
   | { kind: 'packet-label' | 'packet-desc'; step: number; from: string; to: string; text: string }
@@ -29,12 +32,12 @@ export { CALLOUT_CODE_MAX_LINES } from './calloutMeasure';
 const isCut = (text: string, size: number, width: number, style?: TextStyle): boolean =>
   fitText(text, size, width, style) !== text;
 
-/** Every text of the document that is drawn cut off. Zone names are left out: their room depends on the layout. */
-export function textCuts(doc: DavDocument): TextCut[] {
+/** Every text of the document that is drawn cut off. Zone names are checked when `layout` is given. */
+export function textCuts(doc: DavDocument, layout?: Layout): TextCut[] {
   const cuts: TextCut[] = [];
   const nodeText = NODE_SIZE.width;
   for (const n of doc.nodes) {
-    if (isCut(n.label, NODE_LABEL_SIZE, nodeText, 'bold')) {
+    if (textTruncated(n.label, NODE_LABEL_SIZE, nodeText, 2, 'bold')) {
       cuts.push({ kind: 'node-label', node: n.id, text: n.label });
     }
     if (n.sub && isCut(n.sub, NODE_SUB_SIZE, nodeText)) {
@@ -42,6 +45,15 @@ export function textCuts(doc: DavDocument): TextCut[] {
     }
     if (n.badge && isCut(n.badge, BADGE_SIZE, BADGE_MAX_WIDTH, 'bold')) {
       cuts.push({ kind: 'node-badge', node: n.id, text: n.badge });
+    }
+  }
+  if (layout) {
+    for (const g of doc.groups) {
+      const rect = layout.groups[g.id];
+      if (!rect) continue;
+      if (textTruncated(g.label, ZONE_LABEL.size, zoneLabelRoom(rect.width), 2)) {
+        cuts.push({ kind: 'zone-label', group: g.id, text: g.label });
+      }
     }
   }
   for (const step of doc.steps) {

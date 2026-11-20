@@ -1,4 +1,3 @@
-dav 1
 title "Global commerce: zero-trust payments and real-time fraud detection"
 
 group client_edge "Client & Global Edge" [color: teal] {
@@ -30,21 +29,6 @@ group external_net "External Financial Network" [color: yellow] {
   node stripe "Stripe / Card Net" [icon: external, sub: "3DS 2.0 / Acquirer GW"]
 }
 
-mobile --> cdn : "HTTPS (TLS 1.3)"
-cdn --> waf : "Edge Inspect"
-waf --> apigw : "Signed Origin"
-apigw <-> idp : "JWKS / OIDC"
-apigw --> bff : "GraphQL"
-bff <-> redis : "Idempotency"
-bff <-> fraud_ai : "Risk Check"
-bff --> order_svc : "Start Saga"
-order_svc --> aurora : "ACID Write"
-order_svc --> pay_svc : "Capture Cmd"
-pay_svc <-> stripe : "ISO8583 / REST"
-pay_svc --> kafka : "PaymentEvent"
-order_svc --> kafka : "OrderEvent"
-kafka ..> s3_audit : "Audit Sink"
-
 step "End-to-end payment in ten animations" {
   desc "A payment from the mobile app passes through edge protection, zero-trust authentication, AI fraud checks, a distributed saga, and the card network."
   focus mobile, cdn, waf, apigw, idp, bff, redis, fraud_ai, order_svc, aurora, pay_svc, stripe, kafka, s3_audit
@@ -53,6 +37,8 @@ step "End-to-end payment in ten animations" {
   state aurora [color: green, badge: "COMMIT"]
   state pay_svc [color: green, badge: "AUTHORIZED"]
   state s3_audit [badge: "LOCKED"]
+  static pay_svc <-> stripe : "ISO8583 / REST"
+  static pay_svc --> kafka : "PaymentEvent"
   animate mobile --> cdn : "1. POST /checkout" [desc: "The app sends the order to the nearest CloudFront edge over TLS 1.3"]
   animate cdn --> waf : "2. WAF Inspect" [desc: "AWS WAF checks bot signatures, IP reputation and rate limits"]
   animate waf --> apigw : "3. Origin mTLS" [desc: "Requests that pass get an origin verification header and go to API Gateway"]
@@ -93,5 +79,5 @@ step "Blocking fraud with a compensating transaction" {
       }
     ```
   }
-  animate kafka --> s3_audit : "5. Write Forensics" [color: red, desc: "Forensic logs are stored in the write-once audit vault"]
+  animate kafka ..> s3_audit : "5. Write Forensics" [color: red, desc: "Forensic logs are stored in the write-once audit vault"]
 }

@@ -20,6 +20,7 @@ import {
   NODE_LABEL_SIZE,
   NODE_SUB_SIZE,
   textWidth,
+  wrapText,
 } from './text';
 import { h, type VElement } from './vnode';
 import { ZONE_LABEL, zoneLabelRoom } from './zones';
@@ -95,6 +96,21 @@ export function dimClass(base: string, dimmed: boolean): string {
 /** Groups are zones: a tinted area behind the stations they contain. */
 function groupElement(g: ResolvedGroup): VElement {
   const { x, y, width, height } = g.rect;
+  // Attenuate fill opacity slightly at deeper nesting levels so 4–6 stacked frames do not darken
+  // sub-labels inside leaf subnets.
+  const fillOpacity = g.color
+    ? g.depth === 0
+      ? 0.14
+      : g.depth === 1
+        ? 0.1
+        : g.depth === 2
+          ? 0.08
+          : 0.065
+    : g.depth === 0
+      ? 0.07
+      : g.depth === 1
+        ? 0.045
+        : 0.035;
   return h(
     'g',
     { class: dimClass('dav-group', g.dimmed), 'data-id': g.id },
@@ -105,11 +121,12 @@ function groupElement(g: ResolvedGroup): VElement {
       height,
       rx: 14,
       fill: g.color ? paint(g.color) : THEME_COLOR.fg,
-      'fill-opacity': g.color ? 0.14 : 0.07,
+      'fill-opacity': fillOpacity,
       // A hairline in the zone's own color: the tint alone barely differs from the background.
       stroke: g.color ? paint(g.color) : THEME_COLOR.fg,
       'stroke-opacity': g.color ? 0.55 : 0.28,
-      'stroke-width': 0.75,
+      'stroke-width': g.border === 'dashed' ? 1.25 : 0.75,
+      'stroke-dasharray': g.border === 'dashed' ? '7 5' : undefined,
       'vector-effect': 'non-scaling-stroke',
     }),
   );
@@ -118,19 +135,27 @@ function groupElement(g: ResolvedGroup): VElement {
 /** A zone's name, in a layer above the rails so that no line can run over it. */
 function groupLabelElement(g: ResolvedGroup): VElement {
   const { x, y, width } = g.rect;
+  const labelX = x + ZONE_LABEL.inset;
+  const lines = wrapText(g.label, ZONE_LABEL.size, zoneLabelRoom(width), 2);
+  const content =
+    lines.length > 1
+      ? lines.map((line, i) =>
+          h('tspan', { x: labelX, dy: i === 0 ? 0 : ZONE_LABEL.lineHeight }, line),
+        )
+      : [lines[0] ?? fitText(g.label, ZONE_LABEL.size, zoneLabelRoom(width))];
   return h(
     'g',
     { class: dimClass('dav-group', g.dimmed), 'data-id': g.id },
     h(
       'text',
       {
-        x: x + ZONE_LABEL.inset,
+        x: labelX,
         y: y + ZONE_LABEL.baseline,
         class: 'dav-group-label',
         'font-size': ZONE_LABEL.size,
         fill: THEME_COLOR.fg,
       },
-      fitText(g.label, ZONE_LABEL.size, zoneLabelRoom(width)),
+      ...content,
     ),
   );
 }
@@ -277,6 +302,8 @@ const ICON_SIZE = 22;
 const WINDOW_BAR = 10;
 const WINDOW_ICON_SIZE = 17;
 const NODE_LABEL_OFFSET = 94;
+const NODE_LABEL_WRAP_OFFSET = 86;
+const NODE_LABEL_WRAP_LINE_HEIGHT = 15;
 
 function nodeElement(n: ResolvedNode, icons: IconShapes): VElement {
   const { x, y, width } = n.rect;
@@ -294,6 +321,17 @@ function nodeElement(n: ResolvedNode, icons: IconShapes): VElement {
   };
   const iconCy = isWindow ? cy + WINDOW_BAR / 2 : cy;
   const iconSize = isWindow ? WINDOW_ICON_SIZE : ICON_SIZE;
+  const labelLines = wrapText(n.label, NODE_LABEL_SIZE, width, 2, 'bold');
+  const wrapped = labelLines.length > 1;
+  const labelY = y + (wrapped ? NODE_LABEL_WRAP_OFFSET : NODE_LABEL_OFFSET);
+  const subY =
+    y +
+    (wrapped ? NODE_LABEL_WRAP_OFFSET + NODE_LABEL_WRAP_LINE_HEIGHT + 14 : NODE_LABEL_OFFSET + 17);
+  const labelContent = wrapped
+    ? labelLines.map((line, i) =>
+        h('tspan', { x: cx, dy: i === 0 ? 0 : NODE_LABEL_WRAP_LINE_HEIGHT }, line),
+      )
+    : [labelLines[0] ?? fitText(n.label, NODE_LABEL_SIZE, width, 'bold')];
 
   return h(
     'g',
@@ -318,20 +356,20 @@ function nodeElement(n: ResolvedNode, icons: IconShapes): VElement {
       'text',
       {
         x: cx,
-        y: y + NODE_LABEL_OFFSET,
+        y: labelY,
         'text-anchor': 'middle',
         class: 'dav-node-label',
         'font-size': NODE_LABEL_SIZE,
         fill: THEME_COLOR.fg,
       },
-      fitText(n.label, NODE_LABEL_SIZE, width, 'bold'),
+      ...labelContent,
     ),
     n.sub
       ? h(
           'text',
           {
             x: cx,
-            y: y + NODE_LABEL_OFFSET + 17,
+            y: subY,
             'text-anchor': 'middle',
             class: 'dav-node-sub',
             'font-size': NODE_SUB_SIZE,

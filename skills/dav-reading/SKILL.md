@@ -7,7 +7,7 @@ compatibility: The bundled outline script needs Node.js 18 or later.
 
 # Reading DynamicArchitectViewer diagrams
 
-A `.dav` file describes a system twice. Its **structure** says what exists: nodes, the zones that hold them, and the edges between them. Its **steps** say what happens: in each step, packets travel between nodes in a set order, and badges, colors and visibility change.
+A `.dav` file (v2) describes a system's **structure** (`group` and `node`) and its **steps** (`step` blocks containing `animate` packets, `static` links, `focus`, and step-local `state` overrides). The overview synthesizes all connections from the steps.
 
 To explain a file, get its outline, read it in order, then answer with one of the patterns below. To write or change a `.dav` file, use the `dav-diagrams` skill instead. To export one as an image or a page, use the `dav-cli` skill.
 
@@ -55,19 +55,17 @@ To explain a file, get its outline, read it in order, then answer with one of th
 ### Connections
 
 ```
-- Browser (browser) <-> Order API (api) : "HTTPS"
-- Order API (api) <.> Backup PSP (backup) : "Failover" [id e_backup; orange; hidden until step 2]
+- Browser (browser) <-> Order API (api)
+- Order API (api) <.> Backup PSP (backup)
 ```
 
 | Arrow | Meaning |
 | :--- | :--- |
 | `-->` | One way: the left side calls, sends to or depends on the right side |
 | `<->` | Both ways: a request and its answer, or two sides that both send |
-| `..>` and `<.>` | The same, drawn dashed. By convention a secondary, asynchronous or standby path; the label says which |
+| `..>` and `<.>` | The same, drawn dashed. By convention a secondary, asynchronous or standby path |
 
-The label says what travels or how the two are related. **Entry points** are nodes that nothing points at: usually users or outside systems, where a flow starts. **End points** point at nothing: usually stores and outside services. A two-way connection names first the node drawn on its left: for a request and its answer, the caller; for a call back against the reading direction, the node called, and its label says who calls, such as `oncall <-> pagerduty : "Pages (from PagerDuty)"`. A subscription is a dashed two-way connection that names the subscriber first, such as `shipping <.> order_events : "Subscription"`: messages go from the topic to the subscriber, pushed or pulled. The packets of the steps show who sends to whom.
-
-An edge says that two components are connected. It does not say when, how often or in which order they talk. The steps say that.
+Connections in the overview are synthesized automatically from `animate` and `static` statements across all steps. **Entry points** are nodes that nothing points at: usually users or outside systems, where a flow starts. **End points** point at nothing: usually stores and outside services. The steps show who sends what and when.
 
 ### Steps
 
@@ -76,14 +74,14 @@ An edge says that two components are connected. It does not say when, how often 
 
 The primary provider is down, so the API retries the same charge with the backup.
 
-Changes from this step on: db: badge "PENDING"
-Changes from this step on: primary: badge "503", color red
-Changes from this step on: backup: shown
-Changes from this step on: e_backup: shown
+State in this step: db: badge "PENDING"
+State in this step: primary: badge "503", color red
+State in this step: backup: shown
+Static link: Order API (api) --> Orders DB (db) : "Pending order"
 
 1. Primary PSP (primary) → Order API (api) : "503 Unavailable" [red]
    The provider answers with an outage, so nothing was charged
-2. Order API (api) ⇄ Backup PSP (backup) : "Charge 4200" (there and back) [carries payment; orange]
+2. Order API (api) ⇄ Backup PSP (backup) : "Charge 4200" (there and back) [carries payment; orange; dashed]
    The same idempotency key makes the retry safe
    code (json · Response):
      { "chargeId": "ch_552", "status": "authorized" }
@@ -91,7 +89,7 @@ Changes from this step on: e_backup: shown
 
 | Part | Meaning |
 | :--- | :--- |
-| Step order | Time, as a rule: step 2 happens after step 1. A later step may instead show another outcome of an earlier one. Its title or summary says so ("Payment fails", "The same order again"), and a badge set back to an earlier value is a sign of it. Read such a step as a branch from that point, not as what happens next |
+| Step order | Time, as a rule: step 2 happens after step 1. A later step may instead show another outcome of an earlier one |
 | The paragraph under the title | The author's summary of the step |
 | `1.`, `2.`, ... | Packets, in the order they travel within the step |
 | `2a.`, `2b.` | Packets with the same number travel at the same time |
@@ -102,9 +100,8 @@ Changes from this step on: e_backup: shown
 | The indented line under a packet | What that message does or decides |
 | `code (...)` | An example of what the packet carries. It is an illustration, not a schema: it may show less than the real thing, but what it shows is meant to be true |
 | `carries ...` | The icon of the packet: what kind of thing it is |
-| `no declared edge` | The packet travels between two nodes that no edge joins |
-| `Changes from this step on` | A badge, color or visibility set here. **It stays that way in every later step** until another step changes it |
-| `Still showing` | State from an earlier step that is still on the diagram during this one |
+| `State in this step` | A badge, color or visibility override active **for this step only** (steps in v2 are self-contained) |
+| `Static link` | A non-moving connection relevant to this step |
 | `Focus` | Nodes or zones the author points at, apart from the ones the packets touch |
 
 A red or yellow packet, a badge such as `DOWN` or `503`, and elements that become `shown` usually mark a failure and the reaction to it. Take the meaning from the labels, not from the color alone.

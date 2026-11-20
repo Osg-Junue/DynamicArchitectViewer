@@ -1,6 +1,7 @@
 import type { Layout, Rect } from '../layout';
 import {
   connectionIdMap,
+  connectionLabels,
   stepConnections,
   synthesizedConnections,
   unorderedPairKey,
@@ -51,6 +52,7 @@ export interface ResolvedGroup {
   id: string;
   label: string;
   color?: ColorName;
+  border?: LineStyle;
   rect: Rect;
   depth: number;
   dimmed: boolean;
@@ -242,6 +244,7 @@ function resolveGroups(ctx: StepContext, nodes: readonly ResolvedNode[]): Resolv
     };
     const color = ov.color === COLOR_RESET ? undefined : (ov.color ?? g.color);
     if (color) group.color = color;
+    if (g.border) group.border = g.border;
     return [group];
   });
 }
@@ -320,18 +323,28 @@ function resolveEdges(
   ctx: StepContext,
   nodes: readonly ResolvedNode[],
   nodeById: ReadonlyMap<string, ResolvedNode>,
+  groupById: ReadonlyMap<string, ResolvedGroup>,
   rails: RailRouter,
   activeEdges: ReadonlyMap<string, string>,
   overview: ReturnType<typeof synthesizedConnections>,
   canonicalIds: ReadonlyMap<string, string>,
+  showLabels: boolean,
 ): ResolvedEdge[] {
   const edges: ResolvedEdge[] = [];
   const stepPairs = new Set<string>();
+  const endpointOf = (id: string) => {
+    const n = nodeById.get(id);
+    if (n) return { endpoint: n, visible: n.visible, focused: n.focused };
+    const g = groupById.get(id);
+    if (g) return { endpoint: { id: g.id, rect: g.rect }, visible: true, focused: !g.dimmed };
+    return undefined;
+  };
+  const overviewLabels = showLabels && !ctx.step ? connectionLabels(ctx.doc) : undefined;
 
   if (ctx.step) {
     for (const sc of stepConnections(ctx.step, canonicalIds)) {
-      const from = nodeById.get(sc.from);
-      const to = nodeById.get(sc.to);
+      const from = endpointOf(sc.from);
+      const to = endpointOf(sc.to);
       if (!from || !to || !from.visible || !to.visible) continue;
       stepPairs.add(unorderedPairKey(sc.from, sc.to));
       const activeColor = activeEdges.get(sc.id);
@@ -342,34 +355,39 @@ function resolveEdges(
         style: sc.style,
         direction: sc.direction,
         color: sc.staticColor ?? DEFAULT_EDGE_COLOR,
-        path: rails.railOf(from, to),
+        path: rails.railOf(from.endpoint, to.endpoint),
         active: activeColor !== undefined,
       };
       if (activeColor !== undefined) edge.flowColor = activeColor;
-      if (sc.staticLabel !== undefined) edge.label = sc.staticLabel;
+      const label = sc.staticLabel ?? (showLabels ? sc.animateLabel : undefined);
+      if (label !== undefined) edge.label = label;
       edges.push(edge);
     }
   }
 
   for (const conn of overview) {
-    if (stepPairs.has(unorderedPairKey(conn.from, conn.to))) continue;
-    const from = nodeById.get(conn.from);
-    const to = nodeById.get(conn.to);
+    const pk = unorderedPairKey(conn.from, conn.to);
+    if (stepPairs.has(pk)) continue;
+    const from = endpointOf(conn.from);
+    const to = endpointOf(conn.to);
     if (!from || !to || !from.visible || !to.visible) continue;
     if (ctx.filtering && !(from.focused && to.focused)) continue;
-    edges.push({
+    const edge: ResolvedEdge = {
       id: conn.id,
       from: conn.from,
       to: conn.to,
       style: conn.style,
       direction: conn.direction,
       color: DEFAULT_EDGE_COLOR,
-      path: rails.railOf(from, to),
+      path: rails.railOf(from.endpoint, to.endpoint),
       active: false,
-    });
+    };
+    const overviewLabel = overviewLabels?.get(pk);
+    if (overviewLabel !== undefined) edge.label = overviewLabel;
+    edges.push(edge);
   }
 
-  if (ctx.step) {
+  if (ctx.step || showLabels) {
     rails.attachLabels(edges, nodes);
   }
   return edges;
@@ -389,6 +407,11 @@ function railsOf(doc: DavDocument, layout: Layout, nodes: readonly ResolvedNode[
   return rails;
 }
 
+export interface ResolveViewOptions {
+  /** Draws representative edge labels on the overview or active `animate` labels on a still step. */
+  showLabels?: boolean;
+}
+
 /**
  * Resolves what the diagram looks like at a step (`dav 2`).
  * Every step is self-contained: `state`, `static`, `focus`, and `animate` apply to step k only.
@@ -398,6 +421,7 @@ export function resolveView(
   doc: DavDocument,
   layout: Layout,
   stepIndex: number | null,
+  options?: ResolveViewOptions,
 ): ResolvedView {
   const step =
     stepIndex !== null && stepIndex >= 0 && stepIndex < doc.steps.length
@@ -419,13 +443,24 @@ export function resolveView(
   const nodes = resolveNodes(ctx);
   const nodeById = new Map(nodes.map((n) => [n.id, n]));
   const groups = resolveGroups(ctx, nodes);
+  const groupById = new Map(groups.map((g) => [g.id, g]));
   const rails = railsOf(doc, layout, nodes);
   const overview = synthesizedConnections(doc);
   const canonicalIds = connectionIdMap(overview);
   const { phases, phaseDurations, activeEdges } = resolvePhases(ctx, nodeById, rails, canonicalIds);
 
   const visibleNodes = nodes.filter((n) => n.visible);
-  const edges = resolveEdges(ctx, nodes, nodeById, rails, activeEdges, overview, canonicalIds);
+  const edges = resolveEdges(
+    ctx,
+    nodes,
+    nodeById,
+    groupById,
+    rails,
+    activeEdges,
+    overview,
+    canonicalIds,
+    options?.showLabels ?? false,
+  );
   if (phases.length > 0) {
     const stepRails = edges.map((e) => e.path);
     const closed = [
@@ -442,11 +477,16 @@ export function resolveView(
       .map((n) => expandRect(n.rect, CALLOUT_NODE_CELL_CLEARANCE));
     // A dimmed zone's border may be crossed freely.
     const zones = groups.filter((g) => !g.dimmed).map((g) => g.rect);
+    const dimmedBodies = visibleNodes
+      .filter((n) => n.dimmed)
+      .flatMap((n) => nodeBody(n))
+      .map((part) => expandRect(part, CALLOUT_NODE_CLEARANCE));
     for (const phase of phases) {
       placePhaseCallouts(phase, {
         closed,
         cells,
         zones,
+        dimmedBodies,
         rails: [...stepRails, ...phase.map((p) => p.path)],
       });
     }

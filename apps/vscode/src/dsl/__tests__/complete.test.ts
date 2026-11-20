@@ -64,8 +64,8 @@ describe('computeCompletions', () => {
     computeCompletions(text, text.length, true)?.items.map((i) => i.label);
 
   it('offers only the elements each statement accepts', () => {
-    expect(labelsAt(`${dsl}step "s" {\n  static `)).toEqual(['api', 'db']);
-    expect(labelsAt(`${dsl}step "s" {\n  static api ..> `)).toEqual(['api', 'db']);
+    expect(labelsAt(`${dsl}step "s" {\n  static `)).toEqual(['api', 'db', 'vpc']);
+    expect(labelsAt(`${dsl}step "s" {\n  static api ..> `)).toEqual(['api', 'db', 'vpc']);
     expect(labelsAt(`${dsl}step "s" {\n  animate `)).toEqual(['api', 'db']);
     expect(labelsAt(`${dsl}step "s" {\n  focus `)).toEqual(['api', 'db', 'vpc']);
     expect(labelsAt(`${dsl}step "s" {\n  state `)).toEqual(['api', 'db', 'vpc']);

@@ -1,13 +1,19 @@
 import { synthesizedConnections } from '../model/connections';
 import type { DavConnection, DavDocument } from '../model/types';
 import { parentMap, topLevelGroups, zoneOfGroups, zoneOfNodes } from '../model/zones';
-import { analyzeFlow, canReach, type FlowAnalysis, flowPairKey } from './flow';
+import {
+  analyzeFlow,
+  canReach,
+  type FlowAnalysis,
+  flowPairKey,
+  isStaticRankExcluded,
+} from './flow';
 import { linksOf, segmentsOf } from './links';
 import {
   EMPTY_GROUP_CONTENT,
   enclosingRect,
-  GROUP_HEADER,
   GROUP_PADDING,
+  groupHeaderHeight,
   type Layout,
   NODE_SIZE,
   ORIGIN,
@@ -15,6 +21,7 @@ import {
   rectRecord,
   STATION_CENTER,
   selfLoopRoom,
+  zoneMinWidth,
 } from './metrics';
 
 /** With fewer top-level zones than this there is nothing to rearrange. */
@@ -25,6 +32,41 @@ export const VERTICAL_CLEARANCE = 34;
 const COLUMN_GAP = 150;
 const STAGE_GAP = 80;
 const ROW_GAP = 44;
+
+/** Spacing profile for macro container placement (top-level vs tighter nested containers). */
+export interface ZoneSpacing {
+  stageGap: number;
+  rowGap: number;
+  horizontalClearance: number;
+  verticalClearance: number;
+  auxGap: number;
+}
+
+export const TOP_SPACING: ZoneSpacing = {
+  stageGap: STAGE_GAP,
+  rowGap: ROW_GAP,
+  horizontalClearance: HORIZONTAL_CLEARANCE,
+  verticalClearance: VERTICAL_CLEARANCE,
+  auxGap: VERTICAL_CLEARANCE + 24,
+};
+
+export const NESTED_SPACING: ZoneSpacing = {
+  stageGap: 48,
+  rowGap: 24,
+  horizontalClearance: 36,
+  verticalClearance: 22,
+  auxGap: 32,
+};
+
+/** Optional recursive builder used to lay out groups that contain nested child groups bottom-up. */
+export type NestedBlockBuilder = (
+  doc: DavDocument,
+  zoneId: string,
+  columnLayout: ColumnLayout,
+  docFlow: FlowAnalysis,
+  isAuxiliary: boolean,
+  depth: number,
+) => Block;
 
 /**
  * Lays a diagram out in columns. `rankOverrides` puts nodes in a later column than their
@@ -69,6 +111,8 @@ export interface Block {
   groupsFlipped: Map<string, Rect>;
   /** Per-node reflection constant `c` such that `flippedY = c - rect.y - rect.height`. */
   reflectConst: ReadonlyMap<string, number>;
+  /** True when this block was composed bottom-up by recursive container placement. */
+  recursive?: boolean;
 }
 
 export interface Placed {
@@ -119,7 +163,7 @@ export function structureKey(doc: DavDocument): string {
   ].sort();
   const connDoc = connectedSubdoc(doc);
   return JSON.stringify([
-    doc.nodes.map((n) => [n.id, n.parentId ?? '']),
+    doc.nodes.map((n) => [n.id, n.parentId ?? '', n.mount ?? '']),
     doc.groups.map((g) => [g.id, g.parentId ?? '']),
     selfLoops,
     flowStructureSnapshot(doc, connections),
@@ -133,7 +177,7 @@ export function structureKey(doc: DavDocument): string {
  */
 export function connectedSubdoc(doc: DavDocument): DavDocument {
   const owners = ownersOf(doc);
-  const known = new Set(doc.nodes.map((n) => n.id));
+  const known = new Set([...doc.nodes.map((n) => n.id), ...doc.groups.map((g) => g.id)]);
   const connectedIds = new Set<string>();
   for (const c of synthesizedConnections(doc)) {
     if (c.from === c.to || !known.has(c.from) || !known.has(c.to)) continue;
@@ -153,10 +197,11 @@ export function connectedSubdoc(doc: DavDocument): DavDocument {
   const groups = doc.groups.filter((g) => connectedIds.has(zoneOf.get(g.id) ?? g.id));
   const nodes = doc.nodes.filter((n) => connectedIds.has(owners.get(n.id) ?? n.id));
   const keptNodes = new Set(nodes.map((n) => n.id));
+  const keptIds = new Set([...keptNodes, ...groups.map((g) => g.id)]);
   const steps = doc.steps.map((s) => ({
     ...s,
     animations: s.animations.filter((a) => keptNodes.has(a.from) && keptNodes.has(a.to)),
-    statics: s.statics.filter((st) => keptNodes.has(st.from) && keptNodes.has(st.to)),
+    statics: s.statics.filter((st) => keptIds.has(st.from) && keptIds.has(st.to)),
   }));
   return { ...doc, groups, nodes, steps };
 }
@@ -179,16 +224,19 @@ function detach<T extends { parentId?: string }>(item: T, zoneId: string): T | O
   return rest;
 }
 
-/** The block each node moves with: its top-level zone, or the node itself outside any zone. */
+/** The block each node or group moves with: its top-level zone, or the node itself outside any zone. */
 export function ownersOf(doc: DavDocument): Map<string, string> {
   const zoneOf = zoneOfGroups(doc.groups);
   const nodeZone = zoneOfNodes(doc);
-  return new Map(
-    doc.nodes.map((n) => {
-      const z = nodeZone.get(n.id);
-      return [n.id, z !== undefined && zoneOf.has(z) ? z : n.id];
-    }),
-  );
+  const owners = new Map<string, string>();
+  for (const g of doc.groups) {
+    owners.set(g.id, zoneOf.get(g.id) ?? g.id);
+  }
+  for (const n of doc.nodes) {
+    const z = nodeZone.get(n.id);
+    owners.set(n.id, z !== undefined && zoneOf.has(z) ? z : n.id);
+  }
+  return owners;
 }
 
 /** How many links run between zones: the time the search takes grows with them. */
@@ -208,7 +256,7 @@ export function linksBetweenZones(doc: DavDocument): number {
  * its own instead: the nodes and groups directly in it swap places top to bottom inside the
  * room they took up, and each group does the same with what is in it.
  */
-function computeFlipMetadata(
+export function computeFlipMetadata(
   zoneId: string,
   nodes: ReadonlyArray<{ id: string; parentId?: string }>,
   nested: ReadonlyArray<{ id: string; parentId?: string }>,
@@ -298,6 +346,7 @@ export function intraZoneFlow(
   if (primaryConns.length === 0) {
     for (const c of staticConns) {
       const k = pairKey(c.from, c.to);
+      if (docFlow.egressReturnPairs?.has(k)) continue;
       if (bidirStatic.has(k) && (extBias.get(c.from) ?? 0) > (extBias.get(c.to) ?? 0)) {
         forwardEdges.push([c.to, c.from]);
       } else {
@@ -319,6 +368,7 @@ export function intraZoneFlow(
       forwardEdges.push([c.from, c.to]);
     }
     for (const c of staticConns) {
+      if (isStaticRankExcluded(c.from, c.to, docFlow)) continue;
       const k = pairKey(c.from, c.to);
       let u = c.from;
       let v = c.to;
@@ -355,12 +405,19 @@ export function buildSingleZoneBlock(
   zoneOf: ReadonlyMap<string, string> = zoneOfGroups(doc.groups),
   owners: ReadonlyMap<string, string> = ownersOf(doc),
   docFlow: FlowAnalysis = analyzeFlow(doc),
+  buildNested?: NestedBlockBuilder,
+  isAuxiliary = false,
+  depth = 0,
 ): Block {
   const pad = GROUP_PADDING;
   const nodes = doc.nodes.filter((n) => owners.get(n.id) === zoneId).map((n) => detach(n, zoneId));
   const nested = doc.groups
     .filter((g) => g.id !== zoneId && zoneOf.get(g.id) === zoneId)
     .map((g) => detach(g, zoneId));
+  if (buildNested && nested.length > 0 && !rankOverrides) {
+    return buildNested(doc, zoneId, columnLayout, docFlow, isAuxiliary, depth);
+  }
+  const groupLabel = doc.groups.find((g) => g.id === zoneId)?.label ?? '';
   const ids = new Set(nodes.map((n) => n.id));
   const connections = synthesizedConnections(doc).filter((e) => ids.has(e.from) && ids.has(e.to));
   const loopSteps = doc.steps.map((s) => ({
@@ -370,7 +427,6 @@ export function buildSingleZoneBlock(
   }));
   const nodeLoopRoom = selfLoopRoom({ steps: loopSteps });
   const loopRoom = Math.max(0, ...nodeLoopRoom.values());
-  const head = GROUP_HEADER + pad + loopRoom;
   const frame = (width: number, height: number): [string, Rect] => [
     zoneId,
     { x: 0, y: 0, width, height },
@@ -379,7 +435,9 @@ export function buildSingleZoneBlock(
   // A zone with groups inside is laid out like any other, even without nodes: the column
   // layout gives empty groups their rectangles.
   if (nodes.length === 0 && nested.length === 0) {
-    const width = EMPTY_GROUP_CONTENT.width + pad * 2;
+    const rawWidth = EMPTY_GROUP_CONTENT.width + pad * 2;
+    const width = Math.max(rawWidth, zoneMinWidth(groupLabel));
+    const head = groupHeaderHeight(groupLabel, width) + pad + loopRoom;
     const height = head + EMPTY_GROUP_CONTENT.height + pad;
     const groupsMap = new Map([frame(width, height)]);
     return {
@@ -405,10 +463,17 @@ export function buildSingleZoneBlock(
     intraZoneFlow(ids, connections, docFlow, owners),
   );
   const bounds = enclosingRect([...Object.values(local.nodes), ...Object.values(local.groups)]);
-  const width = bounds.width + pad * 2;
+  const rawWidth = bounds.width + pad * 2;
+  const width = Math.max(rawWidth, zoneMinWidth(groupLabel));
+  const padLeft = pad + Math.round((width - rawWidth) / 2);
+  const head = groupHeaderHeight(groupLabel, width) + pad + loopRoom;
   const contentHeight = bounds.height;
   const height = head + contentHeight + pad;
-  const place = (r: Rect): Rect => ({ ...r, x: r.x - bounds.x + pad, y: r.y - bounds.y + head });
+  const place = (r: Rect): Rect => ({
+    ...r,
+    x: r.x - bounds.x + padLeft,
+    y: r.y - bounds.y + head,
+  });
   const nodesMap = new Map(Object.entries(local.nodes).map(([id, r]) => [id, place(r)]));
   const groupsMap = new Map<string, Rect>([
     frame(width, height),
@@ -443,6 +508,7 @@ export function buildBlocks(
   columnLayout: ColumnLayout,
   ranksByZone?: ReadonlyMap<string, ReadonlyMap<string, number>>,
   docFlow: FlowAnalysis = analyzeFlow(doc),
+  buildNested?: NestedBlockBuilder,
 ): { blocks: Block[]; owners: Map<string, string> } {
   const zoneOf = zoneOfGroups(doc.groups);
   const owners = ownersOf(doc);
@@ -465,6 +531,9 @@ export function buildBlocks(
         zoneOf,
         owners,
         zFlow,
+        buildNested,
+        zFlow.auxiliaryZones.has(zone.id),
+        0,
       ),
     );
   }
@@ -534,6 +603,7 @@ export function partitionIsolatedBlocks(
 export function placeIsolatedBlocks(
   isolated: readonly Block[],
   connectedPlaced: readonly Placed[],
+  spacing: ZoneSpacing = TOP_SPACING,
 ): Placed[] {
   if (isolated.length === 0) return [];
   const sorted = [...isolated].sort((a, b) => compareBlockId(a.id, b.id));
@@ -550,7 +620,7 @@ export function placeIsolatedBlocks(
       maxY = Math.max(maxY, p.y + p.block.height);
     }
     startX = minX;
-    rowBaseY = maxY + ROW_GAP;
+    rowBaseY = maxY + spacing.rowGap;
     rowLimit = Math.max(1800, maxX - minX);
   }
   const out: Placed[] = [];
@@ -559,14 +629,14 @@ export function placeIsolatedBlocks(
   for (const b of sorted) {
     if (x > startX && x + b.width > startX + rowLimit) {
       x = startX;
-      rowBaseY = rowBottom + ROW_GAP;
+      rowBaseY = rowBottom + spacing.rowGap;
       rowBottom = rowBaseY;
     }
     const extraTop = b.groups.size === 0 ? b.loopRoom : 0;
     const blockY = rowBaseY + extraTop;
     out.push({ block: b, x, y: blockY, flip: 0 });
     rowBottom = Math.max(rowBottom, blockY + b.height);
-    x += b.width + HORIZONTAL_CLEARANCE;
+    x += b.width + spacing.horizontalClearance;
   }
   return out;
 }
@@ -652,20 +722,22 @@ export interface AuxiliaryPlacementOptions {
   sideMode?: 'stationY' | 'rowFrac';
   clampMaxSource?: boolean;
   decayStatic?: boolean;
+  spacing?: ZoneSpacing;
 }
 
 function hasBlockClearance(
   a: Placed,
   placed: readonly Placed[],
   horizontalClearance = HORIZONTAL_CLEARANCE,
+  verticalClearance = VERTICAL_CLEARANCE,
 ): boolean {
   for (const b of placed) {
     if (b === a) continue;
     if (
       a.x < b.x + b.block.width + horizontalClearance &&
       b.x < a.x + a.block.width + horizontalClearance &&
-      a.y < b.y + b.block.height + VERTICAL_CLEARANCE &&
-      b.y < a.y + a.block.height + VERTICAL_CLEARANCE
+      a.y < b.y + b.block.height + verticalClearance &&
+      b.y < a.y + a.block.height + verticalClearance
     ) {
       return false;
     }
@@ -939,6 +1011,7 @@ export function placeAuxiliaryBand(
   bandMinY: number,
   bandMaxY: number,
   rowLimit: number,
+  spacing: ZoneSpacing = TOP_SPACING,
 ): void {
   const rows: Array<{ items: Array<{ placed: Placed; x: number }>; height: number }> = [];
   let end = Number.NEGATIVE_INFINITY;
@@ -946,7 +1019,7 @@ export function placeAuxiliaryBand(
     const { placed: p, cx, maxRight } = entry;
     const rawX = cx - p.block.width / 2;
     const cur = rows[rows.length - 1];
-    const nextX = Math.max(rawX, end + HORIZONTAL_CLEARANCE);
+    const nextX = Math.max(rawX, end + spacing.horizontalClearance);
     if (
       !cur ||
       (cur.items.length > 0 &&
@@ -960,13 +1033,13 @@ export function placeAuxiliaryBand(
       end = nextX + p.block.width;
     }
   }
-  let edgeY = isAbove ? bandMinY - VERTICAL_CLEARANCE - 24 : bandMaxY + VERTICAL_CLEARANCE + 24;
+  let edgeY = isAbove ? bandMinY - spacing.auxGap : bandMaxY + spacing.auxGap;
   for (const row of rows) {
     for (const { placed: p, x } of row.items) {
       p.x = x;
       p.y = isAbove ? edgeY - p.block.height : edgeY;
     }
-    edgeY = isAbove ? edgeY - row.height - ROW_GAP : edgeY + row.height + ROW_GAP;
+    edgeY = isAbove ? edgeY - row.height - spacing.rowGap : edgeY + row.height + spacing.rowGap;
   }
 }
 
@@ -986,6 +1059,7 @@ export function placeAuxiliaryBlocks(
   const sideMode = opts?.sideMode ?? 'stationY';
   const clampMaxSource = opts?.clampMaxSource ?? false;
   const decayStatic = opts?.decayStatic ?? false;
+  const spacing = opts?.spacing ?? TOP_SPACING;
   const rowFracOf = opts?.rowFracOf;
   const cols = opts?.cols;
 
@@ -1193,6 +1267,7 @@ export function placeAuxiliaryBlocks(
       bandMinY,
       bandMaxY,
       rowLimit,
+      spacing,
     );
     placeAuxiliaryBand(
       toBandEntries(bandAux.filter((p) => meta.get(p.block.id)?.side !== 'above')),
@@ -1201,6 +1276,7 @@ export function placeAuxiliaryBlocks(
       bandMinY,
       bandMaxY,
       rowLimit,
+      spacing,
     );
   }
 
@@ -1256,6 +1332,7 @@ export function applyZonePlacement(
   doc: DavDocument,
   placement: ZonePlacement,
   columnLayout: ColumnLayout,
+  buildNested?: NestedBlockBuilder,
 ): Layout {
   const nodeParent = parentMap(doc.nodes);
   const ranksByZone = new Map<string, ReadonlyMap<string, number>>();
@@ -1263,7 +1340,7 @@ export function applyZonePlacement(
     if (entry.ranks) ranksByZone.set(zoneId, new Map(Object.entries(entry.ranks)));
   }
   const flow = analyzeFlow(doc);
-  const { blocks, owners } = buildBlocks(doc, columnLayout, ranksByZone, flow);
+  const { blocks, owners } = buildBlocks(doc, columnLayout, ranksByZone, flow, buildNested);
   const { connected, isolated } = partitionIsolatedBlocks(blocks, flow, owners);
   const placed = connected.map((block): Placed => {
     const entry = placement.get(block.id);

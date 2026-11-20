@@ -2,8 +2,8 @@ import type { DavDocument } from '../model/types';
 import { analyzeFlow, flowPairKey } from './flow';
 import { type Link, linksOf, properlyCross, type Segment, shareStation } from './links';
 import {
-  GROUP_HEADER,
   GROUP_PADDING,
+  groupHeaderHeight,
   type Layout,
   type Rect,
   rectRecord,
@@ -53,6 +53,7 @@ export function straightenNodes(doc: DavDocument, layout: Layout): Layout {
   const loopRoom = selfLoopRoom(doc);
   const parentOf = new Map(doc.nodes.map((n) => [n.id, n.parentId]));
   const groupParent = new Map(doc.groups.map((g) => [g.id, g.parentId]));
+  const groupLabel = new Map(doc.groups.map((g) => [g.id, g.label]));
   const flow = analyzeFlow(doc);
   const owners = ownersOf(doc);
   const links = linksOf(doc);
@@ -111,11 +112,13 @@ export function straightenNodes(doc: DavDocument, layout: Layout): Layout {
     const own = reach(id, r);
     const frameId = parentOf.get(id);
     const frame = frameId ? groups[frameId] : undefined;
+    const headerH =
+      frameId && frame ? groupHeaderHeight(groupLabel.get(frameId) ?? '', frame.width) : 0;
     if (
       frame &&
       (own.x < frame.x + GROUP_PADDING ||
         own.x + own.width > frame.x + frame.width - GROUP_PADDING ||
-        own.y < frame.y + GROUP_HEADER + GROUP_PADDING ||
+        own.y < frame.y + headerH + GROUP_PADDING ||
         own.y + own.height > frame.y + frame.height - GROUP_PADDING)
     ) {
       return false;

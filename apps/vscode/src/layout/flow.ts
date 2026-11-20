@@ -1,6 +1,6 @@
 import { synthesizedConnections } from '../model/connections';
 import type { DavConnection, DavDocument, Direction } from '../model/types';
-import { idPair, topLevelGroups, zoneOfNodes } from '../model/zones';
+import { idPair, topLevelGroups, zoneOfGroups, zoneOfNodes } from '../model/zones';
 import type { Rect } from './metrics';
 
 /** Behavioral role of a connection for flow-driven layout and quality scoring. */
@@ -32,6 +32,12 @@ export interface FlowAnalysis {
   pairFirstStep: ReadonlyMap<string, number>;
   /** Number of steps that contain at least one valid inter-node connection. */
   activeStepCount: number;
+  /** Unordered `flowPairKey`s of `static` edges belonging to an egress/return chain back to an upstream primary ancestor. */
+  egressReturnPairs?: ReadonlySet<string>;
+  /** Non-primary nodes on a static egress/return chain mapped to their upstream primary anchor node. */
+  egressAnchors?: ReadonlyMap<string, string>;
+  /** Undirected adjacency of `primary` edges, used to keep lateral `static` links from distorting primary ranks. */
+  primaryBackboneAdj?: ReadonlyMap<string, ReadonlySet<string>>;
 }
 
 export const flowPairKey = (a: string, b: string): string => (a < b ? idPair(a, b) : idPair(b, a));
@@ -65,12 +71,15 @@ function blockOwnersOf(doc: Pick<DavDocument, 'groups' | 'nodes'>): {
   blockIds: string[];
 } {
   const zoneOf = zoneOfNodes(doc);
+  const groupZone = zoneOfGroups(doc.groups);
   const topIds = new Set(topLevelGroups(doc.groups).map((g) => g.id));
   const owners = new Map<string, string>();
   const idSet = new Set<string>();
 
-  for (const g of topLevelGroups(doc.groups)) {
-    idSet.add(g.id);
+  for (const g of doc.groups) {
+    const owner = groupZone.get(g.id) ?? g.id;
+    owners.set(g.id, owner);
+    if (topIds.has(g.id)) idSet.add(g.id);
   }
   for (const n of doc.nodes) {
     const z = zoneOf.get(n.id);
@@ -206,7 +215,7 @@ export function analyzeFlow(
   doc: DavDocument,
   connections: readonly DavConnection[] = synthesizedConnections(doc),
 ): FlowAnalysis {
-  const known = new Set(doc.nodes.map((n) => n.id));
+  const known = new Set([...doc.nodes.map((n) => n.id), ...doc.groups.map((g) => g.id)]);
   const { owners, blockIds } = blockOwnersOf(doc);
 
   const connByPair = new Map<string, DavConnection>();
@@ -398,34 +407,56 @@ export function analyzeFlow(
     staticConnections.push(classified);
   }
 
+  const { egressReturnPairs, egressAnchors, primaryBackboneAdj } = hasAnimate
+    ? analyzeStaticChains(primaryEdges, staticConnections)
+    : {
+        egressReturnPairs: new Set<string>(),
+        egressAnchors: new Map<string, string>(),
+        primaryBackboneAdj: new Map<string, Set<string>>(),
+      };
+
   const forwardEdges: Array<readonly [string, string]> = [...primaryEdges];
   if (!hasAnimate) {
     // Purely static diagrams/subgraphs preserve all edges so computeRanks handles cycle breaking naturally.
     for (const c of staticConnections) forwardEdges.push([c.from, c.to]);
   } else {
     for (const c of staticConnections) {
+      // Rule S1: lateral `static` links between nodes already connected in the primary backbone
+      // (e.g. primary/replica AZ replication) must not distort primary horizontal ranks.
+      if (
+        primaryBackboneAdj.has(c.from) &&
+        primaryBackboneAdj.has(c.to) &&
+        canReach(primaryBackboneAdj, c.from, c.to)
+      ) {
+        continue;
+      }
+      // Rule S2: `static` egress/return chains leading from a primary node back to an upstream
+      // primary ancestor (e.g. ecs -> nat_gw -> igw) must not push egress nodes downstream.
+      if (egressReturnPairs.has(flowPairKey(c.from, c.to))) continue;
       if (canReach(nodeAdj, c.to, c.from)) continue;
       const zu = owners.get(c.from);
       const zv = owners.get(c.to);
       if (zu !== undefined && zv !== undefined && zu !== zv && canReach(zoneAdj, zv, zu)) {
         continue;
       }
+      // Rule S3: pure static sinks (e.g. lambda ..> cloudwatch) remain forward-ranked.
       addAdj(nodeAdj, c.from, c.to);
       forwardEdges.push([c.from, c.to]);
     }
   }
 
   const allClassified = [...byPair.values()];
+  const topIds = new Set(topLevelGroups(doc.groups).map((g) => g.id));
   const { zoneStage, auxiliaryZones, primaryZonePairs } = computeMacroZones(
-    doc,
+    topIds,
     allClassified,
-    connByPair,
     owners,
     blockIds,
     zoneAdj,
     hasAnimate,
     pairFirstStep,
     activeStepCount,
+    egressReturnPairs,
   );
 
   return {
@@ -438,30 +469,210 @@ export function analyzeFlow(
     primaryZonePairs,
     pairFirstStep,
     activeStepCount,
+    egressReturnPairs,
+    egressAnchors,
+    primaryBackboneAdj,
+  };
+}
+
+/**
+ * Returns whether a `static` connection `(from, to)` should be excluded from horizontal rank
+ * assignment under Rules S1 (both endpoints already linked in the primary backbone) or S2
+ * (member of a static egress/return chain back to an upstream primary ancestor).
+ */
+export function isStaticRankExcluded(from: string, to: string, docFlow: FlowAnalysis): boolean {
+  if (!docFlow.hasAnimate) return false;
+  if (docFlow.egressReturnPairs?.has(flowPairKey(from, to))) return true;
+  const backbone = docFlow.primaryBackboneAdj;
+  if (backbone?.has(from) && backbone.has(to) && canReach(backbone, from, to)) return true;
+  return false;
+}
+
+/**
+ * Analyzes `primary` backbone connectivity (Rule S1) and detects `static` egress/return chains
+ * (Rule S2): sequences `u -> v1 -> ... -> vk -> w` of forward `static` edges through non-primary
+ * nodes where `u` and `w` are primary nodes and `w` can reach `u` along primary edges.
+ */
+function analyzeStaticChains(
+  primaryEdges: ReadonlyArray<readonly [string, string]>,
+  staticConnections: readonly ClassifiedConnection[],
+): {
+  egressReturnPairs: Set<string>;
+  egressAnchors: Map<string, string>;
+  primaryBackboneAdj: Map<string, Set<string>>;
+} {
+  const primaryNodes = new Set<string>();
+  const primaryDirectedAdj = new Map<string, Set<string>>();
+  const primaryBackboneAdj = new Map<string, Set<string>>();
+  for (const [u, v] of primaryEdges) {
+    primaryNodes.add(u);
+    primaryNodes.add(v);
+    addAdj(primaryDirectedAdj, u, v);
+    addAdj(primaryBackboneAdj, u, v);
+    addAdj(primaryBackboneAdj, v, u);
+  }
+
+  const staticForwardAdj = new Map<string, Set<string>>();
+  for (const c of staticConnections) {
+    if (c.direction === 'forward') addAdj(staticForwardAdj, c.from, c.to);
+  }
+
+  const egressReturnPairs = new Set<string>();
+  const egressAnchors = new Map<string, string>();
+
+  for (const c of staticConnections) {
+    if (c.direction !== 'forward') continue;
+    if (!primaryNodes.has(c.from) || primaryNodes.has(c.to)) continue;
+    const u = c.from;
+    const v = c.to;
+
+    // BFS from `v` through non-primary nodes along forward static edges.
+    const visitedNonPri = new Set<string>([v]);
+    const revNonPri = new Map<string, Set<string>>();
+    const reachedUpstream = new Set<string>();
+    const queue = [v];
+    for (let head = 0; head < queue.length; head++) {
+      const cur = queue[head];
+      if (cur === undefined) continue;
+      for (const nxt of staticForwardAdj.get(cur) ?? []) {
+        if (primaryNodes.has(nxt)) {
+          if (canReach(primaryDirectedAdj, nxt, u)) {
+            reachedUpstream.add(nxt);
+            addAdj(revNonPri, nxt, cur);
+          }
+        } else {
+          addAdj(revNonPri, nxt, cur);
+          if (!visitedNonPri.has(nxt)) {
+            visitedNonPri.add(nxt);
+            queue.push(nxt);
+          }
+        }
+      }
+    }
+
+    if (reachedUpstream.size === 0) continue;
+
+    // Reverse BFS from upstream primary anchors to find exact non-primary nodes on the return chain.
+    const sortedUpstream = [...reachedUpstream].sort(compareId);
+    const primaryAnchor = sortedUpstream[0];
+    const chainNodes = new Set<string>();
+    const revQueue: string[] = [...sortedUpstream];
+    for (let head = 0; head < revQueue.length; head++) {
+      const cur = revQueue[head];
+      if (cur === undefined) continue;
+      for (const prev of revNonPri.get(cur) ?? []) {
+        if (!chainNodes.has(prev)) {
+          chainNodes.add(prev);
+          revQueue.push(prev);
+        }
+      }
+    }
+    if (!chainNodes.has(v)) continue;
+
+    egressReturnPairs.add(flowPairKey(u, v));
+    for (const x of chainNodes) {
+      if (primaryAnchor !== undefined && !egressAnchors.has(x)) {
+        egressAnchors.set(x, primaryAnchor);
+      }
+      for (const nxt of staticForwardAdj.get(x) ?? []) {
+        if (chainNodes.has(nxt) || reachedUpstream.has(nxt)) {
+          egressReturnPairs.add(flowPairKey(x, nxt));
+        }
+      }
+    }
+  }
+
+  return { egressReturnPairs, egressAnchors, primaryBackboneAdj };
+}
+
+/**
+ * Analyzes macro stage assignment and cross-cutting auxiliary roles for an arbitrary container
+ * scope (any nested group whose direct children are `blockIds`, with `owners` mapping every
+ * descendant node of the container to its direct child block ID).
+ */
+export function analyzeScopeFlow(
+  groupBlockIds: ReadonlySet<string>,
+  blockIds: readonly string[],
+  owners: ReadonlyMap<string, string>,
+  fullFlow: FlowAnalysis,
+): FlowAnalysis {
+  const localConns = fullFlow.connections.filter((c) => owners.has(c.from) && owners.has(c.to));
+  const byPair = new Map<string, ClassifiedConnection>();
+  for (const c of localConns) byPair.set(flowPairKey(c.from, c.to), c);
+
+  const hasAnimate = localConns.some(
+    (c) => c.role !== 'static' && owners.get(c.from) !== owners.get(c.to),
+  );
+
+  // Build chronological inter-child primary adjacency from earliest-step order.
+  const orderedPri = localConns
+    .filter((c) => c.role === 'primary')
+    .sort((a, b) => {
+      const sa = fullFlow.pairFirstStep.get(flowPairKey(a.from, a.to)) ?? 0;
+      const sb = fullFlow.pairFirstStep.get(flowPairKey(b.from, b.to)) ?? 0;
+      return sa - sb || compareId(a.from, b.from) || compareId(a.to, b.to);
+    });
+  const chronZoneAdj = new Map<string, Set<string>>();
+  for (const c of orderedPri) {
+    const bu = owners.get(c.from);
+    const bv = owners.get(c.to);
+    if (bu && bv && bu !== bv && !canReach(chronZoneAdj, bv, bu)) {
+      addAdj(chronZoneAdj, bu, bv);
+    }
+  }
+
+  const egressReturnPairs = fullFlow.egressReturnPairs ?? new Set<string>();
+  const { zoneStage, auxiliaryZones, primaryZonePairs } = computeMacroZones(
+    groupBlockIds,
+    localConns,
+    owners,
+    blockIds,
+    chronZoneAdj,
+    hasAnimate,
+    fullFlow.pairFirstStep,
+    fullFlow.activeStepCount,
+    egressReturnPairs,
+  );
+
+  return {
+    connections: localConns,
+    byPair,
+    forwardEdges: fullFlow.forwardEdges.filter(([u, v]) => owners.has(u) && owners.has(v)),
+    hasAnimate,
+    zoneStage,
+    auxiliaryZones,
+    primaryZonePairs,
+    pairFirstStep: fullFlow.pairFirstStep,
+    activeStepCount: fullFlow.activeStepCount,
+    egressReturnPairs,
+    ...(fullFlow.egressAnchors ? { egressAnchors: fullFlow.egressAnchors } : {}),
+    ...(fullFlow.primaryBackboneAdj ? { primaryBackboneAdj: fullFlow.primaryBackboneAdj } : {}),
   };
 }
 
 function computeMacroZones(
-  doc: DavDocument,
+  groupIds: ReadonlySet<string>,
   classified: readonly ClassifiedConnection[],
-  connByPair: ReadonlyMap<string, DavConnection>,
   owners: ReadonlyMap<string, string>,
   blockIds: readonly string[],
   chronZoneAdj: ReadonlyMap<string, ReadonlySet<string>>,
   hasAnimate: boolean,
   pairFirstStep: ReadonlyMap<string, number>,
   activeStepCount: number,
+  egressReturnPairs: ReadonlySet<string>,
 ): {
   zoneStage: Map<string, number>;
   auxiliaryZones: Set<string>;
   primaryZonePairs: Set<string>;
 } {
-  const topIds = new Set(topLevelGroups(doc.groups).map((g) => g.id));
+  const topIds = groupIds;
   const primaryInter = new Map<string, number>();
   const primaryDegree = new Map<string, number>(blockIds.map((id) => [id, 0]));
   const neighbors = new Map<string, Set<string>>(blockIds.map((id) => [id, new Set()]));
+  const auxNeighbors = new Map<string, Set<string>>(blockIds.map((id) => [id, new Set()]));
   const directedVotes = new Map<string, number>();
   const pairMinPriStep = new Map<string, number>();
+  const nonEgressPair = new Set<string>();
   const zoneNodeCount = new Map<string, number>(blockIds.map((id) => [id, 0]));
   for (const owner of owners.values()) {
     zoneNodeCount.set(owner, (zoneNodeCount.get(owner) ?? 0) + 1);
@@ -477,6 +688,7 @@ function computeMacroZones(
   const animateTouch = new Map<string, number>(blockIds.map((id) => [id, 0]));
   const staticDegree = new Map<string, number>(blockIds.map((id) => [id, 0]));
   const intraTotal = new Map<string, number>(blockIds.map((id) => [id, 0]));
+  const intraPrimary = new Map<string, number>(blockIds.map((id) => [id, 0]));
 
   for (const c of classified) {
     const bu = owners.get(c.from);
@@ -484,6 +696,10 @@ function computeMacroZones(
     if (!bu || !bv) continue;
     if (bu === bv) {
       intraTotal.set(bu, (intraTotal.get(bu) ?? 0) + 1);
+      if (c.role === 'primary') {
+        const fs = pairFirstStep.get(flowPairKey(c.from, c.to)) ?? 0;
+        intraPrimary.set(bu, (intraPrimary.get(bu) ?? 0) + stepDecay(fs));
+      }
       continue;
     }
     neighbors.get(bu)?.add(bv);
@@ -495,6 +711,9 @@ function computeMacroZones(
     const w = stepDecay(fs);
     const dirKey = idPair(bu, bv);
     if (c.role === 'primary') {
+      nonEgressPair.add(flowPairKey(bu, bv));
+      auxNeighbors.get(bu)?.add(bv);
+      auxNeighbors.get(bv)?.add(bu);
       primaryInter.set(dirKey, (primaryInter.get(dirKey) ?? 0) + 1);
       directedVotes.set(dirKey, (directedVotes.get(dirKey) ?? 0) + 3 * stepScore);
       const zonePairKey = flowPairKey(bu, bv);
@@ -504,14 +723,23 @@ function computeMacroZones(
       animateTouch.set(bu, (animateTouch.get(bu) ?? 0) + w);
       animateTouch.set(bv, (animateTouch.get(bv) ?? 0) + w);
     } else if (c.role === 'return') {
+      nonEgressPair.add(flowPairKey(bu, bv));
+      auxNeighbors.get(bu)?.add(bv);
+      auxNeighbors.get(bv)?.add(bu);
       animateTouch.set(bu, (animateTouch.get(bu) ?? 0) + w);
       animateTouch.set(bv, (animateTouch.get(bv) ?? 0) + w);
     } else {
-      if (connByPair.get(pk)?.direction !== 'bidirectional') {
-        directedVotes.set(dirKey, (directedVotes.get(dirKey) ?? 0) + 0.1 * stepScore);
+      const isEgress = egressReturnPairs.has(pk);
+      if (!isEgress) {
+        nonEgressPair.add(flowPairKey(bu, bv));
+        auxNeighbors.get(bu)?.add(bv);
+        auxNeighbors.get(bv)?.add(bu);
+        if (c.direction !== 'bidirectional') {
+          directedVotes.set(dirKey, (directedVotes.get(dirKey) ?? 0) + 0.1 * stepScore);
+        }
+        staticDegree.set(bu, (staticDegree.get(bu) ?? 0) + w);
+        staticDegree.set(bv, (staticDegree.get(bv) ?? 0) + w);
       }
-      staticDegree.set(bu, (staticDegree.get(bu) ?? 0) + w);
-      staticDegree.set(bv, (staticDegree.get(bv) ?? 0) + w);
     }
   }
 
@@ -522,11 +750,12 @@ function computeMacroZones(
   if (hasAnimate) {
     for (const id of topIds) {
       const priInter = primaryDegree.get(id) ?? 0;
+      const intraPri = intraPrimary.get(id) ?? 0;
       const anim = animateTouch.get(id) ?? 0;
       const stat = staticDegree.get(id) ?? 0;
-      const distinctNbrs = neighbors.get(id)?.size ?? 0;
+      const distinctNbrs = auxNeighbors.get(id)?.size ?? 0;
       const isSharedBag = (zoneNodeCount.get(id) ?? 0) >= 2 && (intraTotal.get(id) ?? 0) === 0;
-      const staticHeavy = isSharedBag ? stat > anim : stat > anim * 2;
+      const staticHeavy = isSharedBag ? stat > anim : stat > (anim + intraPri) * 2;
       if ((priInter === 0 && distinctNbrs >= 2) || (staticHeavy && distinctNbrs >= 3)) {
         auxiliaryZones.add(id);
       }
@@ -637,7 +866,8 @@ function computeMacroZones(
     }
   }
 
-  // Infer downstream stage for 1-neighbor terminal blocks attached only via unoriented bidirectional `static` links.
+  // Infer downstream stage for 1-neighbor terminal blocks attached only via unoriented bidirectional `static` links
+  // (skip blocks attached solely by egress/return chains so NAT/Public subnets stay aligned upstream).
   const baseStage = new Map(zoneStage);
   for (const id of primaryIds) {
     if ((indeg.get(id) ?? 0) !== 0 || (dag.get(id)?.length ?? 0) !== 0) continue;
@@ -646,6 +876,7 @@ function computeMacroZones(
     if (nbrs.size !== 1) continue;
     const [onlyNbr] = nbrs;
     if (!onlyNbr || auxiliaryZones.has(onlyNbr)) continue;
+    if (!nonEgressPair.has(flowPairKey(id, onlyNbr))) continue;
     if ((baseStage.get(onlyNbr) ?? 0) > 0 || compareId(onlyNbr, id) < 0) {
       zoneStage.set(id, (baseStage.get(onlyNbr) ?? 0) + 1);
     }

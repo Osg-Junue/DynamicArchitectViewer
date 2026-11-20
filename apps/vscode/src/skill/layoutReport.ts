@@ -8,7 +8,8 @@ import {
 } from '../layout';
 import { linksOf, properlyCross, type Segment, segmentsOf, shareStation } from '../layout/links';
 import { enclosingRect } from '../layout/metrics';
-import type { DavDocument } from '../model/types';
+import { synthesizedConnections } from '../model/connections';
+import type { DavConnection, DavDocument } from '../model/types';
 import { ancestorIds, idPair, parentMap, topLevelGroups, zoneOfNodes } from '../model/zones';
 import { arrowOf } from './outline';
 import type { Hint } from './review';
@@ -114,7 +115,7 @@ export function leftLinks(doc: DavDocument, layout: Pick<Layout, 'nodes'>): stri
     const zone = zoneOf.get(node);
     return zone === undefined ? undefined : called.get(zone);
   };
-  return doc.edges.flatMap((e) => {
+  return synthesizedConnections(doc).flatMap((e) => {
     if (e.from === e.to || (zoneOf.get(e.from) ?? e.from) === (zoneOf.get(e.to) ?? e.to)) {
       return [];
     }
@@ -145,19 +146,26 @@ function surprising(edge: BackEdge, declared: ReadonlyMap<string, number>): bool
 }
 
 /** What an edge that sets no column did to the layout, and how to have it otherwise. */
-function backEdgeNote(doc: DavDocument, edge: BackEdge, columnOf: (id: string) => number): string {
-  const written = doc.edges.find((e) => e.from === edge.from && e.to === edge.to);
+function backEdgeNote(
+  connections: readonly DavConnection[],
+  edge: BackEdge,
+  columnOf: (id: string) => number,
+): string {
+  const written = connections.find(
+    (e) => (e.from === edge.from && e.to === edge.to) || (e.from === edge.to && e.to === edge.from),
+  );
   const arrow = written ? arrowOf(written) : '-->';
   const cameIn =
     edge.root === edge.to
       ? `${edge.to}, the node of it declared first`
       : `${edge.to}, from ${edge.root}`;
-  return `${edge.from} ${arrow} ${edge.to} points back, so it does not count for the columns: it closes the loop ${edge.loop.join(' → ')}. The layout came into the loop at ${cameIn}, and set it out from left to right in that order: ${edge.from} stands at its far end, in column ${columnOf(edge.from)}, with ${edge.to} in column ${columnOf(edge.to)}. To start the loop at another of its nodes, and so stand that node on the left, declare it before ${edge.root}.`;
+  return `${edge.from} ${arrow} ${edge.to} points back, so it does not count for the columns: it closes the loop ${edge.loop.join(' → ')}. The layout came into the loop at ${cameIn}, and set it out from left to right in that order: ${edge.from} stands at its far end, in column ${columnOf(edge.from)}, with ${edge.to} in column ${columnOf(edge.to)}.`;
 }
 
 export function layoutReport(doc: DavDocument): LayoutReport {
   if (doc.nodes.length === 0) return { summary: [], notes: [] };
   const layout = computeLayout(doc);
+  const connections = synthesizedConnections(doc);
   const rectOf = (id: string): Rect[] => {
     const rect = layout.nodes[id];
     return rect ? [rect] : [];
@@ -174,9 +182,9 @@ export function layoutReport(doc: DavDocument): LayoutReport {
       .filter((t) => !shareStation(s, t) && properlyCross(s, t))
       .map((t): CrossingPair => [s, t]),
   );
-  // Each connection as it is written, so that it can be found in the file.
+  // Each connection as synthesized across steps.
   const written = (s: Segment): string => {
-    const edge = doc.edges.find((e) => e.from === s.from && e.to === s.to);
+    const edge = connections.find((e) => e.from === s.from && e.to === s.to);
     return `${s.from} ${edge ? arrowOf(edge) : '-->'} ${s.to}`;
   };
   const crossing = crossingPairs.map(([s, t]) => `${written(s)} and ${written(t)}`);
@@ -241,7 +249,7 @@ export function layoutReport(doc: DavDocument): LayoutReport {
     const pair = idPair(edge.from, edge.to);
     if (told.has(pair) || !surprising(edge, declared)) continue;
     told.add(pair);
-    notes.push({ code: 'back-edge', message: backEdgeNote(doc, edge, columnOf) });
+    notes.push({ code: 'back-edge', message: backEdgeNote(connections, edge, columnOf) });
   }
   // In columns, only an edge left out of a loop points left, and `back-edge` names it.
   const leftward = free ? leftLinks(doc, layout) : [];

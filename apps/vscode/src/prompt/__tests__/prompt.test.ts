@@ -6,7 +6,7 @@ import { ICON_NAMES } from '../../model/types';
 import { buildAiPrompt, PROMPT_EXAMPLE_DSL, TEXT_BUDGET } from '../index';
 
 describe('AI prompt template (M4)', () => {
-  it('embeds a valid DSL v1 example with zero diagnostics', () => {
+  it('embeds a valid DSL v2 example with zero diagnostics', () => {
     const result = parse(PROMPT_EXAMPLE_DSL);
     expect(result.diagnostics).toEqual([]);
     expect(result.document.nodes.length).toBeGreaterThanOrEqual(4);
@@ -37,7 +37,7 @@ describe('AI prompt template (M4)', () => {
   });
 
   it('includes current DSL only when requested', () => {
-    const sample = 'dav 1\ntitle "Custom Diagram"\nnode a "A"';
+    const sample = 'title "Custom Diagram"\nnode a "A"\nstep "S" {\n  focus a\n}';
     expect(
       buildAiPrompt({ locale: 'ja', currentDsl: sample, includeCurrentDsl: false }),
     ).not.toContain('Custom Diagram');
@@ -80,13 +80,11 @@ describe('AI prompt template (M4)', () => {
   it('shows an example that is as detailed as the prompt asks for', () => {
     const { document } = parse(PROMPT_EXAMPLE_DSL);
     expect(document.nodes.every((n) => n.sub && n.icon)).toBe(true);
-    expect(document.edges.every((e) => e.label)).toBe(true);
     expect(document.steps.every((s) => s.description.trim())).toBe(true);
     const packets = document.steps.flatMap((s) => s.animations);
     expect(packets.every((a) => a.label && a.description?.trim())).toBe(true);
     expect(packets.some((a) => a.code?.body.trim())).toBe(true);
-    for (const a of packets) {
-      expect(document.edges.some((e) => e.from === a.from && e.to === a.to)).toBe(true);
-    }
+    const statics = document.steps.flatMap((s) => s.statics);
+    expect(statics.every((s) => s.label)).toBe(true);
   });
 });

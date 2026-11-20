@@ -5,11 +5,12 @@ import {
   type IconName,
   KEYWORD_NAMES,
   type LineStyle,
+  type NodeMount,
 } from '../model/types';
 
 /** Attribute schema: which attributes each statement accepts, and their value types. */
 
-export type AttrType = 'string' | 'bool' | 'color' | 'stateColor' | 'icon';
+export type AttrType = 'string' | 'bool' | 'color' | 'stateColor' | 'icon' | 'border' | 'mount';
 export type AttrOwner = 'node' | 'group' | 'state' | 'animate' | 'static';
 
 export interface AttrValueByType {
@@ -18,6 +19,8 @@ export interface AttrValueByType {
   color: ColorName;
   stateColor: ColorName | typeof COLOR_RESET;
   icon: IconName;
+  border: LineStyle;
+  mount: NodeMount;
 }
 
 const SCHEMA = {
@@ -27,9 +30,11 @@ const SCHEMA = {
     badge: 'string',
     visible: 'bool',
     color: 'color',
+    mount: 'mount',
   },
   group: {
     color: 'color',
+    border: 'border',
   },
   state: {
     badge: 'string',

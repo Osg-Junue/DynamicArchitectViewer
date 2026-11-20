@@ -11,6 +11,7 @@ import {
 } from './flow';
 import { type Link, linksOf } from './links';
 import { enclosingRect, STATION_CENTER } from './metrics';
+import { buildRecursiveZoneBlock } from './nestedZone';
 import {
   type Block,
   buildBlocks,
@@ -19,6 +20,7 @@ import {
   HORIZONTAL_CLEARANCE,
   initialPositions,
   type MacroGrid,
+  type NestedBlockBuilder,
   type Placed,
   partitionIsolatedBlocks,
   placeAuxiliaryBlocks,
@@ -125,11 +127,15 @@ interface Arrangement {
   blockCache: Map<string, Block>;
 }
 
-function arrange(doc: DavDocument, columnLayout: ColumnLayout): Arrangement {
+function arrange(
+  doc: DavDocument,
+  columnLayout: ColumnLayout,
+  buildNested: NestedBlockBuilder = buildRecursiveZoneBlock,
+): Arrangement {
   const connDoc = connectedSubdoc(doc);
   const connConns = synthesizedConnections(connDoc);
   const flow = analyzeFlow(connDoc, connConns);
-  const { blocks, owners } = buildBlocks(connDoc, columnLayout, undefined, flow);
+  const { blocks, owners } = buildBlocks(connDoc, columnLayout, undefined, flow, buildNested);
   const { connected: rawConn } = partitionIsolatedBlocks(blocks, flow, owners);
 
   // Sort connected blocks by pure graph-topological features (never DSL declaration index) so
@@ -855,8 +861,12 @@ function clearCorridorIntrusions(
 }
 
 /** Places connected top-level blocks using a single deterministic stage+band skeleton and bounded local refinement. */
-export function searchZonePlacement(doc: DavDocument, columnLayout: ColumnLayout): ZonePlacement {
-  const arr = arrange(doc, columnLayout);
+export function searchZonePlacement(
+  doc: DavDocument,
+  columnLayout: ColumnLayout,
+  buildNested: NestedBlockBuilder = buildRecursiveZoneBlock,
+): ZonePlacement {
+  const arr = arrange(doc, columnLayout, buildNested);
   if (arr.connected.length === 0) return new Map();
 
   const {

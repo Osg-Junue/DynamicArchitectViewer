@@ -2,6 +2,7 @@ import { type Layout, type Rect, rectContains } from '../layout';
 import { boundsOf } from './bounds';
 import { calloutRect, computePacketCalloutBox } from './callout';
 import { clamp, railBox } from './geometry';
+import { badgeArea, edgeLabelArea } from './rails';
 import type { Packet, ResolvedView } from './resolve';
 
 /**
@@ -91,7 +92,22 @@ function withCalloutBounds(base: Rect, packets: readonly Packet[], calloutPad: n
 
 /** Everything the diagram draws, including packet callouts that reach past its edge. */
 export function wholeDiagramFrame(layout: Layout, view: ResolvedView): Frame {
-  const base = boundsOf([...Object.values(layout.nodes), ...Object.values(layout.groups)]);
+  const base =
+    view.phases.length === 0
+      ? boundsOf(
+          [
+            ...Object.values(layout.nodes),
+            ...Object.values(layout.groups),
+            ...view.nodes.flatMap(badgeArea),
+            ...view.edges.map((e) => railBox(e.path)),
+            ...view.edges.flatMap((e) =>
+              e.label && e.labelAt ? [edgeLabelArea(e.label, e.labelAt)] : [],
+            ),
+          ],
+          undefined,
+          0,
+        )
+      : boundsOf([...Object.values(layout.nodes), ...Object.values(layout.groups)]);
   return {
     rect: withCalloutBounds(base, view.phases.flat(), CALLOUT_FRAME_PAD),
     maxZoom: MAX_FIT_ZOOM,

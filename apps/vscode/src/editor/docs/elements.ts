@@ -108,11 +108,13 @@ function galleryItem(diagram: SVGSVGElement, caption: Node): HTMLElement {
   );
 }
 
-export function gallery(prelude: string, examples: readonly string[]): HTMLElement {
+export function gallery(prelude: string, examples: readonly string[], suffix = ''): HTMLElement {
   return html(
     'div',
     { class: 'doc-gallery' },
-    ...examples.map((code) => galleryItem(staticDiagram(prelude + code, code), codeBlock(code))),
+    ...examples.map((code) =>
+      galleryItem(staticDiagram(prelude + code + suffix, code), codeBlock(code)),
+    ),
   );
 }
 

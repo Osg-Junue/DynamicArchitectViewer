@@ -1,5 +1,5 @@
 import { ICON_META } from '../model/icons';
-import { COLOR_NAMES, COLOR_RESET, ICON_NAMES } from '../model/types';
+import { BORDER_STYLES, COLOR_NAMES, COLOR_RESET, ICON_NAMES, MOUNT_MODES } from '../model/types';
 import { parse } from './analyze';
 import type { Locale } from './diagnostics';
 import { ARROW_TOKENS, ATTRIBUTE_SCHEMA, type AttrOwner } from './schema';
@@ -101,6 +101,18 @@ const ATTRIBUTE_KEYS: readonly LocalizedItem[] = [
   },
   { label: 'color', kind: 'property', insertText: 'color: ', detail: ['色の名前', 'Color name'] },
   {
+    label: 'border',
+    kind: 'property',
+    insertText: 'border: ',
+    detail: ['枠線の種類 (solid | dashed)', 'Border style (solid | dashed)'],
+  },
+  {
+    label: 'mount',
+    kind: 'property',
+    insertText: 'mount: border',
+    detail: ['親グループ枠線上に配置', 'Mount node on parent group border'],
+  },
+  {
     label: 'visible',
     kind: 'property',
     insertText: 'visible: true',
@@ -182,7 +194,7 @@ export function computeCompletions(
   if (open >= 0) {
     const inside = text.slice(open + 1, pos);
     const owner = attributeOwner(text.slice(text.lastIndexOf('\n', open) + 1, open));
-    const value = /\b(icon|color|visible|parallel)\s*:\s*([A-Za-z_]*)$/.exec(inside);
+    const value = /\b(icon|color|border|mount|visible|parallel)\s*:\s*([A-Za-z_]*)$/.exec(inside);
     if (value) {
       const key = value[1];
       const valFrom = pos - (value[2]?.length ?? 0);
@@ -212,6 +224,20 @@ export function computeCompletions(
           });
         }
         return { from: valFrom, to: pos, items };
+      }
+      if (key === 'border') {
+        return {
+          from: valFrom,
+          to: pos,
+          items: BORDER_STYLES.map((style) => ({ label: style, kind: 'constant' })),
+        };
+      }
+      if (key === 'mount') {
+        return {
+          from: valFrom,
+          to: pos,
+          items: MOUNT_MODES.map((mode) => ({ label: mode, kind: 'constant' })),
+        };
       }
       return { from: valFrom, to: pos, items: [...BOOL_COMPLETIONS] };
     }
@@ -257,7 +283,8 @@ export function computeCompletions(
   if (/^\s*state\s+\w*$/.test(code)) return { from, to: pos, items: [...nodes, ...groups] };
   if (/^\s*state\b/.test(code)) return null;
   if (AFTER_ARROW_RE.test(code) || /^\s*(?:animate|static)\s+\w*$/.test(code)) {
-    return { from, to: pos, items: nodes };
+    const isStatic = /^\s*static\b/.test(code);
+    return { from, to: pos, items: isStatic ? [...nodes, ...groups] : nodes };
   }
   if (CONNECTION_STMT_RE.test(code)) return null;
 

@@ -18,7 +18,7 @@
   --dav-bg: var(--vscode-editor-background, light-dark(#f8f7f2, #191b1e));
   --dav-panel: var(--vscode-sideBar-background, light-dark(#f0efe8, #212429));
   --dav-fg: var(--vscode-foreground, light-dark(#20282f, #dde0e4));
-  --dav-muted: var(--vscode-descriptionForeground, light-dark(#5c6670, #9ca5ae));
+  --dav-muted: var(--vscode-descriptionForeground, light-dark(#3f4852, #b0b8c1));
   --dav-border: var(--vscode-panel-border, light-dark(#d6d3c8, #363b42));
   --dav-border-strong: var(--vscode-input-placeholderForeground, light-dark(#858b8f, #737c86));
 
@@ -87,6 +87,9 @@
   stroke: var(--dav-bg);
   stroke-width: 1.5px;
   stroke-linejoin: round;
+}
+.dav-node-sub {
+  stroke-width: 1px;
 }
 .dav-group-label {
   font-weight: 500;

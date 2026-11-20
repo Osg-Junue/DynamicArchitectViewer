@@ -110,11 +110,9 @@ export function staticDiagram(dsl: string, label: string, stepIndex: number | nu
 /** A single icon exactly as it appears on the canvas, cropped to its station. */
 export function stationPreview(icon: IconName, color?: ColorName): SVGSVGElement {
   const document: DavDocument = {
-    version: 1,
     title: '',
     groups: [],
     nodes: [{ id: 'n', label: '', icon, visible: true, ...(color ? { color } : {}) }],
-    edges: [],
     steps: [],
   };
   const layout = computeLayout(document);

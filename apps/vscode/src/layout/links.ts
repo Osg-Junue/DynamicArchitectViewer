@@ -21,19 +21,24 @@ export interface Segment {
   by: number;
 }
 
-export function segmentsOf(links: readonly Link[], layout: Pick<Layout, 'nodes'>): Segment[] {
+export function segmentsOf(
+  links: readonly Link[],
+  layout: Pick<Layout, 'nodes'> & Partial<Pick<Layout, 'groups'>>,
+): Segment[] {
   return links.flatMap(([from, to]) => {
-    const a = layout.nodes[from];
-    const b = layout.nodes[to];
+    const aNode = layout.nodes[from];
+    const bNode = layout.nodes[to];
+    const a = aNode ?? layout.groups?.[from];
+    const b = bNode ?? layout.groups?.[to];
     if (!a || !b) return [];
     return [
       {
         from,
         to,
         ax: a.x + a.width / 2,
-        ay: a.y + STATION_CENTER,
+        ay: aNode ? a.y + STATION_CENTER : a.y + a.height / 2,
         bx: b.x + b.width / 2,
-        by: b.y + STATION_CENTER,
+        by: bNode ? b.y + STATION_CENTER : b.y + b.height / 2,
       },
     ];
   });

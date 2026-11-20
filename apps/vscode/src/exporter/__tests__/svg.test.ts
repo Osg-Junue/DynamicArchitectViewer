@@ -53,8 +53,7 @@ function sampleDsl(id: string): string {
 
 describe('exportSvg', () => {
   it('takes a packet round the corner of its rail instead of cutting across it', () => {
-    const dsl =
-      'dav 1\nnode a\nnode b\nnode c\na --> b\na --> c\nstep "S" {\n  animate a --> c\n}\n';
+    const dsl = 'node a\nnode b\nnode c\nstep "S" {\n  static a --> b\n  animate a --> c\n}\n';
     const doc = parse(dsl).document;
     const packet = resolveView(doc, computeLayout(doc), 0).phases[0]?.[0];
     if (!packet) throw new Error('missing packet');
@@ -361,13 +360,12 @@ describe("exportSvg with camera: 'whole'", () => {
 
   it('fits every node of a >6400px wide diagram without clamping zoom or showing a minimap', () => {
     const veryWide = [
-      'dav 1',
       'group z "Zone" {',
       ...Array.from({ length: 65 }, (_, i) => `  node n${i} "Node ${i}"`),
       '}',
-      ...Array.from({ length: 64 }, (_, i) => `n${i} --> n${i + 1}`),
       'step "Traverse" {',
       '  animate n0 --> n1 : "Hop"',
+      ...Array.from({ length: 63 }, (_, i) => `  static n${i + 1} --> n${i + 2}`),
       '}',
     ].join('\n');
 

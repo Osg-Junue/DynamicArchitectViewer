@@ -1,4 +1,12 @@
 import { selfLoopNodeIds } from '../model/connections';
+import {
+  textWidth,
+  ZONE_HEADER_MAX_EXPAND,
+  ZONE_LABEL_END_GAP,
+  ZONE_LABEL_FONT_SIZE,
+  ZONE_LABEL_INSET,
+  ZONE_LABEL_LINE_HEIGHT,
+} from '../model/text';
 import type { DavDocument, IconName } from '../model/types';
 
 export interface Rect {
@@ -27,6 +35,25 @@ export const ORIGIN = { x: 40, y: 40 };
 export const EMPTY_GROUP_CONTENT = { width: 160, height: 40 };
 /** Space above a node for its self-loop and that loop's label. */
 const SELF_LOOP_ROOM = 30;
+
+/** Width required for a group's header label to fit cleanly on one line. */
+export function zoneNeededWidth(label: string): number {
+  return Math.ceil(textWidth(label, ZONE_LABEL_FONT_SIZE) + ZONE_LABEL_INSET + 12);
+}
+
+/** Minimum zone width guaranteed for header legibility, capped at `ZONE_HEADER_MAX_EXPAND` (even-aligned to avoid 0.5px centering drift). */
+export function zoneMinWidth(label: string): number {
+  const clamped = Math.min(ZONE_HEADER_MAX_EXPAND, zoneNeededWidth(label));
+  return Math.ceil(clamped / 2) * 2;
+}
+
+/** Header height reserved above a group's padding: expands to 2 lines when `label` exceeds 1 line. */
+export function groupHeaderHeight(label: string, width: number): number {
+  const room = Math.max(40, width - ZONE_LABEL_INSET - ZONE_LABEL_END_GAP);
+  return textWidth(label, ZONE_LABEL_FONT_SIZE) > room
+    ? GROUP_HEADER + ZONE_LABEL_LINE_HEIGHT
+    : GROUP_HEADER;
+}
 
 /** The station symbol within a node's rectangle. */
 export function stationRect(node: Rect, icon: IconName): Rect {

@@ -6,6 +6,8 @@ import type { RouteEdge, RouteGroup, RouteNode } from './route';
 const NODE_MARGIN = 8;
 const LABEL_MARGIN = 12;
 const ZONE_MARGIN = 12;
+/** Parallel distance below which a track is treated as hugging a zone border. */
+const BORDER_CLEARANCE = 5;
 /** How wide a rail is drawn: `.dav-rail` in `runtime/scene.css` has to say the same. */
 export const RAIL_WIDTH = 3;
 /** Distance between two routes that run on one line. */
@@ -48,6 +50,8 @@ export interface Lane {
   routes: Array<number[] | undefined>;
   /** 1 where a level stretch runs through the room above a station that its badge is written in. */
   badge: Uint8Array;
+  /** 1 where a stretch runs parallel to and within `BORDER_CLEARANCE` of any zone border segment. */
+  border: Uint8Array;
 }
 
 /**
@@ -130,6 +134,13 @@ function linesOf(
   const xMarks: Mark[] = [];
   const yMarks: Mark[] = [];
   nodes.forEach((n, k) => {
+    if (n.groupBorder) {
+      const r = n.groupBorder;
+      // Keep the group endpoint's exact border coordinates as guaranteed grid lines for border doors.
+      xMarks.push([r.x, true], [r.x + r.width, true], [r.x + r.width / 2, false]);
+      yMarks.push([r.y, true], [r.y + r.height, true], [r.y + r.height / 2, false]);
+      return;
+    }
     const c = stationCenter(n);
     for (const x of ports[k]?.xs ?? [c.x]) xMarks.push([x, true]);
     for (const y of ports[k]?.ys ?? [c.y]) yMarks.push([y, true]);
@@ -152,6 +163,27 @@ function linesOf(
       yMarks.push([g.rect.y + side, false], [g.rect.y + g.rect.height + side, false]);
     }
   }
+  // Add midpoints between nested parallel borders (12..24px apart, e.g. GROUP_PADDING = 16)
+  // so corridors between nested frames have a centered border-clear track.
+  const addBorderMidpoints = (coords: number[], marks: Mark[]) => {
+    const uniq = [...new Set(coords)].sort((a, b) => a - b);
+    for (let i = 0; i + 1 < uniq.length; i++) {
+      const a = uniq[i] as number;
+      const b = uniq[i + 1] as number;
+      const d = b - a;
+      if (d >= BORDER_CLEARANCE * 2 + 2 && d <= ZONE_MARGIN * 2) {
+        marks.push([(a + b) / 2, false]);
+      }
+    }
+  };
+  addBorderMidpoints(
+    groups.flatMap((g) => [g.rect.x, g.rect.x + g.rect.width]),
+    xMarks,
+  );
+  addBorderMidpoints(
+    groups.flatMap((g) => [g.rect.y, g.rect.y + g.rect.height]),
+    yMarks,
+  );
   for (const w of walls) {
     xMarks.push([w.x - 6, false], [w.x + w.width + 6, false]);
     yMarks.push([w.y - 6, false], [w.y + w.height + 6, false]);
@@ -170,6 +202,7 @@ function portsOf(
   walls: readonly Rect[],
 ): Ports[] {
   const ports: Ports[] = nodes.map((n) => {
+    if (n.groupBorder) return { xs: new Set(), ys: new Set() };
     const c = stationCenter(n);
     const xs = new Set([c.x]);
     const overhead = walls.filter(
@@ -192,8 +225,11 @@ function portsOf(
     return { xs, ys: new Set([c.y]) };
   });
   for (const e of edges) {
-    const a = stationCenter(nodes[e.from] as RouteNode);
-    const b = stationCenter(nodes[e.to] as RouteNode);
+    const na = nodes[e.from] as RouteNode;
+    const nb = nodes[e.to] as RouteNode;
+    if (na.groupBorder || nb.groupBorder) continue;
+    const a = stationCenter(na);
+    const b = stationCenter(nb);
     if (a.y !== b.y && Math.abs(a.y - b.y) <= PORT_REACH) {
       ports[e.from]?.ys.add(b.y);
       ports[e.to]?.ys.add(a.y);
@@ -304,7 +340,8 @@ function markZones(grid: Grid, groups: readonly RouteGroup[]): void {
 /** Notes the level stretches a badge would be written over. */
 function markBadges(grid: Grid, nodes: readonly RouteNode[]): void {
   const { xs, ys, W, H } = grid;
-  for (const { badge } of nodes) {
+  for (const { badge, groupBorder } of nodes) {
+    if (groupBorder) continue;
     const right = badge.x + badge.width;
     const bottom = badge.y + badge.height;
     const firstX = Math.max(0, firstAbove(xs, badge.x) - 1);
@@ -321,6 +358,47 @@ function markBadges(grid: Grid, nodes: readonly RouteNode[]): void {
   }
 }
 
+/** Marks stretches running parallel to and within `BORDER_CLEARANCE` of any group's border. */
+function markBorders(grid: Grid, groups: readonly RouteGroup[]): void {
+  const { xs, ys, W, H } = grid;
+  for (const { rect } of groups) {
+    const right = rect.x + rect.width;
+    const bottom = rect.y + rect.height;
+    // Horizontal top and bottom borders affect level stretches overlapping [rect.x, right].
+    const firstX = Math.max(0, firstAbove(xs, rect.x) - 1);
+    for (const borderY of [rect.y, bottom]) {
+      for (let iy = Math.max(0, firstAbove(ys, borderY - BORDER_CLEARANCE - 1)); iy < H; iy++) {
+        const y = ys[iy] as number;
+        if (y >= borderY + BORDER_CLEARANCE) break;
+        if (Math.abs(y - borderY) >= BORDER_CLEARANCE) continue;
+        for (let ix = firstX; ix < W - 1; ix++) {
+          const x = xs[ix] as number;
+          if (x >= right) break;
+          if ((xs[ix + 1] as number) > rect.x) {
+            grid.level.border[iy * W + ix] = 1;
+          }
+        }
+      }
+    }
+    // Vertical left and right borders affect upright stretches overlapping [rect.y, bottom].
+    const firstY = Math.max(0, firstAbove(ys, rect.y) - 1);
+    for (const borderX of [rect.x, right]) {
+      for (let ix = Math.max(0, firstAbove(xs, borderX - BORDER_CLEARANCE - 1)); ix < W; ix++) {
+        const x = xs[ix] as number;
+        if (x >= borderX + BORDER_CLEARANCE) break;
+        if (Math.abs(x - borderX) >= BORDER_CLEARANCE) continue;
+        for (let iy = firstY; iy < H - 1; iy++) {
+          const y = ys[iy] as number;
+          if (y >= bottom) break;
+          if ((ys[iy + 1] as number) > rect.y) {
+            grid.upright.border[iy * W + ix] = 1;
+          }
+        }
+      }
+    }
+  }
+}
+
 const lane = (size: number): Lane => ({
   block: new Int32Array(size).fill(-1),
   door: new Uint8Array(size),
@@ -328,6 +406,7 @@ const lane = (size: number): Lane => ({
   use: new Uint8Array(size),
   routes: new Array(size),
   badge: new Uint8Array(size),
+  border: new Uint8Array(size),
 });
 
 /** The grid for a diagram, with what closes each stretch and which zone it lies in. */
@@ -354,12 +433,13 @@ export function buildGrid(
     yIndex: new Map(ys.map((y, i) => [y, i])),
   };
   nodes.forEach((n, k) => {
+    if (n.groupBorder) return;
     close(grid, n.area, k, grid.ports[k]);
     if (n.labelArea) close(grid, n.labelArea, k, grid.ports[k]);
   });
   const stationLines = {
-    xs: new Set(nodes.map((n) => stationCenter(n).x)),
-    ys: new Set(nodes.map((n) => stationCenter(n).y)),
+    xs: new Set(nodes.filter((n) => !n.groupBorder).map((n) => stationCenter(n).x)),
+    ys: new Set(nodes.filter((n) => !n.groupBorder).map((n) => stationCenter(n).y)),
   };
   for (const w of walls) {
     close(grid, w, -2);
@@ -373,6 +453,7 @@ export function buildGrid(
   }
   markZones(grid, groups);
   markBadges(grid, nodes);
+  markBorders(grid, groups);
   return grid;
 }
 

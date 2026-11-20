@@ -1,7 +1,7 @@
+import { computeLayout } from '../layout';
 import type { Animation, DavDocument, DavStep } from '../model/types';
 import { CALLOUT_CODE_MAX_LINES, type TextCut, textCuts } from '../scene/textCuts';
 import { arrowOf } from './outline';
-import { carries } from './packets';
 
 /**
  * What `dav-check --detail` reports on a file that already compiles: where a diagram says less
@@ -15,10 +15,8 @@ export interface Hint {
 
 /** Every code a hint is given with, in the order that the checker's reference lists them. */
 export const HINT_CODES = [
-  'edge-without-label',
   'step-without-desc',
   'empty-step',
-  'animate-without-edge',
   'animate-without-label',
   'animate-without-desc',
   'no-code',
@@ -29,72 +27,7 @@ export const HINT_CODES = [
 const CODE_WORTH_FROM = 3;
 
 const stepName = (step: DavStep): string => `step ${step.index + 1} "${step.title}"`;
-const packetName = (a: Animation): string =>
-  `animate ${a.from} ${a.direction === 'bidirectional' ? '<->' : '-->'} ${a.to}`;
-
-/** A way longer than this is no advice: the packet was not meant to go that far round. */
-const WAY_MAX_HOPS = 4;
-
-/**
- * The fewest nodes that lead from `from` to `to` over declared edges, both ends included. With
- * `eitherWay`, a one-way edge may also be taken against its direction.
- */
-function wayBetween(
-  doc: DavDocument,
-  from: string,
-  to: string,
-  eitherWay: boolean,
-): string[] | undefined {
-  const cameFrom = new Map<string, string>([[from, from]]);
-  const queue = [from];
-  for (let at = queue.shift(); at !== undefined; at = queue.shift()) {
-    if (at === to) break;
-    for (const e of doc.edges) {
-      if (e.from === e.to) continue;
-      const next =
-        e.from === at
-          ? e.to
-          : e.to === at && (eitherWay || e.direction === 'bidirectional')
-            ? e.from
-            : undefined;
-      if (next === undefined || cameFrom.has(next)) continue;
-      cameFrom.set(next, at);
-      queue.push(next);
-    }
-  }
-  if (!cameFrom.has(to)) return undefined;
-  const way = [to];
-  while (way[0] !== from) way.unshift(cameFrom.get(way[0] ?? from) ?? from);
-  return way.length - 1 <= WAY_MAX_HOPS ? way : undefined;
-}
-
-/** What to write instead of a packet that travels where no edge is declared. */
-function wayAdvice(doc: DavDocument, a: Animation): string {
-  const hops = (way: readonly string[]) =>
-    way
-      .slice(1)
-      .map((node, i) => `animate ${way[i]} --> ${node}`)
-      .join(', then ');
-  const back = a.direction === 'bidirectional' ? ', and the answer back the same way' : '';
-
-  const way = wayBetween(doc, a.from, a.to, false);
-  if (way) {
-    return `The edges join them by way of ${way.slice(1, -1).join(', ')}: send ${hops(way)} instead${back}.`;
-  }
-  const against = wayBetween(doc, a.from, a.to, true);
-  if (against) {
-    // The edges of that way that a packet cannot ride in this direction.
-    const oneWay = against
-      .slice(1)
-      .map((node, i) => ({ from: against[i] ?? '', to: node }))
-      .filter((hop) => !doc.edges.some((e) => carries(e, hop)))
-      .map((hop) => `${hop.to} --> ${hop.from}`);
-    return against.length === 2
-      ? `The edge ${oneWay[0]} runs the other way: make it <-> so that the packet can ride it back.`
-      : `The edges on the way run the other way (${oneWay.join(', ')}): make each of those edges <->, then send ${hops(against)} instead${back}.`;
-  }
-  return `No edges join the two. If the code shows that they talk to each other directly, declare ${a.from} --> ${a.to} : "..."; if it does not, leave the packet out.`;
-}
+const packetName = (a: Animation): string => `animate ${a.from} ${arrowOf(a)} ${a.to}`;
 
 function cutHint(cut: TextCut, doc: DavDocument): string {
   const step = 'step' in cut ? doc.steps[cut.step] : undefined;
@@ -102,15 +35,19 @@ function cutHint(cut: TextCut, doc: DavDocument): string {
   switch (cut.kind) {
     case 'node-label':
       return `The label of node ${cut.node} is too long for its place and is cut off: "${cut.text}". Shorten it, and move detail into sub.`;
+    case 'zone-label':
+      return `The label of group ${cut.group} is too long for its zone and is cut off: "${cut.text}". Shorten it.`;
     case 'node-sub':
       return `The sub of node ${cut.node} is too long and is cut off: "${cut.text}". Shorten it.`;
     case 'node-badge':
       return `The badge of node ${cut.node} is too long and is cut off: "${cut.text}". A badge is a word or two.`;
     case 'state-badge':
       return `${where}the badge set on ${cut.target} is too long and is cut off: "${cut.text}". A badge is a word or two.`;
-    case 'edge-label': {
-      const edge = doc.edges.find((e) => e.id === cut.id);
-      return `The label of ${cut.from} ${edge ? arrowOf(edge) : '-->'} ${cut.to} is too long and is cut off: "${cut.text}". Shorten it.`;
+    case 'static-label': {
+      const link = step?.statics.find(
+        (s) => s.from === cut.from && s.to === cut.to && s.label === cut.text,
+      );
+      return `${where}the label of static ${cut.from} ${link ? arrowOf(link) : '-->'} ${cut.to} is too long and is cut off: "${cut.text}". Shorten it.`;
     }
     case 'packet-label':
       return `${where}the label of the packet from ${cut.from} to ${cut.to} is too long and is cut off: "${cut.text}". Keep the label short, and move the rest into desc.`;
@@ -129,14 +66,6 @@ export function reviewDetail(doc: DavDocument): Hint[] {
     hints.push({ code, message });
   };
 
-  for (const e of doc.edges) {
-    if (!e.label) {
-      hint(
-        'edge-without-label',
-        `${e.from} ${arrowOf(e)} ${e.to} has no label. Say what travels on it or how the two are related, such as : "HTTPS".`,
-      );
-    }
-  }
   for (const step of doc.steps) {
     if (!step.description.trim()) {
       hint(
@@ -144,18 +73,18 @@ export function reviewDetail(doc: DavDocument): Hint[] {
         `${stepName(step)} has no desc. Add one or two sentences that say what happens in it and why.`,
       );
     }
-    if (step.animations.length === 0 && step.states.length === 0 && step.focus.length === 0) {
-      hint('empty-step', `${stepName(step)} shows nothing: it has no animate, state or focus.`);
+    if (
+      step.animations.length === 0 &&
+      step.statics.length === 0 &&
+      step.states.length === 0 &&
+      step.focus.length === 0
+    ) {
+      hint(
+        'empty-step',
+        `${stepName(step)} shows nothing: it has no animate, static, state or focus.`,
+      );
     }
     for (const a of step.animations) {
-      if (!doc.edges.some((e) => carries(e, a))) {
-        hint(
-          'animate-without-edge',
-          a.from === a.to
-            ? `${stepName(step)}: ${packetName(a)} loops on a node that has no loop edge. Declare it: ${a.from} --> ${a.to} : "...".`
-            : `${stepName(step)}: ${packetName(a)} travels where no edge is declared, so it has no line to follow. ${wayAdvice(doc, a)}`,
-        );
-      }
       if (!a.label) {
         hint(
           'animate-without-label',
@@ -177,6 +106,7 @@ export function reviewDetail(doc: DavDocument): Hint[] {
       'No animate shows a code block. Attach the request, query, event or response that matters most to one to three of them.',
     );
   }
-  for (const cut of textCuts(doc)) hint('text-cut', cutHint(cut, doc));
+  const layout = doc.groups.length > 0 ? computeLayout(doc) : undefined;
+  for (const cut of textCuts(doc, layout)) hint('text-cut', cutHint(cut, doc));
   return hints;
 }

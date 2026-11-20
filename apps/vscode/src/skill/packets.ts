@@ -1,6 +1,9 @@
-import type { Animation, DavEdge } from '../model/types';
+import type { Animation, DavConnection } from '../model/types';
 
-/** A packet rides an edge the way it points, or a two-way edge either way. */
-export const carries = (e: DavEdge, a: Pick<Animation, 'from' | 'to'>): boolean =>
-  (e.from === a.from && e.to === a.to) ||
-  (e.direction === 'bidirectional' && e.from === a.to && e.to === a.from);
+/** A packet rides a connection the way it points, or a two-way connection either way. */
+export const carries = (
+  c: Pick<DavConnection, 'from' | 'to' | 'direction'>,
+  a: Pick<Animation, 'from' | 'to'>,
+): boolean =>
+  (c.from === a.from && c.to === a.to) ||
+  (c.direction === 'bidirectional' && c.from === a.to && c.to === a.from);

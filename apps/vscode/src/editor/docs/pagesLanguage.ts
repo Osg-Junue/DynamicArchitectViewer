@@ -23,6 +23,7 @@ import {
   EDGE_GALLERY,
   EDGE_PRELUDE,
   EDGE_STEPS_DSL,
+  EDGE_SUFFIX,
   FOCUS_DSL,
   GROUPS_DSL,
   NO_EDGE_DSL,
@@ -206,8 +207,8 @@ export const LANGUAGE_PAGES: readonly DocPage[] = [
     render(ctx) {
       const { t } = ctx;
       return [
-        syntax('<from> <arrow> <to> (: "label")? [attributes]?'),
-        gallery(EDGE_PRELUDE, EDGE_GALLERY),
+        syntax('static <from> <arrow> <to> (: "label")? [attributes]?'),
+        gallery(EDGE_PRELUDE, EDGE_GALLERY, EDGE_SUFFIX),
         attrTable(t, [
           ['`id`', 'ID', t('`state` から参照するための名前', 'Name used by `state`')],
           ['`color`', attrValues(t).color, t('線の色', 'Rail color')],
@@ -372,7 +373,7 @@ export const LANGUAGE_PAGES: readonly DocPage[] = [
     ],
     render(ctx) {
       const { t } = ctx;
-      const targets = ['node', 'group', 'edge'] as const;
+      const targets = ['node', 'group'] as const;
       const reverts: ReadonlyArray<readonly [string, string]> = [
         ['badge', t('`badge: ""` で消去', '`badge: ""` removes it')],
         ['color', `\`color: ${COLOR_RESET}\``],
@@ -387,13 +388,7 @@ export const LANGUAGE_PAGES: readonly DocPage[] = [
           ),
         }),
         table(
-          [
-            t('属性', 'Attribute'),
-            'node',
-            'group',
-            t('エッジ', 'edge'),
-            t('元に戻す', 'To revert'),
-          ],
+          [t('属性', 'Attribute'), 'node', 'group', t('元に戻す', 'To revert')],
           reverts.map(([attr, revert]) => [
             `\`${attr}\``,
             ...targets.map((kind) =>

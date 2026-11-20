@@ -72,6 +72,8 @@ export interface OptimizeFlipsContext {
   rowFilter?: 'multi-row' | 'multi-node' | 'any';
   fallback?: 'score-greedy' | 'none';
   fallbackTargets?: readonly Placed[];
+  /** Optional sibling symmetry group ID per block ID: members of the same group flip together. */
+  symmetryGroups?: ReadonlyMap<string, number>;
 }
 
 /** Derives continuous, bounded intra-zone refinement parameters from diagram dimensions. */
@@ -156,7 +158,7 @@ export function buildZoneSlackMeta(
   const topIds = new Set(topLevelGroups(connDoc.groups).map((g) => g.id));
   const slackMeta = new Map<string, ZoneSlackMeta>();
   for (const block of connected) {
-    if (!topIds.has(block.id) || block.nodes.size < 2) continue;
+    if (!topIds.has(block.id) || block.nodes.size < 2 || block.recursive) continue;
     const nodeIds = [...block.nodes.keys()];
     const idSet = new Set(nodeIds);
     const localFlow = intraZoneFlow(idSet, connConns, flow, owners);
@@ -792,13 +794,35 @@ export function optimizeZoneFlips(
         : true;
 
   const targets = baseTargets.filter((p) => matchesFlippability(p) && matchesRows(p));
+  // Group targets into flip units: isomorphic siblings sharing a `symmetryGroups` ID flip together.
+  const groupUnits = (items: readonly Placed[]): Placed[][] => {
+    if (!ctx.symmetryGroups || ctx.symmetryGroups.size === 0) return items.map((p) => [p]);
+    const units: Placed[][] = [];
+    const bySym = new Map<number, Placed[]>();
+    for (const p of items) {
+      const sym = ctx.symmetryGroups.get(p.block.id);
+      if (sym === undefined) {
+        units.push([p]);
+      } else {
+        let list = bySym.get(sym);
+        if (!list) {
+          list = [];
+          bySym.set(sym, list);
+          units.push(list);
+        }
+        list.push(p);
+      }
+    }
+    return units;
+  };
+  const units = groupUnits(targets);
 
   const effectiveCap = Math.min(budgetCap, 20);
   if (
     flippability === 'flippable' &&
     effectiveCap > 0 &&
-    targets.length > 0 &&
-    targets.length <= effectiveCap
+    units.length > 0 &&
+    units.length <= effectiveCap
   ) {
     const scoreOpts = {
       mode: 'flip' as const,
@@ -808,8 +832,8 @@ export function optimizeZoneFlips(
       ...(entryMask ? { entryMask } : {}),
     };
     let curMask = 0;
-    targets.forEach((p, idx) => {
-      if (p.flip === 1) curMask |= 1 << idx;
+    units.forEach((unit, idx) => {
+      if (unit[0]?.flip === 1) curMask |= 1 << idx;
     });
     refreshSegments(ctx.links);
     let bestMask = curMask;
@@ -822,11 +846,12 @@ export function optimizeZoneFlips(
       scoreOpts,
     );
     const startObj = bestObj;
-    const totalMasks = 1 << targets.length;
+    const totalMasks = 1 << units.length;
     for (let mask = 0; mask < totalMasks; mask++) {
       if (mask === curMask) continue;
-      targets.forEach((p, idx) => {
-        p.flip = ((mask >> idx) & 1) as 0 | 1;
+      units.forEach((unit, idx) => {
+        const nextFlip = ((mask >> idx) & 1) as 0 | 1;
+        for (const p of unit) p.flip = nextFlip;
       });
       refreshSegments(ctx.links);
       const obj = evaluateArrangementScore(
@@ -842,8 +867,9 @@ export function optimizeZoneFlips(
         bestMask = mask;
       }
     }
-    targets.forEach((p, idx) => {
-      p.flip = ((bestMask >> idx) & 1) as 0 | 1;
+    units.forEach((unit, idx) => {
+      const nextFlip = ((bestMask >> idx) & 1) as 0 | 1;
+      for (const p of unit) p.flip = nextFlip;
     });
     refreshSegments(ctx.links);
     return bestMask !== curMask;
@@ -853,7 +879,8 @@ export function optimizeZoneFlips(
   const greedyTargets = ctx.fallbackTargets
     ? ctx.fallbackTargets.filter(matchesFlippability)
     : targets;
-  if (greedyTargets.length === 0) return false;
+  const greedyUnits = groupUnits(greedyTargets);
+  if (greedyUnits.length === 0) return false;
 
   const scoreOpts = {
     mode: 'flip' as const,
@@ -872,10 +899,12 @@ export function optimizeZoneFlips(
     scoreOpts,
   );
   let anyFlipped = false;
-  for (const p of greedyTargets) {
-    const prev = p.flip;
-    p.flip = prev === 0 ? 1 : 0;
-    refreshTouchingSegments(ctx.links, p, undefined);
+  for (const unit of greedyUnits) {
+    const prevFlips = unit.map((p) => p.flip);
+    const nextFlip: 0 | 1 = prevFlips[0] === 0 ? 1 : 0;
+    for (const p of unit) p.flip = nextFlip;
+    if (unit.length === 1 && unit[0]) refreshTouchingSegments(ctx.links, unit[0], undefined);
+    else refreshSegments(ctx.links);
     const nextScore = evaluateArrangementScore(
       ctx.doc,
       ctx.placed,
@@ -888,8 +917,11 @@ export function optimizeZoneFlips(
       curScore = nextScore;
       anyFlipped = true;
     } else {
-      p.flip = prev;
-      refreshTouchingSegments(ctx.links, p, undefined);
+      unit.forEach((p, idx) => {
+        p.flip = prevFlips[idx] ?? 0;
+      });
+      if (unit.length === 1 && unit[0]) refreshTouchingSegments(ctx.links, unit[0], undefined);
+      else refreshSegments(ctx.links);
     }
   }
   return anyFlipped;

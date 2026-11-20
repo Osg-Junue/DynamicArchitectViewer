@@ -11,15 +11,11 @@ const ROOT = resolve(__dirname, '../../../../..');
 const PACKAGE = join(ROOT, 'apps/cli');
 const BUILT = join(PACKAGE, 'dist/dav.mjs');
 
-const DIAGRAM = `dav 1
-title "Checkout"
+const DIAGRAM = `title "Checkout"
 
 node browser "Browser" [icon: browser]
 node api "API" [icon: api]
 node db "Orders DB" [icon: database]
-
-browser --> api : "HTTPS"
-api --> db : "SQL"
 
 step "Place an order" {
   animate browser --> api : "POST /orders"
@@ -29,8 +25,8 @@ step "Store it" {
   animate api --> db : "Insert"
 }
 `;
-const WITH_ERROR = 'dav 1\nnode a "A"\na --> missing\n';
-const WITH_WARNING = 'dav 1\ntitle "a"\ntitle "b"\nnode a "A"\n';
+const WITH_ERROR = 'node a "A"\nstep "S" {\n  animate a --> missing\n}\n';
+const WITH_WARNING = 'title "a"\ntitle "b"\nnode a "A"\nstep "S" {}\n';
 
 let dir: string;
 beforeEach(() => {
@@ -284,7 +280,7 @@ describe('dav export', () => {
     const { status, stderr } = await dav('export', file);
 
     expect(status).toBe(1);
-    expect(stderr).toContain(`${file}:3:7: error undefined-reference`);
+    expect(stderr).toContain(`${file}:3:17: error undefined-reference`);
     expect(existsSync(join(dir, 'checkout.svg'))).toBe(false);
   });
 
@@ -369,7 +365,8 @@ describe('dav export', () => {
 });
 
 describe('dav format', () => {
-  const UNFORMATTED = 'dav 1\nnode   a "A"   [icon:server]\n// kept\nnode b "B"\na-->b:"x"\n';
+  const UNFORMATTED =
+    'node   a "A"   [icon:server]\n// kept\nnode b "B"\nstep "S" {\n  animate a-->b:"x"\n}\n';
 
   it('formats a file in place as the editor does, and keeps comments', async () => {
     const file = fileWith(UNFORMATTED);
@@ -400,7 +397,7 @@ describe('dav format', () => {
   });
 
   it('reports a file with a syntax error instead of calling it formatted', async () => {
-    const broken = 'dav 1\nnode a "A" [\n';
+    const broken = 'node a "A" [\n';
     const { status, stderr } = await dav('format', fileWith(broken));
 
     expect(status).toBe(1);

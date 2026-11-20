@@ -41,10 +41,8 @@ With `--detail`, the checker says where a diagram that compiles says less than i
 
 | Code | Given when | What to do |
 | :--- | :--- | :--- |
-| `edge-without-label` | An edge has no label | Say what travels on it, or how the two are related: `api --> db : "SQL"` |
 | `step-without-desc` | A step has no `desc` | Add one or two sentences that say what happens in it and why |
-| `empty-step` | A step has no `animate`, `state` or `focus` | Give it something to show, or leave it out |
-| `animate-without-edge` | A packet travels where no edge is declared, so it has no line to follow | Do as the message says: it gives the hops to send instead, the edges to make two-way, or the edge to declare |
+| `empty-step` | A step has no `animate`, `static`, `state` or `focus` | Give it something to show, or leave it out |
 | `animate-without-label` | A packet has no label | Name what is sent, such as `"POST /orders"` |
 | `animate-without-desc` | A packet has no `desc` | Say what the message does or decides |
 | `no-code` | Three packets or more, and none of them shows `code` | Attach the request, query, event or response that matters most to one to three of them |

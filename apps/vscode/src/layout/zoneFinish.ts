@@ -29,20 +29,20 @@ const STRAIGHTEN_REACH = 120;
 
 type Axis = 'x' | 'y';
 
-function axisSpec(axis: Axis, horizontalClearance: number) {
+function axisSpec(axis: Axis, horizontalClearance: number, verticalClearance = VERTICAL_CLEARANCE) {
   return axis === 'x'
     ? {
         across: 'y' as const,
         size: 'width' as const,
         acrossSize: 'height' as const,
         clearance: horizontalClearance,
-        acrossClearance: VERTICAL_CLEARANCE,
+        acrossClearance: verticalClearance,
       }
     : {
         across: 'x' as const,
         size: 'height' as const,
         acrossSize: 'width' as const,
-        clearance: VERTICAL_CLEARANCE,
+        clearance: verticalClearance,
         acrossClearance: horizontalClearance,
       };
 }
@@ -62,6 +62,7 @@ export function alignEdges(
   placed: readonly Placed[],
   ctx?: FlowContext,
   horizontalClearance = HORIZONTAL_CLEARANCE,
+  verticalClearance = VERTICAL_CLEARANCE,
 ): void {
   let current = linkCost(links, placed, ctx);
   let base = current;
@@ -91,6 +92,7 @@ export function alignEdges(
       0,
       ctx,
       horizontalClearance,
+      verticalClearance,
     );
     if (Number.isNaN(change)) return;
     const wallsOk = !ctx?.preserveFlow || wallDetourCount(links, placed, ctx) <= wallsBefore;
@@ -124,6 +126,7 @@ export function tighten(
   placed: readonly Placed[],
   ctx?: FlowContext,
   horizontalClearance = HORIZONTAL_CLEARANCE,
+  verticalClearance = VERTICAL_CLEARANCE,
 ): void {
   refreshSegments(links);
   const pullWeight = (l: BlockLink, moverId: string): number => {
@@ -172,6 +175,7 @@ export function tighten(
               0,
               ctx,
               horizontalClearance,
+              verticalClearance,
             );
             if (Number.isNaN(change)) break;
             if (change < 0) {
@@ -190,10 +194,17 @@ export function tighten(
 }
 
 /** How far `a` can move back along the axis before it is too close to `b`, which stays. */
-function roomBefore(a: Placed, b: Placed, axis: Axis, horizontalClearance: number): number {
+function roomBefore(
+  a: Placed,
+  b: Placed,
+  axis: Axis,
+  horizontalClearance: number,
+  verticalClearance: number,
+): number {
   const { across, size, acrossSize, clearance, acrossClearance } = axisSpec(
     axis,
     horizontalClearance,
+    verticalClearance,
   );
   const apart =
     a[across] >= b[across] + b.block[acrossSize] + acrossClearance ||
@@ -216,8 +227,13 @@ function moveTogether(
   aside: boolean,
   ctx: FlowContext | undefined,
   horizontalClearance: number,
+  verticalClearance: number,
 ): boolean {
-  const { across, acrossSize, acrossClearance } = axisSpec(axis, horizontalClearance);
+  const { across, acrossSize, acrossClearance } = axisSpec(
+    axis,
+    horizontalClearance,
+    verticalClearance,
+  );
   const home = far.map((p) => ({ x: p.x, y: p.y }));
   const put = (along: number, step: number) => {
     far.forEach((p, i) => {
@@ -235,12 +251,17 @@ function moveTogether(
   /** Tries the moves that start with that step aside, and tells what stops the part. */
   const slide = (step: number): { stopped: Placed; stopper: Placed } | undefined => {
     put(0, step);
-    if (step !== 0 && !far.every((p) => isClear(p, placed, horizontalClearance))) return undefined;
+    if (
+      step !== 0 &&
+      !far.every((p) => isClear(p, placed, horizontalClearance, verticalClearance))
+    ) {
+      return undefined;
+    }
     let room = Number.POSITIVE_INFINITY;
     let stop: { stopped: Placed; stopper: Placed } | undefined;
     for (const stopped of far) {
       for (const stopper of near) {
-        const r = roomBefore(stopped, stopper, axis, horizontalClearance);
+        const r = roomBefore(stopped, stopper, axis, horizontalClearance, verticalClearance);
         if (r < room) {
           room = r;
           stop = { stopped, stopper };
@@ -271,26 +292,13 @@ function moveTogether(
   return best.along !== 0;
 }
 
-/**
- * Closes the room that nothing but links run through. The search and the sliding move one
- * zone at a time, and a zone that several links hold on one side does not leave them for a
- * single link on the other: two parts of a diagram then stay apart, however long the links
- * between them. Here everything past a line moves at once, as far as the clearances allow or
- * a part of that, when it lowers the cost.
- *
- * The part often has room to go further if it first steps aside, past the zone that stops it,
- * to either side of that zone. With `aside`, both are tried as well, and the move that lowers
- * the cost most is taken. A step aside must leave the diagram no wider and no higher. Height is
- * free to the search while the canvas has room for it, and a part that may step out of the
- * diagram does so at every zone in its way: the zones then run down a diagonal, with two
- * corners left empty.
- */
 export function compact(
   links: readonly BlockLink[],
   placed: readonly Placed[],
   aside: boolean,
   ctx?: FlowContext,
   horizontalClearance = HORIZONTAL_CLEARANCE,
+  verticalClearance = VERTICAL_CLEARANCE,
 ): void {
   for (let round = 0; round < COMPACT_ROUNDS; round++) {
     let moved = false;
@@ -308,6 +316,7 @@ export function compact(
             aside,
             ctx,
             horizontalClearance,
+            verticalClearance,
           )
         ) {
           moved = true;
@@ -399,6 +408,7 @@ export function straighten(
   worth = STRAIGHT_WORTH,
   ctx?: FlowContext,
   horizontalClearance = HORIZONTAL_CLEARANCE,
+  verticalClearance = VERTICAL_CLEARANCE,
 ): void {
   refreshSegments(links);
   for (let round = 0; round < 4; round++) {
@@ -467,6 +477,7 @@ export function straighten(
           0,
           ctx,
           horizontalClearance,
+          verticalClearance,
         );
         if (!Number.isNaN(change)) {
           const straightGain = straightLinks(links, placed, a) - before;
@@ -492,8 +503,8 @@ export function straighten(
               b !== a &&
               a.x < b.x + b.block.width + horizontalClearance &&
               b.x < a.x + a.block.width + horizontalClearance &&
-              a.y < b.y + b.block.height + VERTICAL_CLEARANCE &&
-              b.y < a.y + a.block.height + VERTICAL_CLEARANCE,
+              a.y < b.y + b.block.height + verticalClearance &&
+              b.y < a.y + a.block.height + verticalClearance,
           );
           a.x = homeX;
           a.y = homeY;
@@ -521,6 +532,7 @@ export function straighten(
               aux.flip,
               ctx,
               horizontalClearance,
+              verticalClearance,
             );
             if (!Number.isNaN(pairChange)) {
               const straightGain = straightLinks(links, placed, a, aux) - beforePair;
@@ -612,6 +624,7 @@ export function straighten(
               partner.flip,
               ctx,
               horizontalClearance,
+              verticalClearance,
             );
             if (!Number.isNaN(pairChange)) {
               const straightGain = straightLinks(links, placed, a, partner) - beforePair;
@@ -649,12 +662,12 @@ export function straighten(
                   b !== partner &&
                   ((a.x < b.x + b.block.width + horizontalClearance &&
                     b.x < a.x + a.block.width + horizontalClearance &&
-                    a.y < b.y + b.block.height + VERTICAL_CLEARANCE &&
-                    b.y < a.y + a.block.height + VERTICAL_CLEARANCE) ||
+                    a.y < b.y + b.block.height + verticalClearance &&
+                    b.y < a.y + a.block.height + verticalClearance) ||
                     (partner.x < b.x + b.block.width + horizontalClearance &&
                       b.x < partner.x + partner.block.width + horizontalClearance &&
-                      partner.y < b.y + b.block.height + VERTICAL_CLEARANCE &&
-                      b.y < partner.y + partner.block.height + VERTICAL_CLEARANCE)),
+                      partner.y < b.y + b.block.height + verticalClearance &&
+                      b.y < partner.y + partner.block.height + verticalClearance)),
               );
               a.y = homeY;
               partner.y = prevPY;
@@ -668,9 +681,9 @@ export function straighten(
                 partner.y = prevPY + dyMove;
                 third.y = prevTY + dyMove;
                 const allClear =
-                  isClear(a, placed, horizontalClearance) &&
-                  isClear(partner, placed, horizontalClearance) &&
-                  isClear(third, placed, horizontalClearance);
+                  isClear(a, placed, horizontalClearance, verticalClearance) &&
+                  isClear(partner, placed, horizontalClearance, verticalClearance) &&
+                  isClear(third, placed, horizontalClearance, verticalClearance);
                 if (allClear) {
                   refreshSegments(links);
                   const straightGain = straightLinks(links, placed) - straightBefore;

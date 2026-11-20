@@ -207,6 +207,8 @@ class Analyzer {
     if (parentId) group.parentId = parentId;
     const color = attrs.value('color');
     if (color !== undefined) group.color = color;
+    const border = attrs.value('border');
+    if (border !== undefined) group.border = border;
 
     const declared = this.declare({
       kind: 'group',
@@ -246,6 +248,17 @@ class Analyzer {
     if (badge !== undefined) result.badge = badge;
     const color = attrs.value('color');
     if (color !== undefined) result.color = color;
+    const mountAttr = attrs.get('mount');
+    if (mountAttr !== undefined) {
+      if (parentId) {
+        result.mount = mountAttr.value;
+      } else {
+        this.report('attribute-not-applicable', 'warning', mountAttr.node, {
+          name: 'mount',
+          kind: 'node',
+        });
+      }
+    }
 
     const declared = this.declare({
       kind: 'node',
@@ -341,9 +354,10 @@ class Analyzer {
       });
     }
 
+    const allowed: ReadonlyArray<ElementKind> = owner === 'static' ? ['node', 'group'] : ['node'];
     this.references.push(
-      { id: from, range: rangeOf(fromNode), allowed: ['node'] },
-      { id: to, range: rangeOf(toNode), allowed: ['node'] },
+      { id: from, range: rangeOf(fromNode), allowed },
+      { id: to, range: rangeOf(toNode), allowed },
     );
 
     const attrs = this.readAttributes(stmt.getChild('Attributes'), owner);

@@ -63,6 +63,11 @@ export interface SvgExportOptions {
    * step's state and lit flows as the preview does with animation stopped. Every step by default.
    */
   step?: number;
+  /**
+   * Still SVG only: draws representative edge labels on the overview (or active `animate` labels
+   * on `--step N --still`) for static architecture sharing. `false` by default.
+   */
+  labels?: boolean;
 }
 
 /**
@@ -88,17 +93,17 @@ export function exportSvg(source: string | DavDocument, options: SvgExportOption
   const document = typeof source === 'string' ? parse(source).document : source;
   const layout = computeLayout(document);
   const locale = options.locale ?? 'en';
-  const { step } = options;
+  const { step, labels = false } = options;
   if (step !== undefined) {
     if (!Number.isInteger(step) || step < 0 || step >= document.steps.length) {
       throw new RangeError(`No step ${step} in a diagram with ${document.steps.length} steps`);
     }
     return options.animate === false
-      ? stepStillSvg(document, layout, step, locale)
+      ? stepStillSvg(document, layout, step, locale, labels)
       : animatedSvg(document, layout, locale, options.camera ?? 'follow', step);
   }
   return options.animate === false || document.steps.length === 0
-    ? stillSvg(document, layout)
+    ? stillSvg(document, layout, labels)
     : animatedSvg(document, layout, locale, options.camera ?? 'follow');
 }
 
@@ -164,8 +169,8 @@ const headerDivider = (top: number): VElement =>
 const stepDescLine = (index: number, title: string | undefined): string =>
   title ? `${index + 1}. ${title}` : `${index + 1}`;
 
-function stillSvg(doc: DavDocument, layout: Layout): string {
-  const view = resolveView(doc, layout, null);
+function stillSvg(doc: DavDocument, layout: Layout, labels = false): string {
+  const view = resolveView(doc, layout, null, labels ? { showLabels: true } : undefined);
   const icons = collectUsedIcons(doc);
   const { rect } = wholeDiagramFrame(layout, view);
   return svgDocument(rect, viewBoxOf(rect), doc.title, undefined, [
@@ -176,8 +181,14 @@ function stillSvg(doc: DavDocument, layout: Layout): string {
 }
 
 /** One step as a still picture of the whole diagram, under the step's number and text. */
-function stepStillSvg(doc: DavDocument, layout: Layout, index: number, locale: ViewerLocale) {
-  const view = resolveView(doc, layout, index);
+function stepStillSvg(
+  doc: DavDocument,
+  layout: Layout,
+  index: number,
+  locale: ViewerLocale,
+  labels = false,
+) {
+  const view = resolveView(doc, layout, index, labels ? { showLabels: true } : undefined);
   const icons = collectUsedIcons(doc);
   const { rect } = wholeDiagramFrame(layout, view);
   const canvas = wholeCanvas(rect);

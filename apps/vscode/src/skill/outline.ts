@@ -1,14 +1,22 @@
 import { readFileSync } from 'node:fs';
 import { formatDiagnostic, parse } from '../dsl';
-import type { Animation, DavDocument, DavEdge, DavNode, DavStep } from '../model/types';
+import { synthesizedConnections } from '../model/connections';
+import type {
+  Animation,
+  DavConnection,
+  DavDocument,
+  DavNode,
+  DavStep,
+  Direction,
+  LineStyle,
+} from '../model/types';
 import { oneLine } from './lines';
-import { carries } from './packets';
 
 /**
  * The outline bundled with the reading skill: what a `.dav` file says, worked out by the
  * extension's own parser and laid out for reading. An agent that reads the source alone has to
- * resolve IDs, nesting, the order of phases and which state is still in effect by itself;
- * the outline does that part, so that the agent can keep to explaining.
+ * resolve IDs, nesting, synthesized connections and phase order by itself; the outline does
+ * that part, so that the agent can keep to explaining.
  */
 
 const USAGE = 'Usage: node dav-outline.mjs [--json] <file.dav>';
@@ -22,14 +30,21 @@ interface Phase {
   number: string;
   from: string;
   to: string;
+  arrow: string;
   roundTrip: boolean;
   label?: string;
   desc?: string;
   icon?: string;
   color?: string;
   code?: { lang?: string; title?: string; body: string };
-  /** The declared edge the packet rides, as `from --> to`; absent when no edge joins the two. */
-  edge?: string;
+}
+
+interface StaticOutline {
+  from: string;
+  to: string;
+  arrow: string;
+  label?: string;
+  color?: string;
 }
 
 interface StepOutline {
@@ -37,10 +52,10 @@ interface StepOutline {
   title: string;
   desc?: string;
   focus: string[];
-  /** What this step changes; it stays that way in the later steps. */
+  /** State overrides active during this step only (v2 steps are self-contained). */
   changes: string[];
-  /** Badges and colors set by earlier steps that still show in this one. */
-  stillShowing: string[];
+  /** Non-moving connections declared in this step. */
+  statics: StaticOutline[];
   phases: Phase[];
 }
 
@@ -55,9 +70,9 @@ interface Outline {
   endPoints: string[];
   unconnected: string[];
   steps: StepOutline[];
-  /** Nodes that no step sends a packet to or from, focuses on or changes. */
+  /** Nodes that no step sends a packet to or from, links statically, focuses on or changes. */
   neverInAStep: string[];
-  /** Declared edges that no packet rides. */
+  /** Synthesized connections that only appear in `static` statements (no packet rides them). */
   edgesWithoutPackets: string[];
 }
 
@@ -68,7 +83,7 @@ interface NodeOutline {
   sub?: string;
   badge?: string;
   color?: string;
-  /** Hidden at first: the number of the step that shows it, or 0 when none does. */
+  /** Hidden in overview: the first step that shows it, or 0 when none does. */
   shownFromStep?: number;
 }
 
@@ -84,14 +99,11 @@ interface EdgeOutline {
   from: string;
   to: string;
   arrow: string;
-  label?: string;
-  id?: string;
-  color?: string;
-  shownFromStep?: number;
+  animated: boolean;
 }
 
-/** The arrow an edge is written with. */
-export const arrowOf = (e: DavEdge): string =>
+/** The arrow a connection, animation or static link is written with. */
+export const arrowOf = (e: { direction: Direction; style: LineStyle }): string =>
   e.direction === 'bidirectional'
     ? e.style === 'dashed'
       ? '<.>'
@@ -100,13 +112,18 @@ export const arrowOf = (e: DavEdge): string =>
       ? '..>'
       : '-->';
 
-/** The step that first makes a hidden element visible: its number, or 0 when no step does. */
+/** The first step that makes a hidden node visible, or 0 when no step does. */
 function shownFrom(doc: DavDocument, target: string): number {
-  const step = doc.steps.find((s) => s.states.some((st) => st.target === target && st.visible));
+  const step = doc.steps.find(
+    (s) =>
+      s.states.some((st) => st.target === target && st.visible) ||
+      s.animations.some((a) => a.from === target || a.to === target) ||
+      s.statics.some((st) => st.from === target || st.to === target),
+  );
   return step ? step.index + 1 : 0;
 }
 
-function phasesOf(doc: DavDocument, step: DavStep): Phase[] {
+function phasesOf(step: DavStep): Phase[] {
   const groups: Animation[][] = [];
   for (const a of step.animations) {
     const current = groups[groups.length - 1];
@@ -115,11 +132,11 @@ function phasesOf(doc: DavDocument, step: DavStep): Phase[] {
   }
   return groups.flatMap((group, index) =>
     group.map((a, i) => {
-      const edge = doc.edges.find((e) => carries(e, a));
       const phase: Phase = {
         number: `${index + 1}${group.length > 1 ? String.fromCharCode(97 + i) : ''}`,
         from: a.from,
         to: a.to,
+        arrow: arrowOf(a),
         roundTrip: a.direction === 'bidirectional',
       };
       if (a.label) phase.label = a.label;
@@ -131,13 +148,13 @@ function phasesOf(doc: DavDocument, step: DavStep): Phase[] {
         if (a.code.lang) phase.code.lang = a.code.lang;
         if (a.code.title) phase.code.title = a.code.title;
       }
-      if (edge) phase.edge = `${edge.from} ${arrowOf(edge)} ${edge.to}`;
       return phase;
     }),
   );
 }
 
 function outlineOf(doc: DavDocument): Outline {
+  const connections: DavConnection[] = synthesizedConnections(doc);
   const nodeOutline = (n: DavNode): NodeOutline => {
     const out: NodeOutline = { id: n.id, label: n.label, icon: n.icon };
     if (n.sub) out.sub = n.sub;
@@ -160,24 +177,18 @@ function outlineOf(doc: DavDocument): Outline {
     return out;
   };
 
-  const edges = doc.edges.map((e) => {
-    const out: EdgeOutline = { from: e.from, to: e.to, arrow: arrowOf(e) };
-    if (e.label) out.label = e.label;
-    if (e.explicitId) out.id = e.id;
-    if (e.color) out.color = e.color;
-    if (!e.visible) out.shownFromStep = shownFrom(doc, e.id);
-    return out;
-  });
+  const edges: EdgeOutline[] = connections.map((e) => ({
+    from: e.from,
+    to: e.to,
+    arrow: arrowOf(e),
+    animated: e.animated,
+  }));
 
-  // A two-way edge counts the way it is written: its left side is the one that calls.
-  const real = doc.edges.filter((e) => e.from !== e.to);
+  // A two-way connection counts in the order it first appeared.
+  const real = connections.filter((e) => e.from !== e.to);
   const comesIn = (id: string) => real.some((e) => e.to === id);
   const goesOut = (id: string) => real.some((e) => e.from === id);
 
-  // What is in effect, carried from step to step: a badge or a color lasts until a step changes
-  // that very attribute, so each is remembered with the step that set it.
-  type Carried = { value: string; since: number };
-  const inEffect = new Map<string, { badge?: Carried; color?: Carried }>();
   const steps = doc.steps.map((step): StepOutline => {
     const number = step.index + 1;
     const changes = step.states.map((st) => {
@@ -187,37 +198,21 @@ function outlineOf(doc: DavDocument): Outline {
       if (st.color !== undefined) {
         parts.push(st.color === 'none' ? 'color back to its own' : `color ${st.color}`);
       }
-      const now = { ...inEffect.get(st.target) };
-      if (st.badge !== undefined) {
-        if (st.badge) now.badge = { value: st.badge, since: number };
-        else delete now.badge;
-      }
-      if (st.color !== undefined) {
-        if (st.color === 'none') delete now.color;
-        else now.color = { value: st.color, since: number };
-      }
-      inEffect.set(st.target, now);
       return `${st.target}: ${parts.join(', ')}`;
     });
-    // Whatever an earlier step set and this one left alone.
-    const stillShowing = [...inEffect].flatMap(([target, state]) => {
-      const kept = [
-        state.badge && state.badge.since < number
-          ? `badge "${state.badge.value}" (since step ${state.badge.since})`
-          : '',
-        state.color && state.color.since < number
-          ? `color ${state.color.value} (since step ${state.color.since})`
-          : '',
-      ].filter(Boolean);
-      return kept.length > 0 ? [`${target}: ${kept.join(', ')}`] : [];
+    const statics: StaticOutline[] = step.statics.map((st) => {
+      const out: StaticOutline = { from: st.from, to: st.to, arrow: arrowOf(st) };
+      if (st.label) out.label = st.label;
+      if (st.color) out.color = st.color;
+      return out;
     });
     const out: StepOutline = {
       number,
       title: step.title,
       focus: step.focus,
       changes,
-      stillShowing,
-      phases: phasesOf(doc, step),
+      statics,
+      phases: phasesOf(step),
     };
     if (step.description.trim()) out.desc = step.description.trim();
     return out;
@@ -228,16 +223,16 @@ function outlineOf(doc: DavDocument): Outline {
       ...s.focus,
       ...s.states.map((st) => st.target),
       ...s.animations.flatMap((a) => [a.from, a.to]),
+      ...s.statics.flatMap((st) => [st.from, st.to]),
     ]),
   );
-  const ridden = (e: DavEdge) => doc.steps.some((s) => s.animations.some((a) => carries(e, a)));
 
   return {
     title: doc.title,
     counts: {
       nodes: doc.nodes.length,
       zones: doc.groups.length,
-      edges: doc.edges.length,
+      edges: connections.length,
       steps: doc.steps.length,
     },
     zones: doc.groups.filter((g) => g.parentId === undefined).map((g) => zoneOutline(g.id)),
@@ -251,7 +246,7 @@ function outlineOf(doc: DavDocument): Outline {
       doc.steps.length > 0 ? doc.nodes.filter((n) => !inSteps.has(n.id)).map((n) => n.id) : [],
     edgesWithoutPackets:
       doc.steps.length > 0
-        ? doc.edges.filter((e) => !ridden(e)).map((e) => `${e.from} ${arrowOf(e)} ${e.to}`)
+        ? connections.filter((e) => !e.animated).map((e) => `${e.from} ${arrowOf(e)} ${e.to}`)
         : [],
   };
 }
@@ -297,14 +292,7 @@ function render(file: string, doc: DavDocument, outline: Outline): string {
   lines.push('', '## Connections', '');
   lines.push('`-->` one way, `<->` both ways, `..>` and `<.>` the same drawn dashed.', '');
   for (const e of outline.edges) {
-    const extra = [
-      e.id ? `id ${e.id}` : '',
-      e.color ?? '',
-      hidden(e.shownFromStep).slice(2),
-    ].filter(Boolean);
-    lines.push(
-      `- ${named(e.from)} ${e.arrow} ${named(e.to)}${e.label ? ` : "${e.label}"` : ''}${extra.length > 0 ? ` [${extra.join('; ')}]` : ''}`,
-    );
+    lines.push(`- ${named(e.from)} ${e.arrow} ${named(e.to)}${e.animated ? '' : ' [static only]'}`);
   }
   const list = (title: string, ids: readonly string[], name = named) => {
     if (ids.length > 0) lines.push(`${title}: ${ids.map(name).join(', ')}`);
@@ -323,15 +311,17 @@ function render(file: string, doc: DavDocument, outline: Outline): string {
       lines.push('', `### Step ${step.number}: ${step.title}`, '');
       if (step.desc) lines.push(step.desc.replace(/\n/g, ' '), '');
       if (step.focus.length > 0) lines.push(`Focus: ${step.focus.map(named).join(', ')}`);
-      for (const change of step.changes) lines.push(`Changes from this step on: ${change}`);
-      for (const state of step.stillShowing) lines.push(`Still showing: ${state}`);
-      if (step.focus.length + step.changes.length + step.stillShowing.length > 0) lines.push('');
+      for (const change of step.changes) lines.push(`State in this step: ${change}`);
+      for (const st of step.statics) {
+        const extra = st.color ? ` [${st.color}]` : '';
+        lines.push(
+          `Static link: ${named(st.from)} ${st.arrow} ${named(st.to)}${st.label ? ` : "${st.label}"` : ''}${extra}`,
+        );
+      }
+      if (step.focus.length + step.changes.length + step.statics.length > 0) lines.push('');
       for (const p of step.phases) {
-        const extra = [
-          p.icon ? `carries ${p.icon}` : '',
-          p.color ?? '',
-          p.edge ? '' : 'no declared edge',
-        ]
+        const dashed = p.arrow === '..>' || p.arrow === '<.>' ? 'dashed' : '';
+        const extra = [p.icon ? `carries ${p.icon}` : '', p.color ?? '', dashed]
           .filter(Boolean)
           .join('; ');
         lines.push(

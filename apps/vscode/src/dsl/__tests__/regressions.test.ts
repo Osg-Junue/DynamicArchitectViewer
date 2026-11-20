@@ -222,7 +222,7 @@ describe('computeCompletions context', () => {
   });
 
   it('limits attribute keys to the statement kind', () => {
-    expect(labels('group g [')).toEqual(['color']);
+    expect(labels('group g [')).toEqual(['color', 'border']);
     expect(labels('step "s" {\n  static a ..> b [')).toEqual(['color']);
     expect(labels('step "s" {\n  animate a --> b [')?.sort()).toEqual([
       'code',
@@ -262,7 +262,8 @@ describe('computeCompletions context', () => {
     expect(codeStmtRe.test('node code "Code"')).toBe(false);
     expect(codeStmtRe.test('code --> api')).toBe(false);
 
-    const attrRe = new RegExp(grammar.repository.attributes?.patterns?.[2]?.match ?? '');
+    const attrPatterns = grammar.repository.attributes?.patterns ?? [];
+    const attrRe = new RegExp(attrPatterns[attrPatterns.length - 1]?.match ?? '');
     expect(attrRe.test('code: "{}"')).toBe(true);
   });
 });

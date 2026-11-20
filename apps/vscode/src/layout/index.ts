@@ -1,9 +1,15 @@
 import { synthesizedConnections } from '../model/connections';
 import type { DavDocument } from '../model/types';
 import { topLevelGroups } from '../model/zones';
+import { applyBorderMounts } from './borderMount';
 import { computeColumnLayout, computeSingleGroupLayout } from './columns';
 import { analyzeFlow, flowPairKey } from './flow';
 import type { Layout } from './metrics';
+import {
+  buildRecursiveZoneBlock,
+  computeSingleTopRecursiveLayout,
+  hasRecursiveNesting,
+} from './nestedZone';
 import { type BackEdge, computeRanks } from './ranks';
 import { straightenNodes } from './straightenNodes';
 import { connectedSubdoc, intraZoneFlow } from './zoneBlocks';
@@ -42,12 +48,19 @@ export type { ZonePlacement } from './zoned';
  *   stage+band skeleton (`searchZonePlacement` -> `applyZonePlacement`), then straighten nodes.
  */
 export function computeLayout(doc: DavDocument): Layout {
-  if (!hasZonesToPlace(doc)) return computeSingleGroupLayout(doc);
+  if (!hasZonesToPlace(doc)) {
+    const base = computeSingleGroupLayout(doc, (subDoc) =>
+      hasRecursiveNesting(subDoc)
+        ? computeSingleTopRecursiveLayout(subDoc, computeColumnLayout)
+        : computeColumnLayout(subDoc),
+    );
+    return applyBorderMounts(doc, base);
+  }
   const placement = zonePlacementOf(doc);
   const placed = placement
-    ? applyZonePlacement(doc, placement, computeColumnLayout)
+    ? applyZonePlacement(doc, placement, computeColumnLayout, buildRecursiveZoneBlock)
     : computeColumnLayout(doc);
-  return straightenNodes(doc, placed);
+  return applyBorderMounts(doc, straightenNodes(doc, placed));
 }
 
 /** Whether `computeLayout` places the zones of a diagram freely, rather than in shared columns. */
@@ -95,7 +108,11 @@ function findDirectedPath(
 function scopeBackEdges(
   scopeIds: readonly string[],
   forwardEdges: ReadonlyArray<readonly [string, string]>,
-  allScopeConns: ReadonlyArray<{ from: string; to: string }>,
+  allScopeConns: ReadonlyArray<{
+    from: string;
+    to: string;
+    role?: 'primary' | 'return' | 'static';
+  }>,
   rankOverrides?: Readonly<Record<string, number>>,
   rawForwardDirs?: ReadonlyArray<readonly [string, string]>,
 ): BackEdge[] {
@@ -157,7 +174,7 @@ function scopeBackEdges(
       seenPairs.add(pk);
       seenDirs.add(`${from}\0${to}`);
       out.push({ from, to, loop: path, root: getRoot(to) });
-    } else if (effRank(from) >= effRank(to)) {
+    } else if ((c.role !== 'static' || fwdByPair.has(pk)) && effRank(from) >= effRank(to)) {
       seenPairs.add(pk);
       seenDirs.add(`${from}\0${to}`);
       out.push({ from, to, loop: [to, from], root: getRoot(to) });
@@ -265,5 +282,7 @@ export function adoptZonePlan(key: string, placement: ZonePlacement | undefined)
 
 /** Places the connected top-level zones of a diagram with `>= 2` top-level groups. */
 export function searchZones(doc: DavDocument): ZonePlacement | undefined {
-  return hasZonesToPlace(doc) ? searchZonePlacement(doc, computeColumnLayout) : undefined;
+  return hasZonesToPlace(doc)
+    ? searchZonePlacement(doc, computeColumnLayout, buildRecursiveZoneBlock)
+    : undefined;
 }

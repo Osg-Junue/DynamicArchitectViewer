@@ -43,6 +43,11 @@ export interface CalloutSurroundings {
    * each of them.
    */
   zones: readonly Rect[];
+  /**
+   * Station and label bodies of dimmed nodes: a callout may cover them when forced, but prefers
+   * adjacent free space when available.
+   */
+  dimmedBodies?: readonly Rect[];
   /** Every rail drawn in the step: its edges, and the paths of its packets. */
   rails: readonly Rail[];
 }
@@ -67,6 +72,8 @@ const BORDER_COST = 12;
 const BY_OTHER_LINE_COST = 200;
 /** How much closer a place must be to be worth using a node's cell. */
 const CELL_COST = 12;
+/** Soft penalty for covering a dimmed node when adjacent free space exists. */
+const DIMMED_NODE_COST = 40;
 /** What a unit of distance from the middle of the rail counts, next to one from the rail. */
 const MIDDLE_WEIGHT = 0.2;
 /**
@@ -110,7 +117,7 @@ function respectsZone(rect: Rect, zone: Rect): boolean {
 
 export function placePhaseCallouts(phase: readonly Packet[], around: CalloutSurroundings): void {
   for (const packet of phase) delete packet.calloutAt;
-  const { closed, cells, zones } = around;
+  const { closed, cells, zones, dimmedBodies = [] } = around;
   // Each rail sampled once, so that a packet's samples are the same array wherever they are used.
   const sampled = new Map<Rail, Point[]>();
   const sampleOf = (rail: Rail): Point[] => {
@@ -163,6 +170,7 @@ export function placePhaseCallouts(phase: readonly Packet[], around: CalloutSurr
     const middle = pointAt(packet.path, 0.5);
     const acrossBorder = (rect: Rect) => zones.some((zone) => !respectsZone(rect, zone));
     const inCell = (rect: Rect) => cells.some((cell) => rectOverlaps(rect, cell));
+    const overDimmed = (rect: Rect) => dimmedBodies.some((body) => rectOverlaps(rect, body));
     /**
      * Whether a place is free: `apart` when it keeps every rule, `byOther` when it is free but
      * nearer another line of the step than its own, and `undefined` when it is not free.
@@ -194,7 +202,8 @@ export function placePhaseCallouts(phase: readonly Packet[], around: CalloutSurr
       // Above its rail before below it, and either before beside it, when all else is equal.
       (middle.y >= rect.y + rect.height ? 0 : middle.y <= rect.y ? 0.5 : 1) +
       (acrossBorder(rect) ? BORDER_COST : 0) +
-      (inCell(rect) ? CELL_COST : 0);
+      (inCell(rect) ? CELL_COST : 0) +
+      (overDimmed(rect) ? DIMMED_NODE_COST : 0);
 
     // A place nearer another line than its own is taken only when the best that is not would
     // be further away by more than BY_OTHER_LINE_COST.

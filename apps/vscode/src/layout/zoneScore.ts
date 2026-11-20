@@ -70,6 +70,7 @@ export const CHOSEN_STRAIGHT_WORTH = 300;
 export interface FlowContext {
   preserveFlow: boolean;
   wrapped: boolean;
+  horizontalClearance: number;
   rowOfBlock?: ReadonlyMap<string, number>;
   zoneStage: ReadonlyMap<string, number>;
   auxiliaryZones: ReadonlySet<string>;
@@ -105,6 +106,7 @@ export function buildFlowContext(
   preserveFlow: boolean,
   wrapped = false,
   rowOfBlock?: ReadonlyMap<string, number>,
+  horizontalClearance = HORIZONTAL_CLEARANCE,
 ): FlowContext {
   const allNbrs = new Map<string, Set<string>>();
   const outPrimary = new Map<string, Set<string>>();
@@ -176,6 +178,7 @@ export function buildFlowContext(
   return {
     preserveFlow,
     wrapped,
+    horizontalClearance,
     ...(rowOfBlock ? { rowOfBlock } : {}),
     zoneStage: flow.zoneStage,
     auxiliaryZones: flow.auxiliaryZones,
@@ -869,7 +872,7 @@ function flowPenalty(placed: readonly Placed[], ctx?: FlowContext): number {
     const v = slots[pair[1]];
     if (!u || !v) continue;
     if (isCrossRow(ctx, u.block.id, v.block.id)) continue;
-    const overlap = u.x + u.block.width + HORIZONTAL_CLEARANCE - v.x;
+    const overlap = u.x + u.block.width + ctx.horizontalClearance - v.x;
     if (overlap > 0) penalty += STAGE_OVERLAP_COST + overlap * 3.0;
   }
   for (let i = 0; i < pendantPairIdx.length; i++) {
@@ -984,14 +987,15 @@ export function isClear(
   a: Placed,
   placed: readonly Placed[],
   horizontalClearance = HORIZONTAL_CLEARANCE,
+  verticalClearance = VERTICAL_CLEARANCE,
 ): boolean {
   for (const b of placed) {
     if (b === a) continue;
     if (
       a.x < b.x + b.block.width + horizontalClearance &&
       b.x < a.x + a.block.width + horizontalClearance &&
-      a.y < b.y + b.block.height + VERTICAL_CLEARANCE &&
-      b.y < a.y + a.block.height + VERTICAL_CLEARANCE
+      a.y < b.y + b.block.height + verticalClearance &&
+      b.y < a.y + a.block.height + verticalClearance
     ) {
       return false;
     }
@@ -1028,6 +1032,7 @@ export function evaluateMove(
   nextOFlip: 0 | 1 = 0,
   ctx?: FlowContext,
   horizontalClearance = HORIZONTAL_CLEARANCE,
+  verticalClearance = VERTICAL_CLEARANCE,
 ): number {
   const prevAX = a.x;
   const prevAY = a.y;
@@ -1045,8 +1050,8 @@ export function evaluateMove(
     other.flip = nextOFlip;
   }
   const clear =
-    isClear(a, placed, horizontalClearance) &&
-    (!other || isClear(other, placed, horizontalClearance));
+    isClear(a, placed, horizontalClearance, verticalClearance) &&
+    (!other || isClear(other, placed, horizontalClearance, verticalClearance));
   a.x = prevAX;
   a.y = prevAY;
   a.flip = prevAFlip;
