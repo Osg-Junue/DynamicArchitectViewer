@@ -275,7 +275,7 @@ Before step 1 comes the overview: the structural map of the system with nothing 
 
 - **Nodes and groups:** Every group and every node whose declared `visible` is `true` is shown with its declared attributes. Nodes with `visible: false` reserve their space in the layout so nothing moves when a step reveals them, and are omitted from the overview until a step shows them.
 - **Aggregated connections:** Overview lines are synthesized automatically from the `animate` and `static` statements across all steps whose both endpoints are visible in the overview.
-  - All statements joining the same unordered pair of nodes `{a, b}` (or self-loop `{a, a}`) collapse into a single rail.
+  - All statements joining the same unordered pair of endpoints `{a, b}` (or self-loop `{a, a}`) collapse into a single rail.
   - **Arrowheads:** If both directions between `a` and `b` appear (either as `a --> b` and `b --> a` across statements, or as `<->` / `<.>`), the overview rail carries arrowheads at both ends. Otherwise it carries an arrowhead only at the target.
   - **Line style:** Solid if any `animate` or `static` on the pair uses a solid arrow (`-->` or `<->`); dashed if all use dashed arrows (`..>` or `<.>`).
   - **Labels:** Overview rails carry no text labels. Specific request, event, and relation names belong to each step.
@@ -304,7 +304,7 @@ A step's string is its title. Its `desc` statements are its description, joined 
 
 ##### What a step shows
 
-A step emphasizes the nodes and groups named in its `focus`, the targets of its `state` statements (except `visible: false`), both nodes of each `animate`, and both nodes of each `static`.
+A step emphasizes the nodes and groups named in its `focus`, the targets of its `state` statements (except `visible: false`), both nodes of each `animate`, and both endpoints of each `static`.
 
 - **When a step emphasizes anything, the rest is dimmed.** A node is dimmed unless it, or a group around it, is emphasized. A group is dimmed unless it, a group around it, or something inside it is emphasized.
 - **A node is shown** when it is visible (as declared or overridden by `state` in this step), and also when an `animate` or `static` in this step uses it as an endpoint.
@@ -342,10 +342,10 @@ A step emphasizes the nodes and groups named in its `focus`, the targets of its 
 
 | Arrow | Line | Arrowheads |
 | :--- | :--- | :--- |
-| `-->` | Solid | At the second node |
-| `..>` | Dashed | At the second node |
-| `<->` | Solid | At both nodes |
-| `<.>` | Dashed | At both nodes |
+| `-->` | Solid | At the second endpoint |
+| `..>` | Dashed | At the second endpoint |
+| `<->` | Solid | At both endpoints |
+| `<.>` | Dashed | At both endpoints |
 
 | Attribute | Type | Default | Effect |
 | :--- | :--- | :--- | :--- |
@@ -391,14 +391,14 @@ A diagnostic does not stop the rest of the file from being read, and the table s
 | `duplicate-title` | Warning | `title` appears more than once. The last one is used |
 | `duplicate-id` | Error | An identifier (`node` or `group`) is declared more than once. A node or a group declared later is left out |
 | `undefined-reference` | Error | `focus`, `state`, `animate`, or `static` names an identifier that is not declared |
-| `reference-kind-mismatch` | Error | A name is of the wrong kind, such as a group as the end of an `animate` or `static` |
+| `reference-kind-mismatch` | Error | A name is of the wrong kind, such as a group as an end of an `animate` |
 | `unknown-attribute` | Warning | The statement does not take the attribute. It is ignored |
 | `duplicate-attribute` | Warning | An attribute that the statement takes appears twice in one block. The last one that is not ignored is used |
 | `duplicate-code` | Warning | An `animate` has more than one `code`. The last one that is not empty is used |
 | `invalid-attribute-value` | Error | The value has the wrong type. The attribute is ignored |
-| `attribute-not-applicable` | Warning | A `state` attribute does not apply to its kind of target. It changes nothing on the target, though `visible: false` still keeps the `state` from emphasizing it |
+| `attribute-not-applicable` | Warning | A `state` attribute does not apply to its kind of target, or `mount: border` is used on a top-level node. It changes nothing on the target, though `visible: false` on `state` still keeps the `state` from emphasizing it |
 | `empty-state` | Warning | A `state` has an empty attribute block |
-| `unknown-icon` | Error | The icon is not one of the 42. A name within reach is suggested, as [Attributes](#attributes) says |
+| `unknown-icon` | Error | The icon is not one of the 51. A name within reach is suggested, as [Attributes](#attributes) says |
 | `invalid-color` | Error | The color is not one of the nine names, or `none` outside `state`, or a hex color. A name within reach is suggested, as [Attributes](#attributes) says |
 | `invalid-self-arrow` | Error | An `animate` or `static` from a node to itself uses `<->` or `<.>` |
 | `invalid-escape` | Error | A string contains an escape other than `\"`, `\\`, `\n` and `\t` |

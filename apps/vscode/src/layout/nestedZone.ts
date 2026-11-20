@@ -201,6 +201,140 @@ function widenBlock(block: Block, targetWidth: number): Block {
   return { ...block, width: targetWidth, nodes, groups, groupsFlipped };
 }
 
+/**
+ * Aligns outer width and internal child-column tracks of structurally similar composite sibling
+ * containers stacked in the same stage column (e.g. Multi-AZ boxes with matching subnet tiers
+ * where one AZ's App Subnet is 2x1 and the peer AZ's App Subnet is 1x2).
+ */
+function alignStackedSiblingColumns(doc: DavDocument, col: Block[]): void {
+  if (col.length < 2) return;
+
+  interface Candidate {
+    index: number;
+    block: Block;
+    sig: string;
+    childCols: Array<{ groupIds: string[]; x: number; w: number }>;
+  }
+
+  const bySig = new Map<string, Candidate[]>();
+  for (let index = 0; index < col.length; index++) {
+    const block = col[index];
+    if (!block || block.groups.size <= 1) continue;
+    const directGroups = doc.groups.filter((g) => g.parentId === block.id);
+    if (directGroups.length < 2) continue;
+    if (doc.nodes.some((n) => n.parentId === block.id)) continue;
+
+    const entries = directGroups
+      .map((g) => ({ id: g.id, r: block.groups.get(g.id) }))
+      .filter((e): e is { id: string; r: Rect } => e.r !== undefined)
+      .sort((a, b) => a.r.x - b.r.x || compareId(a.id, b.id));
+    if (entries.length !== directGroups.length) continue;
+
+    // Group direct child groups into vertical columns by horizontal overlap.
+    const childCols: Array<{ groupIds: string[]; x: number; right: number }> = [];
+    for (const { id, r } of entries) {
+      const last = childCols[childCols.length - 1];
+      if (last && r.x < last.right) {
+        last.groupIds.push(id);
+        last.x = Math.min(last.x, r.x);
+        last.right = Math.max(last.right, r.x + r.width);
+      } else {
+        childCols.push({ groupIds: [id], x: r.x, right: r.x + r.width });
+      }
+    }
+    if (childCols.length < 2) continue;
+
+    const sig = `${directGroups.length}|${childCols.length}`;
+    pushToMap(bySig, sig, {
+      index,
+      block,
+      sig,
+      childCols: childCols.map((c) => ({ groupIds: c.groupIds, x: c.x, w: c.right - c.x })),
+    });
+  }
+
+  for (const members of bySig.values()) {
+    if (members.length < 2) continue;
+    const minOrigW = Math.min(...members.map((m) => m.block.width));
+    const maxOrigW = Math.max(...members.map((m) => m.block.width));
+    if (minOrigW <= 0 || maxOrigW > minOrigW * 1.5) continue;
+
+    const numCols = members[0]?.childCols.length ?? 0;
+    const targetColW: number[] = [];
+    for (let k = 0; k < numCols; k++) {
+      targetColW.push(Math.max(...members.map((m) => m.childCols[k]?.w ?? 0)));
+    }
+    const targetColX: number[] = [GROUP_PADDING];
+    for (let k = 1; k < numCols; k++) {
+      const gap = Math.max(
+        GROUP_PADDING,
+        ...members.map((m) => {
+          const prev = m.childCols[k - 1];
+          const cur = m.childCols[k];
+          return prev && cur ? cur.x - (prev.x + prev.w) : GROUP_PADDING;
+        }),
+      );
+      targetColX.push((targetColX[k - 1] ?? 0) + (targetColW[k - 1] ?? 0) + gap);
+    }
+    const contentRight =
+      (targetColX[numCols - 1] ?? 0) + (targetColW[numCols - 1] ?? 0) + GROUP_PADDING;
+    const targetBlockW = Math.max(contentRight, maxOrigW);
+    const gridOffset = Math.round((targetBlockW - contentRight) / 2);
+    if (gridOffset > 0) {
+      for (let k = 0; k < numCols; k++) targetColX[k] = (targetColX[k] ?? 0) + gridOffset;
+    }
+
+    for (const m of members) {
+      const alreadyAligned =
+        m.block.width === targetBlockW &&
+        m.childCols.every((c, k) => c.x === targetColX[k] && c.w === targetColW[k]);
+      if (alreadyAligned) continue;
+
+      const owners = mapDescendantOwners(doc, m.block.id);
+      const childTarget = new Map<string, { x: number; width: number }>();
+      const innerDxByChild = new Map<string, number>();
+      m.childCols.forEach((c, k) => {
+        const newX = targetColX[k] ?? c.x;
+        const newW = targetColW[k] ?? c.w;
+        for (const gid of c.groupIds) {
+          const oldR = m.block.groups.get(gid);
+          if (!oldR) continue;
+          childTarget.set(gid, { x: newX, width: newW });
+          innerDxByChild.set(gid, newX - oldR.x + Math.round((newW - oldR.width) / 2));
+        }
+      });
+
+      const remapGroupMap = (src: ReadonlyMap<string, Rect>): Map<string, Rect> =>
+        new Map(
+          [...src].map(([gid, r]) => {
+            if (gid === m.block.id) return [gid, { ...r, width: targetBlockW }];
+            const ct = childTarget.get(gid);
+            if (ct) return [gid, { ...r, x: ct.x, width: ct.width }];
+            const owner = owners.get(gid);
+            const dx = owner !== undefined ? (innerDxByChild.get(owner) ?? 0) : 0;
+            return [gid, dx !== 0 ? { ...r, x: r.x + dx } : r];
+          }),
+        );
+
+      const nodes = new Map(
+        [...m.block.nodes].map(([nid, r]) => {
+          const owner = owners.get(nid);
+          const dx = owner !== undefined ? (innerDxByChild.get(owner) ?? 0) : 0;
+          return [nid, dx !== 0 ? { ...r, x: r.x + dx } : r];
+        }),
+      );
+
+      col[m.index] = {
+        ...m.block,
+        width: targetBlockW,
+        nodes,
+        groups: remapGroupMap(m.block.groups),
+        groupsFlipped: remapGroupMap(m.block.groupsFlipped),
+      };
+    }
+  }
+}
+
 /** Builds a rigid single-node `Block` for a node sitting directly inside a container. */
 function makeNodeBlock(id: string, docLoops: ReadonlyMap<string, number>): Block {
   const { width, height } = NODE_SIZE;
@@ -521,6 +655,12 @@ function placeContainerChildren(
         ci++;
       }
     }
+  }
+
+  // Equalize outer widths and internal subnet-column grids for structurally similar sibling
+  // containers stacked in the same stage column (e.g. AZ-a and AZ-c inside a VPC).
+  if (depth >= 1) {
+    for (const col of columns) alignStackedSiblingColumns(doc, col);
   }
 
   // Nested wide-2-stage parallel-ingress stacking: when two wide multi-column sub-groups inside

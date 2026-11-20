@@ -381,4 +381,65 @@ step "Flow" {
     expect(appSub.y).toBe(dataSub.y);
     expect(inv.y).toBe(db.y);
   });
+
+  it('aligns outer widths and subnet column tracks of stacked Multi-AZ siblings with asymmetric app tiers', () => {
+    const dsl = `
+title "Asymmetric Multi-AZ Alignment"
+node client "Client" [icon: users]
+group cloud "Cloud" {
+  group region "Region" {
+    group vpc "Workload VPC" {
+      node nlb "Internal NLB" [icon: lb]
+      group az_a "AZ-a" [border: dashed] {
+        group app_a "App Subnet A" {
+          node order "Order Service" [icon: container]
+          node pay "Payment Service" [icon: container]
+        }
+        group data_a "Data Subnet A" {
+          node db_a "Aurora Primary" [icon: database]
+          node cache_a "Redis Primary" [icon: cache]
+        }
+      }
+      group az_c "AZ-c" [border: dashed] {
+        group app_c "App Subnet C" {
+          node search "OpenSearch" [icon: search]
+          node inv "Inventory Service" [icon: container]
+        }
+        group data_c "Data Subnet C" {
+          node db_c "Aurora Replica" [icon: database]
+          node cache_c "Redis Replica" [icon: cache]
+        }
+      }
+    }
+  }
+}
+step "Traffic" {
+  animate client --> nlb : "HTTPS"
+  animate nlb --> order : "Order"
+  animate nlb --> inv : "Inventory" [parallel: true]
+  animate order --> pay : "gRPC"
+  animate order --> search : "Search" [parallel: true]
+  animate order <-> cache_a : "Cache" [parallel: true]
+  animate pay <-> db_a : "SQL"
+  animate inv --> db_c : "Read" [parallel: true]
+  static db_a ..> db_c : "Repl"
+  static cache_a ..> cache_c : "Repl"
+}
+`;
+    const { layout } = assertContainmentAndDisjointSiblings(dsl);
+    const azA = must(layout.groups.az_a, 'az_a');
+    const azC = must(layout.groups.az_c, 'az_c');
+    const appA = must(layout.groups.app_a, 'app_a');
+    const appC = must(layout.groups.app_c, 'app_c');
+    const dataA = must(layout.groups.data_a, 'data_a');
+    const dataC = must(layout.groups.data_c, 'data_c');
+
+    expect(azA.x).toBe(azC.x);
+    expect(azA.width).toBe(azC.width);
+    expect(azA.height).toBe(azC.height);
+    expect(appA.x).toBe(appC.x);
+    expect(appA.width).toBe(appC.width);
+    expect(dataA.x).toBe(dataC.x);
+    expect(dataA.width).toBe(dataC.width);
+  });
 });
