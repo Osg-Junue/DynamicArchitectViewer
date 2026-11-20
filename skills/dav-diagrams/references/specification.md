@@ -132,7 +132,7 @@ A node belongs to the group it is declared in, or to none at the top level. Its 
 | `badge` | string | none | A badge above the node |
 | `visible` | boolean | `true` | Whether the node is shown in the overview and in a step unless `state`, `animate` or `static` includes it |
 | `color` | color | none | Color of the ring, the icon and the badge |
-| `mount` | mount | none | `border` mounts a grouped node onto its parent group's boundary on the side facing its external connections (ignored with `attribute-not-applicable` on top-level nodes) |
+| `mount` | mount | none | `border` mounts a grouped node onto its parent group's boundary on the side facing its external connections—falling back to internal out/in degree direction when none exist (ignored with `attribute-not-applicable` on top-level nodes) |
 
 The 51 icons:
 
@@ -148,7 +148,7 @@ Before step 1 comes the overview: the structural map of the system with nothing 
   - All statements joining the same unordered pair of endpoints `{a, b}` (or self-loop `{a, a}`) collapse into a single rail.
   - **Arrowheads:** If both directions between `a` and `b` appear (either as `a --> b` and `b --> a` across statements, or as `<->` / `<.>`), the overview rail carries arrowheads at both ends. Otherwise it carries an arrowhead only at the target.
   - **Line style:** Solid if any `animate` or `static` on the pair uses a solid arrow (`-->` or `<->`); dashed if all use dashed arrows (`..>` or `<.>`).
-  - **Labels:** Overview rails carry no text labels. Specific request, event, and relation names belong to each step.
+  - **Labels:** Overview rails carry no text labels by default; specific request, event, and relation names belong to each step. Still SVG exports can opt in (`--still --labels`), which displays each endpoint pair's first non-empty label across steps (checking `animate` before `static` within each step; on a single-step still `--still --step <n> --labels`, a step's `static` label takes precedence over its `animate` label on the same pair).
 
 ### `step`
 

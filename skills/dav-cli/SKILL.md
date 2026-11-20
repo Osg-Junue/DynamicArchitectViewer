@@ -43,7 +43,7 @@ If Node.js 22.17, npm or the network is missing, say that the command could not 
 | Exit code | Meaning |
 | :--- | :--- |
 | `0` | Nothing to report |
-| `1` | Something was reported: an error or a warning, a file that is not formatted, an export that is missing or out of date |
+| `1` | Something was reported: an error, a warning, a hint from `check --detail` (such as `text-cut`), a file that is not formatted, or an export that is missing or out of date |
 | `2` | The command was not understood, or a file could not be read. Nothing was written for that file |
 
 Read the exit code and the lines the command printed before saying that something worked.
@@ -70,8 +70,8 @@ Read the exit code and the lines the command printed before saying that somethin
 | :--- | :--- | :--- |
 | The diagram playing, in a README or a page | none | An animated SVG. It plays every step in a loop, with the camera following the flow as in the preview. It runs no script, so GitHub and GitLab play it as an image |
 | The same, with the whole diagram always in view | `--camera whole` | An animated SVG in which only the flows move |
-| A picture that does not move, for print, slides or a place that shows no animation | `--still` | A still SVG of the whole diagram |
-| One step only | `--step 2` | `checkout-step2.svg`, which repeats the flows of step 2. Steps are numbered from 1, as in the preview. With `--still`, a still picture of the diagram as it is in that step |
+| A picture that does not move, for print, slides or a place that shows no animation | `--still` (add `--labels` for edge labels) | A still SVG of the whole diagram. With `--labels`, each endpoint pair displays its first non-empty label across steps (`animate` checked before `static` within each step) |
+| One step only | `--step 2` | `checkout-step2.svg`, which repeats the flows of step 2. Steps are numbered from 1, as in the preview. With `--still`, a still picture of the diagram as it is in that step (add `--labels` to also draw that step's `animate` labels) |
 | The player itself, to open in a browser or to send to someone | `--format html` | `checkout.html`: one file with every step and the controls of the preview. It works offline and makes no external requests. It contains the source of the diagram |
 
 A diagram without steps is exported as a still picture.
@@ -83,7 +83,7 @@ A diagram without steps is exported as a still picture.
 | `--locale ja` | Japanese for the texts around the diagram. The default is `en`. Use the language of the diagram's own texts |
 | `--check` | Writes nothing. See [Keeping exports up to date](#keeping-exports-up-to-date) |
 
-`--camera`, `--still` and `--step` apply to an SVG, not to HTML.
+`--camera`, `--still`, `--labels` and `--step` apply to an SVG, not to HTML.
 
 ```bash
 npx dynamic-architect-viewer-cli@1.5.4 export docs/*.dav                            # every diagram in docs

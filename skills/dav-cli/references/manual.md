@@ -63,6 +63,7 @@ Exports each diagram with the exporters of the editor. The file is written next 
 | `--out-dir <dir>` | The directory to write to, instead of next to each diagram. Each file keeps the name of its diagram |
 | `--camera follow`, `--camera whole` | SVG: `follow`, the default, moves the camera with the flow as the preview does. `whole` keeps the whole diagram in view, and only the flows move |
 | `--still` | SVG: a still picture instead of an animation |
+| `--labels` | SVG (`--still`): draw edge labels on the still image. On an overview still, each endpoint pair takes its first non-empty label across steps (checking `animate` before `static` within each step); with `--step <n>`, `static` labels show as usual and pairs without one take that step's first `animate` label |
 | `--step <n>` | SVG: only step `n`, numbered from 1 as in the preview. The file is `checkout-step2.svg` |
 | `--locale en`, `--locale ja` | The language of the texts around the diagram. The default is `en` |
 | `--check` | Writes nothing, and fails when a file is missing or out of date. See [below](#keeping-a-readme-up-to-date-in-ci) |
@@ -73,9 +74,10 @@ What each form is:
 | Options | Result |
 | :--- | :--- |
 | none | An animated SVG. It plays every step in a loop and runs no script, so GitHub and GitLab play it as an image |
-| `--still` | A still SVG of the whole diagram, for print, slides or a place that shows no animation |
+| `--still` | A still SVG of the whole diagram (unlabeled overview), for print, slides or a place that shows no animation |
+| `--still --labels` | A still SVG of the whole diagram with one representative edge label drawn per connection pair |
 | `--step 2` | An animated SVG that repeats the flows of step 2 |
-| `--step 2 --still` | A still SVG of the diagram as it is in step 2 |
+| `--step 2 --still` | A still SVG of the diagram as it is in step 2 (add `--labels` to also draw that step's `animate` labels) |
 | `--format html` | One HTML file with every step and the controls of the preview. It works offline and makes no external requests, and it contains the source of the diagram |
 
 A diagram without steps is exported as a still picture.
@@ -86,6 +88,7 @@ A directory that is not there yet is created.
 dav export docs/*.dav                       # an animated SVG next to each diagram
 dav export --camera whole checkout.dav      # the whole diagram stays in view
 dav export --still checkout.dav             # a still picture
+dav export --still --labels checkout.dav    # a still picture with representative edge labels
 dav export --step 2 checkout.dav            # only step 2, as checkout-step2.svg
 dav export --format html checkout.dav       # a standalone HTML file with the player
 dav export --out-dir docs/media docs/*.dav  # into another directory
@@ -99,7 +102,7 @@ What stops an export:
 | The diagram has an error | It is not exported. The errors are printed with their line and column, and the command exits with `1`. The other diagrams are still exported |
 | The diagram has only warnings | They are printed, and the diagram is exported |
 | `--step` names a step the diagram does not have | That diagram is not exported, and the command exits with `1` |
-| `--camera`, `--still` or `--step` with HTML | Exit code `2`: they apply to an SVG |
+| `--camera`, `--still`, `--labels` or `--step` with HTML | Exit code `2`: they apply to an SVG |
 | `--out` with several diagrams, or with `--out-dir` | Exit code `2` |
 | Two diagrams of one name sent to one directory | Exit code `2`, and nothing is written: one file would replace the other |
 
@@ -144,7 +147,7 @@ Hints, the layout and the map describe a diagram that compiles, so they are prin
 | :--- | :--- | :--- |
 | `file:line:column: error code: message` | The file does not compile | Yes |
 | `file:line:column: warning code: message` | Part of the file is being ignored | Yes |
-| `file: hint code: message` | With `--detail`: a description or a code block is missing, a packet has no edge to travel along, or a text is too long to be shown in full. The message says what to add | Yes |
+| `file: hint code: message` | With `--detail`: a description or a code block is missing, or a text is too long to be shown in full (e.g. `text-cut` on a >55-character `code` line). The message says what to fix. Hints fail `dav check --detail` (exit code `1`), but do not block `dav export` | Yes |
 | `file: layout: ...` | With `--detail`: the size of the layout, and the columns and rows its nodes take | No |
 | `file: note code: message` | With `--detail`: a shape of the layout that is often not meant, such as a diagram taller than wide, or an edge that closes a loop and so does not count for the columns | No |
 | `file: map: ...` | With `--map`: which node is where | No |
