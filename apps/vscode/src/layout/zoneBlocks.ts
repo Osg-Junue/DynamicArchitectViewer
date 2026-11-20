@@ -417,7 +417,9 @@ export function buildSingleZoneBlock(
   if (buildNested && nested.length > 0 && !rankOverrides) {
     return buildNested(doc, zoneId, columnLayout, docFlow, isAuxiliary, depth);
   }
-  const groupLabel = doc.groups.find((g) => g.id === zoneId)?.label ?? '';
+  const group = doc.groups.find((g) => g.id === zoneId);
+  const groupLabel = group?.label ?? '';
+  const hasIcon = Boolean(group?.icon);
   const ids = new Set(nodes.map((n) => n.id));
   const connections = synthesizedConnections(doc).filter((e) => ids.has(e.from) && ids.has(e.to));
   const loopSteps = doc.steps.map((s) => ({
@@ -436,8 +438,8 @@ export function buildSingleZoneBlock(
   // layout gives empty groups their rectangles.
   if (nodes.length === 0 && nested.length === 0) {
     const rawWidth = EMPTY_GROUP_CONTENT.width + pad * 2;
-    const width = Math.max(rawWidth, zoneMinWidth(groupLabel));
-    const head = groupHeaderHeight(groupLabel, width) + pad + loopRoom;
+    const width = Math.max(rawWidth, zoneMinWidth(groupLabel, hasIcon));
+    const head = groupHeaderHeight(groupLabel, width, hasIcon) + pad + loopRoom;
     const height = head + EMPTY_GROUP_CONTENT.height + pad;
     const groupsMap = new Map([frame(width, height)]);
     return {
@@ -464,9 +466,9 @@ export function buildSingleZoneBlock(
   );
   const bounds = enclosingRect([...Object.values(local.nodes), ...Object.values(local.groups)]);
   const rawWidth = bounds.width + pad * 2;
-  const width = Math.max(rawWidth, zoneMinWidth(groupLabel));
+  const width = Math.max(rawWidth, zoneMinWidth(groupLabel, hasIcon));
   const padLeft = pad + Math.round((width - rawWidth) / 2);
-  const head = groupHeaderHeight(groupLabel, width) + pad + loopRoom;
+  const head = groupHeaderHeight(groupLabel, width, hasIcon) + pad + loopRoom;
   const contentHeight = bounds.height;
   const height = head + contentHeight + pad;
   const place = (r: Rect): Rect => ({

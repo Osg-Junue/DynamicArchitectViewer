@@ -379,7 +379,7 @@ describe('buildScene', () => {
           if (!box) continue;
           // Where each zone's name is written.
           for (const group of view.groups) {
-            const header = zoneNameArea(group.label, group.rect);
+            const header = zoneNameArea(group.label, group.rect, Boolean(group.icon));
             const overlaps =
               box.cx - box.halfW < header.x + header.width &&
               box.cx + box.halfW > header.x &&

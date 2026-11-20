@@ -386,10 +386,32 @@ export function applyBorderMounts(doc: DavDocument, layout: Layout): Layout {
       if (extNbrs.length > 0) {
         const avgX = extNbrs.reduce((s, n) => s + n.pt.x, 0) / extNbrs.length;
         const avgY = extNbrs.reduce((s, n) => s + n.pt.y, 0) / extNbrs.length;
-        const nx = (avgX - refCenter.x) / Math.max(1, oldRect.width / 2);
-        const ny = (avgY - refCenter.y) / Math.max(1, oldRect.height / 2);
+        const dx = avgX - refCenter.x;
+        const dy = avgY - refCenter.y;
+        const nx = dx / Math.max(1, oldRect.width / 2);
+        const ny = dy / Math.max(1, oldRect.height / 2);
         if (Math.abs(nx) >= Math.abs(ny)) side = nx <= 0 ? 'left' : 'right';
         else side = ny <= 0 ? 'top' : 'bottom';
+        // Avoid aspect-ratio bias pulling a clearly left/right external peer onto top/bottom
+        // where header clearance can push the mounted node past its internal target and cause a U-turn.
+        if (side === 'top' || side === 'bottom') {
+          const outsideLeft = avgX < oldRect.x - 16;
+          const outsideRight = avgX > oldRect.x + oldRect.width + 16;
+          if ((outsideLeft || outsideRight) && Math.abs(dx) >= Math.abs(dy)) {
+            side = outsideLeft ? 'left' : 'right';
+          } else if (side === 'top' && outsideLeft && intNbrs.length > 0) {
+            const topClearX =
+              oldRect.x +
+              Math.min(
+                zoneNeededWidth(group.label, Boolean(group.icon)) + 40,
+                oldRect.width * 0.65,
+              );
+            const priInt = intNbrs.filter((n) => n.animated);
+            const refInt = priInt.length > 0 ? priInt : intNbrs;
+            const intAvgX = refInt.reduce((s, n) => s + n.pt.x, 0) / refInt.length;
+            if (intAvgX < topClearX - 16) side = 'left';
+          }
+        }
       } else if (outDeg > inDeg) {
         side = 'left';
       } else if (inDeg > outDeg) {
@@ -408,7 +430,11 @@ export function applyBorderMounts(doc: DavDocument, layout: Layout): Layout {
     const grandparentGroup = grandparentId ? groupById.get(grandparentId) : undefined;
     const grandparentHdrH =
       grandparentGroup && grandparentRect
-        ? groupHeaderHeight(grandparentGroup.label, grandparentRect.width)
+        ? groupHeaderHeight(
+            grandparentGroup.label,
+            grandparentRect.width,
+            Boolean(grandparentGroup.icon),
+          )
         : 0;
     const siblingRects: Rect[] = [];
     for (const sg of doc.groups) {
@@ -459,14 +485,17 @@ export function applyBorderMounts(doc: DavDocument, layout: Layout): Layout {
         }
       } else if (origMounted.some((r) => r.x < inner.x) && inner.x - GROUP_PADDING > newLeft) {
         newLeft = Math.round(
-          Math.min(inner.x - GROUP_PADDING, newRight - zoneMinWidth(group.label)),
+          Math.min(
+            inner.x - GROUP_PADDING,
+            newRight - zoneMinWidth(group.label, Boolean(group.icon)),
+          ),
         );
         if (newLeft < oldRect.x) newLeft = oldRect.x;
       }
       if (bySide.right.length > 0) {
         const minRight = Math.max(
           inner.x + inner.width + MIN_INNER_CLEAR_X,
-          newLeft + zoneMinWidth(group.label),
+          newLeft + zoneMinWidth(group.label, Boolean(group.icon)),
         );
         const desired = Math.min(
           ...bySide.right.map((e) => centerOf(nodes[e.node.id] as Rect, true).x),
@@ -497,11 +526,14 @@ export function applyBorderMounts(doc: DavDocument, layout: Layout): Layout {
         inner.x + inner.width + GROUP_PADDING < newRight
       ) {
         newRight = Math.round(
-          Math.max(inner.x + inner.width + GROUP_PADDING, newLeft + zoneMinWidth(group.label)),
+          Math.max(
+            inner.x + inner.width + GROUP_PADDING,
+            newLeft + zoneMinWidth(group.label, Boolean(group.icon)),
+          ),
         );
         if (newRight > oldRect.x + oldRect.width) newRight = oldRect.x + oldRect.width;
       }
-      const hdrH = groupHeaderHeight(group.label, newRight - newLeft);
+      const hdrH = groupHeaderHeight(group.label, newRight - newLeft, Boolean(group.icon));
       if (bySide.top.length > 0) {
         const maxTop = inner.y - Math.max(hdrH + MIN_INNER_CLEAR_Y, TOP_MOUNT_INNER_CLEAR);
         const desired = Math.max(
@@ -567,15 +599,16 @@ export function applyBorderMounts(doc: DavDocument, layout: Layout): Layout {
     const newRect: Rect = {
       x: newLeft,
       y: newTop,
-      width: Math.max(zoneMinWidth(group.label), newRight - newLeft),
+      width: Math.max(zoneMinWidth(group.label, Boolean(group.icon)), newRight - newLeft),
       height: Math.max(80, newBot - newTop),
     };
     groups[parentId] = newRect;
 
     // Snap mounted nodes onto `newRect`'s edges with clean separation and header clearance.
-    const hdrH = groupHeaderHeight(group.label, newRect.width);
+    const hdrH = groupHeaderHeight(group.label, newRect.width, Boolean(group.icon));
     const labelClearX = () =>
-      newRect.x + Math.min(zoneNeededWidth(group.label) + 40, newRect.width * 0.65);
+      newRect.x +
+      Math.min(zoneNeededWidth(group.label, Boolean(group.icon)) + 40, newRect.width * 0.65);
 
     // Prefer primary (`animate`) neighbors lying within the mountable edge span `[lo, hi]`
     // so distant out-of-band external nodes or `static` return edges do not jog straight flows.

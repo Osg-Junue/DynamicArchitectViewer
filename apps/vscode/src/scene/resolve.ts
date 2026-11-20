@@ -45,6 +45,8 @@ export interface ResolvedNode {
   /** Author-specified color; absent when the station follows the theme. */
   accent?: ColorName;
   rect: Rect;
+  /** True when the node straddles its parent group's boundary (`mount: border`). */
+  mounted?: boolean;
   visible: boolean;
   focused: boolean;
   dimmed: boolean;
@@ -53,6 +55,7 @@ export interface ResolvedNode {
 export interface ResolvedGroup {
   id: string;
   label: string;
+  icon?: IconName;
   color?: ColorName;
   border?: LineStyle;
   rect: Rect;
@@ -214,6 +217,7 @@ function resolveNodes(ctx: StepContext): ResolvedNode[] {
     };
     const accent = ov.color === COLOR_RESET ? undefined : (ov.color ?? n.color);
     if (accent) node.accent = accent;
+    if (n.mount === 'border') node.mounted = true;
     if (n.sub) node.sub = n.sub;
     const badge = ov.badge !== undefined ? ov.badge : n.badge;
     if (badge) node.badge = badge;
@@ -244,6 +248,7 @@ function resolveGroups(ctx: StepContext, nodes: readonly ResolvedNode[]): Resolv
       depth: ancestorIds(groupParent, g.parentId).length,
       dimmed: filtering && !focusedGroups.has(g.id) && !inFocusedGroup(ctx, g.parentId),
     };
+    if (g.icon) group.icon = g.icon;
     const color = ov.color === COLOR_RESET ? undefined : (ov.color ?? g.color);
     if (color) group.color = color;
     if (g.border) group.border = g.border;
@@ -475,7 +480,9 @@ export function resolveView(
         .flatMap((n) => [...(n.dimmed ? [] : nodeBody(n)), ...badgeArea(n)])
         .map((part) => expandRect(part, CALLOUT_NODE_CLEARANCE)),
       // A zone's name; the rest of the strip across the top of the zone is free.
-      ...groups.map((g) => expandRect(zoneNameArea(g.label, g.rect), CALLOUT_ZONE_NAME_CLEARANCE)),
+      ...groups.map((g) =>
+        expandRect(zoneNameArea(g.label, g.rect, Boolean(g.icon)), CALLOUT_ZONE_NAME_CLEARANCE),
+      ),
       ...edges.flatMap((e) => (e.label && e.labelAt ? [edgeLabelArea(e.label, e.labelAt)] : [])),
     ];
     const cells = visibleNodes

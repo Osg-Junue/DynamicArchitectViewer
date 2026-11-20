@@ -54,6 +54,7 @@ export function straightenNodes(doc: DavDocument, layout: Layout): Layout {
   const parentOf = new Map(doc.nodes.map((n) => [n.id, n.parentId]));
   const groupParent = new Map(doc.groups.map((g) => [g.id, g.parentId]));
   const groupLabel = new Map(doc.groups.map((g) => [g.id, g.label]));
+  const groupHasIcon = new Map(doc.groups.map((g) => [g.id, Boolean(g.icon)]));
   const flow = analyzeFlow(doc);
   const owners = ownersOf(doc);
   const links = linksOf(doc);
@@ -113,7 +114,13 @@ export function straightenNodes(doc: DavDocument, layout: Layout): Layout {
     const frameId = parentOf.get(id);
     const frame = frameId ? groups[frameId] : undefined;
     const headerH =
-      frameId && frame ? groupHeaderHeight(groupLabel.get(frameId) ?? '', frame.width) : 0;
+      frameId && frame
+        ? groupHeaderHeight(
+            groupLabel.get(frameId) ?? '',
+            frame.width,
+            groupHasIcon.get(frameId) ?? false,
+          )
+        : 0;
     if (
       frame &&
       (own.x < frame.x + GROUP_PADDING ||

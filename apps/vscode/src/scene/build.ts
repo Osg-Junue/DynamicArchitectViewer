@@ -38,20 +38,23 @@ export { activeLabelFill, buildPacket };
  */
 
 export function buildScene(view: ResolvedView, icons: IconShapes): VElement {
+  const mountedMasks = view.nodes.flatMap((n) => (n.mounted ? [mountedLabelBox(n)] : []));
   return h(
     'g',
     { class: 'dav-scene' },
     h(
       'g',
       { class: 'dav-layer-groups' },
-      ...[...view.groups].sort((a, b) => a.depth - b.depth).map(groupElement),
+      ...[...view.groups]
+        .sort((a, b) => a.depth - b.depth)
+        .map((g) => groupElement(g, mountedMasks)),
     ),
     h('g', { class: 'dav-layer-edges' }, ...view.edges.map(edgeElement)),
     h('g', { class: 'dav-layer-flows' }, ...view.edges.map(flowElement)),
     h(
       'g',
       { class: 'dav-layer-labels' },
-      ...view.groups.map(groupLabelElement),
+      ...view.groups.map((g) => groupLabelElement(g, icons)),
       ...view.edges.map(edgeLabelElement),
     ),
     h('g', { class: 'dav-layer-stops' }, ...stopElements(view)),
@@ -94,8 +97,145 @@ export function dimClass(base: string, dimmed: boolean): string {
   return dimmed ? `${base} dav-dimmed` : base;
 }
 
+const GROUP_RADIUS = 14;
+const MOUNT_BORDER_GAP_PAD = 3;
+
+type Interval = readonly [start: number, end: number];
+
+/** Removes `gaps` from `[lo, hi]`, returning remaining solid intervals in ascending order. */
+function subtractIntervals(lo: number, hi: number, gaps: readonly Interval[]): Interval[] {
+  if (hi <= lo) return [];
+  const clamped: Array<[number, number]> = [];
+  for (const [a, b] of gaps) {
+    const s = Math.max(lo, a);
+    const e = Math.min(hi, b);
+    if (e > s) clamped.push([s, e]);
+  }
+  if (clamped.length === 0) return [[lo, hi]];
+  clamped.sort((a, b) => a[0] - b[0]);
+  const merged: Array<[number, number]> = [clamped[0] as [number, number]];
+  for (let i = 1; i < clamped.length; i++) {
+    const prev = merged[merged.length - 1] as [number, number];
+    const curr = clamped[i] as [number, number];
+    if (curr[0] <= prev[1]) prev[1] = Math.max(prev[1], curr[1]);
+    else merged.push(curr);
+  }
+  const out: Interval[] = [];
+  let cursor = lo;
+  for (const [s, e] of merged) {
+    if (s > cursor) out.push([cursor, s]);
+    cursor = Math.max(cursor, e);
+  }
+  if (cursor < hi) out.push([cursor, hi]);
+  return out;
+}
+
+/**
+ * Traces a rounded group border with clean gaps wherever a border-mounted node's label crosses it,
+ * keeping translucent nested group fills seamless behind the text.
+ */
+function gappedGroupBorderPath(rect: Rect, mountedMasks: readonly Rect[]): string | null {
+  const { x, y, width: w, height: h } = rect;
+  const r = Math.min(GROUP_RADIUS, w / 2, h / 2);
+  const topGaps: Interval[] = [];
+  const rightGaps: Interval[] = [];
+  const botGaps: Interval[] = [];
+  const leftGaps: Interval[] = [];
+  const tol = 2;
+
+  for (const box of mountedMasks) {
+    const bx1 = box.x - MOUNT_BORDER_GAP_PAD;
+    const bx2 = box.x + box.width + MOUNT_BORDER_GAP_PAD;
+    const by1 = box.y - MOUNT_BORDER_GAP_PAD;
+    const by2 = box.y + box.height + MOUNT_BORDER_GAP_PAD;
+    if (box.y <= y + tol && box.y + box.height >= y - tol && bx2 > x + r && bx1 < x + w - r) {
+      topGaps.push([bx1, bx2]);
+    }
+    if (
+      box.x <= x + w + tol &&
+      box.x + box.width >= x + w - tol &&
+      by2 > y + r &&
+      by1 < y + h - r
+    ) {
+      rightGaps.push([by1, by2]);
+    }
+    if (
+      box.y <= y + h + tol &&
+      box.y + box.height >= y + h - tol &&
+      bx2 > x + r &&
+      bx1 < x + w - r
+    ) {
+      botGaps.push([bx1, bx2]);
+    }
+    if (box.x <= x + tol && box.x + box.width >= x - tol && by2 > y + r && by1 < y + h - r) {
+      leftGaps.push([by1, by2]);
+    }
+  }
+
+  if (
+    topGaps.length === 0 &&
+    rightGaps.length === 0 &&
+    botGaps.length === 0 &&
+    leftGaps.length === 0
+  ) {
+    return null;
+  }
+
+  const fmt = (n: number) => Number(n.toFixed(2));
+  const cmds: string[] = [];
+  let curX = Number.NaN;
+  let curY = Number.NaN;
+  const moveTo = (px: number, py: number) => {
+    if (!Number.isFinite(curX) || Math.abs(curX - px) > 1e-3 || Math.abs(curY - py) > 1e-3) {
+      cmds.push(`M ${fmt(px)} ${fmt(py)}`);
+      curX = px;
+      curY = py;
+    }
+  };
+  const lineTo = (px: number, py: number) => {
+    cmds.push(`L ${fmt(px)} ${fmt(py)}`);
+    curX = px;
+    curY = py;
+  };
+  const arcTo = (px: number, py: number) => {
+    cmds.push(`A ${fmt(r)} ${fmt(r)} 0 0 1 ${fmt(px)} ${fmt(py)}`);
+    curX = px;
+    curY = py;
+  };
+
+  for (const [a, b] of subtractIntervals(x + r, x + w - r, topGaps)) {
+    moveTo(a, y);
+    lineTo(b, y);
+  }
+  moveTo(x + w - r, y);
+  arcTo(x + w, y + r);
+
+  for (const [a, b] of subtractIntervals(y + r, y + h - r, rightGaps)) {
+    moveTo(x + w, a);
+    lineTo(x + w, b);
+  }
+  moveTo(x + w, y + h - r);
+  arcTo(x + w - r, y + h);
+
+  for (const [a, b] of subtractIntervals(x + r, x + w - r, botGaps).reverse()) {
+    moveTo(b, y + h);
+    lineTo(a, y + h);
+  }
+  moveTo(x + r, y + h);
+  arcTo(x, y + h - r);
+
+  for (const [a, b] of subtractIntervals(y + r, y + h - r, leftGaps).reverse()) {
+    moveTo(x, b);
+    lineTo(x, a);
+  }
+  moveTo(x, y + r);
+  arcTo(x + r, y);
+
+  return cmds.join(' ');
+}
+
 /** Groups are zones: a tinted area behind the stations they contain. */
-function groupElement(g: ResolvedGroup): VElement {
+function groupElement(g: ResolvedGroup, mountedMasks: readonly Rect[]): VElement {
   const { x, y, width, height } = g.rect;
   // Attenuate fill opacity slightly at deeper nesting levels so 4–6 stacked frames do not darken
   // sub-labels inside leaf subnets.
@@ -112,6 +252,39 @@ function groupElement(g: ResolvedGroup): VElement {
       : g.depth === 1
         ? 0.04
         : 0.025;
+  const strokeAttrs = {
+    // A hairline in the zone's own color: boost stroke contrast slightly at depth >= 2 where
+    // fill opacity is heavily attenuated so deep nested boundaries (e.g. AZ/Subnet) stay crisp.
+    stroke: g.color ? paint(g.color) : THEME_COLOR.fg,
+    'stroke-opacity': g.color ? (g.depth >= 2 ? 0.72 : 0.55) : g.depth >= 2 ? 0.42 : 0.28,
+    'stroke-width':
+      g.border === 'dashed' ? (g.depth >= 2 ? 1.5 : 1.25) : g.depth >= 2 ? 1.15 : 0.75,
+    'stroke-dasharray': g.border === 'dashed' ? '7 5' : undefined,
+    'vector-effect': 'non-scaling-stroke',
+  };
+  const gappedPath = mountedMasks.length > 0 ? gappedGroupBorderPath(g.rect, mountedMasks) : null;
+  if (gappedPath) {
+    return h(
+      'g',
+      { class: dimClass('dav-group', g.dimmed), 'data-id': g.id },
+      h('rect', {
+        x,
+        y,
+        width,
+        height,
+        rx: GROUP_RADIUS,
+        fill: g.color ? paint(g.color) : THEME_COLOR.fg,
+        'fill-opacity': fillOpacity,
+        stroke: 'none',
+      }),
+      h('path', {
+        d: gappedPath,
+        fill: 'none',
+        class: 'dav-group-border',
+        ...strokeAttrs,
+      }),
+    );
+  }
   return h(
     'g',
     { class: dimClass('dav-group', g.dimmed), 'data-id': g.id },
@@ -120,35 +293,44 @@ function groupElement(g: ResolvedGroup): VElement {
       y,
       width,
       height,
-      rx: 14,
+      rx: GROUP_RADIUS,
       fill: g.color ? paint(g.color) : THEME_COLOR.fg,
       'fill-opacity': fillOpacity,
-      // A hairline in the zone's own color: boost stroke contrast slightly at depth >= 2 where
-      // fill opacity is heavily attenuated so deep nested boundaries (e.g. AZ/Subnet) stay crisp.
-      stroke: g.color ? paint(g.color) : THEME_COLOR.fg,
-      'stroke-opacity': g.color ? (g.depth >= 2 ? 0.72 : 0.55) : g.depth >= 2 ? 0.42 : 0.28,
-      'stroke-width':
-        g.border === 'dashed' ? (g.depth >= 2 ? 1.5 : 1.25) : g.depth >= 2 ? 1.15 : 0.75,
-      'stroke-dasharray': g.border === 'dashed' ? '7 5' : undefined,
-      'vector-effect': 'non-scaling-stroke',
+      ...strokeAttrs,
     }),
   );
 }
 
-/** A zone's name, in a layer above the rails so that no line can run over it. */
-function groupLabelElement(g: ResolvedGroup): VElement {
+/** A zone's name (and optional icon), in a layer above the rails so that no line can run over it. */
+function groupLabelElement(g: ResolvedGroup, icons: IconShapes): VElement {
   const { x, y, width } = g.rect;
-  const labelX = x + ZONE_LABEL.inset;
-  const lines = wrapText(g.label, ZONE_LABEL.size, zoneLabelRoom(width), 2);
+  const hasIcon = g.icon !== undefined;
+  const room = zoneLabelRoom(width, hasIcon);
+  const labelX = x + ZONE_LABEL.inset + (hasIcon ? ZONE_LABEL.iconOffset : 0);
+  const lines = wrapText(g.label, ZONE_LABEL.size, room, 2);
   const content =
     lines.length > 1
       ? lines.map((line, i) =>
           h('tspan', { x: labelX, dy: i === 0 ? 0 : ZONE_LABEL.lineHeight }, line),
         )
-      : [lines[0] ?? fitText(g.label, ZONE_LABEL.size, zoneLabelRoom(width))];
+      : [lines[0] ?? fitText(g.label, ZONE_LABEL.size, room)];
+  const iconEl = g.icon
+    ? iconGlyph(
+        icons,
+        g.icon,
+        { x: x + ZONE_LABEL.inset + ZONE_LABEL.iconSize / 2, y: y + ZONE_LABEL.baseline - 5.5 },
+        ZONE_LABEL.iconSize,
+        {
+          stroke: g.color ? paint(g.color) : THEME_COLOR.fg,
+          'stroke-width': 2.1,
+          class: 'dav-group-icon',
+        },
+      )
+    : null;
   return h(
     'g',
     { class: dimClass('dav-group', g.dimmed), 'data-id': g.id },
+    iconEl,
     h(
       'text',
       {
@@ -266,6 +448,31 @@ const WINDOW_ICON_SIZE = 17;
 const NODE_LABEL_OFFSET = 94;
 const NODE_LABEL_WRAP_OFFSET = 86;
 const NODE_LABEL_WRAP_LINE_HEIGHT = 15;
+
+/** Bounding box of a border-mounted node's label and sub-label for group border stroke gaps. */
+function mountedLabelBox(n: ResolvedNode): Rect {
+  const { x, y, width } = n.rect;
+  const cx = x + width / 2;
+  const labelLines = wrapText(n.label, NODE_LABEL_SIZE, width, 2, 'bold');
+  const wrapped = labelLines.length > 1;
+  const labelY = y + (wrapped ? NODE_LABEL_WRAP_OFFSET : NODE_LABEL_OFFSET);
+  const subY =
+    y +
+    (wrapped ? NODE_LABEL_WRAP_OFFSET + NODE_LABEL_WRAP_LINE_HEIGHT + 14 : NODE_LABEL_OFFSET + 17);
+  const labelW = Math.max(0, ...labelLines.map((line) => textWidth(line, NODE_LABEL_SIZE, 'bold')));
+  const subW = n.sub ? textWidth(fitText(n.sub, NODE_SUB_SIZE, width), NODE_SUB_SIZE) : 0;
+  const maskW = Math.min(width, Math.max(labelW, subW) + 8);
+  const maskTop = labelY - NODE_LABEL_SIZE + 1;
+  const maskBot = n.sub
+    ? subY + 3
+    : labelY + (wrapped ? (labelLines.length - 1) * NODE_LABEL_WRAP_LINE_HEIGHT : 0) + 3;
+  return {
+    x: cx - maskW / 2,
+    y: maskTop,
+    width: maskW,
+    height: Math.max(16, maskBot - maskTop),
+  };
+}
 
 function nodeElement(n: ResolvedNode, icons: IconShapes): VElement {
   const { x, y, width } = n.rect;

@@ -33,6 +33,7 @@ const SCHEMA = {
     mount: 'mount',
   },
   group: {
+    icon: 'icon',
     color: 'color',
     border: 'border',
   },

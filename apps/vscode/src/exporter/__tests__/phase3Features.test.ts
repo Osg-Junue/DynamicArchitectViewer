@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { computeCompletions, parse } from '../../dsl';
+import { computeCompletions, format, parse } from '../../dsl';
 import { computeLayout, type Layout, type Rect, stationRect } from '../../layout';
+import { zoneMinWidth } from '../../layout/metrics';
+import { ICON_META } from '../../model/icons';
+import { ZONE_ICON_OFFSET, ZONE_LABEL_INSET } from '../../model/text';
 import { type DavDocument, ICON_NAMES } from '../../model/types';
 import { ancestorIds, parentMap } from '../../model/zones';
 import { resolveView } from '../../scene';
+import { ICON_SHAPES } from '../../scene/icons';
+import { zoneNameArea } from '../../scene/rails';
+import { collectUsedIcons } from '../icons';
 import { exportSvg } from '../svg';
 
 const PHASE3_CLOUD_DSL = `
@@ -372,5 +378,134 @@ step "Settle" {
       animate: false,
     });
     expect(untitledStill).not.toContain('class="dav-still-title"');
+  });
+
+  it('breaks the parent group border cleanly behind a border-mounted node label without an opaque patch', () => {
+    const svg = exportSvg(PHASE3_CLOUD_DSL, { animate: false });
+    expect(svg).not.toContain('dav-mount-mask');
+    // `vpc` has a left-mounted `igw` whose label crosses the vertical left border.
+    const borderMatch = /<path d="([^"]+)" fill="none" class="dav-group-border"/.exec(svg);
+    expect(borderMatch).not.toBeNull();
+    const d = borderMatch?.[1] ?? '';
+    // Path must start with an absolute Move command and contain at least one gap jump (`M `).
+    expect(d.startsWith('M ')).toBe(true);
+    expect(d.split(' M ').length).toBeGreaterThanOrEqual(2);
+
+    // Groups without border-mounted label intersections keep a single plain `<rect>`.
+    const plain = exportSvg('group g "Plain" {\n  node a "A"\n}\nstep "S" {\n  focus a\n}\n', {
+      animate: false,
+    });
+    expect(plain).not.toContain('dav-group-border');
+  });
+
+  it('keeps a clearly left-connected mounted gateway on the left border of a wide group', () => {
+    const dsl = `
+      node ext "External Peer" [icon: browser]
+      group wide_vpc "Wide Production VPC (10.0.0.0/16)" [color: blue] {
+        node igw "Internet Gateway" [icon: gateway, mount: border]
+        node a "Stage 1"
+        node b "Stage 2"
+        node c "Stage 3"
+        node d "Stage 4"
+      }
+      step "Flow" {
+        animate ext --> igw : "HTTPS"
+        animate igw --> a : "Route"
+        animate a --> b : "Next"
+        animate b --> c : "Next"
+        animate c --> d : "Next"
+      }
+    `;
+    const doc = parse(dsl).document;
+    const layout = computeLayout(doc);
+    const vpc = must(layout.groups.wide_vpc, 'wide_vpc');
+    const igw = stationRect(must(layout.nodes.igw, 'igw'), 'gateway');
+    const igwCx = igw.x + igw.width / 2;
+    expect(Math.abs(igwCx - vpc.x)).toBeLessThanOrEqual(1);
+  });
+
+  it('supports optional [icon: ...] on groups, collects group icons, and preserves zero drift without icons', () => {
+    const NEW_ROLE_ICONS = [
+      'gateway',
+      'endpoint',
+      'nosql',
+      'workflow',
+      'pipeline',
+      'alert',
+      'region',
+      'network',
+      'account',
+    ] as const;
+    for (const icon of NEW_ROLE_ICONS) {
+      expect(ICON_NAMES).toContain(icon);
+      expect(ICON_META[icon]).toBeDefined();
+      expect(ICON_SHAPES[icon]?.length).toBeGreaterThan(0);
+    }
+
+    const withIconDsl = [
+      'group cloud "Cloud" [icon: cloud, color: orange] {',
+      '  group net "VPC" [icon: NETWORK, color: teal, border: dashed] {',
+      '    node wf "Workflow" [icon: workflow]',
+      '    node db "NoSQL" [icon: nosql]',
+      '  }',
+      '}',
+      'step "Run" {',
+      '  animate wf --> db : "PutItem"',
+      '}',
+      '',
+    ].join('\n');
+
+    const parsed = parse(withIconDsl);
+    expect(parsed.diagnostics).toEqual([]);
+    expect(parsed.document.groups.find((g) => g.id === 'cloud')?.icon).toBe('cloud');
+    expect(parsed.document.groups.find((g) => g.id === 'net')?.icon).toBe('network');
+
+    // Formatting preserves group icon attributes cleanly.
+    expect(format('group g "G" [icon: region, color: blue] {\n  node a\n}\nstep "S" {}\n')).toBe(
+      'group g "G" [icon: region, color: blue] {\n  node a\n}\nstep "S" {}\n',
+    );
+
+    // Unknown icon on group reports unknown-icon with suggestion.
+    const bad = parse('group g "G" [icon: netwrk] {\n  node a\n}\nstep "S" {}\n');
+    expect(bad.diagnostics.map((d) => d.code)).toEqual(['unknown-icon']);
+    expect(bad.diagnostics[0]?.args.suggestion).toBe('network');
+
+    // Autocomplete offers icon names inside `group ... [icon: `.
+    const compText = 'group vpc "VPC" [icon: net';
+    const comp = computeCompletions(compText, compText.length, true);
+    expect(comp?.items.map((i) => i.label)).toContain('network');
+
+    // collectUsedIcons includes icons used solely on groups.
+    const used = collectUsedIcons(parsed.document);
+    expect(Object.keys(used)).toEqual(
+      expect.arrayContaining(['cloud', 'network', 'workflow', 'nosql']),
+    );
+
+    // SVG renders .dav-group-icon and shifts .dav-group-label by ZONE_ICON_OFFSET.
+    const layout = computeLayout(parsed.document);
+    const svg = exportSvg(parsed.document, { animate: false });
+    expect(svg).toContain('class="dav-group-icon"');
+    const netRect = must(layout.groups.net, 'net');
+    const expectedLabelX = netRect.x + ZONE_LABEL_INSET + ZONE_ICON_OFFSET;
+    expect(svg).toContain(`x="${expectedLabelX}"`);
+
+    // Narrow group expands to fit icon + label without truncation, and zoneNameArea covers the icon.
+    const narrowBase = parse('group g "Production Account" {\n  node a\n}\nstep "S" {}\n').document;
+    const narrowIcon = parse(
+      'group g "Production Account" [icon: account] {\n  node a\n}\nstep "S" {}\n',
+    ).document;
+    const baseLayout = computeLayout(narrowBase);
+    const iconLayout = computeLayout(narrowIcon);
+    expect(must(iconLayout.groups.g, 'icon g').width).toBeGreaterThanOrEqual(
+      zoneMinWidth('Production Account', true),
+    );
+    expect(
+      zoneNameArea('Production Account', must(iconLayout.groups.g, 'icon g'), true).width,
+    ).toBeGreaterThan(
+      zoneNameArea('Production Account', must(baseLayout.groups.g, 'base g'), false).width,
+    );
+
+    // Zero drift: groups without `icon` keep identical layout.
+    expect(computeLayout(narrowBase)).toEqual(baseLayout);
   });
 });

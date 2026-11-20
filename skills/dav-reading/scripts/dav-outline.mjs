@@ -23,7 +23,7 @@ function a(e, t) {
 	return !Number.isFinite(s) || s === 0 ? o.join("\n") : o.map((e) => e.length > 0 ? e.slice(s) : "").join("\n");
 }
 // src/model/types.ts
-var o = /* @__PURE__ */ "server.container.function.runtime.database.cache.queue.storage.lb.firewall.cdn.cloud.building.router.hub.wifi.external.auth.ai.api.mail.monitor.schedule.search.logic.webhook.payment.key.dns.shield.stream.event.nat.registry.warehouse.vault.audit.screen.modal.browser.desktop.mobile.terminal.device.printer.chat.sheet.file.user.users.bot".split(".");
+var o = /* @__PURE__ */ "server.container.function.runtime.database.cache.queue.storage.lb.firewall.cdn.cloud.building.router.hub.wifi.external.auth.ai.api.mail.monitor.schedule.search.logic.webhook.payment.key.dns.shield.stream.event.nat.registry.warehouse.vault.audit.gateway.endpoint.nosql.workflow.pipeline.alert.region.network.account.screen.modal.browser.desktop.mobile.terminal.device.printer.chat.sheet.file.user.users.bot".split(".");
 function s(e) {
 	return o.includes(e);
 }
@@ -74,6 +74,7 @@ var _ = {
 		mount: "mount"
 	},
 	group: {
+		icon: "icon",
 		color: "color",
 		border: "border"
 	},
@@ -2156,22 +2157,24 @@ var Xe = class {
 			label: this.readChildString(e, "Label") ?? r
 		};
 		t && (a.parentId = t);
-		let o = i.value("color");
-		o !== void 0 && (a.color = o);
-		let s = i.value("border");
-		s !== void 0 && (a.border = s);
-		let c = this.declare({
+		let o = i.value("icon");
+		o !== void 0 && (a.icon = o);
+		let s = i.value("color");
+		s !== void 0 && (a.color = s);
+		let c = i.value("border");
+		c !== void 0 && (a.border = c);
+		let l = this.declare({
 			kind: "group",
 			id: r,
 			from: e.from,
 			to: e.to,
 			idRange: Z(n)
 		});
-		c && this.doc.groups.push(a);
-		let l = e.getChild("GroupBody");
-		if (!l) return;
-		let u = c ? r : t;
-		for (let e of Y(l)) e.name === "Group" ? this.readGroup(e, u) : e.name === "Node" && this.readNode(e, u);
+		l && this.doc.groups.push(a);
+		let u = e.getChild("GroupBody");
+		if (!u) return;
+		let d = l ? r : t;
+		for (let e of Y(u)) e.name === "Group" ? this.readGroup(e, d) : e.name === "Node" && this.readNode(e, d);
 	}
 	readNode(e, t) {
 		let n = e.getChild("Identifier");
@@ -2537,7 +2540,7 @@ function ht(e) {
 			zones: e.groups.filter((e) => e.parentId === t).map((e) => r(e.id)),
 			nodes: e.nodes.filter((e) => e.parentId === t).map(n)
 		};
-		return i?.color && (a.color = i.color), a;
+		return i?.icon && (a.icon = i.icon), i?.color && (a.color = i.color), a;
 	}, i = t.map((e) => ({
 		from: e.from,
 		to: e.to,

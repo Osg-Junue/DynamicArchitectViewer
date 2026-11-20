@@ -263,6 +263,8 @@ class Analyzer {
 
     const group: DavGroup = { id, label: this.readChildString(node, 'Label') ?? id };
     if (parentId) group.parentId = parentId;
+    const icon = attrs.value('icon');
+    if (icon !== undefined) group.icon = icon;
     const color = attrs.value('color');
     if (color !== undefined) group.color = color;
     const border = attrs.value('border');

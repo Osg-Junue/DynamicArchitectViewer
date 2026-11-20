@@ -128,6 +128,14 @@ export const LANGUAGE_PAGES: readonly DocPage[] = [
         live(ctx, GROUPS_DSL),
         syntax('group <id> "label"? [attributes]? { (group | node)* }'),
         attrTable(t, [
+          [
+            '`icon`',
+            pageLink(ctx, 'icons', t('アイコン名', 'icon name')),
+            t(
+              'ゾーン名の左に表示するアイコン（例: `cloud`, `region`, `account`, `network`）',
+              'Optional icon beside the zone label (e.g. `cloud`, `region`, `account`, `network`)',
+            ),
+          ],
           ['`color`', attrValues(t).color, t('ゾーンの背景色', 'Zone background')],
           [
             '`border`',

@@ -250,7 +250,7 @@ function b(e, t, n) {
 	r ? r.push(n) : e.set(t, [n]);
 }
 // src/model/types.ts
-var x = /* @__PURE__ */ "server.container.function.runtime.database.cache.queue.storage.lb.firewall.cdn.cloud.building.router.hub.wifi.external.auth.ai.api.mail.monitor.schedule.search.logic.webhook.payment.key.dns.shield.stream.event.nat.registry.warehouse.vault.audit.screen.modal.browser.desktop.mobile.terminal.device.printer.chat.sheet.file.user.users.bot".split(".");
+var x = /* @__PURE__ */ "server.container.function.runtime.database.cache.queue.storage.lb.firewall.cdn.cloud.building.router.hub.wifi.external.auth.ai.api.mail.monitor.schedule.search.logic.webhook.payment.key.dns.shield.stream.event.nat.registry.warehouse.vault.audit.gateway.endpoint.nosql.workflow.pipeline.alert.region.network.account.screen.modal.browser.desktop.mobile.terminal.device.printer.chat.sheet.file.user.users.bot".split(".");
 function S(e) {
 	return x.includes(e);
 }
@@ -301,6 +301,7 @@ var M = {
 		mount: "mount"
 	},
 	group: {
+		icon: "icon",
 		color: "color",
 		border: "border"
 	},
@@ -2383,22 +2384,24 @@ var St = class {
 			label: this.readChildString(e, "Label") ?? r
 		};
 		t && (a.parentId = t);
-		let o = i.value("color");
-		o !== void 0 && (a.color = o);
-		let s = i.value("border");
-		s !== void 0 && (a.border = s);
-		let c = this.declare({
+		let o = i.value("icon");
+		o !== void 0 && (a.icon = o);
+		let s = i.value("color");
+		s !== void 0 && (a.color = s);
+		let c = i.value("border");
+		c !== void 0 && (a.border = c);
+		let l = this.declare({
 			kind: "group",
 			id: r,
 			from: e.from,
 			to: e.to,
 			idRange: gt(n)
 		});
-		c && this.doc.groups.push(a);
-		let l = e.getChild("GroupBody");
-		if (!l) return;
-		let u = c ? r : t;
-		for (let e of ot(l)) e.name === "Group" ? this.readGroup(e, u) : e.name === "Node" && this.readNode(e, u);
+		l && this.doc.groups.push(a);
+		let u = e.getChild("GroupBody");
+		if (!u) return;
+		let d = l ? r : t;
+		for (let e of ot(u)) e.name === "Group" ? this.readGroup(e, d) : e.name === "Node" && this.readNode(e, d);
 	}
 	readNode(e, t) {
 		let n = e.getChild("Identifier");
@@ -2936,16 +2939,16 @@ var W = {
 	width: 160,
 	height: 40
 }, Yt = 30;
-function Xt(e) {
-	return Math.ceil(d(e, 16) + 14 + 12);
+function Xt(e, t = !1) {
+	return Math.ceil(d(e, 16) + 14 + (t ? 22 : 0) + 12);
 }
-function Zt(e) {
-	let t = Math.min(350, Xt(e));
-	return Math.ceil(t / 2) * 2;
+function Zt(e, t = !1) {
+	let n = Math.min(350, Xt(e, t));
+	return Math.ceil(n / 2) * 2;
 }
-function Qt(e, t) {
-	let n = Math.max(40, t - 14 - 4);
-	return d(e, 16) > n ? 38 : 18;
+function Qt(e, t, n = !1) {
+	let r = Math.max(40, t - 14 - (n ? 22 : 0) - 4);
+	return d(e, 16) > r ? 38 : 18;
 }
 function $t(e) {
 	return new Map([...qt(e)].map((e) => [e, Yt]));
@@ -3143,19 +3146,26 @@ function Tn(e, t) {
 					animated: t.animated
 				});
 			}
-			let l;
+			let p;
 			if (i.length > 0) {
-				let e = i.reduce((e, t) => e + t.pt.x, 0) / i.length, t = i.reduce((e, t) => e + t.pt.y, 0) / i.length, n = (e - v.x) / Math.max(1, f.width / 2), r = (t - v.y) / Math.max(1, f.height / 2);
-				l = Math.abs(n) >= Math.abs(r) ? n <= 0 ? "left" : "right" : r <= 0 ? "top" : "bottom";
-			} else l = s > o ? "left" : o > s ? "right" : "top";
-			y[l].push({
+				let e = i.reduce((e, t) => e + t.pt.x, 0) / i.length, t = i.reduce((e, t) => e + t.pt.y, 0) / i.length, n = e - v.x, r = t - v.y, o = n / Math.max(1, f.width / 2), s = r / Math.max(1, f.height / 2);
+				if (p = Math.abs(o) >= Math.abs(s) ? o <= 0 ? "left" : "right" : s <= 0 ? "top" : "bottom", p === "top" || p === "bottom") {
+					let t = e < f.x - 16, i = e > f.x + f.width + 16;
+					if ((t || i) && Math.abs(n) >= Math.abs(r)) p = t ? "left" : "right";
+					else if (p === "top" && t && a.length > 0) {
+						let e = f.x + Math.min(Xt(l.label, !!l.icon) + 40, f.width * .65), t = a.filter((e) => e.animated), n = t.length > 0 ? t : a;
+						n.reduce((e, t) => e + t.pt.x, 0) / n.length < e - 16 && (p = "left");
+					}
+				}
+			} else p = s > o ? "left" : o > s ? "right" : "top";
+			y[p].push({
 				node: e,
 				mCenter: n,
 				intNbrs: a,
 				extNbrs: i
 			});
 		}
-		let b = l.parentId, x = b ? i[b] : void 0, S = b ? s.get(b) : void 0, C = S && x ? Qt(S.label, x.width) : 0, w = [];
+		let b = l.parentId, x = b ? i[b] : void 0, S = b ? s.get(b) : void 0, C = S && x ? Qt(S.label, x.width, !!S.icon) : 0, w = [];
 		for (let t of e.groups) if (t.parentId === b && t.id !== d) {
 			let e = i[t.id];
 			e && w.push(e);
@@ -3175,17 +3185,17 @@ function Tn(e, t) {
 					for (let e of w) e.y < O && e.y + e.height > D && e.x + e.width <= f.x + 1 && (t = Math.max(t, e.x + e.width + on));
 					t < f.x && (T = Math.round(Math.max(t, e)));
 				}
-			} else e.some((e) => e.x < _.x) && _.x - 16 > T && (T = Math.round(Math.min(_.x - 16, E - Zt(l.label))), T < f.x && (T = f.x));
+			} else e.some((e) => e.x < _.x) && _.x - 16 > T && (T = Math.round(Math.min(_.x - 16, E - Zt(l.label, !!l.icon))), T < f.x && (T = f.x));
 			if (y.right.length > 0) {
-				let e = Math.max(_.x + _.width + tn, T + Zt(l.label)), t = Math.min(...y.right.map((e) => fn(r[e.node.id], !0).x));
+				let e = Math.max(_.x + _.width + tn, T + Zt(l.label, !!l.icon)), t = Math.min(...y.right.map((e) => fn(r[e.node.id], !0).x));
 				if (e <= f.x + f.width - sn) E = Math.round(dn(t, e, f.x + f.width - sn));
 				else if (e > f.x + f.width) {
 					let t = x ? x.x + x.width - 16 - on : Infinity;
 					for (let e of w) e.y < O && e.y + e.height > D && e.x >= f.x + f.width - 1 && (t = Math.min(t, e.x - on));
 					t > f.x + f.width && (E = Math.round(Math.min(t, e)));
 				}
-			} else e.some((e) => e.x + e.width > _.x + _.width) && _.x + _.width + 16 < E && (E = Math.round(Math.max(_.x + _.width + 16, T + Zt(l.label))), E > f.x + f.width && (E = f.x + f.width));
-			let n = Qt(l.label, E - T);
+			} else e.some((e) => e.x + e.width > _.x + _.width) && _.x + _.width + 16 < E && (E = Math.round(Math.max(_.x + _.width + 16, T + Zt(l.label, !!l.icon))), E > f.x + f.width && (E = f.x + f.width));
+			let n = Qt(l.label, E - T, !!l.icon);
 			if (y.top.length > 0) {
 				let e = _.y - Math.max(n + nn, rn), t = Math.max(...y.top.map((e) => fn(r[e.node.id], !0).y));
 				if (e >= f.y + cn) D = Math.round(dn(t, f.y + cn, e));
@@ -3208,11 +3218,11 @@ function Tn(e, t) {
 		let k = {
 			x: T,
 			y: D,
-			width: Math.max(Zt(l.label), E - T),
+			width: Math.max(Zt(l.label, !!l.icon), E - T),
 			height: Math.max(80, O - D)
 		};
 		i[d] = k;
-		let A = Qt(l.label, k.width), j = () => k.x + Math.min(Xt(l.label) + 40, k.width * .65), M = (e, t, n, r) => {
+		let A = Qt(l.label, k.width, !!l.icon), j = () => k.x + Math.min(Xt(l.label, !!l.icon) + 40, k.width * .65), M = (e, t, n, r) => {
 			let i = (e) => t ? e.y : e.x, a = [...e.intNbrs, ...e.extNbrs], o = a.filter((e) => {
 				let t = i(e.pt);
 				return t >= n && t <= r;
@@ -3921,26 +3931,26 @@ function sr(e, t, n, r) {
 function cr(e, t, n, r, i = Vt(e.groups), a = ir(e), o = X(e), s, c = !1, l = 0) {
 	let u = e.nodes.filter((e) => a.get(e.id) === t).map((e) => rr(e, t)), d = e.groups.filter((e) => e.id !== t && i.get(e.id) === t).map((e) => rr(e, t));
 	if (s && d.length > 0 && !r) return s(e, t, n, o, c, l);
-	let f = e.groups.find((e) => e.id === t)?.label ?? "", p = new Set(u.map((e) => e.id)), m = U(e).filter((e) => p.has(e.from) && p.has(e.to)), h = e.steps.map((e) => ({
+	let f = e.groups.find((e) => e.id === t), p = f?.label ?? "", m = !!f?.icon, h = new Set(u.map((e) => e.id)), g = U(e).filter((e) => h.has(e.from) && h.has(e.to)), _ = e.steps.map((e) => ({
 		...e,
-		animations: e.animations.filter((e) => p.has(e.from) && p.has(e.to)),
-		statics: e.statics.filter((e) => p.has(e.from) && p.has(e.to))
-	})), g = $t({ steps: h }), _ = Math.max(0, ...g.values()), v = (e, n) => [t, {
+		animations: e.animations.filter((e) => h.has(e.from) && h.has(e.to)),
+		statics: e.statics.filter((e) => h.has(e.from) && h.has(e.to))
+	})), v = $t({ steps: _ }), y = Math.max(0, ...v.values()), b = (e, n) => [t, {
 		x: 0,
 		y: 0,
 		width: e,
 		height: n
 	}];
 	if (u.length === 0 && d.length === 0) {
-		let e = Jt.width + 32, n = Math.max(e, Zt(f)), r = Qt(f, n) + 16 + _, i = r + Jt.height + 16, a = new Map([v(n, i)]);
+		let e = Jt.width + 32, n = Math.max(e, Zt(p, m)), r = Qt(p, n, m) + 16 + y, i = r + Jt.height + 16, a = new Map([b(n, i)]);
 		return {
 			id: t,
 			width: n,
 			height: i,
 			head: r,
 			contentHeight: Jt.height,
-			loopRoom: _,
-			nodeLoopRoom: g,
+			loopRoom: y,
+			nodeLoopRoom: v,
 			flippable: !1,
 			nodes: /* @__PURE__ */ new Map(),
 			groups: a,
@@ -3948,29 +3958,29 @@ function cr(e, t, n, r, i = Vt(e.groups), a = ir(e), o = X(e), s, c = !1, l = 0)
 			reflectConst: /* @__PURE__ */ new Map()
 		};
 	}
-	let y = n({
+	let x = n({
 		...e,
 		nodes: u,
 		groups: d,
-		steps: h
-	}, r, m, sr(p, m, o, a)), b = en([...Object.values(y.nodes), ...Object.values(y.groups)]), x = b.width + 32, S = Math.max(x, Zt(f)), C = 16 + Math.round((S - x) / 2), w = Qt(f, S) + 16 + _, T = b.height, E = w + T + 16, D = (e) => ({
+		steps: _
+	}, r, g, sr(h, g, o, a)), S = en([...Object.values(x.nodes), ...Object.values(x.groups)]), C = S.width + 32, w = Math.max(C, Zt(p, m)), T = 16 + Math.round((w - C) / 2), E = Qt(p, w, m) + 16 + y, D = S.height, O = E + D + 16, k = (e) => ({
 		...e,
-		x: e.x - b.x + C,
-		y: e.y - b.y + w
-	}), O = new Map(Object.entries(y.nodes).map(([e, t]) => [e, D(t)])), k = new Map([v(S, E), ...Object.entries(y.groups).map(([e, t]) => [e, D(t)])]), { groupsFlipped: A, reflectConst: j } = or(t, u, d, _, O, k);
+		x: e.x - S.x + T,
+		y: e.y - S.y + E
+	}), A = new Map(Object.entries(x.nodes).map(([e, t]) => [e, k(t)])), j = new Map([b(w, O), ...Object.entries(x.groups).map(([e, t]) => [e, k(t)])]), { groupsFlipped: M, reflectConst: N } = or(t, u, d, y, A, j);
 	return {
 		id: t,
-		width: S,
-		height: E,
-		head: w,
-		contentHeight: T,
-		loopRoom: _,
-		nodeLoopRoom: g,
-		flippable: _ === 0 && d.length === 0,
-		nodes: O,
-		groups: k,
-		groupsFlipped: A,
-		reflectConst: j
+		width: w,
+		height: O,
+		head: E,
+		contentHeight: D,
+		loopRoom: y,
+		nodeLoopRoom: v,
+		flippable: y === 0 && d.length === 0,
+		nodes: A,
+		groups: j,
+		groupsFlipped: M,
+		reflectConst: N
 	};
 }
 function lr(e, t, n, r = X(e), i) {
@@ -4406,9 +4416,9 @@ var Or = 60, kr = 12, Ar = 14, jr = 28, Mr = 4, Nr = (e) => ({
 function Fr(e, t) {
 	let n = K();
 	for (let [e, r] of Object.entries(t.nodes)) n[e] = { ...r };
-	let { groups: r } = t, i = $t(e), a = new Map(e.nodes.map((e) => [e.id, e.parentId])), o = new Map(e.groups.map((e) => [e.id, e.parentId])), s = new Map(e.groups.map((e) => [e.id, e.label])), c = X(e), l = ir(e), u = Fn(e), d = /* @__PURE__ */ new Map();
-	for (let e of u) for (let t of new Set(e)) d.set(t, [...d.get(t) ?? [], e]);
-	let f = (e, t) => {
+	let { groups: r } = t, i = $t(e), a = new Map(e.nodes.map((e) => [e.id, e.parentId])), o = new Map(e.groups.map((e) => [e.id, e.parentId])), s = new Map(e.groups.map((e) => [e.id, e.label])), c = new Map(e.groups.map((e) => [e.id, !!e.icon])), l = X(e), u = ir(e), d = Fn(e), f = /* @__PURE__ */ new Map();
+	for (let e of d) for (let t of new Set(e)) f.set(t, [...f.get(t) ?? [], e]);
+	let p = (e, t) => {
 		let n = i.get(e) ?? 0;
 		return {
 			x: t.x,
@@ -4416,7 +4426,7 @@ function Fr(e, t) {
 			width: t.width,
 			height: t.height + n
 		};
-	}, p = ([e, t]) => {
+	}, m = ([e, t]) => {
 		let r = Nr(n[e]), i = Nr(n[t]);
 		return {
 			from: e,
@@ -4426,8 +4436,8 @@ function Fr(e, t) {
 			bx: i.x,
 			by: i.y
 		};
-	}, m = (e) => {
-		let t = p(e);
+	}, h = (e) => {
+		let t = m(e);
 		if (Math.abs(t.ay - t.by) > kr && Math.abs(t.ax - t.bx) >= .5) return !1;
 		let r = {
 			x: Math.min(t.ax, t.bx) - 1,
@@ -4435,41 +4445,41 @@ function Fr(e, t) {
 			width: Math.abs(t.ax - t.bx) + 2,
 			height: Math.abs(t.ay - t.by) + 2
 		};
-		for (let t in n) if (t !== e[0] && t !== e[1] && Pr(f(t, n[t]), r, 0)) return !1;
+		for (let t in n) if (t !== e[0] && t !== e[1] && Pr(p(t, n[t]), r, 0)) return !1;
 		return !0;
-	}, h = (e) => [...new Set(e.flatMap((e) => d.get(e) ?? []))], g = (e) => e.filter((e) => m(e)).length, _ = (e) => {
+	}, g = (e) => [...new Set(e.flatMap((e) => f.get(e) ?? []))], _ = (e) => e.filter((e) => h(e)).length, v = (e) => {
 		let t = 0;
 		for (let n of e) {
-			let e = p(n);
-			for (let r of u) {
+			let e = m(n);
+			for (let r of d) {
 				if (r === n) continue;
-				let i = p(r);
+				let i = m(r);
 				!Rn(e, i) && zn(e, i) && t++;
 			}
 		}
 		return t;
-	}, v = (e, t) => {
-		let i = f(e, t), c = a.get(e), l = c ? r[c] : void 0, u = c && l ? Qt(s.get(c) ?? "", l.width) : 0;
-		if (l && (i.x < l.x + 16 || i.x + i.width > l.x + l.width - 16 || i.y < l.y + u + 16 || i.y + i.height > l.y + l.height - 16)) return !1;
-		for (let t in n) if (t !== e && Pr(i, f(t, n[t]), Ar)) return !1;
-		let d = /* @__PURE__ */ new Set();
-		for (let e = c; e; e = o.get(e)) d.add(e);
-		for (let e in r) if (!d.has(e) && Pr(i, r[e], jr)) return !1;
+	}, y = (e, t) => {
+		let i = p(e, t), l = a.get(e), u = l ? r[l] : void 0, d = l && u ? Qt(s.get(l) ?? "", u.width, c.get(l) ?? !1) : 0;
+		if (u && (i.x < u.x + 16 || i.x + i.width > u.x + u.width - 16 || i.y < u.y + d + 16 || i.y + i.height > u.y + u.height - 16)) return !1;
+		for (let t in n) if (t !== e && Pr(i, p(t, n[t]), Ar)) return !1;
+		let f = /* @__PURE__ */ new Set();
+		for (let e = l; e; e = o.get(e)) f.add(e);
+		for (let e in r) if (!f.has(e) && Pr(i, r[e], jr)) return !1;
 		return !0;
-	}, y = (e, t, r) => {
+	}, b = (e, t, r) => {
 		for (let i of e) {
 			let e = n[i];
 			e.x += t, e.y += r;
 		}
-	}, b = (e, t, r) => {
+	}, x = (e, t, r) => {
 		let i = e.map((e) => ({ ...n[e] })), a = () => {
 			e.forEach((e, t) => {
 				n[e] = { ...i[t] };
 			});
-		}, o = h(e), s = [];
+		}, o = g(e), s = [];
 		if (t !== 0) for (let e of o) {
-			let t = c.byPair.get(q(e[0], e[1]));
-			if (t?.role === "primary" && l.get(t.from) !== l.get(t.to)) {
+			let t = l.byPair.get(q(e[0], e[1]));
+			if (t?.role === "primary" && u.get(t.from) !== u.get(t.to)) {
 				let e = Nr(n[t.to]).x - Nr(n[t.from]).x;
 				s.push({
 					from: t.from,
@@ -4478,20 +4488,20 @@ function Fr(e, t) {
 				});
 			}
 		}
-		let u = g(o);
-		if (y(e, t, r), s.some(({ from: e, to: t, linkDx: r }) => {
+		let c = _(o);
+		if (b(e, t, r), s.some(({ from: e, to: t, linkDx: r }) => {
 			let i = Nr(n[t]).x - Nr(n[e]).x;
 			return r > 0 ? i <= 0 : i < r;
-		}) || !e.every((e) => v(e, n[e]))) return a(), 0;
-		let d = g(o) - u;
+		}) || !e.every((e) => y(e, n[e]))) return a(), 0;
+		let d = _(o) - c;
 		if (d <= 0) return a(), 0;
-		let f = _(o);
-		return a(), f > _(o) ? 0 : d;
-	}, x = (e, t) => {
+		let f = v(o);
+		return a(), f > v(o) ? 0 : d;
+	}, S = (e, t) => {
 		let r = Nr(n[e]), i = [e];
-		for (let a of d.get(e) ?? []) {
+		for (let a of f.get(e) ?? []) {
 			let o = a[0] === e ? a[1] : a[0], s = Nr(n[o]);
-			(t === 0 ? Math.abs(s.y - r.y) <= kr : Math.abs(s.x - r.x) < .5) && !i.includes(o) && m(a) && i.push(o);
+			(t === 0 ? Math.abs(s.y - r.y) <= kr : Math.abs(s.x - r.x) < .5) && !i.includes(o) && h(a) && i.push(o);
 		}
 		return i;
 	};
@@ -4501,7 +4511,7 @@ function Fr(e, t) {
 			let e = n[r];
 			if (!e) continue;
 			let i = [];
-			for (let t of d.get(r) ?? []) {
+			for (let t of f.get(r) ?? []) {
 				let a = Nr(e), o = Nr(n[t[0] === r ? t[1] : t[0]]), s = o.y - a.y, c = o.x - a.x;
 				Math.abs(s) > kr && Math.abs(s) <= Or && i.push({
 					dx: 0,
@@ -4513,9 +4523,9 @@ function Fr(e, t) {
 			}
 			let a;
 			for (let { dx: e, dy: t } of i) {
-				let n = x(r, e);
+				let n = S(r, e);
 				for (let i of n.length > 1 ? [[r], n] : [[r]]) {
-					let n = b(i, e, t), r = Math.abs(e) + Math.abs(t);
+					let n = x(i, e, t), r = Math.abs(e) + Math.abs(t);
 					n > 0 && (!a || n > a.gain || n === a.gain && i.length < a.ids.length || n === a.gain && i.length === a.ids.length && r < a.distance) && (a = {
 						ids: i,
 						dx: e,
@@ -4525,7 +4535,7 @@ function Fr(e, t) {
 					});
 				}
 			}
-			a && (y(a.ids, a.dx, a.dy), t = !0);
+			a && (b(a.ids, a.dx, a.dy), t = !0);
 		}
 		if (!t) break;
 	}
@@ -6568,76 +6578,76 @@ function Pa(e) {
 	}));
 }
 function Fa(e, t, n) {
-	let r = e.groups.find((e) => e.id === t)?.label ?? "";
+	let r = e.groups.find((e) => e.id === t), i = r?.label ?? "", a = !!r?.icon;
 	if (n.length === 0) {
-		let e = Jt.width + 32, n = Math.max(e, Zt(r)), i = Qt(r, n) + 16, a = i + Jt.height + 16, o = /* @__PURE__ */ new Map([[t, {
+		let e = Jt.width + 32, n = Math.max(e, Zt(i, a)), r = Qt(i, n, a) + 16, o = r + Jt.height + 16, s = /* @__PURE__ */ new Map([[t, {
 			x: 0,
 			y: 0,
 			width: n,
-			height: a
+			height: o
 		}]]);
 		return {
 			id: t,
 			width: n,
-			height: a,
-			head: i,
+			height: o,
+			head: r,
 			contentHeight: Jt.height,
 			loopRoom: 0,
 			nodeLoopRoom: /* @__PURE__ */ new Map(),
 			flippable: !1,
 			nodes: /* @__PURE__ */ new Map(),
-			groups: o,
-			groupsFlipped: new Map(o),
+			groups: s,
+			groupsFlipped: new Map(s),
 			reflectConst: /* @__PURE__ */ new Map()
 		};
 	}
-	let i = Pa(n), a = n.map((e) => ({
+	let o = Pa(n), s = n.map((e) => ({
 		p: e,
-		rx: Math.round(e.x - i.x),
-		ry: Math.round(e.y - i.y)
-	})), o = 0, s = 0, c = 0;
-	for (let { p: e, rx: t, ry: n } of a) {
+		rx: Math.round(e.x - o.x),
+		ry: Math.round(e.y - o.y)
+	})), c = 0, l = 0, u = 0;
+	for (let { p: e, rx: t, ry: n } of s) {
 		let r = e.block.groups.size === 0 ? e.block.loopRoom : 0;
-		c = Math.min(c, n - r), o = Math.max(o, t + e.block.width), s = Math.max(s, n + e.block.height);
+		u = Math.min(u, n - r), c = Math.max(c, t + e.block.width), l = Math.max(l, n + e.block.height);
 	}
-	let l = o, u = s - c, d = l + 32, f = Math.max(d, Zt(r)), p = 16 + Math.round((f - d) / 2), m = Qt(r, f) + 16, h = m + u + 16, g = /* @__PURE__ */ new Map(), _ = /* @__PURE__ */ new Map([[t, {
+	let d = c, f = l - u, p = d + 32, m = Math.max(p, Zt(i, a)), h = 16 + Math.round((m - p) / 2), g = Qt(i, m, a) + 16, _ = g + f + 16, v = /* @__PURE__ */ new Map(), y = /* @__PURE__ */ new Map([[t, {
 		x: 0,
 		y: 0,
-		width: f,
-		height: h
-	}]]), v = /* @__PURE__ */ new Map();
-	for (let { p: e, rx: t, ry: n } of a) {
-		let { block: r } = e, i = p + t, a = m + n - c;
-		for (let [t, n] of r.nodes) g.set(t, {
+		width: m,
+		height: _
+	}]]), b = /* @__PURE__ */ new Map();
+	for (let { p: e, rx: t, ry: n } of s) {
+		let { block: r } = e, i = h + t, a = g + n - u;
+		for (let [t, n] of r.nodes) v.set(t, {
 			...n,
 			x: i + n.x,
 			y: a + (e.flip ? Z(r, n, t) : n.y)
 		});
-		for (let [t, n] of e.flip ? r.groupsFlipped : r.groups) _.set(t, {
+		for (let [t, n] of e.flip ? r.groupsFlipped : r.groups) y.set(t, {
 			...n,
 			x: i + n.x,
 			y: a + n.y
 		});
-		for (let [e, t] of r.nodeLoopRoom) v.set(e, t);
+		for (let [e, t] of r.nodeLoopRoom) b.set(e, t);
 	}
-	let y = (e) => {
+	let x = (e) => {
 		if (e.parentId !== t) return e;
 		let { parentId: n, ...r } = e;
 		return r;
-	}, { groupsFlipped: b, reflectConst: x } = or(t, e.nodes.filter((e) => g.has(e.id)).map(y), e.groups.filter((e) => e.id !== t && _.has(e.id)).map(y), 0, g, _);
+	}, { groupsFlipped: S, reflectConst: C } = or(t, e.nodes.filter((e) => v.has(e.id)).map(x), e.groups.filter((e) => e.id !== t && y.has(e.id)).map(x), 0, v, y);
 	return {
 		id: t,
-		width: f,
-		height: h,
-		head: m,
-		contentHeight: u,
+		width: m,
+		height: _,
+		head: g,
+		contentHeight: f,
 		loopRoom: 0,
-		nodeLoopRoom: v,
+		nodeLoopRoom: b,
 		flippable: !1,
-		nodes: g,
-		groups: _,
-		groupsFlipped: b,
-		reflectConst: x,
+		nodes: v,
+		groups: y,
+		groupsFlipped: S,
+		reflectConst: C,
 		recursive: !0
 	};
 }
@@ -7260,39 +7270,39 @@ function Ba(e, t, n, r, i = !1, a = 0, o) {
 		if (i && c.length >= 4) {
 			let n = new Set(c.map((e) => e.id));
 			if (!r.connections.some((e) => e.from !== e.to && n.has(e.from) && n.has(e.to))) {
-				let r = e.groups.find((e) => e.id === t)?.label ?? "", i = $t({ steps: e.steps.map((e) => ({
+				let r = e.groups.find((e) => e.id === t), i = r?.label ?? "", a = !!r?.icon, o = $t({ steps: e.steps.map((e) => ({
 					...e,
 					animations: e.animations.filter((e) => n.has(e.from) && n.has(e.to)),
 					statics: e.statics.filter((e) => n.has(e.from) && n.has(e.to))
-				})) }), a = Math.max(0, ...i.values()), o = Math.min(4, Math.ceil(c.length / 2)), s = Math.ceil(c.length / o), l = o * W.width + Math.max(0, o - 1) * 36, u = s * W.height + Math.max(0, s - 1) * (14 + a), d = l + 32, f = Math.max(d, Zt(r)), p = 16 + Math.round((f - d) / 2), m = Qt(r, f) + 16 + a, h = m + u + 16, g = /* @__PURE__ */ new Map();
+				})) }), s = Math.max(0, ...o.values()), l = Math.min(4, Math.ceil(c.length / 2)), u = Math.ceil(c.length / l), d = l * W.width + Math.max(0, l - 1) * 36, f = u * W.height + Math.max(0, u - 1) * (14 + s), p = d + 32, m = Math.max(p, Zt(i, a)), h = 16 + Math.round((m - p) / 2), g = Qt(i, m, a) + 16 + s, _ = g + f + 16, v = /* @__PURE__ */ new Map();
 				c.forEach((e, t) => {
-					let n = Math.floor(t / o), r = t % o;
-					g.set(e.id, {
-						x: p + r * (W.width + 36),
-						y: m + n * (W.height + 14 + a),
+					let n = Math.floor(t / l), r = t % l;
+					v.set(e.id, {
+						x: h + r * (W.width + 36),
+						y: g + n * (W.height + 14 + s),
 						width: W.width,
 						height: W.height
 					});
 				});
-				let _ = /* @__PURE__ */ new Map([[t, {
+				let y = /* @__PURE__ */ new Map([[t, {
 					x: 0,
 					y: 0,
-					width: f,
-					height: h
-				}]]), { groupsFlipped: v, reflectConst: y } = or(t, c.map(({ parentId: e, ...t }) => t), [], a, g, _);
+					width: m,
+					height: _
+				}]]), { groupsFlipped: b, reflectConst: x } = or(t, c.map(({ parentId: e, ...t }) => t), [], s, v, y);
 				return {
 					id: t,
-					width: f,
-					height: h,
-					head: m,
-					contentHeight: u,
-					loopRoom: a,
-					nodeLoopRoom: i,
-					flippable: a === 0,
-					nodes: g,
-					groups: _,
-					groupsFlipped: v,
-					reflectConst: y
+					width: m,
+					height: _,
+					head: g,
+					contentHeight: f,
+					loopRoom: s,
+					nodeLoopRoom: o,
+					flippable: s === 0,
+					nodes: v,
+					groups: y,
+					groupsFlipped: b,
+					reflectConst: x
 				};
 			}
 		}
@@ -8474,10 +8484,13 @@ var Ts = {
 	inset: 14,
 	baseline: 24,
 	endGap: 4,
-	lineHeight: 20
+	lineHeight: 20,
+	iconSize: 16,
+	iconGap: 6,
+	iconOffset: 22
 };
-function Ds(e) {
-	return Math.max(40, e - Es.inset - Es.endGap);
+function Ds(e, t = !1) {
+	return Math.max(40, e - Es.inset - (t ? Es.iconOffset : 0) - Es.endGap);
 }
 Ts.borderStrong;
 // src/scene/textCuts.ts
@@ -8499,7 +8512,7 @@ function ks(e, t) {
 	});
 	if (t) for (let r of e.groups) {
 		let e = t.groups[r.id];
-		e && es(r.label, Es.size, Ds(e.width), 2) && n.push({
+		e && es(r.label, Es.size, Ds(e.width, !!r.icon), 2) && n.push({
 			kind: "zone-label",
 			group: r.id,
 			text: r.label

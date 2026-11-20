@@ -101,8 +101,8 @@ Attribute names are lowercase, as the tables give them: `Icon` is an unknown att
 ### `group`
 
 ```dav
-group vpc "Production VPC" [color: blue] {
-  node igw "Internet Gateway" [icon: router, mount: border]
+group vpc "Production VPC" [icon: network, color: blue] {
+  node igw "Internet Gateway" [icon: gateway, mount: border]
   node alb "Application LB" [icon: lb]
   group az_a "Availability Zone A" [border: dashed] {
     node api "Order API" [icon: api]
@@ -114,6 +114,7 @@ A group is a zone: a frame drawn round its members. It contains only groups and 
 
 | Attribute | Type | Default | Effect |
 | :--- | :--- | :--- | :--- |
+| `icon` | icon | none | Optional header icon drawn beside the zone label (e.g. `cloud`, `region`, `account`, `network`, `building`) |
 | `color` | color | none | Color of the zone |
 | `border` | border | `solid` | Border stroke style (`solid` or `dashed`, e.g. for Availability Zones) |
 
@@ -134,9 +135,9 @@ A node belongs to the group it is declared in, or to none at the top level. Its 
 | `color` | color | none | Color of the ring, the icon and the badge |
 | `mount` | mount | none | `border` mounts a grouped node onto its parent group's boundary on the side facing its external connections—falling back to internal out/in degree direction when none exist (ignored with `attribute-not-applicable` on top-level nodes) |
 
-The 51 icons:
+The 60 icons:
 
-- **Infrastructure and logic (37):** `server`, `container`, `function`, `runtime`, `database`, `cache`, `queue`, `storage`, `lb`, `firewall`, `cdn`, `cloud`, `building`, `router`, `hub`, `wifi`, `external`, `auth`, `ai`, `api`, `mail`, `monitor`, `schedule`, `search`, `logic`, `webhook`, `payment`, `key`, `dns`, `shield`, `stream`, `event`, `nat`, `registry`, `warehouse`, `vault`, `audit`
+- **Infrastructure and logic (46):** `server`, `container`, `function`, `runtime`, `database`, `cache`, `queue`, `storage`, `lb`, `firewall`, `cdn`, `cloud`, `building`, `router`, `hub`, `wifi`, `external`, `auth`, `ai`, `api`, `mail`, `monitor`, `schedule`, `search`, `logic`, `webhook`, `payment`, `key`, `dns`, `shield`, `stream`, `event`, `nat`, `registry`, `warehouse`, `vault`, `audit`, `gateway`, `endpoint`, `nosql`, `workflow`, `pipeline`, `alert`, `region`, `network`, `account`
 - **Screens, actors and documents (14):** `screen`, `modal`, `browser`, `desktop`, `mobile`, `terminal`, `device`, `printer`, `chat`, `sheet`, `file`, `user`, `users`, `bot`
 
 ### Overview

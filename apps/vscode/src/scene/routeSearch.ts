@@ -34,6 +34,8 @@ export const SHARED_STATION_CROSS = 0.25;
 const OWN_LABELS = 30;
 /** Extra cost to use the top port of a node whose self-loop sits at its upper right. */
 const LOOP_TOP_PORT_COST = 40;
+/** Extra cost for a border-mounted node to leave/enter along its parent's border line instead of perpendicularly. */
+const MOUNT_BORDER_PORT_COST = 55;
 /**
  * The least a rail runs straight near a node's outline/labels before turning, so the arrowhead
  * and rounded corner have room, and what a turn nearer than that costs.
@@ -316,6 +318,12 @@ export class RouteSearch {
           extra += LOOP_TOP_PORT_COST;
         }
         const side = incoming ? (way + 2) & 3 : way;
+        if (
+          (node.mountedAxis === 'x' && (side === UP || side === DOWN)) ||
+          (node.mountedAxis === 'y' && (side === LEFT || side === RIGHT))
+        ) {
+          extra += MOUNT_BORDER_PORT_COST;
+        }
         const slot = k * 4 + side;
         const used = this.#sideUse[slot] ?? 0;
         extra += PORT_CROWD_COSTS[Math.min(PORT_CROWD_COSTS.length - 1, used)] ?? 0;
@@ -601,10 +609,13 @@ export class RouteSearch {
         const zone = lane.zone[stretch] as number;
         const foreign = zone >= 0 ? homeRun[zone] !== run : edge.contained === true;
         // Keep endpoint station centerlines free of border-hugging detours so straight
-        // approaches do not sprout unnecessary 3-turn jogs right before a station.
+        // approaches do not sprout unnecessary 3-turn jogs right before a station, EXCEPT when
+        // the centerline itself lies along a border-mounted node's parent group border.
         const onEndpointCenterline = level
-          ? iy === startY || iy === goalY
-          : ix === startX || ix === goalX;
+          ? (iy === startY && startNode.mountedAxis !== 'y') ||
+            (iy === goalY && goalNode.mountedAxis !== 'y')
+          : (ix === startX && startNode.mountedAxis !== 'x') ||
+            (ix === goalX && goalNode.mountedAxis !== 'x');
         const alongBorder = lane.border[stretch] === 1 && !onEndpointCenterline;
         let step =
           length *

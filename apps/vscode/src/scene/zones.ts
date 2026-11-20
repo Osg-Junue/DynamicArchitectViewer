@@ -1,5 +1,8 @@
 import type { Layout, Rect } from '../layout';
 import {
+  ZONE_ICON_GAP,
+  ZONE_ICON_OFFSET,
+  ZONE_ICON_SIZE,
   ZONE_LABEL_BASELINE,
   ZONE_LABEL_END_GAP,
   ZONE_LABEL_FONT_SIZE,
@@ -20,11 +23,17 @@ export const ZONE_LABEL = {
   /** Gap kept between the end of the name and the zone's right edge. */
   endGap: ZONE_LABEL_END_GAP,
   lineHeight: ZONE_LABEL_LINE_HEIGHT,
+  iconSize: ZONE_ICON_SIZE,
+  iconGap: ZONE_ICON_GAP,
+  iconOffset: ZONE_ICON_OFFSET,
 } as const;
 
 /** How wide a zone's name may be: up to just before the zone's right edge. */
-export function zoneLabelRoom(zoneWidth: number): number {
-  return Math.max(40, zoneWidth - ZONE_LABEL.inset - ZONE_LABEL.endGap);
+export function zoneLabelRoom(zoneWidth: number, hasIcon = false): number {
+  return Math.max(
+    40,
+    zoneWidth - ZONE_LABEL.inset - (hasIcon ? ZONE_LABEL.iconOffset : 0) - ZONE_LABEL.endGap,
+  );
 }
 
 const MINIMAP_PAD = 40;

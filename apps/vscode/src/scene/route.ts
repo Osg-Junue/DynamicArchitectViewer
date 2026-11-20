@@ -35,6 +35,8 @@ export interface RouteNode {
   badge: Rect;
   /** When present, this endpoint is a group's outer boundary rather than a station node. */
   groupBorder?: Rect;
+  /** Axis on which a border-mounted node's centerline coincides with its parent group border. */
+  mountedAxis?: 'x' | 'y';
 }
 export interface RouteGroup {
   rect: Rect;

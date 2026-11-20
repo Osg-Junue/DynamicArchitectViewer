@@ -90,6 +90,7 @@ interface NodeOutline {
 interface ZoneOutline {
   id: string;
   label: string;
+  icon?: string;
   color?: string;
   zones: ZoneOutline[];
   nodes: NodeOutline[];
@@ -173,6 +174,7 @@ function outlineOf(doc: DavDocument): Outline {
         .map((child) => zoneOutline(child.id)),
       nodes: doc.nodes.filter((n) => n.parentId === id).map(nodeOutline),
     };
+    if (g?.icon) out.icon = g.icon;
     if (g?.color) out.color = g.color;
     return out;
   };

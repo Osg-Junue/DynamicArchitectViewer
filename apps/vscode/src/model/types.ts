@@ -41,6 +41,15 @@ export const ICON_NAMES = [
   'warehouse',
   'vault',
   'audit',
+  'gateway',
+  'endpoint',
+  'nosql',
+  'workflow',
+  'pipeline',
+  'alert',
+  'region',
+  'network',
+  'account',
   'screen',
   'modal',
   'browser',
@@ -121,6 +130,8 @@ export interface Point {
 export interface DavGroup {
   id: string;
   label: string;
+  /** Optional header icon shown beside the zone label. */
+  icon?: IconName;
   color?: ColorName;
   /** Border stroke style (`solid` by default). */
   border?: LineStyle;

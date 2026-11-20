@@ -33,7 +33,7 @@ export const buildPacket = (packet: Packet, t?: number) => buildPacketWith(packe
 
 /** Where the name of each zone is written. */
 export const nameStrips = (view: ResolvedView): Rect[] =>
-  view.groups.map((g) => zoneNameArea(g.label, g.rect));
+  view.groups.map((g) => zoneNameArea(g.label, g.rect, Boolean(g.icon)));
 /**
  * What of each node no callout covers: its badge and, unless it is dimmed, its station and
  * labels.

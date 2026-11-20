@@ -432,7 +432,8 @@
   }
 }
 /* Stronger than the thin outline every zone has. */
-.dav-group.is-zone-active rect {
+.dav-group.is-zone-active rect,
+.dav-group.is-zone-active path.dav-group-border {
   stroke-width: 1.25px;
   stroke-opacity: 1;
   vector-effect: non-scaling-stroke;

@@ -199,16 +199,17 @@ function direct(from: RailEndpoint, to: RailEndpoint): Route {
   };
 }
 
-/** The room a zone's name takes up, which no rail, label or callout is drawn over. */
-export function zoneNameArea(label: string, zone: Rect): Rect {
-  const room = zoneLabelRoom(zone.width);
+/** The room a zone's name (and optional icon) takes up, which no rail, label or callout is drawn over. */
+export function zoneNameArea(label: string, zone: Rect, hasIcon = false): Rect {
+  const iconOffset = hasIcon ? ZONE_LABEL.iconOffset : 0;
+  const room = zoneLabelRoom(zone.width, hasIcon);
   const lines = wrapText(label, ZONE_LABEL.size, room, 2);
   const lineCount = Math.max(1, lines.length);
   const maxLineW =
     lines.length > 0
       ? Math.max(...lines.map((line) => textWidth(line, ZONE_LABEL.size)))
       : Math.min(textWidth(label, ZONE_LABEL.size), room);
-  const width = Math.min(maxLineW, room);
+  const width = iconOffset + Math.min(maxLineW, room);
   return {
     x: zone.x + ZONE_LABEL.inset - 4,
     y: zone.y + ZONE_LABEL.baseline - ZONE_LABEL.size - 2,
@@ -220,7 +221,7 @@ export function zoneNameArea(label: string, zone: Rect): Rect {
 function zoneNameAreas(doc: DavDocument, layout: Layout): Rect[] {
   return doc.groups.flatMap((g) => {
     const rect = layout.groups[g.id];
-    return rect ? [zoneNameArea(g.label, rect)] : [];
+    return rect ? [zoneNameArea(g.label, rect, Boolean(g.icon))] : [];
   });
 }
 
@@ -514,7 +515,8 @@ function placeLabels(
         }
       }
       for (const b of groupBorders) {
-        if (segmentIntersectsRect(b.a, b.b, box)) cost += 40;
+        if (segmentIntersectsRect(b.a, b.b, box)) cost += 65;
+        else if (segmentIntersectsRect(b.a, b.b, foreignBox)) cost += 15;
       }
       if (!best || cost < best.cost) best = { spot, box, cost };
     };
@@ -554,6 +556,15 @@ function placeLabels(
           addX(sx - CROSSING_SLIDE_GAP - halfW);
           addX(sx + CROSSING_SLIDE_GAP + halfW);
         }
+        for (const b of groupBorders) {
+          if (Math.abs(b.a.x - b.b.x) >= 0.5) continue;
+          const bx = b.a.x;
+          if (bx <= xMin || bx >= xMax) continue;
+          if (Math.max(b.a.y, b.b.y) < spanY - 36 || Math.min(b.a.y, b.b.y) > spanY + 36) continue;
+          crossXs.push(bx);
+          addX(bx - CROSSING_SLIDE_GAP - halfW);
+          addX(bx + CROSSING_SLIDE_GAP + halfW);
+        }
         if (crossXs.length > 0) {
           const cuts = [xMin, ...crossXs.sort((a, b) => a - b), xMax];
           for (let i = 0; i + 1 < cuts.length; i++) {
@@ -589,6 +600,20 @@ function placeLabels(
           crossYs.push(sy);
           addY(sy - CROSSING_SLIDE_GAP - halfH);
           addY(sy + CROSSING_SLIDE_GAP + halfH);
+        }
+        for (const b of groupBorders) {
+          if (Math.abs(b.a.y - b.b.y) >= 0.5) continue;
+          const by = b.a.y;
+          if (by <= yMin || by >= yMax) continue;
+          if (
+            Math.max(b.a.x, b.b.x) < spanX - width - 24 ||
+            Math.min(b.a.x, b.b.x) > spanX + width + 24
+          ) {
+            continue;
+          }
+          crossYs.push(by);
+          addY(by - CROSSING_SLIDE_GAP - halfH);
+          addY(by + CROSSING_SLIDE_GAP + halfH);
         }
         if (crossYs.length > 0) {
           const cuts = [yMin, ...crossYs.sort((a, b) => a - b), yMax];
@@ -781,15 +806,32 @@ function routeDiagram(doc: DavDocument, layout: Layout, nodes: readonly Resolved
     }
   }
 
+  const docNodeById = new Map(doc.nodes.map((n) => [n.id, n]));
   const routeNodes = [
     ...nodes.map((n, i) => {
       const area = areas[i] as Rect;
+      const station = stationRect(n.rect, n.icon);
+      let mountedAxis: 'x' | 'y' | undefined;
+      const docNode = docNodeById.get(n.id);
+      if (docNode?.mount === 'border' && docNode.parentId) {
+        const pr = layout.groups[docNode.parentId];
+        if (pr) {
+          const cx = station.x + station.width / 2;
+          const cy = station.y + station.height / 2;
+          if (Math.abs(cx - pr.x) <= 1.5 || Math.abs(cx - (pr.x + pr.width)) <= 1.5) {
+            mountedAxis = 'x';
+          } else if (Math.abs(cy - pr.y) <= 1.5 || Math.abs(cy - (pr.y + pr.height)) <= 1.5) {
+            mountedAxis = 'y';
+          }
+        }
+      }
       return {
-        station: stationRect(n.rect, n.icon),
+        station,
         area,
         labelArea: nodeLabelRect(n, area),
         hasLoop: loopNodes.has(n.id),
         badge: badgeRoom(n, area),
+        ...(mountedAxis ? { mountedAxis } : {}),
       };
     }),
     ...endpointGroups.map((g) => ({
@@ -873,7 +915,7 @@ function routedFor(doc: DavDocument, layout: Layout, nodes: readonly ResolvedNod
       n.rect.width,
       n.rect.height,
     ]),
-    doc.nodes.map((n) => n.parentId ?? null),
+    doc.nodes.map((n) => [n.parentId ?? null, n.mount ?? null]),
     doc.groups.map((g) => [g.id, g.parentId ?? null, g.label, layout.groups[g.id] ?? null]),
     synthesizedConnections(doc).map((c) => [c.from, c.to, c.direction]),
     doc.steps.map((s) => s.statics.map((st) => [st.from, st.to, st.label ?? null])),

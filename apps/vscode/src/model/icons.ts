@@ -118,6 +118,45 @@ export const ICON_META: Record<IconName, IconMeta> = {
     category: 'infra',
     description: ['監査ログ / コンプライアンス', 'Audit log, compliance or governance'],
   },
+  gateway: {
+    category: 'infra',
+    description: ['ゲートウェイ / Ingress / Egress', 'Gateway, ingress or egress'],
+  },
+  endpoint: {
+    category: 'infra',
+    description: ['プライベートエンドポイント / 接続口', 'Private endpoint or connector'],
+  },
+  nosql: {
+    category: 'infra',
+    description: ['NoSQL / KVS / ドキュメントストア', 'NoSQL, key-value or document store'],
+  },
+  workflow: {
+    category: 'infra',
+    description: ['ワークフロー / オーケストレーター', 'Workflow, state machine or orchestrator'],
+  },
+  pipeline: {
+    category: 'infra',
+    description: ['データパイプライン / ETL / CI-CD', 'Data pipeline, ETL or CI/CD'],
+  },
+  alert: {
+    category: 'infra',
+    description: ['アラート / 通知 / 警報', 'Alert, alarm or notification'],
+  },
+  region: {
+    category: 'infra',
+    description: ['リージョン / 拠点 / 地域境界', 'Region, location or availability zone'],
+  },
+  network: {
+    category: 'infra',
+    description: ['仮想ネットワーク / VPC / サブネット', 'Virtual network, VPC or subnet'],
+  },
+  account: {
+    category: 'infra',
+    description: [
+      'アカウント / テナント / プロジェクト境界',
+      'Account, tenant or project boundary',
+    ],
+  },
   screen: { category: 'screen', description: ['画面（ウィンドウ形）', 'Screen (window shape)'] },
   modal: {
     category: 'screen',

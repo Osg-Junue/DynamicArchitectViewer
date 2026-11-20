@@ -222,7 +222,7 @@ describe('computeCompletions context', () => {
   });
 
   it('limits attribute keys to the statement kind', () => {
-    expect(labels('group g [')).toEqual(['color', 'border']);
+    expect(labels('group g [')).toEqual(['icon', 'color', 'border']);
     expect(labels('step "s" {\n  static a ..> b [')).toEqual(['color']);
     expect(labels('step "s" {\n  animate a --> b [')?.sort()).toEqual([
       'code',

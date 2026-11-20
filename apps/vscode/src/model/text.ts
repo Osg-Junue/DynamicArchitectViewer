@@ -8,6 +8,10 @@ export const ZONE_LABEL_INSET = 14;
 export const ZONE_LABEL_BASELINE = 24;
 export const ZONE_LABEL_END_GAP = 4;
 export const ZONE_LABEL_LINE_HEIGHT = 20;
+/** Optional icon badge drawn before a group's header label. */
+export const ZONE_ICON_SIZE = 16;
+export const ZONE_ICON_GAP = 6;
+export const ZONE_ICON_OFFSET = ZONE_ICON_SIZE + ZONE_ICON_GAP;
 /** Maximum width a narrow zone expands to so its header fits on a single line without truncation. */
 export const ZONE_HEADER_MAX_EXPAND = 350;
 

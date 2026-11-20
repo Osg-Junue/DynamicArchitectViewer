@@ -377,12 +377,14 @@ function visualBoundsOf(placed: readonly Placed[]): Rect {
 /** Wraps placed child blocks inside a parent group's frame, honoring header width/height guarantees. */
 function wrapPlacedChildren(doc: DavDocument, zoneId: string, placed: readonly Placed[]): Block {
   const pad = GROUP_PADDING;
-  const groupLabel = doc.groups.find((g) => g.id === zoneId)?.label ?? '';
+  const group = doc.groups.find((g) => g.id === zoneId);
+  const groupLabel = group?.label ?? '';
+  const hasIcon = Boolean(group?.icon);
 
   if (placed.length === 0) {
     const rawWidth = EMPTY_GROUP_CONTENT.width + pad * 2;
-    const width = Math.max(rawWidth, zoneMinWidth(groupLabel));
-    const head = groupHeaderHeight(groupLabel, width) + pad;
+    const width = Math.max(rawWidth, zoneMinWidth(groupLabel, hasIcon));
+    const head = groupHeaderHeight(groupLabel, width, hasIcon) + pad;
     const height = head + EMPTY_GROUP_CONTENT.height + pad;
     const groupsMap = new Map<string, Rect>([[zoneId, { x: 0, y: 0, width, height }]]);
     return {
@@ -419,9 +421,9 @@ function wrapPlacedChildren(doc: DavDocument, zoneId: string, placed: readonly P
   const contentWidth = maxRight;
   const contentHeight = maxBot - minTop;
   const rawWidth = contentWidth + pad * 2;
-  const width = Math.max(rawWidth, zoneMinWidth(groupLabel));
+  const width = Math.max(rawWidth, zoneMinWidth(groupLabel, hasIcon));
   const padLeft = pad + Math.round((width - rawWidth) / 2);
-  const head = groupHeaderHeight(groupLabel, width) + pad;
+  const head = groupHeaderHeight(groupLabel, width, hasIcon) + pad;
   const height = head + contentHeight + pad;
 
   const nodesMap = new Map<string, Rect>();
@@ -1754,7 +1756,9 @@ export function buildRecursiveZoneBlock(
         const pad = GROUP_PADDING;
         const hGap = 36;
         const vGap = 14;
-        const groupLabel = doc.groups.find((g) => g.id === zoneId)?.label ?? '';
+        const group = doc.groups.find((g) => g.id === zoneId);
+        const groupLabel = group?.label ?? '';
+        const hasIcon = Boolean(group?.icon);
         const nodeLoopRoom = selfLoopRoom({
           steps: doc.steps.map((s) => ({
             ...s,
@@ -1768,9 +1772,9 @@ export function buildRecursiveZoneBlock(
         const contentW = cols * NODE_SIZE.width + Math.max(0, cols - 1) * hGap;
         const contentH = rows * NODE_SIZE.height + Math.max(0, rows - 1) * (vGap + loopRoom);
         const rawWidth = contentW + pad * 2;
-        const width = Math.max(rawWidth, zoneMinWidth(groupLabel));
+        const width = Math.max(rawWidth, zoneMinWidth(groupLabel, hasIcon));
         const padLeft = pad + Math.round((width - rawWidth) / 2);
-        const head = groupHeaderHeight(groupLabel, width) + pad + loopRoom;
+        const head = groupHeaderHeight(groupLabel, width, hasIcon) + pad + loopRoom;
         const height = head + contentH + pad;
         const nodesMap = new Map<string, Rect>();
         directNodes.forEach((n, idx) => {

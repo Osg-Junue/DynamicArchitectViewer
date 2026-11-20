@@ -51,7 +51,7 @@ export function textCuts(doc: DavDocument, layout?: Layout): TextCut[] {
     for (const g of doc.groups) {
       const rect = layout.groups[g.id];
       if (!rect) continue;
-      if (textTruncated(g.label, ZONE_LABEL.size, zoneLabelRoom(rect.width), 2)) {
+      if (textTruncated(g.label, ZONE_LABEL.size, zoneLabelRoom(rect.width, Boolean(g.icon)), 2)) {
         cuts.push({ kind: 'zone-label', group: g.id, text: g.label });
       }
     }

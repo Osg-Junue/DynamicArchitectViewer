@@ -582,4 +582,107 @@ describe('routing border clearance, port spacing, framing, and dimmed callout av
       }
     }
   });
+
+  it('routes outgoing vertical rails from a border-mounted node clear of its parent group border', () => {
+    const dsl = `
+      title "Border-Mounted Vertical Fan-Out"
+      group acct "Account" [color: purple] {
+        group vpc "Workload VPC" [color: teal] {
+          node app "App Server" [icon: container]
+          node vpce "VPC Endpoints" [icon: endpoint, mount: border]
+        }
+        node s3 "Object Storage" [icon: storage]
+        node logs "Log Store" [icon: monitor]
+        node vault "Secret Vault" [icon: vault]
+      }
+      step "Flow" {
+        animate app --> vpce : "PrivateLink"
+        animate vpce --> s3 : "PutObject"
+        animate vpce --> logs : "Emit Logs"
+        animate vpce --> vault : "Fetch Secret"
+      }
+    `;
+    const doc = parse(dsl).document;
+    const layout = computeLayout(doc);
+    const view = resolveView(doc, layout, null, { showLabels: true });
+    const vpc = must(
+      view.groups.find((g) => g.id === 'vpc'),
+      'vpc',
+    ).rect;
+    const vpcRight = vpc.x + vpc.width;
+
+    for (const target of ['s3', 'logs', 'vault']) {
+      const edge = must(
+        view.edges.find((e) => e.from === 'vpce' && e.to === target),
+        `vpce->${target}`,
+      );
+      expect('points' in edge.path).toBe(true);
+      if (!('points' in edge.path)) continue;
+      for (let i = 0; i + 1 < edge.path.points.length; i++) {
+        const a = edge.path.points[i] as Point;
+        const b = edge.path.points[i + 1] as Point;
+        // Vertical segments must not travel collinearly along the parent VPC's right border.
+        if (Math.abs(a.x - b.x) < 0.5 && Math.abs(a.y - b.y) > 4) {
+          expect(
+            Math.abs(a.x - vpcRight),
+            `vpce->${target} vertical segment must stay clear of vpc right border`,
+          ).toBeGreaterThan(4);
+        }
+      }
+    }
+  });
+
+  it('slides edge labels clear of intersecting nested group borders when room exists', () => {
+    const dsl = `
+      title "Cross-Account Border Label Slide"
+      group net_acct "Network Account" [color: pink] {
+        node tgw "Transit Gateway" [icon: gateway]
+      }
+      group work_acct "Workload Account" [color: purple] {
+        group vpc "Workload VPC" [color: teal] {
+          node attach "TGW Attachment" [icon: gateway, mount: border]
+          node alb "Internal ALB" [icon: lb]
+        }
+      }
+      step "Transit" {
+        animate tgw <-> attach : "Private Route"
+        animate attach --> alb : "Forward"
+      }
+    `;
+    const doc = parse(dsl).document;
+    const layout = computeLayout(doc);
+    const view = resolveView(doc, layout, null, { showLabels: true });
+    const edge = must(
+      view.edges.find((e) => e.label === 'Private Route'),
+      'Private Route edge',
+    );
+    const box = edgeLabelArea(edge.label as string, must(edge.labelAt, 'labelAt'));
+    for (const g of view.groups) {
+      const r = g.rect;
+      const borders: Array<[Point, Point]> = [
+        [
+          { x: r.x, y: r.y },
+          { x: r.x + r.width, y: r.y },
+        ],
+        [
+          { x: r.x, y: r.y + r.height },
+          { x: r.x + r.width, y: r.y + r.height },
+        ],
+        [
+          { x: r.x, y: r.y },
+          { x: r.x, y: r.y + r.height },
+        ],
+        [
+          { x: r.x + r.width, y: r.y },
+          { x: r.x + r.width, y: r.y + r.height },
+        ],
+      ];
+      for (const [a, b] of borders) {
+        expect(
+          segmentIntersectsRect(a, b, box),
+          `"Private Route" must not cross border of ${g.id}`,
+        ).toBe(false);
+      }
+    }
+  });
 });
