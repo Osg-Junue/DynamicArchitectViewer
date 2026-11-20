@@ -4,10 +4,13 @@ import { EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH } from '../model/text';
 import type { DavDocument, IconName } from '../model/types';
 import { ancestorIds, parentMap } from '../model/zones';
 import {
+  expandRect,
   type Point,
   pointAt,
   type Rail,
   type Route,
+  railEnds,
+  railLength,
   reverse,
   segmentIntersectsRect,
   selfLoop,
@@ -128,6 +131,31 @@ function nodeLabelRect(node: ResolvedNode, area = stationArea(node)): Rect {
 }
 
 /**
+ * The rectangle occupied by a node's drawn label and sub-label text below its station.
+ * Uses measured text width and actual text top (unlike `nodeLabelRect`, which keeps
+ * `stationArea`'s minimum width for rail routing clearance).
+ */
+function nodeTextArea(node: ResolvedNode): Rect {
+  const station = stationRect(node.rect, node.icon);
+  const labelLines = wrapText(node.label, NODE_LABEL_SIZE, node.rect.width, 2, 'bold');
+  const labelW = Math.max(0, ...labelLines.map((line) => textWidth(line, NODE_LABEL_SIZE, 'bold')));
+  const subW = node.sub ? textWidth(node.sub, NODE_SUB_SIZE) : 0;
+  const width = Math.min(node.rect.width, Math.max(station.width, labelW + 8, subW + 8));
+  const wrapped = labelLines.length > 1;
+  // Single-line labels render at baseline `rect.y + 94` (top ~`rect.y + 80`); wrapped labels
+  // render at `rect.y + 86` (top ~`rect.y + 72`, flush with the station bottom).
+  const top = wrapped
+    ? station.y + station.height
+    : Math.max(station.y + station.height, node.rect.y + 78);
+  return {
+    x: station.x + station.width / 2 - width / 2,
+    y: top,
+    width,
+    height: Math.max(0, node.rect.y + node.rect.height - top),
+  };
+}
+
+/**
  * What is drawn of a node: its station, and the block of labels below it. An edge label keeps
  * clear of these; the room `stationArea` adds around a station is free for it.
  */
@@ -135,7 +163,7 @@ export function nodeBody(node: ResolvedNode): Rect[] {
   const station = stationRect(node.rect, node.icon);
   return [
     { x: station.x - 4, y: station.y - 4, width: station.width + 8, height: station.height + 8 },
-    nodeLabelRect(node),
+    nodeTextArea(node),
   ];
 }
 
@@ -261,8 +289,69 @@ const LABEL_GAP = 7;
 const STOP_ROOM = 15;
 const LABEL_ABOVE_STOP = 20;
 const LABEL_BELOW_STOP = 28;
+/** Wider than a stop's diameter, because a chord across a tight loop is shorter than its arc. */
+const STOP_SPACING = 32;
+/** Stops whose rails pass this close at their middles would overlap; they are set out in a row. */
+const STOP_REACH = 24;
+/** Extra half-stroke clearance around a label box when checking intersections with foreign rails. */
+const FOREIGN_RAIL_CLEARANCE = 2;
+/** Clearance from a crossing rail or span end when sliding a label beside it. */
+const CROSSING_SLIDE_GAP = 6;
+/** Penalty when a foreign parallel rail runs between this rail and the label (misattribution). */
+const INTERVENING_RAIL_PENALTY = 220;
+/** Penalty when a foreign parallel rail on the far side is closer to the label than this rail. */
+const CLOSER_FOREIGN_RAIL_PENALTY = 160;
+/** Penalty when a foreign parallel rail on the far side is nearly as close as this rail. */
+const AMBIGUOUS_FOREIGN_RAIL_PENALTY = 60;
+const AMBIGUOUS_RAIL_MARGIN = 4;
 /** Shares of a stretch at which its label is tried, the middle first. */
 const LABEL_SHARES = [0.5, 0.35, 0.65, 0.2, 0.8, 0.27, 0.73, 0.12, 0.88, 0.42, 0.58];
+
+/** Evenly spaced shares of a rail's length, around its middle. */
+function stopShares(path: Rail, count: number): number[] {
+  const step = count > 1 ? Math.min(STOP_SPACING / railLength(path), 0.8 / (count - 1)) : 0;
+  return Array.from({ length: count }, (_, i) => 0.5 + (i - (count - 1) / 2) * step);
+}
+
+/**
+ * Computes the rendered centers of numbered phase stops for a multi-phase step.
+ * Shared by scene rendering (`build.ts`) and edge-label placement (`resolve.ts`).
+ */
+export function stopPlacements<T extends { path: Rail }>(
+  phases: ReadonlyArray<readonly T[]>,
+): Array<{ packet: T; phase: number; at: Point }> {
+  if (phases.length < 2) return [];
+  // Phases that share a rail, or ride rails that run side by side, would stack their numbers
+  // at the middle, in either direction.
+  const places: Array<{ at: Point; stops: Array<{ packet: T; phase: number }> }> = [];
+  phases.forEach((packets, phase) => {
+    for (const packet of packets) {
+      const mid = pointAt(packet.path, 0.5);
+      let place = places.find((p) => Math.hypot(p.at.x - mid.x, p.at.y - mid.y) < STOP_REACH);
+      if (!place) {
+        place = { at: mid, stops: [] };
+        places.push(place);
+      }
+      place.stops.push({ packet, phase });
+    }
+  });
+  return places.flatMap(({ stops }) => {
+    const [first] = stops;
+    if (!first) return [];
+    const lead = railEnds(first.packet.path).start;
+    const shares = stopShares(first.packet.path, stops.length);
+    return stops.flatMap(({ packet, phase }, i) => {
+      const share = shares[i];
+      if (share === undefined) return [];
+      // Each number on its own rail, counted from the end where the first rail starts.
+      const { start, end } = railEnds(packet.path);
+      const sameWay =
+        Math.hypot(start.x - lead.x, start.y - lead.y) <=
+        Math.hypot(end.x - lead.x, end.y - lead.y);
+      return [{ packet, phase, at: pointAt(packet.path, sameWay ? share : 1 - share) }];
+    });
+  });
+}
 
 /**
  * Finds each label a place beside its own rail: on the longest stretch that no other rail runs
@@ -275,6 +364,7 @@ function placeLabels(
   solid: readonly Rect[],
   rails: readonly Route[],
   groupBorders: ReadonlyArray<{ a: Point; b: Point }> = [],
+  stopPoints: readonly Point[] = [],
 ): Array<EdgeLabelSpot | undefined> {
   const strokes = rails.flatMap((rail) =>
     rail.points.slice(0, -1).flatMap((a, i): Array<{ rail: Route; a: Point; b: Point }> => {
@@ -282,6 +372,12 @@ function placeLabels(
       return b ? [{ rail, a, b }] : [];
     }),
   );
+  const stopRects: Rect[] = stopPoints.map((p) => ({
+    x: p.x - STOP_ROOM,
+    y: p.y - STOP_ROOM,
+    width: STOP_ROOM * 2,
+    height: STOP_ROOM * 2,
+  }));
   const totalLen = (rail: Route): number => {
     let len = 0;
     for (let i = 0; i + 1 < rail.points.length; i++) {
@@ -305,13 +401,6 @@ function placeLabels(
     if (!edge) continue;
     const text = fitText(edge.label, EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH);
     const width = textWidth(text, EDGE_LABEL_FONT_SIZE);
-    const middle = pointAt(edge.rail, 0.5);
-    const stops: Rect = {
-      x: middle.x - STOP_ROOM,
-      y: middle.y - STOP_ROOM,
-      width: STOP_ROOM * 2,
-      height: STOP_ROOM * 2,
-    };
     const spans = edge.rail.points
       .slice(0, -1)
       .flatMap((p, i) => {
@@ -333,20 +422,85 @@ function placeLabels(
       );
 
     let best: { spot: EdgeLabelSpot; box: Rect; cost: number } | undefined;
-    const consider = (spot: EdgeLabelSpot, left: number, fitCost: number) => {
+    const consider = (
+      spot: EdgeLabelSpot,
+      left: number,
+      fitCost: number,
+      span: { p: Point; q: Point },
+      isHorizontal: boolean,
+      isVertical: boolean,
+    ) => {
       const box = {
         x: left - 2,
         y: spot.y - EDGE_LABEL_FONT_SIZE,
         width: width + 4,
         height: EDGE_LABEL_FONT_SIZE * 1.3,
       };
+      const foreignBox = expandRect(box, FOREIGN_RAIL_CLEARANCE);
+      const boxRight = box.x + box.width;
+      const boxBottom = box.y + box.height;
+      const boxMidX = box.x + box.width / 2;
+      const boxMidY = box.y + box.height / 2;
+      const spanX = span.p.x;
+      const spanY = span.p.y;
+      const above = boxMidY < spanY;
+      const leftSide = boxMidX < spanX;
+      const ownGap = isHorizontal
+        ? above
+          ? Math.max(0, spanY - boxBottom)
+          : Math.max(0, box.y - spanY)
+        : leftSide
+          ? Math.max(0, spanX - boxRight)
+          : Math.max(0, box.x - spanX);
+      const yLo = Math.min(spanY, boxMidY);
+      const yHi = Math.max(spanY, boxMidY);
+      const xLo = Math.min(spanX, boxMidX);
+      const xHi = Math.max(spanX, boxMidX);
+
       let cost = fitCost;
       for (const o of solid) if (rectOverlaps(box, o)) cost += 300;
       for (const o of taken) if (rectOverlaps(box, o)) cost += 200;
-      if (rectOverlaps(box, stops)) cost += 60;
+      for (const st of stopRects) if (rectOverlaps(box, st)) cost += 60;
       for (const s of strokes) {
-        if (segmentIntersectsRect(s.a, s.b, box)) {
-          cost += s.rail === edge.rail ? 15 : 120;
+        const own = s.rail === edge.rail;
+        if (segmentIntersectsRect(s.a, s.b, own ? box : foreignBox)) {
+          cost += own ? 15 : 120;
+        }
+        if (own) continue;
+        // Prevent a label from jumping over a parallel foreign rail or sitting nearer to one
+        // than to its own rail, which causes visual misattribution in parallel corridors.
+        if (
+          isHorizontal &&
+          Math.abs(s.a.y - s.b.y) < 0.5 &&
+          Math.max(s.a.x, s.b.x) > box.x &&
+          Math.min(s.a.x, s.b.x) < boxRight
+        ) {
+          const sy = s.a.y;
+          if (sy > yLo + 0.5 && sy < yHi - 0.5) {
+            cost += INTERVENING_RAIL_PENALTY;
+          } else if (above ? sy <= box.y : sy >= boxBottom) {
+            const otherGap = above ? box.y - sy : sy - boxBottom;
+            if (otherGap < ownGap) cost += CLOSER_FOREIGN_RAIL_PENALTY;
+            else if (otherGap <= ownGap + AMBIGUOUS_RAIL_MARGIN) {
+              cost += AMBIGUOUS_FOREIGN_RAIL_PENALTY;
+            }
+          }
+        } else if (
+          isVertical &&
+          Math.abs(s.a.x - s.b.x) < 0.5 &&
+          Math.max(s.a.y, s.b.y) > box.y &&
+          Math.min(s.a.y, s.b.y) < boxBottom
+        ) {
+          const sx = s.a.x;
+          if (sx > xLo + 0.5 && sx < xHi - 0.5) {
+            cost += INTERVENING_RAIL_PENALTY;
+          } else if (leftSide ? sx <= box.x : sx >= boxRight) {
+            const otherGap = leftSide ? box.x - sx : sx - boxRight;
+            if (otherGap < ownGap) cost += CLOSER_FOREIGN_RAIL_PENALTY;
+            else if (otherGap <= ownGap + AMBIGUOUS_RAIL_MARGIN) {
+              cost += AMBIGUOUS_FOREIGN_RAIL_PENALTY;
+            }
+          }
         }
       }
       for (const b of groupBorders) {
@@ -356,25 +510,129 @@ function placeLabels(
     };
     for (const span of spans) {
       const level = span.p.y === span.q.y;
-      for (const share of LABEL_SHARES) {
-        const x = span.p.x + (span.q.x - span.p.x) * share;
-        const y = span.p.y + (span.q.y - span.p.y) * share;
+      const isHorizontal = Math.abs(span.p.y - span.q.y) < 0.5;
+      const isVertical = !isHorizontal && Math.abs(span.p.x - span.q.x) < 0.5;
+      const candidates: Array<{ x: number; y: number; extraCost: number; isMid: boolean }> =
+        LABEL_SHARES.map((share) => ({
+          x: span.p.x + (span.q.x - span.p.x) * share,
+          y: span.p.y + (span.q.y - span.p.y) * share,
+          extraCost: 0,
+          isMid: share === 0.5,
+        }));
+      // Add slide candidates right beside crossing foreign rails and span ends so labels on tight
+      // spans can clear orthogonal crossings without falling off the span.
+      if (isHorizontal) {
+        const spanY = span.p.y;
+        const xMin = Math.min(span.p.x, span.q.x);
+        const xMax = Math.max(span.p.x, span.q.x);
+        const halfW = width / 2;
+        const seen = new Set<number>();
+        const addX = (cx: number) => {
+          if (cx < xMin + 4 || cx > xMax - 4) return;
+          const key = Math.round(cx * 2);
+          if (seen.has(key)) return;
+          seen.add(key);
+          candidates.push({ x: cx, y: spanY, extraCost: 0.5, isMid: false });
+        };
+        for (const s of strokes) {
+          if (s.rail === edge.rail || Math.abs(s.a.x - s.b.x) >= 0.5) continue;
+          const sx = s.a.x;
+          if (sx <= xMin || sx >= xMax) continue;
+          if (Math.max(s.a.y, s.b.y) < spanY - 36 || Math.min(s.a.y, s.b.y) > spanY + 36) continue;
+          addX(sx - CROSSING_SLIDE_GAP - halfW);
+          addX(sx + CROSSING_SLIDE_GAP + halfW);
+        }
+        addX(xMin + halfW + CROSSING_SLIDE_GAP);
+        addX(xMax - halfW - CROSSING_SLIDE_GAP);
+      } else if (isVertical) {
+        const spanX = span.p.x;
+        const yMin = Math.min(span.p.y, span.q.y);
+        const yMax = Math.max(span.p.y, span.q.y);
+        const halfH = height / 2;
+        const seen = new Set<number>();
+        const addY = (cy: number) => {
+          if (cy < yMin + 4 || cy > yMax - 4) return;
+          const key = Math.round(cy * 2);
+          if (seen.has(key)) return;
+          seen.add(key);
+          candidates.push({ x: spanX, y: cy, extraCost: 0.5, isMid: false });
+        };
+        for (const s of strokes) {
+          if (s.rail === edge.rail || Math.abs(s.a.y - s.b.y) >= 0.5) continue;
+          const sy = s.a.y;
+          if (sy <= yMin || sy >= yMax) continue;
+          if (
+            Math.max(s.a.x, s.b.x) < spanX - width - 24 ||
+            Math.min(s.a.x, s.b.x) > spanX + width + 24
+          ) {
+            continue;
+          }
+          addY(sy - CROSSING_SLIDE_GAP - halfH);
+          addY(sy + CROSSING_SLIDE_GAP + halfH);
+        }
+        addY(yMin + halfH + CROSSING_SLIDE_GAP);
+        addY(yMax - halfH - CROSSING_SLIDE_GAP);
+      }
+
+      for (const { x, y, extraCost, isMid } of candidates) {
         for (const gap of [LABEL_GAP, LABEL_GAP + 6, LABEL_GAP + 12]) {
           const fitCost =
-            gap === LABEL_GAP ? span.fitCost : span.fitCost + (gap === LABEL_GAP + 6 ? 1 : 2);
+            span.fitCost + extraCost + (gap === LABEL_GAP ? 0 : gap === LABEL_GAP + 6 ? 1 : 2);
           if (level) {
-            consider({ x, y: y - gap, anchor: 'middle' }, x - width / 2, fitCost);
-            consider({ x, y: y + gap + height * 0.8, anchor: 'middle' }, x - width / 2, fitCost);
+            consider(
+              { x, y: y - gap, anchor: 'middle' },
+              x - width / 2,
+              fitCost,
+              span,
+              isHorizontal,
+              isVertical,
+            );
+            consider(
+              { x, y: y + gap + height * 0.8, anchor: 'middle' },
+              x - width / 2,
+              fitCost,
+              span,
+              isHorizontal,
+              isVertical,
+            );
           } else {
             const base = y + height * 0.3;
-            consider({ x: x + gap, y: base, anchor: 'start' }, x + gap, fitCost);
-            consider({ x: x - gap, y: base, anchor: 'end' }, x - gap - width, fitCost);
+            consider(
+              { x: x + gap, y: base, anchor: 'start' },
+              x + gap,
+              fitCost,
+              span,
+              isHorizontal,
+              isVertical,
+            );
+            consider(
+              { x: x - gap, y: base, anchor: 'end' },
+              x - gap - width,
+              fitCost,
+              span,
+              isHorizontal,
+              isVertical,
+            );
           }
         }
-        if (level && share === 0.5) {
+        if (level && isMid && stopRects.length > 0) {
           const stopCost = Math.max(span.fitCost, 2);
-          consider({ x, y: y - LABEL_ABOVE_STOP, anchor: 'middle' }, x - width / 2, stopCost);
-          consider({ x, y: y + LABEL_BELOW_STOP, anchor: 'middle' }, x - width / 2, stopCost);
+          consider(
+            { x, y: y - LABEL_ABOVE_STOP, anchor: 'middle' },
+            x - width / 2,
+            stopCost,
+            span,
+            isHorizontal,
+            isVertical,
+          );
+          consider(
+            { x, y: y + LABEL_BELOW_STOP, anchor: 'middle' },
+            x - width / 2,
+            stopCost,
+            span,
+            isHorizontal,
+            isVertical,
+          );
         }
         if (best?.cost === 0) break;
       }
@@ -613,8 +871,12 @@ export class RailRouter {
     return stored.canonFrom === from.id ? stored.route : reverse(stored.route);
   }
 
-  /** Places labels for any `static` statements that have one in the given step's edges. */
-  attachLabels(edges: ResolvedEdge[], nodes: readonly ResolvedNode[]): void {
+  /** Places labels for any labeled edges in the given view, avoiding rendered stop markers. */
+  attachLabels(
+    edges: ResolvedEdge[],
+    nodes: readonly ResolvedNode[],
+    stopPoints: readonly Point[] = [],
+  ): void {
     if (!edges.some((e) => e.label)) return;
     const nodeById = new Map(nodes.map((n) => [n.id, n]));
     const stepRails: Route[] = [];
@@ -645,6 +907,7 @@ export class RailRouter {
       this.#routed.solidWalls,
       stepRails,
       this.#routed.groupBorders,
+      stopPoints,
     );
     edges.forEach((e, i) => {
       const spot = spots[i];

@@ -3,7 +3,8 @@ import { parse } from '../../dsl';
 import { computeLayout, rectOverlaps, stationRect } from '../../layout';
 import { calloutRect, computePacketCalloutBox } from '../callout';
 import { wholeDiagramFrame } from '../framing';
-import { nodeBody } from '../rails';
+import { type Point, type Route, segmentIntersectsRect } from '../geometry';
+import { edgeLabelArea, nodeBody } from '../rails';
 import { resolveView } from '../resolve';
 import { type RouteEdge, type RouteGroup, type RouteNode, routeEdges } from '../route';
 import { textCuts } from '../textCuts';
@@ -412,5 +413,143 @@ describe('routing border clearance, port spacing, framing, and dimmed callout av
     const spot = must(ingress.labelAt, 'labelAt');
     // Label should sit clearly to the left or right of vpc's left border rather than straddling x = vpc.x.
     expect(Math.abs(spot.x - vpc.x)).toBeGreaterThan(20);
+  });
+
+  it('never places a label across an intervening parallel rail in overview --labels mode', () => {
+    const dsl = `
+      title "Parallel Cross-Connect Labels"
+      group clients "Clients" {
+        node patient "Patient App" [icon: mobile]
+        node doctor "Doctor Portal" [icon: browser]
+      }
+      group cloud "AWS Cloud" {
+        node edge "CloudFront" [icon: cdn]
+        node auth "Cognito MFA" [icon: lock]
+      }
+      step "Access" {
+        animate patient --> edge : "Submit Intake"
+        animate patient --> auth : "MFA Login" [parallel: true]
+        animate doctor --> edge : "Review Chart"
+        animate doctor --> auth : "Clinician SSO" [parallel: true]
+      }
+    `;
+    const doc = parse(dsl).document;
+    const layout = computeLayout(doc);
+    const view = resolveView(doc, layout, null, { showLabels: true });
+
+    const rails = view.edges.filter((e): e is typeof e & { path: Route } => 'points' in e.path);
+    const segsOf = (route: Route) =>
+      route.points.slice(0, -1).map((a, i) => ({ a, b: route.points[i + 1] as Point }));
+
+    for (const edge of rails) {
+      if (!edge.label || !edge.labelAt) continue;
+      const box = edgeLabelArea(edge.label, edge.labelAt);
+      const boxMidX = box.x + box.width / 2;
+      const boxMidY = box.y + box.height / 2;
+      // Find the nearest segment of this edge's own rail to the label center.
+      const ownSegs = segsOf(edge.path);
+      const distToSeg = (a: Point, b: Point) => {
+        if (Math.abs(a.y - b.y) < 0.5) {
+          const dx = Math.max(Math.min(a.x, b.x) - boxMidX, 0, boxMidX - Math.max(a.x, b.x));
+          return Math.hypot(dx, boxMidY - a.y);
+        }
+        const dy = Math.max(Math.min(a.y, b.y) - boxMidY, 0, boxMidY - Math.max(a.y, b.y));
+        return Math.hypot(boxMidX - a.x, dy);
+      };
+      const host = ownSegs.reduce((best, s) =>
+        distToSeg(s.a, s.b) < distToSeg(best.a, best.b) ? s : best,
+      );
+      const hostHoriz = Math.abs(host.a.y - host.b.y) < 0.5;
+
+      for (const other of rails) {
+        if (other === edge) continue;
+        for (const s of segsOf(other.path)) {
+          // No foreign rail may pierce the label box.
+          expect(
+            segmentIntersectsRect(s.a, s.b, box),
+            `"${edge.label}" must not be pierced by ${other.id}`,
+          ).toBe(false);
+          // No foreign parallel rail may sit between the host span and the label.
+          if (hostHoriz && Math.abs(s.a.y - s.b.y) < 0.5) {
+            if (Math.max(s.a.x, s.b.x) > box.x && Math.min(s.a.x, s.b.x) < box.x + box.width) {
+              const lo = Math.min(host.a.y, boxMidY);
+              const hi = Math.max(host.a.y, boxMidY);
+              expect(
+                s.a.y > lo + 0.5 && s.a.y < hi - 0.5,
+                `"${edge.label}" jumped over parallel rail ${other.id}`,
+              ).toBe(false);
+            }
+          } else if (!hostHoriz && Math.abs(s.a.x - s.b.x) < 0.5) {
+            if (Math.max(s.a.y, s.b.y) > box.y && Math.min(s.a.y, s.b.y) < box.y + box.height) {
+              const lo = Math.min(host.a.x, boxMidX);
+              const hi = Math.max(host.a.x, boxMidX);
+              expect(
+                s.a.x > lo + 0.5 && s.a.x < hi - 0.5,
+                `"${edge.label}" jumped over parallel vertical rail ${other.id}`,
+              ).toBe(false);
+            }
+          }
+        }
+      }
+    }
+  });
+
+  it('slides an edge label clear of a perpendicular crossing rail on a tight horizontal span', () => {
+    const dsl = `
+      title "Orthogonal Crossing Slide"
+      group az_a "AZ A" {
+        group app_a "App A" {
+          node api_a "FHIR API A" [icon: container]
+          node dicom_a "DICOM A" [icon: container]
+        }
+        group data_a "Data A" {
+          node cache_a "Cache A" [icon: cache]
+          node db_a "DB Writer" [icon: database]
+        }
+      }
+      group az_b "AZ B" {
+        group app_b "App B" {
+          node api_b "FHIR API B" [icon: container]
+          node dicom_b "DICOM B" [icon: container]
+        }
+        group data_b "Data B" {
+          node cache_b "Session Cache B" [icon: cache]
+          node db_b "DB Standby" [icon: database]
+        }
+      }
+      node vpce "VPC Endpoint" [icon: shield]
+      step "Flow" {
+        animate api_a <-> cache_a : "Session Cache"
+        animate api_a <-> db_a : "EHR Read/Write"
+        animate dicom_a --> vpce : "Store DICOM"
+        animate api_b <-> cache_b : "Read Session"
+        animate api_b --> db_a : "EHR Write B"
+        animate dicom_b --> vpce : "Store DICOM B"
+        static cache_a ..> cache_b : "Cache Sync"
+        static db_a ..> db_b : "Sync Replicate"
+      }
+    `;
+    const doc = parse(dsl).document;
+    const layout = computeLayout(doc);
+    const view = resolveView(doc, layout, null, { showLabels: true });
+    const rails = view.edges.filter((e): e is typeof e & { path: Route } => 'points' in e.path);
+    const readSession = must(
+      rails.find((e) => e.label === 'Read Session'),
+      'Read Session edge',
+    );
+    const box = edgeLabelArea(readSession.label as string, must(readSession.labelAt, 'labelAt'));
+    for (const other of rails) {
+      if (other === readSession) continue;
+      for (let i = 0; i + 1 < other.path.points.length; i++) {
+        expect(
+          segmentIntersectsRect(
+            other.path.points[i] as Point,
+            other.path.points[i + 1] as Point,
+            box,
+          ),
+          `"Read Session" label must not be pierced by ${other.id}`,
+        ).toBe(false);
+      }
+    }
   });
 });

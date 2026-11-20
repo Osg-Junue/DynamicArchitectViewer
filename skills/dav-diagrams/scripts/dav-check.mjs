@@ -7848,12 +7848,12 @@ function To(e) {
 		let e = C.length;
 		v.push({
 			code: "left-links",
-			message: `${e === 1 ? "One connection between zones points" : `${e} connections between zones point`} left, against the reading direction: ${C.slice(0, mo).join("; ")}${e > mo ? "; and more" : ""}. The zones are placed freely, and a link between zones sets no column, whichever way it is written. Leave a link whose edge is written as you mean: pointing left is the price of shorter links that cross less. Change only an edge written other than you mean, such as a call back written one way, which becomes one two-way edge that names the node on the left first. Nesting two zones in one zone that is a real boundary makes the links between them point right, since edges set the columns inside a zone, though crossings can rise. references/large-diagrams.md has more.`
+			message: `${e === 1 ? "One connection between zones points" : `${e} connections between zones point`} left, against the reading direction: ${C.slice(0, mo).join("; ")}${e > mo ? "; and more" : ""}. The zones are placed freely, and a link between zones sets no column, whichever way it is written. Leave a link whose edge is written as you mean: pointing left is the price of shorter links that cross less. Change only an edge written other than you mean, such as a call back written one way, which becomes one two-way edge that names the node on the left first. Nesting two zones in one zone that is a real boundary makes the links between them point right, since edges set the columns inside a zone, though crossings can rise.`
 		});
 	}
 	return f > 0 && v.push({
 		code: "crossings",
-		message: `${f === 1 ? "One pair of connections crosses" : `${f} pairs of connections cross`}, counted on straight lines between the nodes: ${d.slice(0, po).join("; ")}${f > po ? "; and more" : ""}. Swapping the declarations of two nodes that share a column often removes a crossing. In a large diagram, leave the rest once the zones stand in the order you mean; references/layout.md has more.`
+		message: `${f === 1 ? "One pair of connections crosses" : `${f} pairs of connections cross`}, counted on straight lines between the nodes: ${d.slice(0, po).join("; ")}${f > po ? "; and more" : ""}. Swapping the declarations of two nodes that share a column often removes a crossing. In a large diagram, leave the rest once the zones stand in the order you mean.`
 	}), {
 		summary: p,
 		notes: v

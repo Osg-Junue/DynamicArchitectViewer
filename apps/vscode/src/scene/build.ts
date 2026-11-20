@@ -1,10 +1,11 @@
 import { type Rect, stationRect } from '../layout';
 import { EDGE_LABEL_FONT_SIZE, EDGE_LABEL_MAX_WIDTH } from '../model/text';
 import { BUBBLE_HEADROOM, boundsOf } from './bounds';
-import { type Point, pointAt, type Rail, railEnds, railLength, svgPath } from './geometry';
+import { type Point, svgPath } from './geometry';
 import type { IconShapes } from './icons';
 import { buildPacket, iconGlyph, stopTextFill } from './packet';
 import { activeLabelFill, paint, THEME_COLOR } from './paint';
+import { stopPlacements } from './rails';
 import {
   DEFAULT_FLOW_COLOR,
   type Packet,
@@ -224,50 +225,9 @@ function edgeLabelElement(e: ResolvedEdge): VElement | null {
   );
 }
 
-/** Wider than a stop's diameter, because a chord across a tight loop is shorter than its arc. */
-const STOP_SPACING = 32;
-/** Stops whose rails pass this close at their middles would overlap; they are set out in a row. */
-const STOP_REACH = 24;
-
 /** Numbered stops showing the order of a step's animation phases. */
 function stopElements(view: ResolvedView): VElement[] {
-  if (view.phases.length < 2) return [];
-  // Phases that share a rail, or ride rails that run side by side, would stack their numbers
-  // at the middle, in either direction.
-  const places: Array<{ at: Point; stops: Array<{ packet: Packet; phase: number }> }> = [];
-  view.phases.forEach((packets, phase) => {
-    for (const packet of packets) {
-      const mid = pointAt(packet.path, 0.5);
-      let place = places.find((p) => Math.hypot(p.at.x - mid.x, p.at.y - mid.y) < STOP_REACH);
-      if (!place) {
-        place = { at: mid, stops: [] };
-        places.push(place);
-      }
-      place.stops.push({ packet, phase });
-    }
-  });
-  return places.flatMap(({ stops }) => {
-    const [first] = stops;
-    if (!first) return [];
-    const lead = railEnds(first.packet.path).start;
-    const shares = stopShares(first.packet.path, stops.length);
-    return stops.flatMap(({ packet, phase }, i) => {
-      const share = shares[i];
-      if (share === undefined) return [];
-      // Each number on its own rail, counted from the end where the first rail starts.
-      const { start, end } = railEnds(packet.path);
-      const sameWay =
-        Math.hypot(start.x - lead.x, start.y - lead.y) <=
-        Math.hypot(end.x - lead.x, end.y - lead.y);
-      return [stopElement(packet, phase, pointAt(packet.path, sameWay ? share : 1 - share))];
-    });
-  });
-}
-
-/** Evenly spaced shares of a rail's length, around its middle. */
-function stopShares(path: Rail, count: number): number[] {
-  const step = count > 1 ? Math.min(STOP_SPACING / railLength(path), 0.8 / (count - 1)) : 0;
-  return Array.from({ length: count }, (_, i) => 0.5 + (i - (count - 1) / 2) * step);
+  return stopPlacements(view.phases).map(({ packet, phase, at }) => stopElement(packet, phase, at));
 }
 
 function stopElement(packet: Packet, phase: number, { x, y }: Point): VElement {

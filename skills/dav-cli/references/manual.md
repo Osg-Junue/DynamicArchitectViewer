@@ -80,7 +80,7 @@ What each form is:
 | `--step 2 --still` | A still SVG of the diagram as it is in step 2 (add `--labels` to also draw that step's `animate` labels) |
 | `--format html` | One HTML file with every step and the controls of the preview. It works offline and makes no external requests, and it contains the source of the diagram |
 
-A diagram without steps is exported as a still picture.
+Every diagram needs at least one `step` (otherwise `dav export` fails with `missing-step`). Pass `--still` (or `--still --labels`) when you want a still picture.
 
 A directory that is not there yet is created.
 

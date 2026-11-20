@@ -27,6 +27,7 @@ import {
   edgeLabelArea,
   nodeBody,
   RailRouter,
+  stopPlacements,
   zoneNameArea,
 } from './rails';
 import { PHASE_MS, pacePhases } from './timing';
@@ -329,6 +330,7 @@ function resolveEdges(
   overview: ReturnType<typeof synthesizedConnections>,
   canonicalIds: ReadonlyMap<string, string>,
   showLabels: boolean,
+  stopPoints: readonly Point[],
 ): ResolvedEdge[] {
   const edges: ResolvedEdge[] = [];
   const stepPairs = new Set<string>();
@@ -388,7 +390,7 @@ function resolveEdges(
   }
 
   if (ctx.step || showLabels) {
-    rails.attachLabels(edges, nodes);
+    rails.attachLabels(edges, nodes, stopPoints);
   }
   return edges;
 }
@@ -450,6 +452,7 @@ export function resolveView(
   const { phases, phaseDurations, activeEdges } = resolvePhases(ctx, nodeById, rails, canonicalIds);
 
   const visibleNodes = nodes.filter((n) => n.visible);
+  const stopPoints = stopPlacements(phases).map((s) => s.at);
   const edges = resolveEdges(
     ctx,
     nodes,
@@ -460,6 +463,7 @@ export function resolveView(
     overview,
     canonicalIds,
     options?.showLabels ?? false,
+    stopPoints,
   );
   if (phases.length > 0) {
     const stepRails = edges.map((e) => e.path);

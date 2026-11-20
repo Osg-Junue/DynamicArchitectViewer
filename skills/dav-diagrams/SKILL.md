@@ -410,7 +410,7 @@ A diagnostic does not stop the rest of the file from being read, and the table s
 ## Getting the layout you want
 
 - **Backbone flows left to right.** Write the normal forward sequence in the earliest steps: the layout infers primary flow order from `animate` statements in step order and separates cross-cutting `static` zones into bands automatically.
-- **No layout workarounds.** Do not reverse arrows, invent `<->` edges, or reorder declarations to push nodes around. Return paths (responses, retries, callbacks) are automatically recognized as returns and will not distort the left-to-right backbone.
+- **No graph workarounds.** Do not reverse arrows or invent `<->` edges just to move nodes around; return paths (responses, retries, callbacks) are automatically recognized as returns and will not distort the left-to-right backbone. Swapping the declarations of two nodes that already share a column only breaks top-to-bottom ties and is fine when `--detail` flags a crossing.
 - **Groups keep nodes together.** Nest groups to represent real architectural boundaries (cloud, VPC, subnets, services).
 - There is no syntax for positions. Do not try to add any.
 

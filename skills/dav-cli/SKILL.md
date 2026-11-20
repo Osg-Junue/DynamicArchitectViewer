@@ -74,7 +74,7 @@ Read the exit code and the lines the command printed before saying that somethin
 | One step only | `--step 2` | `checkout-step2.svg`, which repeats the flows of step 2. Steps are numbered from 1, as in the preview. With `--still`, a still picture of the diagram as it is in that step (add `--labels` to also draw that step's `animate` labels) |
 | The player itself, to open in a browser or to send to someone | `--format html` | `checkout.html`: one file with every step and the controls of the preview. It works offline and makes no external requests. It contains the source of the diagram |
 
-A diagram without steps is exported as a still picture.
+Every diagram needs at least one `step` (otherwise export stops with `missing-step`). Pass `--still` (or `--still --labels`) when you want a still picture.
 
 | Option | Use |
 | :--- | :--- |
