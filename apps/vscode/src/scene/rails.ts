@@ -102,6 +102,7 @@ interface StoredRail {
 interface Routed {
   rails: Map<string, StoredRail>;
   solidWalls: Rect[];
+  groupBorders: Array<{ a: Point; b: Point }>;
   loopNodes: Set<string>;
 }
 
@@ -273,6 +274,7 @@ function placeLabels(
   edges: ReadonlyArray<{ label: string; rail: Route; shared: readonly boolean[] } | undefined>,
   solid: readonly Rect[],
   rails: readonly Route[],
+  groupBorders: ReadonlyArray<{ a: Point; b: Point }> = [],
 ): Array<EdgeLabelSpot | undefined> {
   const strokes = rails.flatMap((rail) =>
     rail.points.slice(0, -1).flatMap((a, i): Array<{ rail: Route; a: Point; b: Point }> => {
@@ -346,6 +348,9 @@ function placeLabels(
         if (segmentIntersectsRect(s.a, s.b, box)) {
           cost += s.rail === edge.rail ? 15 : 120;
         }
+      }
+      for (const b of groupBorders) {
+        if (segmentIntersectsRect(b.a, b.b, box)) cost += 40;
       }
       if (!best || cost < best.cost) best = { spot, box, cost };
     };
@@ -540,9 +545,22 @@ function routeDiagram(doc: DavDocument, layout: Layout, nodes: readonly Resolved
       }
     }
   }
+  const groupBorders = groups.flatMap(({ rect: r }) => {
+    const tl = { x: r.x, y: r.y };
+    const tr = { x: r.x + r.width, y: r.y };
+    const br = { x: r.x + r.width, y: r.y + r.height };
+    const bl = { x: r.x, y: r.y + r.height };
+    return [
+      { a: tl, b: tr },
+      { a: tr, b: br },
+      { a: br, b: bl },
+      { a: bl, b: tl },
+    ];
+  });
   return {
     rails,
     solidWalls: [...nodes.flatMap(nodeBody), ...names, ...loopLabels, ...loopRoom],
+    groupBorders,
     loopNodes,
   };
 }
@@ -622,7 +640,12 @@ export class RailRouter {
       return { label: e.label, rail: e.path, shared };
     });
 
-    const spots = placeLabels(labelInputs, this.#routed.solidWalls, stepRails);
+    const spots = placeLabels(
+      labelInputs,
+      this.#routed.solidWalls,
+      stepRails,
+      this.#routed.groupBorders,
+    );
     edges.forEach((e, i) => {
       const spot = spots[i];
       if (spot) e.labelAt = spot;

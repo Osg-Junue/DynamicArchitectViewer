@@ -384,4 +384,33 @@ describe('routing border clearance, port spacing, framing, and dimmed callout av
       }
     }
   });
+
+  it('avoids placing edge labels over group border lines when clear space exists along the rail', () => {
+    const dsl = `
+      title "Border-Clear Edge Labels"
+      node client "Client" [icon: client]
+      group vpc "Payment VPC" {
+        node api "Payment API" [icon: api]
+        node db "Ledger DB" [icon: database]
+      }
+      step "Flow" {
+        static client --> api : "HTTPS Ingress"
+        static api --> db : "Persist"
+      }
+    `;
+    const doc = parse(dsl).document;
+    const layout = computeLayout(doc);
+    const view = resolveView(doc, layout, 0);
+    const vpc = must(
+      view.groups.find((g) => g.id === 'vpc'),
+      'vpc',
+    ).rect;
+    const ingress = must(
+      view.edges.find((e) => e.from === 'client' && e.to === 'api'),
+      'client->api',
+    );
+    const spot = must(ingress.labelAt, 'labelAt');
+    // Label should sit clearly to the left or right of vpc's left border rather than straddling x = vpc.x.
+    expect(Math.abs(spot.x - vpc.x)).toBeGreaterThan(20);
+  });
 });

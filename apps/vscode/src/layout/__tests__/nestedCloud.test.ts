@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parse } from '../../dsl';
+import { applyBorderMounts } from '../borderMount';
 import { computeLayout, type Rect, rectContains, rectOverlaps } from '../index';
 import { zoneMinWidth } from '../metrics';
 
@@ -546,5 +547,136 @@ step "Flow" {
     // `kms` pulls right beside `sqs` so `partner` stays cleanly to the left of `cloud` and `billing` to its right.
     expect(partner.x + partner.width).toBeLessThanOrEqual(cloud.x);
     expect(billing.x).toBeGreaterThanOrEqual(cloud.x + cloud.width);
+  });
+
+  it('stacks leaf multi-AZ peer groups vertically, folds dead-end sidecar sinks, and reclaims vacated border-mount space', () => {
+    const leafAzDsl = `
+title "Leaf Multi-AZ with Cross-AZ Sync"
+node user "User" [icon: users]
+group cloud "AWS Cloud" {
+  group vpc "App VPC" {
+    node alb "ALB" [icon: lb]
+    group az_a "AZ-a" {
+      node app_a "App A" [icon: container]
+      node cache_a "Redis A" [icon: cache]
+    }
+    group az_b "AZ-b" {
+      node app_b "App B" [icon: container]
+      node cache_b "Redis B" [icon: cache]
+    }
+    node bus "MSK" [icon: stream]
+  }
+}
+step "Fan-out" {
+  animate user --> alb : "HTTPS"
+  animate alb --> app_a : "AZ-a"
+  animate alb --> app_b : "AZ-b" [parallel: true]
+  animate app_a <-> cache_a : "Read"
+  animate app_b <-> cache_b : "Read"
+  static cache_a ..> cache_b : "Sync"
+}
+step "Stream" {
+  animate app_a --> bus : "Emit"
+  animate bus --> app_b : "Consume"
+}
+`;
+    const { layout: azLayout } = assertContainmentAndDisjointSiblings(leafAzDsl);
+    const azA = must(azLayout.groups.az_a, 'az_a');
+    const azB = must(azLayout.groups.az_b, 'az_b');
+    // Parallel leaf AZs stack in the same horizontal column instead of chaining horizontally across `bus`.
+    expect(azA.x).toBe(azB.x);
+    expect(azA.y + azA.height).toBeLessThan(azB.y);
+
+    const sidecarDsl = `
+title "Dead-End Sidecar Folding"
+node client "Client" [icon: mobile]
+group onprem "On-Prem DC" {
+  node cgw "CGW" [icon: router]
+  node core "Core Bank" [icon: server]
+}
+group cloud "AWS Cloud" {
+  node waf "WAF" [icon: firewall]
+  group vpc "Payment VPC" {
+    group pub "Public Subnet" {
+      node alb "ALB" [icon: lb]
+    }
+    group app "Private App Subnet" {
+      node pay "Pay Engine" [icon: container]
+      node fraud "Fraud Check" [icon: container]
+      node settle "Settler" [icon: container]
+    }
+    group data "Data Subnet" {
+      node db "Aurora" [icon: database]
+    }
+  }
+  group shared "ML & Audit" {
+    node ml "SageMaker" [icon: ai]
+    node kms "KMS" [icon: key]
+    node vault "Audit S3" [icon: storage]
+  }
+}
+step "Pay" {
+  animate client --> waf : "HTTPS"
+  animate waf --> alb : "Ingress"
+  animate alb --> pay : "TX"
+  animate pay <-> fraud : "Check"
+  animate fraud <-> ml : "Score"
+  animate pay <-> kms : "Encrypt"
+  animate pay --> db : "Commit"
+  animate pay --> settle : "Queue"
+  animate settle --> cgw : "DX"
+  animate cgw --> core : "Post"
+  animate settle --> vault : "Proof"
+}
+`;
+    const { layout: scLayout } = assertContainmentAndDisjointSiblings(sidecarDsl);
+    const vpc = must(scLayout.groups.vpc, 'vpc');
+    const shared = must(scLayout.groups.shared, 'shared');
+    // Dead-end sidecar `shared` folds above/below `vpc` rather than sitting right of `vpc` and blocking `onprem`.
+    const stackedVertically = shared.y >= vpc.y + vpc.height || shared.y + shared.height <= vpc.y;
+    expect(stackedVertically).toBe(true);
+
+    const borderReclaimDsl = `
+title "Border Mount Vacated Margin Reclamation"
+node south_caller "South Caller" [icon: users]
+node east_target "East Target" [icon: server]
+group vpc "Core VPC" {
+  node igw "IGW" [icon: router, mount: border]
+  node app "App" [icon: container]
+  node db "DB" [icon: database]
+}
+step "Main" {
+  animate south_caller --> igw : "In"
+  animate igw --> app : "Forward"
+  animate app --> db : "Save"
+  animate db --> east_target : "Export"
+}
+`;
+    const doc = parse(borderReclaimDsl).document;
+    const base = computeLayout(doc);
+    // Simulate `south_caller` positioned below `vpc` while `igw` started inside on the left of `app`:
+    // `applyBorderMounts` relocates `igw` to the bottom border and reclaims the vacated left margin.
+    const rVpc0 = must(base.groups.vpc, 'vpc');
+    const rApp0 = must(base.nodes.app, 'app');
+    const rDb0 = must(base.nodes.db, 'db');
+    const shifted = applyBorderMounts(doc, {
+      nodes: {
+        ...base.nodes,
+        south_caller: { x: rApp0.x, y: rVpc0.y + rVpc0.height + 160, width: 100, height: 90 },
+        igw: { x: rApp0.x - 160, y: rApp0.y, width: 100, height: 90 },
+      },
+      groups: {
+        ...base.groups,
+        vpc: {
+          x: rApp0.x - 180,
+          y: rVpc0.y,
+          width: rDb0.x + rDb0.width + 20 - (rApp0.x - 180),
+          height: rVpc0.height,
+        },
+      },
+    });
+    const rVpc = must(shifted.groups.vpc, 'vpc');
+    const rApp = must(shifted.nodes.app, 'app');
+    expect(rApp.x - rVpc.x).toBeLessThanOrEqual(24);
   });
 });

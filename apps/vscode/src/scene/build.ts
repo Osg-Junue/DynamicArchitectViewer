@@ -102,15 +102,15 @@ function groupElement(g: ResolvedGroup): VElement {
     ? g.depth === 0
       ? 0.14
       : g.depth === 1
-        ? 0.1
+        ? 0.08
         : g.depth === 2
-          ? 0.08
-          : 0.065
+          ? 0.055
+          : 0.04
     : g.depth === 0
       ? 0.07
       : g.depth === 1
-        ? 0.045
-        : 0.035;
+        ? 0.04
+        : 0.025;
   return h(
     'g',
     { class: dimClass('dav-group', g.dimmed), 'data-id': g.id },

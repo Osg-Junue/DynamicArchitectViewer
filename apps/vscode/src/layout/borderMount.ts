@@ -239,6 +239,10 @@ export function applyBorderMounts(doc: DavDocument, layout: Layout): Layout {
     let newBot = oldRect.y + oldRect.height;
 
     if (inner) {
+      const origMounted = mounted
+        .map((m) => layout.nodes[m.id])
+        .filter((r): r is Rect => r !== undefined);
+
       if (bySide.left.length > 0) {
         const maxLeft = inner.x - MIN_INNER_CLEAR_X;
         const desired = Math.max(
@@ -259,6 +263,11 @@ export function applyBorderMounts(doc: DavDocument, layout: Layout): Layout {
             newLeft = Math.round(Math.max(minAllowedLeft, maxLeft));
           }
         }
+      } else if (origMounted.some((r) => r.x < inner.x) && inner.x - GROUP_PADDING > newLeft) {
+        newLeft = Math.round(
+          Math.min(inner.x - GROUP_PADDING, newRight - zoneMinWidth(group.label)),
+        );
+        if (newLeft < oldRect.x) newLeft = oldRect.x;
       }
       if (bySide.right.length > 0) {
         const minRight = Math.max(
@@ -289,6 +298,14 @@ export function applyBorderMounts(doc: DavDocument, layout: Layout): Layout {
             newRight = Math.round(Math.min(maxAllowedRight, minRight));
           }
         }
+      } else if (
+        origMounted.some((r) => r.x + r.width > inner.x + inner.width) &&
+        inner.x + inner.width + GROUP_PADDING < newRight
+      ) {
+        newRight = Math.round(
+          Math.max(inner.x + inner.width + GROUP_PADDING, newLeft + zoneMinWidth(group.label)),
+        );
+        if (newRight > oldRect.x + oldRect.width) newRight = oldRect.x + oldRect.width;
       }
       const hdrH = groupHeaderHeight(group.label, newRight - newLeft);
       if (bySide.top.length > 0) {
@@ -311,6 +328,12 @@ export function applyBorderMounts(doc: DavDocument, layout: Layout): Layout {
             newTop = Math.round(Math.max(minAllowedTop, maxTop));
           }
         }
+      } else if (
+        origMounted.some((r) => r.y < inner.y) &&
+        inner.y - hdrH - GROUP_PADDING > newTop
+      ) {
+        newTop = Math.round(Math.min(inner.y - hdrH - GROUP_PADDING, newBot - 80));
+        if (newTop < oldRect.y) newTop = oldRect.y;
       }
       if (bySide.bottom.length > 0) {
         const minBot = inner.y + inner.height + Math.max(MIN_INNER_CLEAR_Y, BOT_MOUNT_INNER_CLEAR);
@@ -338,6 +361,12 @@ export function applyBorderMounts(doc: DavDocument, layout: Layout): Layout {
             newBot = Math.round(Math.min(maxAllowedBot, minBot));
           }
         }
+      } else if (
+        origMounted.some((r) => r.y + r.height > inner.y + inner.height) &&
+        inner.y + inner.height + GROUP_PADDING < newBot
+      ) {
+        newBot = Math.round(Math.max(inner.y + inner.height + GROUP_PADDING, newTop + 80));
+        if (newBot > oldRect.y + oldRect.height) newBot = oldRect.y + oldRect.height;
       }
     }
 

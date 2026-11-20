@@ -611,72 +611,84 @@ function placeContainerChildren(
   }
 
   const { auxiliary, columns } = stageColumns(active, scopeFlow);
+  const effectiveSymmetryGroups = new Map(symmetryGroups);
 
-  // Merge same-step parallel fan-out sibling containers (e.g. Multi-AZ boxes fed in the same
-  // step by a shared load balancer/distributor, where one cross-AZ service call pushed AZ-c
-  // into stage k+1 behind AZ-a) into a single vertical stage column to avoid wide ribbons and
-  // corridor jumps across the sibling AZ.
+  // Merge same-step parallel fan-out peer sibling containers (e.g. Multi-AZ boxes fed in the same
+  // step by a shared load balancer/distributor, where cross-AZ replication/peer calls or a later
+  // fan-in mediator pushed AZ-b into a later stage column) into a single vertical stage column so
+  // peer zones stay vertically symmetric instead of stretching into a wide ribbon.
   if (depth >= 1 && columns.length >= 2) {
     const firstStepByDirPair = new Map<string, number>();
     const hasStaticBetween = new Set<string>();
+    const hasBidirBetween = new Set<string>();
     for (const c of scopeFlow.connections) {
       const bu = childOwners.get(c.from);
       const bv = childOwners.get(c.to);
       if (!bu || !bv || bu === bv) continue;
+      const pk = flowPairKey(bu, bv);
       if (c.role === 'primary') {
         const fs = fullFlow.pairFirstStep.get(flowPairKey(c.from, c.to)) ?? 0;
         const dk = `${bu}\0${bv}`;
         const prev = firstStepByDirPair.get(dk);
         if (prev === undefined || fs < prev) firstStepByDirPair.set(dk, fs);
+        if (c.direction === 'bidirectional') hasBidirBetween.add(pk);
       } else if (c.role === 'static') {
-        hasStaticBetween.add(flowPairKey(bu, bv));
+        hasStaticBetween.add(pk);
       }
     }
     const directChildGroupCount = (gid: string): number =>
       doc.groups.filter((g) => g.parentId === gid).length;
+    let nextSymId = Math.max(0, ...effectiveSymmetryGroups.values()) + 1;
 
-    let ci = 0;
-    while (ci + 1 < columns.length) {
+    for (let ci = 0; ci < columns.length; ci++) {
       const colA = columns[ci];
-      const colB = columns[ci + 1];
-      if (!colA || !colB || colA.length !== 1 || colB.length !== 1) {
-        ci++;
-        continue;
-      }
-      const a = colA[0];
-      const b = colB[0];
-      const isLast = ci + 1 === columns.length - 1;
-      if (
-        !a ||
-        !b ||
-        !isLast ||
-        a.groups.size <= 1 ||
-        b.groups.size <= 1 ||
-        directChildGroupCount(a.id) !== directChildGroupCount(b.id)
-      ) {
-        ci++;
-        continue;
-      }
-      // Check for a shared upstream distributor `p` feeding BOTH `a` and `b` in the same step.
-      const sharedParallelParent = columns.slice(0, ci).some((prevCol) =>
-        prevCol.some((p) => {
-          const sa = firstStepByDirPair.get(`${p.id}\0${a.id}`);
-          const sb = firstStepByDirPair.get(`${p.id}\0${b.id}`);
-          return sa !== undefined && sb !== undefined && sa === sb;
-        }),
-      );
-      if (sharedParallelParent && hasStaticBetween.has(flowPairKey(a.id, b.id))) {
-        colA.push(b);
-        columns.splice(ci + 1, 1);
-        scopeFlow.zoneStage.set(b.id, scopeFlow.zoneStage.get(a.id) ?? ci);
-      } else {
-        ci++;
+      if (!colA || colA.length === 0) continue;
+      for (const a of [...colA]) {
+        if (a.groups.size < 1 || a.nodes.size < 2) continue;
+        for (let cj = ci + 1; cj < columns.length; cj++) {
+          const colB = columns[cj];
+          if (!colB) continue;
+          for (let bi = colB.length - 1; bi >= 0; bi--) {
+            const b = colB[bi];
+            if (!b || b.groups.size < 1 || b.nodes.size < 2) continue;
+            if (directChildGroupCount(a.id) !== directChildGroupCount(b.id)) continue;
+            const minN = Math.min(a.nodes.size, b.nodes.size);
+            if (Math.abs(a.nodes.size - b.nodes.size) > Math.max(1, Math.floor(minN / 2))) {
+              continue;
+            }
+            const pk = flowPairKey(a.id, b.id);
+            if (!hasStaticBetween.has(pk) && !hasBidirBetween.has(pk)) continue;
+            // Require a shared upstream distributor `p` feeding BOTH `a` and `b` in the same step.
+            const sharedParallelParent = columns.slice(0, ci).some((prevCol) =>
+              prevCol.some((p) => {
+                const sa = firstStepByDirPair.get(`${p.id}\0${a.id}`);
+                const sb = firstStepByDirPair.get(`${p.id}\0${b.id}`);
+                return sa !== undefined && sb !== undefined && sa === sb;
+              }),
+            );
+            if (!sharedParallelParent) continue;
+            colA.push(b);
+            colB.splice(bi, 1);
+            scopeFlow.zoneStage.set(b.id, scopeFlow.zoneStage.get(a.id) ?? ci);
+            // Synchronize flip polarity for merged peer groups with identical structure.
+            if (a.nodes.size === b.nodes.size) {
+              const sym = effectiveSymmetryGroups.get(a.id) ?? nextSymId++;
+              effectiveSymmetryGroups.set(a.id, sym);
+              effectiveSymmetryGroups.set(b.id, sym);
+            }
+          }
+          if (colB.length === 0) {
+            columns.splice(cj, 1);
+            cj--;
+          }
+        }
       }
     }
   }
 
   // Stack a wide later-step secondary feeder pipeline (col 0) vertically beneath an earlier-step
-  // primary ingress container (col 1) so the Step-1 main ingress from outside stays unobstructed.
+  // primary ingress container (col 1) when the two are comparable in height so the Step-1 main
+  // ingress stays unobstructed without burying a compact edge gateway beneath a huge region.
   if (depth >= 1 && columns.length >= 2) {
     const c0 = columns[0];
     const c1 = columns[1];
@@ -691,6 +703,7 @@ function placeContainerChildren(
       b1.groups.size >= 1 &&
       b0.width >= 500 &&
       b1.width >= 500 &&
+      b1.height <= b0.height * 2.5 &&
       b0Step !== undefined &&
       b1ExtStep !== undefined &&
       b0Step > b1ExtStep
@@ -698,6 +711,43 @@ function placeContainerChildren(
       c1.push(b0);
       columns.splice(0, 1);
       scopeFlow.zoneStage.set(b0.id, scopeFlow.zoneStage.get(b1.id) ?? 0);
+    }
+  }
+
+  // Fold a dead-end internal sidecar sink group (zero external edges, zero outgoing primary edges)
+  // out of the rightmost primary column into the auxiliary band when upstream primary stages have
+  // external egress and keeping the sidecar inline would create an overly wide ribbon.
+  if (depth >= 1 && columns.length >= 2) {
+    const lastCol = columns[columns.length - 1];
+    const sink = lastCol?.length === 1 ? lastCol[0] : undefined;
+    if (
+      sink &&
+      sink.groups.size >= 1 &&
+      sink.nodes.size >= 2 &&
+      (primaryOutDeg.get(sink.id) ?? 0) === 0 &&
+      (extInCount.get(sink.id) ?? 0) === 0 &&
+      (extOutCount.get(sink.id) ?? 0) === 0
+    ) {
+      const upstreamHasExtOut = columns
+        .slice(0, -1)
+        .some((col) => col.some((b) => (extOutCount.get(b.id) ?? 0) > 0));
+      if (upstreamHasExtOut) {
+        const estW =
+          columns.reduce((s, col) => s + Math.max(0, ...col.map((b) => b.width)), 0) +
+          (columns.length - 1) * spacing.stageGap;
+        const estH = Math.max(
+          1,
+          ...columns.map(
+            (col) =>
+              col.reduce((s, b) => s + b.height, 0) + Math.max(0, col.length - 1) * spacing.rowGap,
+          ),
+        );
+        if (estW >= 1000 && estW / estH >= 2.4) {
+          columns.pop();
+          auxiliary.push(sink);
+          scopeFlow.auxiliaryZones.add(sink.id);
+        }
+      }
     }
   }
 
@@ -864,7 +914,7 @@ function placeContainerChildren(
         flowCtx,
         rowFilter: 'any',
         fallback: 'score-greedy',
-        symmetryGroups,
+        symmetryGroups: effectiveSymmetryGroups,
       },
       5,
     );
@@ -1011,7 +1061,7 @@ function placeContainerChildren(
         rowFilter: 'multi-node',
         fallback: 'score-greedy',
         fallbackTargets: orderedAux,
-        symmetryGroups,
+        symmetryGroups: effectiveSymmetryGroups,
       },
       0,
     );
